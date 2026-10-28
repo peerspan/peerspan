@@ -907,7 +907,9 @@ async fn dispatch(
     let error_context = Arc::new(OnceLock::new());
     let read_context = error_context.clone();
     let stage = route.stage;
+    let timed = crate::timing::current();
     let result = tokio::task::spawn_blocking(move || -> Result<(u16, Vec<u8>)> {
+        let _request = crate::timing::within(timed);
         let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
         // Each current-state operation captures guarded time inside its own
         // coherent snapshot. Historical exact replies need no clock read.

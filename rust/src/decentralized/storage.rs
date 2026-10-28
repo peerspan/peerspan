@@ -226,8 +226,87 @@ pub struct ProviderSelection {
     pub device_key: String,
     pub lease_id: String,
 }
+/// Snapshots recently loaded, by network, own host key, and every row
+/// `Snapshot::load` reads for the network.
+static SNAPSHOTS: super::memo::Memo<Snapshot> = super::memo::Memo::new();
+/// A hash of every row of the network that `Snapshot::load` reads, in every
+/// context, with the network and own host key; None if a table cannot be
+/// read, which loads without the memo.
+fn fingerprint(connection: &Connection, network_id: &str, own_host_key: &str) -> Option<[u8; 32]> {
+    use rusqlite::types::ValueRef;
+    use sha2::{Digest, Sha256};
+    const TABLES: [(&str, &str); 11] = [
+        ("networks", "id=?1"),
+        ("dec_contexts", "network_id=?1 ORDER BY context_id"),
+        ("dec_objects", "network_id=?1 ORDER BY context_id,proof_id"),
+        (
+            "dec_admissions",
+            "network_id=?1 ORDER BY context_id,statement_id",
+        ),
+        (
+            "dec_restrictions",
+            "network_id=?1 ORDER BY context_id,restriction_id",
+        ),
+        (
+            "dec_activations",
+            "network_id=?1 ORDER BY context_id,activation_id",
+        ),
+        (
+            "dec_heads",
+            "network_id=?1 ORDER BY context_id,stream_kind,subject,subject2",
+        ),
+        (
+            "dec_highwater",
+            "network_id=?1 ORDER BY context_id,stream_kind,subject,subject2",
+        ),
+        ("dec_clock", "network_id=?1"),
+        ("dec_signers", "network_id=?1 ORDER BY context_id"),
+        ("dec_migrations", "network_id=?1 ORDER BY proposal_id"),
+    ];
+    let mut hash = Sha256::new();
+    for part in [network_id, own_host_key] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part.as_bytes());
+    }
+    for (table, filter) in TABLES {
+        let mut query = connection
+            .prepare_cached(&format!("SELECT * FROM {table} WHERE {filter}"))
+            .ok()?;
+        let columns = query.column_count();
+        hash.update(table.as_bytes());
+        let mut rows = query.query([network_id]).ok()?;
+        while let Some(row) = rows.next().ok()? {
+            hash.update([0xff]);
+            for i in 0..columns {
+                match row.get_ref(i).ok()? {
+                    ValueRef::Null => hash.update([0]),
+                    ValueRef::Integer(v) => {
+                        hash.update([1]);
+                        hash.update(v.to_be_bytes());
+                    }
+                    ValueRef::Real(v) => {
+                        hash.update([2]);
+                        hash.update(v.to_bits().to_be_bytes());
+                    }
+                    ValueRef::Text(v) => {
+                        hash.update([3]);
+                        hash.update((v.len() as u64).to_be_bytes());
+                        hash.update(v);
+                    }
+                    ValueRef::Blob(v) => {
+                        hash.update([4]);
+                        hash.update((v.len() as u64).to_be_bytes());
+                        hash.update(v);
+                    }
+                }
+            }
+        }
+    }
+    Some(hash.finalize().into())
+}
 /// A coherent collection of exact public proof bytes and private local markers.
 /// This is not a transferable network map or a provider availability claim.
+#[derive(Clone)]
 pub struct Snapshot {
     pub network: NetworkRecord,
     pub context: ContextRecord,
@@ -354,7 +433,20 @@ impl Snapshot {
     /// Caller holds one connection guard/read transaction while copying every
     /// coupled table. No nested Store lock or network/SSH operation occurs.
     pub fn load(connection: &Connection, network_id: &str, own_host_key: &str) -> Result<Self> {
-        Self::load_inner(connection, network_id, own_host_key).map_err(|mut e| {
+        let began = std::time::Instant::now();
+        // A snapshot is a pure function of the rows it is loaded from, so
+        // identical rows reuse the one verified last time.
+        let key = fingerprint(connection, network_id, own_host_key);
+        if let Some(hit) = key.as_ref().and_then(|k| SNAPSHOTS.get(k)) {
+            crate::timing::log("step", "snapshot reuse", began);
+            return Ok(hit);
+        }
+        let out = Self::load_inner(connection, network_id, own_host_key);
+        crate::timing::log("step", "snapshot load", began);
+        if let (Some(key), Ok(snapshot)) = (key, &out) {
+            SNAPSHOTS.put(key, snapshot, snapshot.prior.catalog.bytes.len());
+        }
+        out.map_err(|mut e| {
             if e.code == "invalid" {
                 e.code = "state_conflict";
             }
@@ -1068,8 +1160,12 @@ impl Snapshot {
             connection,
             &deliveries.iter().map(|(_, _, r)| r).collect::<Vec<_>>(),
         )?;
+        let queued = !deliveries.is_empty();
         for (delivery, target, record) in deliveries {
             connection.execute("INSERT INTO dec_outbox(delivery_id,network_id,context_id,target_key,record) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![delivery,network,context,target,record.to_string()]).map_err(db)?;
+        }
+        if queued {
+            super::peer::wake_delivery();
         }
         Ok(())
     }

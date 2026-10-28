@@ -385,9 +385,15 @@ impl Store {
     }
 
     pub(crate) fn connection(&self) -> Result<MutexGuard<'_, Connection>, Error> {
-        self.connection
+        let began = std::time::Instant::now();
+        let guard = self
+            .connection
             .lock()
-            .map_err(|_| Error::Internal(anyhow::anyhow!("host store lock poisoned")))
+            .map_err(|_| Error::Internal(anyhow::anyhow!("host store lock poisoned")));
+        if began.elapsed() > std::time::Duration::from_millis(5) {
+            crate::timing::log("step", "lock wait", began);
+        }
+        guard
     }
 
     pub fn register_agent(&self, request: RegisterAgent) -> Result<Agent, Error> {

@@ -2475,11 +2475,27 @@ async fn call(
                 .as_str()
                 .is_some_and(peerspan_host::calls::is_final)
     };
-    while !finished(&record) && std::time::Instant::now() < until {
-        tokio::time::sleep(Duration::from_millis(250)).await;
+    // Each request is held at the daemon until the record is final, for at
+    // most the rest of the wait; a quick non-final answer, as from a daemon
+    // that predates `wait`, is followed no sooner than 250 ms later.
+    while !finished(&record) {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let sent = std::time::Instant::now();
         record = local
-            .get(format!("/v1/calls/{}/{}", encoded(&peer), encoded(&id)))
+            .get(format!(
+                "/v1/calls/{}/{}?wait={}",
+                encoded(&peer),
+                encoded(&id),
+                left.as_secs().min(30)
+            ))
             .await?;
+        if !finished(&record) {
+            let pause = Duration::from_millis(250).min(left);
+            tokio::time::sleep(pause.saturating_sub(sent.elapsed())).await;
+        }
     }
     println!("{}", serde_json::to_string_pretty(&record)?);
     let code = if record["status"]["state"] == "succeeded" {

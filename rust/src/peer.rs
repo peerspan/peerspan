@@ -467,6 +467,7 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
             store.clone(),
             crate::decentralized::history::gate,
         ))
+        .layer(axum::middleware::from_fn(crate::timing::layer))
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)

@@ -113,12 +113,28 @@ where
     F: Fn(&Store) -> Result<V, Error> + Clone + Send + 'static,
 {
     let _hold = Hold::new(&store.call_timing, key);
+    wait_final(store, until, |v| is_final(state(v)), fetch).await
+}
+
+/// Returns the view `fetch` returns once `done` holds for it, after a call's
+/// final status is stored, or when `until` passes or the daemon shuts down,
+/// whichever is first.
+pub(crate) async fn wait_final<V, F>(
+    store: &Arc<Store>,
+    until: Instant,
+    done: impl Fn(&V) -> bool,
+    fetch: F,
+) -> Result<V, Error>
+where
+    V: Send + 'static,
+    F: Fn(&Store) -> Result<V, Error> + Clone + Send + 'static,
+{
     let mut finals = store.call_timing.finals.subscribe();
     let mut closing = store.call_timing.closing.subscribe();
     loop {
         finals.borrow_and_update();
         let view = blocking(store.clone(), fetch.clone()).await?;
-        if is_final(state(&view)) || Instant::now() >= until || *closing.borrow_and_update() {
+        if done(&view) || Instant::now() >= until || *closing.borrow_and_update() {
             return Ok(view);
         }
         tokio::select! {

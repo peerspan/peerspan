@@ -1665,12 +1665,28 @@ async fn create_route(
     let request: SubmitCall = decode(body)?;
     Ok(Json(create_call(store, request).await?))
 }
+/// The longest `wait` that `GET /v1/calls/{peer}/{id}` holds for.
+const INSPECT_WAIT_MAX: u64 = 30;
+#[derive(Deserialize)]
+struct InspectQuery {
+    #[serde(default)]
+    wait: Option<u64>,
+}
+/// `GET /v1/calls/{peer}/{id}[?wait=N]`: the local record; with `wait`, once
+/// it is final or after N seconds (at most 30), whichever is first.
 async fn inspect_route(
     State(store): State<Arc<Store>>,
     Path((peer, id)): Path<(String, String)>,
+    query: Result<Query<InspectQuery>, QueryRejection>,
 ) -> Result<Json<OutboundCall>, Error> {
+    let Query(q) = query.map_err(|_| Error::Invalid("invalid wait".into()))?;
+    let wait = q.wait.unwrap_or(0).min(INSPECT_WAIT_MAX);
+    let until = std::time::Instant::now() + Duration::from_secs(wait);
     Ok(Json(
-        blocking(store, move |s| s.outbound_call(&peer, &id)).await?,
+        crate::call_timing::wait_final(&store, until, OutboundCall::finished, move |s| {
+            s.outbound_call(&peer, &id)
+        })
+        .await?,
     ))
 }
 async fn cancel_route(
