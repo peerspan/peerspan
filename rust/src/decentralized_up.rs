@@ -28,10 +28,12 @@ async fn list(local: &Local<'_>) -> Result<Vec<Value>> {
 }
 fn migration_pending(result: &mut Value, v: &Value) -> Result<()> {
     if v["state"] == "migration_prepared" {
-        let network = text(v, "network_id")?;
+        let request = text(v, "request_id")?;
         result["network"] = json!({"link_request":v});
-        result["next"] = json!(format!("peerspan network migrate resume {network}"));
-        bail!("this prepared host awaits whole-network migration; resume migration for {network}");
+        result["next"] = json!(format!("peerspan link cancel {request}"));
+        bail!(
+            "this host was prepared for an in-place migration, which is no longer supported; cancel request {request}, then join the new network with a fresh invite"
+        );
     }
     Ok(())
 }

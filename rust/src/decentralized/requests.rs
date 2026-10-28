@@ -620,8 +620,10 @@ pub(crate) fn cleanup(c: &Connection, now: &str) -> Result<()> {
     super::invite_return::cleanup(c, now)?;
     for id in ids_in(c)? {
         let mut p = load(c, &id)?;
-        if p.record.terminal == "migration_prepared" {
-            continue;
+        // A host prepared for an in-place migration, which is removed
+        // (DEC-OWN3), ends like any other request at its deadline.
+        if p.record.terminal == "migration_prepared" && stamp(now)? >= stamp(&p.deadline)? {
+            p.record.terminal = "expired".into();
         }
         // A stage idle for more than 600 seconds ends the request early (spec 8.5).
         if stamp(now)? < stamp(&p.deadline)?
@@ -1015,10 +1017,7 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     let mut p = load(&tx, id)?;
     require(
         p.record.commit_packet_base64 == "-"
-            && !matches!(
-                p.record.terminal.as_str(),
-                "applied" | "migration_prepared" | "migration_adopted"
-            ),
+            && !matches!(p.record.terminal.as_str(), "applied" | "migration_adopted"),
         "operation_conflict",
     )?;
     p.record.terminal = "cancelled".into();

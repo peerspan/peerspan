@@ -81,7 +81,9 @@ fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> 
         detail.push_str(&format!("; correct local UTC or wait until retained guard {guard} and rerun the command; the guard cannot be lowered or reset"));
     }
     let command = if code == "migration_pending" {
-        format!("peerspan network migrate resume {id}")
+        // In-place migration is removed (DEC-OWN3): the stuck request is
+        // cancelled and the network re-created (spec 14.2).
+        "peerspan link cancel REQUEST_ID".to_string()
     } else {
         format!("peerspan network sync {id}")
     };
@@ -175,7 +177,7 @@ impl Store {
                     |r| r.get(0),
                 )?;
                 networks.push(json!({"mode":"legacy_history","migration_required":true,"id":id,"name":network.name,"coordinator":network.coordinator_address,"last_sync_at":network.last_sync_at,"last_sync_error":network.last_sync_error,"members":members.len(),"person":person.map(|p|json!({"id":p,"label":label})),"policy":policy.map(|p|json!({"version":p.version,"valid_until":p.valid_until})),"policy_deliveries_pending":deliveries}));
-                attention.push(item("network_migration_pending", id.clone(), "legacy context is retained as history; explicit whole-network migration is required".into(), format!("peerspan network migrate status {id}")));
+                attention.push(item("network_migration_pending", id.clone(), "legacy network kept as read-only history; create a new network and run network reinvite to move its members".into(), format!("peerspan network reinvite {id} NEW_NETWORK_ID")));
                 continue;
             }
 

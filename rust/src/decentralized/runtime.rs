@@ -885,8 +885,7 @@ async fn dispatch(
             return failure(e, network, "-", route.stage, None);
         }
     }
-    let create_request = method == Method::POST
-        && parts.as_slice() == ["v2", "link", "requests"];
+    let create_request = method == Method::POST && parts.as_slice() == ["v2", "link", "requests"];
     let resume_request = method == Method::POST
         && matches!(parts.as_slice(), ["v2", "link", "requests", _, "resume"]);
     let selection_request = method == Method::POST

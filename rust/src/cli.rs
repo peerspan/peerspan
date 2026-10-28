@@ -1806,9 +1806,7 @@ impl Command {
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))
-            | Self::Network(
-                NetworkCommand::RotateRoot { .. },
-            )
+            | Self::Network(NetworkCommand::RotateRoot { .. })
             | Self::Run { .. }
             | Self::Status { .. }
             | Self::Install { .. }
