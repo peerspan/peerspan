@@ -18,6 +18,7 @@ Contents:
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN8: move the Go implementation to its own repository](#dec-own8-move-the-go-implementation-to-its-own-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN7: publish the repository](#dec-own7-publish-the-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
   - [DEC-OWN6: slim the conformance tests](#dec-own6-slim-the-conformance-tests-2026-10-28) (2026-10-28)
@@ -57,6 +58,17 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-OWN8: move the Go implementation to its own repository (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question:** DEC-OWN5 removes `go/` from this repository. Should the Go code be kept somewhere, and how?
+- **Options:** (A) `peerspan/peerspan-go`, public and archived, as a read-only reference; (B) `peerspan/peerspan-go`, public and maintained, open to contributions and possibly kept in step with the spec; (C) `peerspan/peerspan-go`, private.
+- **Chosen:** (B). Its README names the `peerspan/peerspan` commit it was split from and the state of the spec at that commit.
+- **Question:** carry the history of `go/`?
+- **Options:** keep `go/`'s history, extracted from the scrubbed public history (DEC-OWN7) with `go/` moved to the repository root; a single snapshot commit.
+- **Chosen:** keep the history.
+- **Consequence:** DEC-OWN5 still holds for this repository: Rust is its only host, and `go/` is deleted here. The Go module path becomes `github.com/peerspan/peerspan-go`.
 
 ### DEC-OWN7: publish the repository (2026-10-28)
 
