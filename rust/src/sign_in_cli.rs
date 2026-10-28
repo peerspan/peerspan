@@ -197,7 +197,7 @@ pub async fn sign_in(
         .as_str()
         .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
         .map(|t| t.with_timezone(&chrono::Utc))
-        .unwrap_or_else(|| chrono::Utc::now() + chrono::TimeDelta::minutes(10));
+        .unwrap_or_else(|| peerspan_host::clock::now() + chrono::TimeDelta::minutes(10));
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
         Ok(l) => Some(l),
         Err(_) => {
@@ -256,7 +256,9 @@ pub async fn sign_in(
         }
         let _ = lines_tx.send(None);
     });
-    let wait = (expires - chrono::Utc::now()).to_std().unwrap_or_default();
+    let wait = (expires - peerspan_host::clock::now())
+        .to_std()
+        .unwrap_or_default();
     let deadline = tokio::time::Instant::now() + wait;
     let mut stdin_open = true;
     let got = loop {

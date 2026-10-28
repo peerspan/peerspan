@@ -1991,7 +1991,7 @@ mod tests {
                 request_id: String::new(),
                 grant_id: Some(format!("grant_{}", "1".repeat(32))),
                 target_agent_id: format!("agent_{}", "2".repeat(32)),
-                deadline: crate::store::rfc3339(chrono::Utc::now() + chrono::Duration::minutes(5)),
+                deadline: crate::store::rfc3339(crate::clock::now() + chrono::Duration::minutes(5)),
                 content: "hello".into(),
                 origin: None,
             })

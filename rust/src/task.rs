@@ -448,7 +448,7 @@ pub(crate) fn expire(
     request: &TaskRequest,
     status: &mut TaskStatus,
 ) -> Result<bool, Error> {
-    if status.state != "queued" || time(&request.deadline)? > Utc::now() {
+    if status.state != "queued" || time(&request.deadline)? > crate::clock::now() {
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
@@ -1290,7 +1290,7 @@ pub(crate) mod tests {
             .create_grant(CreateGrant {
                 requester_host_id: peer.into(),
                 target_agent_id: agent.into(),
-                expires_at: rfc3339(Utc::now() + chrono::Duration::hours(2)),
+                expires_at: rfc3339(crate::clock::now() + chrono::Duration::hours(2)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: 0,
                 allow_disconnected: true,
@@ -1306,7 +1306,7 @@ pub(crate) mod tests {
             policy: None,
             self_access: None,
             target_agent_id: agent.into(),
-            deadline: rfc3339(Utc::now() + chrono::Duration::minutes(30)),
+            deadline: rfc3339(crate::clock::now() + chrono::Duration::minutes(30)),
             input: "summarize the report".into(),
             origin: None,
             artifacts: None,
@@ -1638,7 +1638,7 @@ pub(crate) mod tests {
         f.store.accept_task(&f.peer, unclaimed.clone()).unwrap();
         for r in [&late, &unclaimed] {
             let mut past = r.clone();
-            past.deadline = rfc3339(Utc::now() - chrono::Duration::seconds(1));
+            past.deadline = rfc3339(crate::clock::now() - chrono::Duration::seconds(1));
             f.store
                 .connection()
                 .unwrap()

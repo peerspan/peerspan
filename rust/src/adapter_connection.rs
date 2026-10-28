@@ -84,7 +84,7 @@ pub(crate) fn authority(conn: &DB, auth: &AdapterAuth) -> Result<(Adapter, Sessi
     if ss.state == "detached" && !recoverable {
         return Err(Error::Forbidden);
     }
-    if ss.state != "attached" || until <= Utc::now().timestamp_millis() {
+    if ss.state != "attached" || until <= crate::clock::now().timestamp_millis() {
         return Err(Error::Unavailable("adapter connection is not ready".into()));
     }
     Ok((a, ss))
@@ -136,13 +136,13 @@ fn status(conn: &DB, a: &Adapter, ss: &Session) -> Result<Connection, Error> {
         DateTime::parse_from_rfc3339(&a.expires_at).map_err(|e| Error::Internal(e.into()))?;
     let state = if a.revoked_at.is_some() {
         "revoked"
-    } else if expiry <= Utc::now() {
+    } else if expiry <= crate::clock::now() {
         "expired"
     } else if ss.state == "detached" && !recoverable {
         "detached"
     } else if hash.is_none() {
         "registered"
-    } else if ss.state == "attached" && until > Utc::now().timestamp_millis() {
+    } else if ss.state == "attached" && until > crate::clock::now().timestamp_millis() {
         "ready"
     } else {
         "offline"
@@ -151,7 +151,10 @@ fn status(conn: &DB, a: &Adapter, ss: &Session) -> Result<Connection, Error> {
         adapter_id: a.id.clone(),
         session_id: ss.id.clone(),
         state: state.into(),
-        recoverable: recoverable && hash.is_some() && a.revoked_at.is_none() && expiry > Utc::now(),
+        recoverable: recoverable
+            && hash.is_some()
+            && a.revoked_at.is_none()
+            && expiry > crate::clock::now(),
         lease_expires_at: if until > 0 {
             Some(rfc3339(DateTime::from_timestamp_millis(until).ok_or_else(
                 || Error::Internal(anyhow::anyhow!("invalid lease")),
@@ -209,7 +212,7 @@ fn renew(tx: &Transaction<'_>, a: &mut Adapter) -> Result<(), Error> {
     let due = match last {
         None => true,
         Some(at) => DateTime::parse_from_rfc3339(&at).map_or(true, |at| {
-            Utc::now() - at.with_timezone(&Utc) >= chrono::TimeDelta::hours(1)
+            crate::clock::now() - at.with_timezone(&Utc) >= chrono::TimeDelta::hours(1)
         }),
     };
     if due {
@@ -277,7 +280,7 @@ impl Store {
         if a.renewable {
             renew(&tx, &mut a)?;
         }
-        let current = Utc::now();
+        let current = crate::clock::now();
         let expiry = DateTime::parse_from_rfc3339(&a.expires_at)
             .map_err(|e| Error::Internal(e.into()))?
             .with_timezone(&Utc);
@@ -458,7 +461,7 @@ mod tests {
     /// Moves a stored expiry back, as if the credential were an hour from
     /// its end.
     fn age(store: &Store, a: &Adapter, routes: &[&OutboundRoute]) -> String {
-        let earlier = rfc3339(Utc::now() + chrono::TimeDelta::hours(1));
+        let earlier = rfc3339(crate::clock::now() + chrono::TimeDelta::hours(1));
         let conn = store.connection().unwrap();
         let mut a = a.clone();
         a.expires_at = earlier.clone();
@@ -506,13 +509,13 @@ mod tests {
         let a = credential.adapter.clone();
         assert!(a.renewable);
         let expiry = DateTime::parse_from_rfc3339(&a.expires_at).unwrap();
-        assert!(expiry > Utc::now() + chrono::TimeDelta::hours(23));
+        assert!(expiry > crate::clock::now() + chrono::TimeDelta::hours(23));
         let following = store
             .create_outbound_route(route(&a.id, &peer.id, "follow", None))
             .unwrap();
         assert!(following.follows_credential);
         assert_eq!(following.expires_at, a.expires_at);
-        let fixed_expiry = rfc3339(Utc::now() + chrono::TimeDelta::minutes(30));
+        let fixed_expiry = rfc3339(crate::clock::now() + chrono::TimeDelta::minutes(30));
         let fixed = store
             .create_outbound_route(route(&a.id, &peer.id, "fixed", Some(fixed_expiry.clone())))
             .unwrap();
@@ -579,7 +582,7 @@ mod tests {
                 integration: "test".into(),
             })
             .unwrap();
-        let expiry = rfc3339(Utc::now() + chrono::TimeDelta::hours(1));
+        let expiry = rfc3339(crate::clock::now() + chrono::TimeDelta::hours(1));
         let credential = store
             .create_adapter(CreateAdapter {
                 session_id: session.id.clone(),

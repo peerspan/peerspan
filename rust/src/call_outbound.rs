@@ -1228,7 +1228,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
     // A given deadline is checked before anything is resolved or persisted.
     if let Some(d) = r.deadline.as_deref().filter(|d| !d.is_empty()) {
         let deadline = crate::membership::time(d)?;
-        let now = Utc::now();
+        let now = crate::clock::now();
         if deadline <= now || deadline > now + MAX_DEADLINE {
             return Err(Error::Invalid(
                 "a deadline is in the future and at most 15 minutes away".into(),
@@ -1280,7 +1280,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         result: None,
         cancel_state: None,
         attempts: 0,
-        next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+        next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
         error: None,
         status_queries: 0,
         network_id: Some(network_id),
@@ -1288,7 +1288,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         adapter_id: None,
     };
     let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     submit(store, out, status_only).await
 }
 
@@ -1359,7 +1359,7 @@ pub(crate) async fn default_deadline(
     store: &Arc<Store>,
     policy: Option<&PolicyCitation>,
 ) -> Result<DateTime<Utc>, Error> {
-    let mut end = Utc::now() + MAX_DEADLINE;
+    let mut end = crate::clock::now() + MAX_DEADLINE;
     if let Some(p) = policy {
         let (n, person) = (p.network_id.clone(), p.person_id.clone());
         if let Some(until) = blocking(store.clone(), move |s| s.policy_end(&n, &person)).await? {
@@ -1477,7 +1477,12 @@ pub(crate) async fn submit(
         }
         Err(e) => out.error = Some(format!("{e:#}")),
     }
-    crate::retry::schedule(&mut out, status_only, Utc::now(), crate::retry::jitter());
+    crate::retry::schedule(
+        &mut out,
+        status_only,
+        crate::clock::now(),
+        crate::retry::jitter(),
+    );
     let out = blocking(store.clone(), move |s| s.finish_call_submit(out)).await?;
     // An accepted call's status is followed with held requests.
     if out.pollable() {
@@ -1612,11 +1617,11 @@ pub(crate) async fn retry(store: Arc<Store>, peer: String, id: String) {
         return;
     };
     if out.submit_state != "unknown"
-        || due_at(&out.next_attempt_at).is_none_or(|at| at > Utc::now())
+        || due_at(&out.next_attempt_at).is_none_or(|at| at > crate::clock::now())
     {
         return;
     }
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     let _ = submit(store, out, status_only).await;
 }
 

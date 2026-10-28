@@ -388,7 +388,7 @@ fn error_text(status: u16, answer: &Value) -> String {
 }
 fn expiry(answer: &Value) -> Option<String> {
     let seconds = answer["expires_in"].as_f64()?;
-    let at = chrono::Utc::now() + chrono::TimeDelta::milliseconds((seconds * 1000.0) as i64);
+    let at = crate::clock::now() + chrono::TimeDelta::milliseconds((seconds * 1000.0) as i64);
     Some(crate::store::rfc3339(at))
 }
 
@@ -521,7 +521,7 @@ async fn provide(
     };
     let expiring = c.expires_at.as_deref().is_some_and(|at| {
         crate::membership::time(at)
-            .is_ok_and(|t| t <= chrono::Utc::now() + chrono::TimeDelta::seconds(REFRESH_EARLY))
+            .is_ok_and(|t| t <= crate::clock::now() + chrono::TimeDelta::seconds(REFRESH_EARLY))
     });
     if forced || marked || expiring {
         return refresh(&store, &key, c).await;
@@ -1290,7 +1290,7 @@ async fn start(
     // 9. Keep it in memory.
     let login_id = format!("login_{}", hex::encode(&random_bytes()?[..16]));
     let expires_at = crate::store::rfc3339(
-        chrono::Utc::now() + chrono::TimeDelta::seconds(LOGIN_TTL.as_secs() as i64),
+        crate::clock::now() + chrono::TimeDelta::seconds(LOGIN_TTL.as_secs() as i64),
     );
     let pending = Pending {
         state,

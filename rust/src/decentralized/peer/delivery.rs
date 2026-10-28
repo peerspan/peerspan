@@ -19,7 +19,7 @@ fn due(
     capacity: usize,
 ) -> Result<Vec<Delivery>> {
     let c = store.connection().map_err(|_| Error::new("internal"))?;
-    let real = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let real = crate::clock::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let mut q = c.prepare("SELECT delivery_id,network_id,context_id,target_key,record FROM dec_outbox WHERE json_extract(record,'$.attempts')=0 OR json_extract(record,'$.next_attempt_at')<=?1 ORDER BY (json_extract(record,'$.attempts')=0) DESC,json_extract(record,'$.next_attempt_at'),delivery_id").map_err(db)?;
     let rows = q
         .query_map([real], |r| {
@@ -190,7 +190,7 @@ fn failed(store: &Store, delivery: &Delivery, error: Error) -> Result<()> {
     let mut record = object(&delivery.record)?.clone();
     let attempts = num(&record, "attempts")?.saturating_add(1);
     let delay = (1u64 << attempts.min(6)).min(60);
-    let next = (chrono::Utc::now() + chrono::TimeDelta::seconds(delay as i64))
+    let next = (crate::clock::now() + chrono::TimeDelta::seconds(delay as i64))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
     record.insert("attempts".into(), json!(attempts));

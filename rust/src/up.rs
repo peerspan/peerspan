@@ -258,7 +258,7 @@ impl Setup {
             args.expires_at = Some(integration::relative_expiry(&relative)?)
         }
         if let Some(at) = &args.expires_at
-            && membership::time(at)? <= chrono::Utc::now()
+            && membership::time(at)? <= peerspan_host::clock::now()
         {
             bail!("use a future RFC3339 expiry")
         }

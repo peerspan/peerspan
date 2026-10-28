@@ -5,7 +5,7 @@ use super::{
     codec,
 };
 use anyhow::{Context, bail};
-use chrono::{SecondsFormat, Utc};
+use chrono::SecondsFormat;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
@@ -58,7 +58,7 @@ fn demand(ok: bool, code: &'static str) -> Wire<()> {
     if ok { Ok(()) } else { Err(Fault::Code(code)) }
 }
 fn utc() -> String {
-    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+    crate::clock::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |v, (a, b)| v | (a ^ b)) == 0
@@ -387,7 +387,7 @@ impl ParticipantMailbox {
     fn collect(&self) -> Wire<()> {
         let mut db = self.database.lock().map_err(|_| Fault::Internal)?;
         let tx = db.transaction()?;
-        collect(&tx, Utc::now().timestamp())?;
+        collect(&tx, crate::clock::now().timestamp())?;
         tx.commit()?;
         Ok(())
     }
@@ -709,7 +709,7 @@ impl ParticipantMailbox {
         let mut db = self.database.lock().map_err(|_| Fault::Internal)?;
         // Expiration releases resource quotas even when the request is refused.
         let tx = db.transaction()?;
-        collect(&tx, Utc::now().timestamp())?;
+        collect(&tx, crate::clock::now().timestamp())?;
         tx.commit()?;
         let tx = db.transaction()?;
         let response = match op {
@@ -807,7 +807,7 @@ impl ParticipantMailbox {
                 let b = lookup(&tx, &locator, &cap)?;
                 demand(b.state != "deleted", "not_found")?;
                 demand(
-                    b.state != "expired" && Utc::now().timestamp() < b.deadline,
+                    b.state != "expired" && crate::clock::now().timestamp() < b.deadline,
                     "expired",
                 )?;
                 let prefix = format!(

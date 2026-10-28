@@ -987,7 +987,7 @@ impl Store {
         cited: &PolicyRef,
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
-        let at = Utc::now();
+        let at = crate::clock::now();
         let deadline = time(r.deadline)?;
         if require_deadline && deadline <= at {
             return Err(Error::Forbidden);
@@ -1137,7 +1137,7 @@ impl Store {
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
         let deadline = time(r.deadline)?;
-        if require_deadline && deadline <= Utc::now() {
+        if require_deadline && deadline <= crate::clock::now() {
             return Err(Error::Forbidden);
         }
         let agent: bool = connection.query_row(
@@ -1327,7 +1327,7 @@ impl Store {
         let policy = self
             .stored_policy(&connection, network, &key)?
             .ok_or(Error::NotFound)?;
-        let expires_soon = policy.expires_soon(Utc::now());
+        let expires_soon = policy.expires_soon(crate::clock::now());
         Ok(PolicyView {
             policy,
             expires_soon,
@@ -1421,7 +1421,7 @@ impl Store {
     /// where less than a quarter of the validity remains.
     pub(crate) fn renewable_policies(&self) -> Result<Vec<Policy>, Error> {
         let connection = self.connection()?;
-        let at = Utc::now();
+        let at = crate::clock::now();
         let mut out = Vec::new();
         for (network, own) in self.own_members(&connection)? {
             if crate::decentralized::product::is_decentralized(&connection, &network)? {
@@ -1617,7 +1617,7 @@ pub(crate) async fn renew(store: Arc<Store>) {
         else {
             continue;
         };
-        let renewed = match policy.renewal_with(&signer, Utc::now(), edits) {
+        let renewed = match policy.renewal_with(&signer, crate::clock::now(), edits) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("policy renewal signing failed: {e}");

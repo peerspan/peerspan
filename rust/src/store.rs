@@ -615,7 +615,7 @@ fn private_file(path: &Path) -> anyhow::Result<File> {
 /// Matches Go's RFC3339Nano spelling (trailing fractional zeros removed), so a
 /// stored timestamp reads back identically through either implementation.
 pub(crate) fn now() -> String {
-    rfc3339(Utc::now())
+    rfc3339(crate::clock::now())
 }
 
 pub(crate) fn rfc3339(time: chrono::DateTime<Utc>) -> String {

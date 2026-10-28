@@ -43,6 +43,22 @@ python3 conformance/decentralized_native_introduction.py \
 
 Many older [conformance suites](../conformance/) still take a `--go` binary and, for enrollment, the retired `peerspan-coord` coordinator; Rust-only conformance replaces them. Until then, run them with binaries built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) where a check requires them. Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
 
+## Test clock (debug builds only)
+
+Debug builds let a suite move the host's clock forward or back, so a test of a 7-day lease, a 1-hour invite or a 10-minute idle stop takes seconds ([DEC-OWN9](decision-log.md), DEC.impl16). Release builds compile this out and ignore both variables.
+
+- `PEERSPAN_TEST_CLOCK_OFFSET`: a signed duration added to the time for the whole process.
+- `PEERSPAN_TEST_CLOCK_OFFSET_FILE`: a file holding a signed duration, re-read every time the host reads the clock, and added to the first. A missing file counts as zero. To advance running processes, rewrite the file atomically (write a temporary file, then rename it over the old one).
+
+A duration is an optional `+` or `-` followed by one or more `<digits><unit>` groups, with unit `s`, `m`, `h` or `d`: `+3d`, `-2h`, `90s`, `1d12h`. Surrounding whitespace in the file is ignored. An invalid value makes the process panic.
+
+Set the same variables on every process in a test (daemons, CLI invocations and `peerspan-helper`): the CLI computes expiry times, and hosts compare each other's signed times. Leases, renewal, invite, request and join-stage windows, policy and group leases, call deadlines and capability idle stop all follow the shifted clock; a periodic worker notices a jump on its next pass (lease renewal every 10 seconds, calls and idle stop every 250 ms). TLS certificate validity, discovery ping freshness and transport retry timing keep the real time.
+
+```sh
+export PEERSPAN_TEST_CLOCK_OFFSET_FILE=/tmp/peerspan-clock
+echo +4d > /tmp/peerspan-clock.new && mv /tmp/peerspan-clock.new /tmp/peerspan-clock
+```
+
 ## Explore a subsystem
 
 - [Manual agent testing](manual-agent-testing.md) covers explicit sessions, routes, and local fixtures.

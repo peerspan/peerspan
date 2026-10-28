@@ -1,7 +1,7 @@
 //! Native owner session lifecycle, independent of a harness or its runtime.
 use crate::cli::SessionCommand;
 use anyhow::{Context, bail};
-use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
+use chrono::{DateTime, SecondsFormat, TimeDelta};
 use hyper::Method;
 use peerspan_host::membership;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -174,7 +174,7 @@ fn valid_id(value: &str, prefix: &str, length: usize) -> bool {
         })
 }
 fn future(value: &str) -> bool {
-    DateTime::parse_from_rfc3339(value).is_ok_and(|at| at > Utc::now())
+    DateTime::parse_from_rfc3339(value).is_ok_and(|at| at > peerspan_host::clock::now())
 }
 fn scrub(value: &str) -> String {
     let mut text = value.to_owned();
@@ -969,7 +969,7 @@ async fn inspect(p: &Profile, mut checks: Vec<Check>) -> Value {
     if let Err(error) = result {
         checks.push(Check::new("inspection", false, &error.to_string()))
     }
-    json!({"checked_at":Utc::now().to_rfc3339(),"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"adapter_ready":connection["state"]=="ready" && connection["channel"]=="verified" && !failed(&checks),"channel":connection["channel"],"model_availability":"unknown","message_consumption":"unverified","connection":connection,"checks":checks,"destinations":destinations})
+    json!({"checked_at":peerspan_host::clock::now().to_rfc3339(),"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"adapter_ready":connection["state"]=="ready" && connection["channel"]=="verified" && !failed(&checks),"channel":connection["channel"],"model_availability":"unknown","message_consumption":"unverified","connection":connection,"checks":checks,"destinations":destinations})
 }
 /// The first MCP protocol revision under which Claude Code drops channel
 /// events.
@@ -2131,7 +2131,7 @@ pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
     }
     .filter(|duration| *duration >= TimeDelta::minutes(1) && *duration <= TimeDelta::days(30))
     .context("--expires-in must be a whole-minute or whole-hour duration from 1m to 720h")?;
-    Ok((Utc::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true))
+    Ok((peerspan_host::clock::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
 #[cfg(test)]
@@ -2140,9 +2140,9 @@ mod tests {
 
     #[test]
     fn relative_expiry_is_bounded_and_uses_whole_minutes_or_hours() {
-        let before = Utc::now() + TimeDelta::minutes(59);
+        let before = peerspan_host::clock::now() + TimeDelta::minutes(59);
         let expiry = DateTime::parse_from_rfc3339(&relative_expiry("1h").unwrap()).unwrap();
-        let after = Utc::now() + TimeDelta::minutes(61);
+        let after = peerspan_host::clock::now() + TimeDelta::minutes(61);
         assert!(expiry > before && expiry < after);
         for invalid in [
             "",

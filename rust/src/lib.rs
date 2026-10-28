@@ -16,6 +16,7 @@ pub mod calls;
 pub mod canonical;
 pub mod capabilities;
 pub mod chain;
+pub mod clock;
 pub mod coordinator_move;
 pub mod decentralized;
 pub mod directory;

@@ -226,7 +226,7 @@ async fn invite(
         (Some(at), _) => Some(at.clone()),
         (None, Some(duration)) => {
             let at = crate::integration::relative_expiry(duration)?;
-            let floor = chrono::Utc::now() + chrono::TimeDelta::seconds(70);
+            let floor = peerspan_host::clock::now() + chrono::TimeDelta::seconds(70);
             Some(
                 if chrono::DateTime::parse_from_rfc3339(&at)?.with_timezone(&chrono::Utc) < floor {
                     floor.format("%Y-%m-%dT%H:%M:%SZ").to_string()

@@ -310,7 +310,7 @@ impl Fixture {
             .create_grant(CreateGrant {
                 requester_host_id: requester.into(),
                 target_agent_id: self.target.clone(),
-                expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+                expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: 0,
                 allow_disconnected: true,
@@ -321,7 +321,7 @@ impl Fixture {
             .id
     }
     fn deadline(minutes: i64) -> String {
-        rfc3339(Utc::now() + TimeDelta::minutes(minutes))
+        rfc3339(crate::clock::now() + TimeDelta::minutes(minutes))
     }
     /// Link 0 from A to `audience`, then one link per further key; the last
     /// link names R and `task`.
@@ -435,7 +435,7 @@ fn the_final_receiver_authorizes_the_originator() {
         .create_grant(CreateGrant {
             requester_host_id: a.clone(),
             target_agent_id: f.target.clone(),
-            expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+            expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
             max_message_bytes: 1000,
             max_artifact_bytes: 0,
             allow_disconnected: true,
@@ -583,7 +583,7 @@ fn adversarial_chains_are_refused() {
         Err(Error::Forbidden)
     ));
     // An expired link.
-    let past = rfc3339(Utc::now() - TimeDelta::seconds(1));
+    let past = rfc3339(crate::clock::now() - TimeDelta::seconds(1));
     let expired = f.chain(&[&f.b], 2, &task_id('1'), &past);
     let mut expired_request = r.clone();
     expired_request.deadline = past;
@@ -1010,7 +1010,7 @@ fn delegate_actions_imply_task_submit_only() {
         .create_grant(CreateGrant {
             requester_host_id: a.clone(),
             target_agent_id: f.target.clone(),
-            expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+            expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
             max_message_bytes: 1000,
             max_artifact_bytes: 100,
             allow_disconnected: true,
@@ -1110,6 +1110,6 @@ fn version_ten_migrates_to_latest_and_twenty_four_is_refused() {
     assert!(Store::open(&path).is_err());
 }
 
-fn time(text: &str) -> chrono::DateTime<Utc> {
+fn time(text: &str) -> chrono::DateTime<chrono::Utc> {
     crate::task::time(text).unwrap()
 }

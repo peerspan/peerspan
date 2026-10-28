@@ -998,7 +998,7 @@ fn verify_map(
         &person_keys,
         std::mem::take(&mut statements.policies),
         map.policies,
-        chrono::Utc::now(),
+        crate::clock::now(),
     );
     Ok(VerifiedMap {
         members,
@@ -1345,7 +1345,7 @@ impl Store {
             .query_map([host], |r| r.get::<_, String>(0))?
             .map(|r| json::<Network>(r?))
             .collect::<Result<Vec<_>, _>>()?;
-        let at = chrono::Utc::now();
+        let at = crate::clock::now();
         Ok(networks.iter().any(|n| {
             n.last_sync_at
                 .as_deref()
@@ -1546,7 +1546,7 @@ impl Store {
         let root = random_seed()?;
         let invite = random_seed()?;
         let joined = now();
-        let expires = rfc3339(chrono::Utc::now() + MAX_INVITE_LIFETIME);
+        let expires = rfc3339(crate::clock::now() + MAX_INVITE_LIFETIME);
         let signed = membership::sign_invite(&root, &invite, &r.member, &expires);
         let own = membership::sign_member(
             signed,
@@ -1629,7 +1629,7 @@ impl Store {
                 crate::link_runtime::support::now()
                     .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
             } else {
-                chrono::Utc::now()
+                crate::clock::now()
             }
         };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
@@ -2653,7 +2653,7 @@ impl Store {
             return Err(Error::Invalid("token is for another network".into()));
         }
         let expiry = membership::time(&expires)?;
-        if expiry > chrono::Utc::now() + MAX_INVITE_LIFETIME {
+        if expiry > crate::clock::now() + MAX_INVITE_LIFETIME {
             return Err(Error::Invalid(
                 "invite expiry must be in the future and at most 30 days ahead".into(),
             ));
@@ -2701,7 +2701,7 @@ impl Store {
                 crate::link_runtime::support::now()
                     .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
             } else {
-                chrono::Utc::now()
+                crate::clock::now()
             }
         };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
@@ -6146,7 +6146,7 @@ mod tests {
                 .unwrap(),
             store.identity().id
         );
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let issued = store
             .issue_invite(
                 &network.id,
@@ -6161,7 +6161,7 @@ mod tests {
         let token = InviteToken::decode(&issued.token).unwrap();
         assert_eq!(token.member, "bob");
         assert_eq!(token.invite_expires_at, expires);
-        let too_late = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(31));
+        let too_late = rfc3339(crate::clock::now() + chrono::TimeDelta::days(31));
         assert!(
             store
                 .issue_invite(
@@ -6263,7 +6263,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "x".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             ),
@@ -6373,7 +6373,7 @@ mod tests {
                 person_public_key: None,
             })
             .unwrap();
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let member = store
             .issue_invite(
                 &network.id,
@@ -6510,7 +6510,7 @@ mod tests {
         // A member invite whose person part cannot be redeemed now (the
         // coordinator is down): the follow-up redeems the same token later.
         let invite = random_seed().unwrap();
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let token = MemberInviteToken::issue(
             &r0,
             &invite,
@@ -6964,7 +6964,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: label.into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::hours(1)),
                     host_only: true,
                 },
             )
@@ -7639,7 +7639,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "dana".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             )
@@ -8021,7 +8021,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "erin".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             )

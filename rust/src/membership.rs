@@ -288,7 +288,7 @@ impl InviteToken {
     }
     /// Decodes and fully checks a token without any network contact.
     pub fn decode(token: &str) -> Result<Self, Error> {
-        Self::decode_at(token, chrono::Utc::now())
+        Self::decode_at(token, crate::clock::now())
     }
     /// Signature-checked parsing at a supplied time, also used to resume an already joined invite.
     pub fn decode_at(token: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
@@ -939,7 +939,7 @@ mod tests {
     fn token_round_trip_and_tampering() {
         let root = seed(ROOT_SEED).unwrap();
         let invite = seed(INVITE_SEED).unwrap();
-        let expires = crate::store::rfc3339(chrono::Utc::now() + chrono::Duration::days(1));
+        let expires = crate::store::rfc3339(crate::clock::now() + chrono::Duration::days(1));
         let signed = sign_invite(&root, &invite, "bob", &expires);
         let token = InviteToken {
             network_id: signed.network_id,

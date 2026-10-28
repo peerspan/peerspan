@@ -15,7 +15,7 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::{TimeDelta, Utc};
+use chrono::TimeDelta;
 use peerspan_host::{
     persons::{self, PersonSigner},
     policy::{CapabilityRule, Content, Policy, PolicyBody},
@@ -651,7 +651,7 @@ fn deadline_of(text: &str) -> anyhow::Result<String> {
     }
     let after = parse_wait(text)
         .map_err(|_| anyhow::anyhow!("--deadline is RFC3339, or N, Ns, or Nm from now"))?;
-    Ok(at(Utc::now() + TimeDelta::from_std(after)?))
+    Ok(at(peerspan_host::clock::now() + TimeDelta::from_std(after)?))
 }
 fn parse_wait(text: &str) -> anyhow::Result<Duration> {
     let invalid = || anyhow::anyhow!("--wait is seconds, or Ns or Nm, at most 15m");

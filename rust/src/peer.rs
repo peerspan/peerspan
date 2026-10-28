@@ -620,7 +620,7 @@ pub(crate) async fn exchange(
     crate::retry::schedule(
         &mut out,
         receipt_only,
-        chrono::Utc::now(),
+        crate::clock::now(),
         crate::retry::jitter(),
     );
     blocking(store, move |s| s.finish_outbound(out)).await

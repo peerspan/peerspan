@@ -20,7 +20,6 @@ use axum::{
     http::HeaderMap,
     routing::{get, post},
 };
-use chrono::Utc;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Value, json};
@@ -58,7 +57,7 @@ pub(crate) fn lease_channel(
         "SELECT c.record, x.channel_verified_at IS NOT NULL FROM sessions s JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE {column} = ?1 AND s.state = 'attached' AND x.lease_until_ms > ?2"
     ))?;
     let records = statement
-        .query_map(params![id, Utc::now().timestamp_millis()], |r| {
+        .query_map(params![id, crate::clock::now().timestamp_millis()], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -66,7 +65,7 @@ pub(crate) fn lease_channel(
     for (record, verified) in records {
         let a: Adapter = serde_json::from_str(&record)?;
         if a.revoked_at.is_none()
-            && crate::membership::time(&a.expires_at).is_ok_and(|t| t > Utc::now())
+            && crate::membership::time(&a.expires_at).is_ok_and(|t| t > crate::clock::now())
         {
             if verified {
                 return Ok(Some("verified"));
@@ -275,7 +274,7 @@ pub(crate) fn directory_access(a: &Adapter) -> Result<(), Error> {
 /// credential's cap in the preceding 60 minutes.
 pub(crate) fn rate_check(conn: &Connection, a: &Adapter) -> Result<(), Error> {
     let cap = a.max_sends_per_hour.unwrap_or(DEFAULT_SENDS_PER_HOUR);
-    let now = Utc::now().timestamp_millis();
+    let now = crate::clock::now().timestamp_millis();
     let (count, oldest): (i64, Option<i64>) = conn.query_row(
         "SELECT COUNT(*), MIN(sent_at_ms) FROM directory_sends WHERE adapter_id = ?1 AND sent_at_ms > ?2",
         params![a.id, now - HOUR_MS],
@@ -306,7 +305,13 @@ pub(crate) fn count_send(
 ) -> Result<(), Error> {
     conn.execute(
         "INSERT INTO directory_sends VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![adapter, kind, peer, id, Utc::now().timestamp_millis()],
+        params![
+            adapter,
+            kind,
+            peer,
+            id,
+            crate::clock::now().timestamp_millis()
+        ],
     )?;
     Ok(())
 }
@@ -415,7 +420,7 @@ impl Store {
         if caller == self.identity().id || self.product_member(&conn, network, caller)?.is_none() {
             return Err(Error::Forbidden);
         }
-        let now = Utc::now();
+        let now = crate::clock::now();
         let own = self.own_members(&conn)?;
         let persons: BTreeSet<String> = own
             .iter()
@@ -1134,7 +1139,7 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
                 tokio::time::sleep(FORBIDDEN_RETRY).await;
                 outcome = query(store.clone(), network.clone(), host.clone()).await;
             }
-            let at = rfc3339(Utc::now());
+            let at = rfc3339(crate::clock::now());
             let Ok(mut cache) = store.directory_cache() else {
                 return;
             };
@@ -1178,7 +1183,7 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
         && let Ok(mut cache) = store.directory_cache()
         && let Some(entry) = cache.networks.get_mut(&network)
     {
-        entry.refreshed_at = Some(rfc3339(Utc::now()));
+        entry.refreshed_at = Some(rfc3339(crate::clock::now()));
     }
 }
 
