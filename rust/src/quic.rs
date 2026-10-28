@@ -925,7 +925,13 @@ async fn routes(
 /// Minimum spacing of contact-learning syncs per network, so a member that
 /// publishes no address does not turn every send into a sync.
 const CONTACT_SYNC_SPACING: Duration = Duration::from_secs(5);
-static CONTACT_SYNCS: std::sync::LazyLock<Mutex<HashMap<String, std::time::Instant>>> =
+/// A contact-learning sync of one network: running until `done` is true, and
+/// when it finished.
+struct ContactSync {
+    done: watch::Receiver<bool>,
+    finished: Option<std::time::Instant>,
+}
+static CONTACT_SYNCS: std::sync::LazyLock<Mutex<HashMap<String, ContactSync>>> =
     std::sync::LazyLock::new(Default::default);
 /// Boxed because sync reaches it again through `request`, which would make
 /// the future's type recursive.
@@ -947,19 +953,44 @@ fn learn_contact(
         })
         .await
         .ok()?;
+        // The sync runs detached, so a sender that gives up (its own request
+        // bound) does not cancel it; concurrent senders wait for the same one.
+        let mut waits = Vec::new();
         for network in networks {
-            let due = CONTACT_SYNCS.lock().is_ok_and(|mut last| {
-                let now = std::time::Instant::now();
-                last.retain(|_, at| now.duration_since(*at) < CONTACT_SYNC_SPACING);
-                if last.contains_key(&network) {
-                    return false;
-                }
-                last.insert(network.clone(), now);
-                true
+            let Ok(mut syncs) = CONTACT_SYNCS.lock() else {
+                continue;
+            };
+            let now = std::time::Instant::now();
+            syncs.retain(|_, sync| {
+                sync.finished
+                    .is_none_or(|at| now.duration_since(at) < CONTACT_SYNC_SPACING)
             });
-            if due {
-                let _ = crate::decentralized::peer::sync(store.clone(), &network).await;
+            if let Some(sync) = syncs.get(&network) {
+                waits.push(sync.done.clone());
+                continue;
             }
+            let (done, waiter) = watch::channel(false);
+            syncs.insert(
+                network.clone(),
+                ContactSync {
+                    done: waiter.clone(),
+                    finished: None,
+                },
+            );
+            waits.push(waiter);
+            let owner = store.clone();
+            tokio::spawn(async move {
+                let _ = crate::decentralized::peer::sync(owner, &network).await;
+                if let Ok(mut syncs) = CONTACT_SYNCS.lock()
+                    && let Some(sync) = syncs.get_mut(&network)
+                {
+                    sync.finished = Some(std::time::Instant::now());
+                }
+                let _ = done.send(true);
+            });
+        }
+        for mut wait in waits {
+            let _ = wait.wait_for(|done| *done).await;
         }
         let id = peer.id.clone();
         let found = blocking(store.clone(), move |s| s.dial_target(&id))
