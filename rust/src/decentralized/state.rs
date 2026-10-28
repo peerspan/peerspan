@@ -1624,7 +1624,7 @@ impl Projection {
             let head = self.unrevoked_head(&id)?;
             check(seen.insert(head.id.clone()) && seen.len() <= 9)?;
             if head.id != id {
-                self.retained_lineage(&head.id, &id, &child)?;
+                scopes &= self.retained_lineage(&head.id, &id, &child)?;
             }
             scopes &= num(head.subject()?, "scopes")?;
             child = head.id.clone();
@@ -1635,7 +1635,9 @@ impl Projection {
     /// Whether `current` retained `child` or an earlier generation of the
     /// child's own stream (a renewal of a retained grant stays retained)
     /// together with the replaced generation `old` (spec 7.2).
-    fn retained_lineage(&self, current: &str, old: &str, child: &str) -> Result<()> {
+    /// Returns the intersection of the scopes of every retaining generation,
+    /// so a narrowing in between still narrows the child (spec 7.2).
+    fn retained_lineage(&self, current: &str, old: &str, child: &str) -> Result<u64> {
         // Every generation between `old` and `current` must have retained the
         // child (or an earlier generation of it) and `old`, as `cover`
         // requires: a dropped child is not revived by a later list.
@@ -1649,6 +1651,7 @@ impl Projection {
                 pending.extend(ids(&generation.payload, "predecessors", "ds_")?);
             }
         }
+        let mut scopes = 15;
         let mut steps = vec![current.to_owned()];
         let mut seen = BTreeSet::new();
         while let Some(id) = steps.pop() {
@@ -1665,6 +1668,9 @@ impl Projection {
                 retained.iter().any(|r| r == old) && retained.iter().any(|r| lineage.contains(r)),
                 "forbidden",
             )?;
+            if generation.kind == "device_lease" {
+                scopes &= num(generation.subject()?, "scopes")?;
+            }
             let mut any = false;
             for predecessor in ids(&generation.payload, "predecessors", "ds_")? {
                 if self.descends(&predecessor, old, &mut BTreeSet::new())? {
@@ -1674,7 +1680,33 @@ impl Projection {
             }
             require(any, "forbidden")?;
         }
-        Ok(())
+        Ok(scopes)
+    }
+    /// Whether a device grant, each `issuer_device` ancestor and the binding
+    /// each of them names are free of known bans (a `device_revoke` of an
+    /// ancestor or a `host_unbind` of a binding disables the whole chain).
+    fn unbanned_chain(&self, d: &Statement) -> Result<bool> {
+        let mut cursor = Some(d.id.clone());
+        let mut steps = 0;
+        while let Some(id) = cursor {
+            steps += 1;
+            let Some(g) = self.catalog.statements.get(&id) else {
+                return Ok(false);
+            };
+            if steps > 9 || self.known_restrictions(g).is_err() {
+                return Ok(false);
+            }
+            if let Some(binding) = g.parents()?.get("subject_binding") {
+                let Some(b) = self.catalog.statements.get(binding) else {
+                    return Ok(false);
+                };
+                if self.known_restrictions(b).is_err() {
+                    return Ok(false);
+                }
+            }
+            cursor = g.parents()?.get("issuer_device").cloned();
+        }
+        Ok(true)
     }
     /// A generation of the signer's device stream that was current when
     /// `at` was signed and was itself validly issued, for a receiver that
@@ -1693,23 +1725,8 @@ impl Projection {
             if stamp(g.issued_at()?)? > at || self.known_restrictions(g).is_err() {
                 continue;
             }
-            // No ancestor of the generation may be banned.
-            let mut ancestor = g.parents()?.get("issuer_device").cloned();
-            let mut banned = false;
-            let mut steps = 0;
-            while let Some(id) = ancestor {
-                steps += 1;
-                let Some(a) = self.catalog.statements.get(&id) else {
-                    banned = true;
-                    break;
-                };
-                if steps > 9 || self.known_restrictions(a).is_err() {
-                    banned = true;
-                    break;
-                }
-                ancestor = a.parents()?.get("issuer_device").cloned();
-            }
-            if banned {
+            // No ancestor may be banned and its host must not be unbound.
+            if !self.unbanned_chain(g)? {
                 continue;
             }
             // A generation whose own check is in progress (the renewal
@@ -1780,6 +1797,10 @@ impl Projection {
                 .as_ref()
                 .is_some_and(|p| p.admitted.contains(&g.id))
             || self.creator_device(g)?
+            // A join-issued grant: a verified activation names this exact
+            // grant and its stages had the authority to issue it. On a
+            // receiver that sees it only after its parents expired, an
+            // expiry is no denial: the authority is judged at issuance.
             || self.activated.get(op).is_some_and(|a| {
                 let name = if g.kind == "binding_lease" {
                     "binding_lease_id"
@@ -1787,7 +1808,13 @@ impl Projection {
                     "device_lease_id"
                 };
                 a.manifest.get(name).and_then(Value::as_str) == Some(g.id.as_str())
-                    && self.activation_stage_authority(a, g).is_ok()
+                    && match self.activation_stage_authority(a, g) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            matches!(e.code, "authority_expired" | "expired")
+                                && !self.admitted.contains(&g.id)
+                        }
+                    }
             })
             // A binding signed by the person's original key, which always
             // holds that power for its own person.
@@ -1860,7 +1887,7 @@ impl Projection {
                     && text(d.subject()?, "person_public_key")? == person
                     && stamp(text(&d.payload, "not_before")?)? <= at
                     && at < stamp(text(&d.payload, "not_after")?)?
-                    && self.known_restrictions(d).is_ok()
+                    && self.unbanned_chain(d)?
                 {
                     current.insert(text(d.subject()?, "device_public_key")?.to_owned());
                 }
@@ -1914,14 +1941,16 @@ impl Projection {
             .get(&stream)
             .is_some_and(|st| !st.heads.is_empty());
         let scopes = if admitted {
-            // A known signer must be usable now; its denials stand.
+            // A known signer must be usable now (its denials stand) and must
+            // also have held the authority when the renewal says it was
+            // signed, so a backdated `issued_at` gains nothing.
             let mut scopes = 15;
             for own in self.renewable_heads(&stream)? {
                 scopes &= self
                     .active_inner(&own.id, &mut BTreeSet::new(), true)?
                     .scopes;
             }
-            scopes
+            scopes & self.historical_signer(&stream, s.issued_at()?, &mut Issuance::default())?
         } else {
             // A receiver that never admitted the signer's grant (it expired
             // before this receiver saw it) checks the generation that was
