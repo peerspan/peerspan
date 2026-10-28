@@ -52,9 +52,8 @@ There are no empty modules for future runtime features. The SQLite connection ru
 ```bash
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-python3 ../conformance/host_service.py --rust ./target/debug/peerspan-host
 ```
 
-`host_service.py` checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. The coordinator-free checks, such as `decentralized_native_introduction.py` with the Rust `peerspan-peer-probe`, run from the repository root; see the [developer guide](../docs/developer-guide.md). `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.
+Black-box behaviour is checked by the [slim conformance suites](../conformance/slim/), which CI runs; see the [developer guide](../docs/developer-guide.md). `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.
 
-The Cargo lockfile is tracked for reproducible dependency resolution. Build timings can be compared with `conformance/build_timings.py` at the repository root, which uses disposable source copies and isolated caches.
+The Cargo lockfile is tracked for reproducible dependency resolution.

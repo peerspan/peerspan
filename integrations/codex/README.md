@@ -89,16 +89,6 @@ See [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 
 ```sh
 node --test integrations/codex/*.test.mjs integrations/shared/*.test.mjs
-python3 conformance/codex_integration.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
-python3 conformance/live_codex_agents.py --go GO_BINARY --rust RUST_BINARY \
-  --node NODE_BINARY --codex CODEX_BINARY --socket EXISTING_SOCKET \
-  --thread-a TEST_THREAD_A --thread-b TEST_THREAD_B --output /tmp/codex-live.json
 ```
 
-`GO_BINARY` is a `peerspan-host` built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go); these suites still take one until Rust-only conformance replaces them.
-
-Deterministic tests use pre-existing backend fixtures and real MCP consumers
-against all Go/Rust pairings. The opt-in live runner uses two caller-selected,
-already-running test conversations and verifies pre-attachment phrases in model
-output, including daemon replacement and token rotation. It never starts Codex.
-Its local run does not establish cross-host connectivity.
+End-to-end behaviour through the host (delivery, readiness, redelivery, tools) is covered by the [slim conformance suites](../../conformance/slim/), mainly `live`, `work` and `capabilities`, which CI runs. The earlier Python integration and live-run suites were removed ([DEC-OWN10](../../docs/decision-log.md)); live runs with real models are manual checks.

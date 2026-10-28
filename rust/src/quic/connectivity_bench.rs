@@ -1,7 +1,7 @@
 //! Benchmark-only echo over the actual Peerspan endpoint, identity and stream code.
 use super::*;
 use anyhow::{Result, ensure};
-#[path = "../../../conformance/connectivity/driver.rs"]
+#[path = "connectivity_driver.rs"]
 pub(super) mod driver;
 
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl driver::Backend for Peerspan {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "opt-in connectivity benchmark, driven by conformance/connectivity_bench.py"]
+#[ignore = "opt-in connectivity benchmark"]
 async fn connectivity_benchmark() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let sender = Arc::new(Store::open(&directory.path().join("sender"))?);
