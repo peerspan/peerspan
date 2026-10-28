@@ -99,6 +99,7 @@ Contents:
 - **Chosen:** (A).
 - **Consequence:** from this decision on, bug fixes and conformance runs target Rust only (Rust CLI with Rust daemon). Go/Rust pairing requirements in AGENTS.md and the contracts no longer apply and are removed with `go/`.
 - **Implemented in:** [PR #148](https://github.com/peerspan/peerspan-internal/pull/148), the first step: `peerspan-helper` and `peerspan-peer-probe` ported to Rust, and the helper bundle built from Rust. Switching CI to Rust only and deleting `go/` follow.
+- **Implemented in:** [PR #150](https://github.com/peerspan/peerspan-internal/pull/150), the final step: `go/` deleted, and CI, release packaging and developer docs switched to Rust only. The Go implementation is maintained at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) (DEC-OWN8).
 
 ### DEC-OWN6: slim the conformance tests (2026-10-28)
 
