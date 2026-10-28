@@ -458,6 +458,9 @@ pub(super) fn approve(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
         .map_err(db)?;
     let changed = approve && !p.record.commit_approved;
     if changed {
+        // The commit stage is signed only within 600 seconds of the latest
+        // stage (spec 8.5).
+        require(!p.stage_expired(&stage.now)?, "expired")?;
         observer::owned_device(store, &tx, &p)?;
         budget(&tx, store, &p, &stage)?;
         i.record.approved = true;
@@ -639,6 +642,9 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
             return Ok(());
         }
         let stage = context(&tx, store, &p)?;
+        // No new commit signature after 600 idle seconds (spec 8.5); a commit
+        // already signed is past the timeout and is still published.
+        require(!p.stage_expired(&stage.now)?, "expired")?;
         let d = &stage.offer.descriptor;
         let mut i = Intent::load(&tx, &p.record.commit_intent_id)?;
         check_current(&p, &i, &stage)?;
