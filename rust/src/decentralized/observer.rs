@@ -426,31 +426,48 @@ fn advance_prefix(
     }
     p.record.selection_packet_base64 = encode(&selection.bytes);
     p.record.selection_id = selection.packet.id.clone();
-    let administrator = evidence.matching(
-        "administrator",
-        &p.record.administrator_offer_id,
-        &[
-            ("owner_offer_id", offer.owner.id.as_str()),
-            ("selection_id", selection.packet.id.as_str()),
-        ],
-    )?;
     // A folded admin stage (spec 8.2, DEC-S7, DEC-Q4): the owner's
-    // finalization names no administrator packet.
-    let folded_finalization = if administrator.is_none() && p.record.mode != "renew" {
-        let folded = evidence.matching(
-            "owner_finalization",
-            &p.record.owner_finalization_id,
-            &[
-                ("selection_id", selection.packet.id.as_str()),
-                ("administrator_offer_id", "-"),
-            ],
-        )?;
-        if folded.is_none() {
-            return Ok(());
-        }
-        folded
+    // finalization names no administrator packet. When one is present, an
+    // administrator offer for the same selection is not used.
+    let folded_finalization = if p.record.mode != "renew" {
+        let folded: Vec<_> = evidence
+            .packets
+            .values()
+            .filter(|f| {
+                f.packet.object.get("role").and_then(Value::as_str) == Some("owner_finalization")
+                    && (p.record.owner_finalization_id == "-"
+                        || f.packet.id == p.record.owner_finalization_id)
+                    && f.packet.payload.get("selection_id").and_then(Value::as_str)
+                        == Some(selection.packet.id.as_str())
+                    && f.packet
+                        .payload
+                        .get("administrator_offer_id")
+                        .and_then(Value::as_str)
+                        == Some("-")
+            })
+            .collect();
+        require(folded.len() <= 1, "operation_conflict")?;
+        folded.first().copied()
     } else {
         None
+    };
+    let administrator = if folded_finalization.is_some() {
+        p.record.administrator_offer_id = "-".into();
+        p.record.administrator_packet_base64 = "-".into();
+        None
+    } else {
+        let administrator = evidence.matching(
+            "administrator",
+            &p.record.administrator_offer_id,
+            &[
+                ("owner_offer_id", offer.owner.id.as_str()),
+                ("selection_id", selection.packet.id.as_str()),
+            ],
+        )?;
+        if administrator.is_none() && p.record.mode != "renew" {
+            return Ok(());
+        }
+        administrator
     };
     let Some(catalog) = &offer.catalog else {
         return Err(Error::missing(text(

@@ -548,6 +548,16 @@ pub(crate) fn resume_owned(store: &Store, id: &str) -> Result<()> {
     if !owner.record.approved || num(object(&frozen["provider"])?, "scopes")? & 8 != 8 {
         return Ok(());
     }
+    // A folded owner intent mints the host grant itself; it has no
+    // administrator stage (spec 8.2, DEC-S7).
+    if owner
+        .record
+        .templates
+        .iter()
+        .any(|t| t.object_type == "host_lease")
+    {
+        return Ok(());
+    }
     let b = base(
         &tx,
         store,
