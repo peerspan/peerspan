@@ -700,7 +700,8 @@ fn route(parts: &[&str]) -> Option<Route> {
         ["v2", "network-creations", _, "signed"] => ("POST", "sign"),
         ["v2", "networks", _] => ("GET", "repair"),
         ["v2", "networks", _, "provider"] => ("GET, POST", "sign"),
-        ["v2", "networks", _, "policy-edits"] => ("GET, POST", "sign"),
+        ["v2", "networks", _, "policy-edits"] => ("GET", "sign"),
+        ["v2", "networks", _, "policy-edits", "plan"] => ("POST", "sign"),
         ["v2", "networks", _, "policy-edits", "reapply-preview"] => ("POST", "repair"),
         ["v2", "networks", _, "invitations"] => ("POST", "request"),
         ["v2", "networks", _, "root-transitions"] => ("POST", "sign"),
@@ -982,7 +983,7 @@ async fn dispatch(
                 object.as_ref().ok_or_else(|| Error::new("invalid"))?,
                 time,
             ),
-            ["v2", "networks", id, "policy-edits"] if method == "POST" => edits::reserve(
+            ["v2", "networks", id, "policy-edits", "plan"] => edits::plan(
                 &store,
                 id,
                 object.as_ref().ok_or_else(|| Error::new("invalid"))?,

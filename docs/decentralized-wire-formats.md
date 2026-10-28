@@ -693,6 +693,10 @@ action_id = "act_" + H(L("peerspan-decentralized-action-intent-v1",
   unsettled_seqs}`; `payload_base64` `-` when nothing is unsettled.
 - **Changed (DEC-S16):** `POST /v2/networks/{id}/policy-edits` (reservation) is
   removed.
+- `POST /v2/networks/{id}/policy-edits/plan`: `{provider_id}` → 200
+  `{context_id, person_public_key, policy, version, seq, created_at}`, read-only:
+  the current policy reference and version and this host's next edit number
+  (DEC.impl28).
 
 ### 16.7 Invitations and sync
 
