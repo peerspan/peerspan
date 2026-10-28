@@ -181,6 +181,9 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 - **DEC.impl22. Renewal warnings and the policy threshold (spec 7.1, 7.3, 16).** Status adds `network_root_unreachable` ("root unreachable: network stops in N days") when N, the whole days rounded up until the latest deadline among current admin grants and root-signed person and host grants, is 3 or less, on every host. `person_device_signer_unavailable` appears when this host's own device grant has 2 days or less left and the person has no other current device with scope 4, unless it is the creator device and the person's only current device (DEC-Q27, DEC-Q30); "reachable" is approximated by "known as current", since hosts keep no reachability record of other devices. A policy renews with 8 hours left, or with a third of its lifetime left when it lasts less than 24 hours. Status no longer fails with `state_conflict` when a policy has expired: an expired policy reads as no policy and shows `policy_expired`.
 - **Implemented in:** [PR #19](https://github.com/peerspan/peerspan/pull/19).
 
+- **DEC.impl19. When the single owner offer is selected (DEC-S5, DEC-Q5).** The requester signs the selection without a prompt at its first observation of offers that finds exactly one valid offer, and, for a new person, as soon as `link approve` on the new machine has signed its own possession-only offer. If the selection cannot be signed then (for example, the stage has expired), the request stays `needs_selection` and the error does not fail the observation or the approval; `link resume` retries. Two or more offers still need an explicit choice.
+- **Implemented in:** [PR #13](https://github.com/peerspan/peerspan/pull/13).
+
 ### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
 
 - **DEC.impl20. Learning a member's contact on send.** A peer request to a current member of a coordinator-free network for which this host holds no valid signed contact (typically both just joined, before the next background sync) first syncs each coordinator-free network it shares with that member, as `network sync` does (spec 10), which exchanges contacts with every member it can reach, and then resolves the address again. The request uses the learned address only for the same host key. The sync runs as its own task, so a send that gives up at its own time bound does not cancel it, and it keeps going to later members (4 at a time, up to sync's 30 seconds) when the first ones are offline; concurrent sends and automatic retries to that network wait for the running sync instead of starting another. A new sync for this reason starts no sooner than 5 seconds after the previous one finished, so a member that advertises no address does not turn every send into a sync. Discarded: waiting for the 60-second background sync (the first send and the retries within the task schedule fail); pushing every new member's contact to all members when it is admitted (more traffic for members that never talk, and still racy with the first send).
@@ -219,6 +222,7 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 
 - **Options:** (a) two or more valid offers are held when the daemon first processes offers, and later ones are ignored; (b) wait a fixed time to collect offers.
 - **Chosen:** (a), the recommendation.
+- **Implemented in:** [PR #13](https://github.com/peerspan/peerspan/pull/13) (DEC.impl19).
 
 #### DEC-Q6. Whether an automatic device renewal is a join request
 
