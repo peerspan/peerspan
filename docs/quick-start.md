@@ -2,9 +2,9 @@
 
 Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-**Preview status:** coordinator-free setup is being validated. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release; they do not validate this redesign. Both host implementations, a fresh combined-revision end-to-end run, installed setup and live agent work must pass the [release gates](decentralized-network-contract.md#delivery-slices-and-review-gates) before launch.
+**Preview status:** coordinator-free networks are new and still being validated end to end, including installed setup and live agent work. Expect rough edges and breaking changes. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release, not this design.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm, Go, or Rust. The installer also needs Bash, tar, and `flock`. Private release downloads need GitHub CLI (`gh`) authenticated for the repository. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm or Rust. The installer also needs Bash, tar, and `flock`. Release downloads use GitHub CLI (`gh`). Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
 
 ## Install
 
@@ -14,9 +14,9 @@ From a source checkout, put a matching release archive and its `.sha256` file in
 scripts/install-release.sh VERSION --from dist
 ```
 
-Rust is the recommended default. Add `--implementation go` to install the supported Go host instead. The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing host between Go and Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
+The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing host between Go and Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
 
-After a private `peerspan/peerspan-internal` release is published, a collaborator can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
+Once a release is published, you can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
 
 ```sh
 version=VERSION
@@ -26,7 +26,7 @@ sha256sum -c install-release.sh.sha256
 bash install-release.sh "$version" --from-github peerspan/peerspan-internal
 ```
 
-The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available before the first private release and for offline installs.
+The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available for offline installs.
 
 If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 
@@ -34,7 +34,7 @@ If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of private bundles; macOS installer validation remains pending.
+The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
 
 ## Start your first machine
 
@@ -284,13 +284,12 @@ peerspan status
 
 `peerspan help advanced` lists every other command: grants, routes, explicit expiries, `session setup`, and the network administration commands. The [manual agent testing guide](manual-agent-testing.md) uses them to wire up sessions by hand, including Codex and OpenCode. `peerspan up codex` and `peerspan up opencode` ask for the existing conversation inputs at a terminal, or accept them with `--option KEY=VALUE`; their integrations attach to conversations that are already running (see `share/peerspan/integrations/codex/README.md` and `share/peerspan/integrations/opencode/README.md`).
 
-**Existing coordinator-based networks.** Upgrade every admitted host and use the explicit [migration procedure](decentralized-runtime-contract.md#7-explicit-migration-preparation-and-adoption). Migration needs the current legacy root, acknowledgment from every known nonrevoked admitted host, and original-person approval for each owned host. An unavailable host is not silently removed. Keep the existing keys and state; creating a replacement network or copying keys is not migration. New networks need no enable-linking step or coordinator configuration.
+**Existing coordinator-based networks** from earlier previews are kept as read-only history and can't be migrated in place. Create a new network and invite its members again ([DEC-OWN3](decision-log.md)).
 
 **Building a bundle.** Until release archives are published, a maintainer can build one from a checkout:
 
 ```sh
 scripts/package-release.sh rust 0.1.0
-# supported alternative: scripts/package-release.sh go 0.1.0
 ```
 
 Leave `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` unset. Packaging refuses these obsolete options, including empty values; host bundles need no embedded service identity. Existing output is never overwritten unless `PEERSPAN_PACKAGE_OVERWRITE=1` is set, and packaging uses `flock` from util-linux to serialize builds of the same release. The command writes an archive and checksum under `dist/`, built for the current Linux machine with production dependencies from the committed npm lockfiles, and includes no coordinator or test probe. Maintainers can check a bundle with Python 3.12 or newer:

@@ -18,6 +18,7 @@ Contents:
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN7: publish the repository](#dec-own7-publish-the-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
   - [DEC-OWN6: slim the conformance tests](#dec-own6-slim-the-conformance-tests-2026-10-28) (2026-10-28)
   - [DEC-OWN4: delete the coordinator-only conformance suites](#dec-own4-delete-the-coordinator-only-conformance-suites-2026-10-27) (2026-10-27)
@@ -56,6 +57,23 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-OWN7: publish the repository (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Decision:** rename `peerspan/peerspan-internal` to `peerspan/peerspan` and make it public.
+- **Question 1:** publish as soon as the repository is clean, marked as a preview, or only once someone else can install and use it end to end?
+- **Options:** public when clean; public when usable.
+- **Chosen:** public when clean.
+- **Question 2:** publish the full git history or a fresh single-commit history?
+- **Options:** full history; fresh history.
+- **Chosen:** full history.
+- **Question 3:** which licence?
+- **Options:** Apache-2.0, as the org's other public repositories use; MIT; AGPL-3.0.
+- **Chosen:** Apache-2.0.
+- **Question 4:** old commits contain two test-machine IP addresses, the retired coordinator's hostname, one old author email, and a personal hostname and account label in live-run records. Remove them from the current files only, or also rewrite history to scrub them from every commit?
+- **Options:** current files only; rewrite history.
+- **Chosen:** rewrite history, just before publishing. Every commit hash changes.
 
 ### DEC-OWN5: keep Rust, remove the Go implementation (2026-10-28)
 
