@@ -304,6 +304,9 @@ pub struct Invitation {
     pub helpers: Vec<Value>,
     pub issued_at: String,
     pub expires_at: String,
+    /// The 16-byte return secret of the automatic return path (DEC-Q3);
+    /// `None` in an invite made before it.
+    pub return_secret: Option<[u8; 16]>,
 }
 impl Invitation {
     pub fn create(key: &SigningKey, payload: &Value, now: &str) -> Result<(Self, String)> {
@@ -341,10 +344,23 @@ impl Invitation {
         check(key(host))?;
         let payload = b64(text(o, "payload_base64")?, 32 << 10)?;
         let p = object(&parse(&payload, 32 << 10)?)?.clone();
-        fields(
-            &p,
-            "descriptor expected_person_public_key member issued_at expires_at contacts helpers",
-        )?;
+        let return_secret = if p.contains_key("return_secret_base64") {
+            fields(
+                &p,
+                "descriptor expected_person_public_key member issued_at expires_at contacts helpers return_secret_base64",
+            )?;
+            Some(
+                b64(text(&p, "return_secret_base64")?, 16)?
+                    .try_into()
+                    .map_err(|_| Error::new("invalid"))?,
+            )
+        } else {
+            fields(
+                &p,
+                "descriptor expected_person_public_key member issued_at expires_at contacts helpers",
+            )?;
+            None
+        };
         let descriptor =
             Descriptor::from_value(p.get("descriptor").ok_or_else(|| Error::new("invalid"))?)?;
         let context = descriptor.context_id();
@@ -382,6 +398,7 @@ impl Invitation {
             helpers,
             issued_at: issued.into(),
             expires_at: expires.into(),
+            return_secret,
         })
     }
 }
@@ -694,6 +711,14 @@ impl Frame {
         let packet = text(p, "packet_base64")?;
         let catalog = text(p, "catalog_base64")?;
         check(packet != "-" || catalog != "-")?;
+        if ident(&self.request_id, "di_") {
+            // An invite's return frame carries the request code's JSON
+            // object (DEC-Q3, wire section 10.1).
+            check(self.role == "request" && catalog == "-")?;
+            let raw = b64(packet, 32 << 10)?;
+            PairingToken::read(&format!("psl2-{}", URL_SAFE_NO_PAD.encode(&raw)), now)?;
+            return Ok(value);
+        }
         if packet != "-" {
             let packet = Packet::read(&b64(packet, MAX_OBJECT)?)?;
             check(

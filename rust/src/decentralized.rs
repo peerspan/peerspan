@@ -16,6 +16,7 @@ mod creation;
 mod edits;
 pub(crate) mod history;
 mod intents;
+mod invite_return;
 pub mod mailbox;
 mod memo;
 mod migration;

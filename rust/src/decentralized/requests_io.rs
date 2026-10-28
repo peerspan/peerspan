@@ -538,7 +538,7 @@ pub(crate) async fn approver_worker(
             let c = capture.connection().map_err(|_| Error::new("internal"))?;
             let now = controls::local_decision_time()?;
             let mut q = c
-                .prepare("SELECT request_id FROM dec_pending ORDER BY request_id")
+                .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*' ORDER BY request_id")
                 .map_err(|_| Error::new("internal"))?;
             let ids = q
                 .query_map([], |r| r.get::<_, String>(0))

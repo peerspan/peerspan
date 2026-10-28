@@ -575,11 +575,15 @@ fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string(),
     };
+    // The return secret of the automatic return path (DEC-Q3).
+    let mut secret = [0u8; 16];
+    getrandom::fill(&mut secret).map_err(|_| Error::new("internal"))?;
     let (invite, token) = super::bootstrap::Invitation::create(
         &store.signing_key,
-        &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers}),
+        &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers,"return_secret_base64":encode(&secret)}),
         &actual,
     )?;
+    super::invite_return::remember(&tx, &invite, &secret)?;
     let result = encode_json(
         &json!({"network_id":network,"context_id":snapshot.network.context_id,"invitation_id":invite.id,"invitation":token,"expires_at":invite.expires_at}),
     )?;
@@ -1037,6 +1041,15 @@ async fn dispatch(
             }) {
                 Ok(id) => {
                     let delivery = requests_io::publish(transport_store.clone(), &id).await;
+                    if create_request {
+                        // The automatic return path, one 30-second attempt
+                        // (spec 8.1 step 4, DEC-Q3).
+                        let _ = tokio::time::timeout(
+                            std::time::Duration::from_secs(30),
+                            super::invite_return::send(transport_store.clone(), &id),
+                        )
+                        .await;
+                    }
                     let refresh = transport_store.clone();
                     let read_id = id.clone();
                     let refreshed = tokio::task::spawn_blocking(move || {
