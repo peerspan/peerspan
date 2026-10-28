@@ -183,16 +183,21 @@ async fn join(
     let mut v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
     let network = v["network_id"].as_str().unwrap_or_default().to_owned();
     let linked = v["state"] == "linked";
-    crate::capability_cli::dec_trust_outcome(
-        &mut v,
-        socket,
-        &network,
-        person_key.as_deref(),
-        trusted,
-        untrusted,
-        linked,
-    )
-    .await;
+    // The output stays the exact LINK_VIEW (spec 15, wire formats 16.8)
+    // unless a trust answer was given or asked for: a flag, or the question
+    // at a terminal once the link is applied.
+    if trusted || untrusted || linked && io::stdin().is_terminal() {
+        crate::capability_cli::dec_trust_outcome(
+            &mut v,
+            socket,
+            &network,
+            person_key.as_deref(),
+            trusted,
+            untrusted,
+            linked,
+        )
+        .await;
+    }
     crate::decentralized_link_cli::output(v, true)
 }
 async fn invite(
@@ -208,14 +213,10 @@ async fn invite(
         person_key.is_none() && !host_only,
         "an invite grants no authority; the joining machine is approved explicitly"
     );
-    // Spec 8.1: valid for 1 hour by default, at least 60 seconds and at most
-    // 24 hours (the daemon checks the bounds).
-    let expiry = match (expires_at, expires_in) {
-        (Some(_), Some(_)) => anyhow::bail!("--expires-at and --expires-in are mutually exclusive"),
-        (Some(at), None) => Some(at.clone()),
-        (None, Some(duration)) => Some(crate::integration::relative_expiry(duration)?),
-        (None, None) => None,
-    };
+    ensure!(
+        expires_at.is_none() || expires_in.is_none(),
+        "--expires-at and --expires-in are mutually exclusive"
+    );
     let all = local.get("/v2/networks".into()).await?;
     let all = all
         .as_array()
@@ -232,6 +233,25 @@ async fn invite(
         "this network needs explicit migration"
     );
     let id = n["id"].as_str().context("invalid network ID")?;
+    // Spec 8.1: valid for 1 hour by default, at least 60 seconds and at most
+    // 24 hours; the daemon checks the bounds against its decision time. A
+    // relative lifetime is fixed just before the request, and the minimum
+    // gets a few seconds of allowance for the request's own latency.
+    let expiry = match (expires_at, expires_in) {
+        (Some(at), _) => Some(at.clone()),
+        (None, Some(duration)) => {
+            let at = crate::integration::relative_expiry(duration)?;
+            let floor = chrono::Utc::now() + chrono::TimeDelta::seconds(70);
+            Some(
+                if chrono::DateTime::parse_from_rfc3339(&at)?.with_timezone(&chrono::Utc) < floor {
+                    floor.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+                } else {
+                    at
+                },
+            )
+        }
+        (None, None) => None,
+    };
     let v = local
         .post(
             format!("/v2/networks/{}/invitations", encoded(id)),
