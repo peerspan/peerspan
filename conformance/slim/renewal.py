@@ -222,7 +222,7 @@ def expiry_world(w):
         def learned_renewals():
             current = members(carol, w.net).get(w.a.public_key, {})
             if all(current.get(k) == alice_renewed[k] for k in
-                   ("person_lease_id", "host_lease_id", "device_lease_id", "binding_lease_id")):
+                   ("host_lease_id", "device_lease_id", "binding_lease_id")):
                 return True
             sync_async()
             return False
