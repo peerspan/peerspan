@@ -135,7 +135,7 @@ case "$implementation" in
     }
     cargo_target="$repo/rust/target/peerspan-package-$rust_target"
     CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
-      --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml"
+      --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-host
     cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
     ;;
 esac

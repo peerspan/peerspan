@@ -178,7 +178,7 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-pub(crate) fn key_id(key: &[u8]) -> String {
+pub fn key_id(key: &[u8]) -> String {
     format!("host_{}", hex::encode(Sha256::digest(key)))
 }
 pub(crate) fn peer_key(p: &Peer) -> Result<Vec<u8>, Error> {

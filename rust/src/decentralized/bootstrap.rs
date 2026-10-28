@@ -472,8 +472,48 @@ pub struct Frame {
     pub expires_at: String,
     pub ciphertext: Vec<u8>,
 }
+/// Which request windows a carrier accepts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Window {
+    /// A host's own mailbox: `link_` requests with exactly 300 seconds.
+    Exact300,
+    /// The optional helper (spec section 9.2, wire section 12): the request
+    /// window of a `link_` request (3600 seconds) or of an invite's return
+    /// mailbox, named by its `di_` invitation ID (60 to 86400 seconds).
+    Request,
+}
+impl Window {
+    pub fn request_id(self, id: &str) -> bool {
+        ident(id, "link_") || (self == Self::Request && ident(id, "di_"))
+    }
+    fn lifetime(self, created: &str, expires: &str) -> Result<()> {
+        let seconds = (stamp(expires)? - stamp(created)?).num_seconds();
+        check(match self {
+            Self::Exact300 => seconds == 300,
+            Self::Request => (60..=86400).contains(&seconds),
+        })
+    }
+    /// The mailbox creation/append window: syntax, `created_at <= now + 30`
+    /// (else invalid) and `now < expires_at` (else expired).
+    pub fn check_at(self, created: &str, expires: &str, now: &str) -> Result<()> {
+        if self == Self::Exact300 {
+            return hint_window(created, expires, now, true);
+        }
+        self.lifetime(created, expires)?;
+        let now = stamp(now)?;
+        check(stamp(created)? <= now + chrono::TimeDelta::seconds(30))?;
+        require(now < stamp(expires)?, "expired")
+    }
+    /// Whether a stored mailbox's ID and window still satisfy this rule.
+    pub fn stored(self, request_id: &str, created: &str, expires: &str) -> bool {
+        self.request_id(request_id) && self.lifetime(created, expires).is_ok()
+    }
+}
 impl Frame {
     pub fn read(raw: &[u8]) -> Result<Self> {
+        Self::read_in(raw, Window::Exact300)
+    }
+    pub fn read_in(raw: &[u8], window: Window) -> Result<Self> {
         let v = parse(raw, MAX_FRAME_POST)?;
         let o = object(&v)?;
         fields(
@@ -493,7 +533,7 @@ impl Frame {
             ciphertext: b64(text(o, "ciphertext_base64")?, MAX_FRAME_PLAIN + 16)?,
         };
         check(
-            ident(&f.request_id, "link_")
+            window.request_id(&f.request_id)
                 && digest(&f.locator)
                 && digest(&f.frame_id)
                 && key(&f.writer_host_public_key)
@@ -510,7 +550,7 @@ impl Frame {
                 )
                 && f.ciphertext.len() >= 16,
         )?;
-        check(stamp(&f.expires_at)? - stamp(&f.created_at)? == chrono::TimeDelta::seconds(300))?;
+        window.lifetime(&f.created_at, &f.expires_at)?;
         raw_signature(
             &f.writer_host_public_key,
             &lines(&[

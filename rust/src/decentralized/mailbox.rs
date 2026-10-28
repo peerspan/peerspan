@@ -1,7 +1,7 @@
 //! Opaque direct bootstrap storage. TLS possession identifies a resource user;
 //! neither a carrier frame nor this database grants network authority.
 use super::{
-    bootstrap::{ALPN, Frame, MAX_FRAME_POST},
+    bootstrap::{ALPN, Frame, MAX_FRAME_POST, Window},
     codec,
 };
 use anyhow::{Context, bail};
@@ -92,16 +92,16 @@ struct Limits {
 }
 impl Limits {
     fn allow(&mut self, key: &str, source: &str, get: bool) -> bool {
+        self.allow_principals(&[format!("key:{key}"), format!("source:{source}")], get)
+    }
+    fn allow_principals(&mut self, principals: &[String], get: bool) -> bool {
         let now = Instant::now();
         self.rates
             .retain(|_, v| now.duration_since(v.seen) <= Duration::from_secs(65));
         let (rate, burst) = if get { (1.0, 4.0) } else { (2.0, 8.0) };
         let kind = if get { "get" } else { "mutation" };
         let mut allowed = true;
-        for principal in [
-            format!("{kind}:key:{key}"),
-            format!("{kind}:source:{source}"),
-        ] {
+        for principal in principals.iter().map(|p| format!("{kind}:{p}")) {
             if !self.rates.contains_key(&principal) && self.rates.len() >= 16384 {
                 allowed = false;
                 continue;
@@ -171,9 +171,30 @@ pub struct ParticipantMailbox {
     limits: Mutex<Limits>,
     unavailable: AtomicBool,
     completion: Option<Arc<dyn ParticipantCompletion>>,
+    operator: Operator,
     _database_file: File,
     _directory: File,
-    _lock: File,
+    _lock: Option<File>,
+}
+
+/// Validated optional helper resource credentials: decoded token bytes to the
+/// configured account ID.
+pub type Accounts = HashMap<Vec<u8>, String>;
+/// Who serves these resources. A participant host's first-contact listener
+/// keeps 300-second `link_` windows and takes no resource credential; the
+/// optional helper applies the request windows of spec section 9.2 and its
+/// optional tokens file.
+enum Operator {
+    Participant,
+    Helper(Option<Accounts>),
+}
+impl Operator {
+    fn window(&self) -> Window {
+        match self {
+            Self::Participant => Window::Exact300,
+            Self::Helper(_) => Window::Request,
+        }
+    }
 }
 
 /// Exact bounded publication bytes and the server-derived TLS host identity.
@@ -219,6 +240,39 @@ impl ParticipantMailbox {
         state_directory: &Path,
         completion: Option<Arc<dyn ParticipantCompletion>>,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::open_as(
+            state_directory,
+            Some("dec-bootstrap.lock"),
+            "dec-bootstrap.db",
+            completion,
+            Operator::Participant,
+        )
+    }
+    /// The optional helper's resources in its private state directory. The
+    /// caller already holds that directory's exclusive `helper.lock`.
+    pub fn open_helper(
+        state_directory: &Path,
+        accounts: Option<Accounts>,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::open_as(
+            state_directory,
+            None,
+            "resources.db",
+            None,
+            Operator::Helper(accounts),
+        )
+    }
+    /// Whether storage has failed; the service then refuses all requests.
+    pub fn unavailable(&self) -> bool {
+        self.unavailable.load(Ordering::Acquire)
+    }
+    fn open_as(
+        state_directory: &Path,
+        lock_name: Option<&str>,
+        database_name: &str,
+        completion: Option<Arc<dyn ParticipantCompletion>>,
+        operator: Operator,
+    ) -> anyhow::Result<Arc<Self>> {
         let runtime = tokio::runtime::Handle::try_current()?;
         let directory = OpenOptions::new()
             .read(true)
@@ -231,11 +285,18 @@ impl ParticipantMailbox {
         use std::os::fd::AsRawFd;
         let directory_path =
             std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
-        let lock = protected(&directory_path.join("dec-bootstrap.lock"), true)?;
-        fs2::FileExt::try_lock_exclusive(&lock).context("participant mailbox already owned")?;
+        let lock = match lock_name {
+            Some(name) => {
+                let lock = protected(&directory_path.join(name), true)?;
+                fs2::FileExt::try_lock_exclusive(&lock)
+                    .context("participant mailbox already owned")?;
+                Some(lock)
+            }
+            None => None,
+        };
         for suffix in ["-wal", "-shm", "-journal"] {
             match protected(
-                &directory_path.join(format!("dec-bootstrap.db{suffix}")),
+                &directory_path.join(format!("{database_name}{suffix}")),
                 false,
             ) {
                 Ok(_) => {}
@@ -245,7 +306,7 @@ impl ParticipantMailbox {
                 Err(e) => return Err(e),
             }
         }
-        let path = directory_path.join("dec-bootstrap.db");
+        let path = directory_path.join(database_name);
         let new = match OpenOptions::new()
             .read(true)
             .write(true)
@@ -285,13 +346,15 @@ impl ParticipantMailbox {
             tx.commit()?;
             directory.sync_all()?;
         }
-        validate(&db).map_err(|_| anyhow::anyhow!("invalid participant resource storage"))?;
+        validate(&db, &operator)
+            .map_err(|_| anyhow::anyhow!("invalid participant resource storage"))?;
         db.execute_batch("PRAGMA journal_mode=WAL;")?;
         let service = Arc::new(Self {
             database: Mutex::new(db),
             limits: Mutex::new(Limits::default()),
             unavailable: AtomicBool::new(false),
             completion,
+            operator,
             _database_file: database_file,
             _directory: directory,
             _lock: lock,
@@ -433,10 +496,13 @@ fn identity(c: &Creation, f: &Frame) -> String {
         &codec::hash(&f.body),
     ]))
 }
-fn frame_window(f: &Frame) -> Wire<()> {
-    f.valid_at(&utc()).map_err(Into::into)
+fn frame_window(f: &Frame, window: Window) -> Wire<()> {
+    window
+        .check_at(&f.created_at, &f.expires_at, &utc())
+        .map_err(Into::into)
 }
-fn validate(db: &Connection) -> Wire<()> {
+fn validate(db: &Connection, operator: &Operator) -> Wire<()> {
+    let window = operator.window();
     let (count, version): (i64, i64) = db.query_row(
         "SELECT count(*),coalesce(min(version),0) FROM helper_format",
         [],
@@ -456,9 +522,13 @@ fn validate(db: &Connection) -> Wire<()> {
     )?;
     let (raw,bad):(i64,i64)=db.query_row("SELECT coalesce(sum(length(body)),0),coalesce(sum(length(body)>8388608 OR ciphertext_bytes<16 OR ciphertext_bytes>4194320),0) FROM frames",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
     demand(raw <= RAW_MAX && bad == 0, "invalid")?;
-    for (column, total, active) in [("creator_key", 64, 4), ("source_bucket", 256, 16)] {
+    for (column, total, active) in [
+        ("creator_key", 64, 4),
+        ("source_bucket", 256, 16),
+        ("account_id", 64, 4),
+    ] {
         let sql = format!(
-            "SELECT count(*) FROM (SELECT {column} FROM mailboxes GROUP BY {column} HAVING count(*)>{total} OR sum(state='active')>{active})"
+            "SELECT count(*) FROM (SELECT {column} FROM mailboxes WHERE {column}!='' GROUP BY {column} HAVING count(*)>{total} OR sum(state='active')>{active})"
         );
         let bad: i64 = db.query_row(&sql, [], |r| r.get(0))?;
         demand(bad == 0, "invalid")?;
@@ -468,20 +538,21 @@ fn validate(db: &Connection) -> Wire<()> {
     while let Some(row) = boxes.next()? {
         let b = Mailbox::row(row)?;
         demand(
-            codec::ident(&b.request, "link_")
+            window.stored(&b.request, &b.created, &b.expires)
                 && codec::digest(&b.locator)
                 && codec::digest(&b.cap)
                 && codec::key(&b.creator)
                 && codec::digest(&b.identity)
                 && b.source.len() <= 64
-                && b.account.len() <= 128,
+                && match operator {
+                    Operator::Participant => b.account.len() <= 128,
+                    Operator::Helper(_) => b.account.is_empty() || account_id(&b.account),
+                },
             "invalid",
         )?;
-        let start = codec::stamp(&b.created)?.timestamp();
         let end = codec::stamp(&b.expires)?.timestamp();
         demand(
-            end - start == 300
-                && end == b.deadline
+            end == b.deadline
                 && matches!(b.state.as_str(), "active" | "deleted" | "expired")
                 && (0..=BOX_MAX).contains(&b.bytes),
             "invalid",
@@ -502,7 +573,7 @@ fn validate(db: &Connection) -> Wire<()> {
         let mut first = false;
         while let Some(r) = frames.next()? {
             let raw: Vec<u8> = r.get(3)?;
-            let f = Frame::read(&raw)?;
+            let f = Frame::read_in(&raw, window)?;
             demand(
                 f.frame_id == r.get::<_, String>(0)?
                     && f.role == r.get::<_, String>(1)?
@@ -559,11 +630,24 @@ fn insert_frame(tx: &Transaction<'_>, f: &Frame) -> Wire<()> {
     tx.execute("INSERT INTO frames(locator,frame_id,role,writer_key,body,ciphertext_bytes) VALUES(?1,?2,?3,?4,?5,?6)",params![f.locator,f.frame_id,f.role,f.writer_host_public_key,f.body,f.ciphertext.len() as i64])?;
     Ok(())
 }
-fn quota(tx: &Transaction<'_>, key: &str, source: &str) -> Wire<()> {
+/// A helper resource account ID from the tokens file.
+pub fn account_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+fn quota(tx: &Transaction<'_>, key: &str, source: &str, account: &str) -> Wire<()> {
+    // Account ceilings additionally aggregate different keys; anonymous
+    // resources keep both actual-key and actual-source limits.
     for (column, arg, total, live) in [
         ("creator_key", key, 64, 4),
         ("source_bucket", source, 256, 16),
+        ("account_id", account, 64, 4),
     ] {
+        if arg.is_empty() {
+            continue;
+        }
         let sql = format!(
             "SELECT count(*),coalesce(sum(state='active'),0) FROM mailboxes WHERE {column}=?1"
         );
@@ -580,7 +664,7 @@ fn quota(tx: &Transaction<'_>, key: &str, source: &str) -> Wire<()> {
     Ok(())
 }
 enum Operation {
-    Create(Box<Creation>, Box<Frame>),
+    Create(Box<Creation>, Box<Frame>, String),
     Append(Box<Frame>, String),
     Get(String, String),
     Delete(String, String),
@@ -618,6 +702,7 @@ impl Response {
 }
 impl ParticipantMailbox {
     fn operation(self: &Arc<Self>, op: Operation, key: &str, source: &str) -> Wire<Response> {
+        let window = self.operator.window();
         if self.unavailable.load(Ordering::Acquire) {
             return Err(Fault::Internal);
         }
@@ -628,8 +713,8 @@ impl ParticipantMailbox {
         tx.commit()?;
         let tx = db.transaction()?;
         let response = match op {
-            Operation::Create(c, f) => {
-                frame_window(&f)?;
+            Operation::Create(c, f, account) => {
+                frame_window(&f, window)?;
                 let old = tx
                     .query_row(
                         &format!("SELECT {BOX_COLUMNS} FROM mailboxes WHERE locator=?1"),
@@ -642,9 +727,9 @@ impl ParticipantMailbox {
                     demand(b.identity == identity(&c, &f), "operation_conflict")?;
                     200
                 } else {
-                    quota(&tx, key, source)?;
+                    quota(&tx, key, source, &account)?;
                     tx.execute(
-                        "INSERT INTO mailboxes VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'',?9,'active',?10)",
+                        "INSERT INTO mailboxes VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'active',?11)",
                         params![
                             c.locator,
                             c.request_id,
@@ -654,6 +739,7 @@ impl ParticipantMailbox {
                             codec::stamp(&c.expires_at)?.timestamp(),
                             key,
                             source,
+                            account,
                             identity(&c, &f),
                             f.ciphertext.len() as i64
                         ],
@@ -667,7 +753,7 @@ impl ParticipantMailbox {
                 )
             }
             Operation::Append(f, cap) => {
-                frame_window(&f)?;
+                frame_window(&f, window)?;
                 let b = lookup(&tx, &f.locator, &cap)?;
                 demand(b.state == "active", "expired")?;
                 demand(
@@ -775,6 +861,9 @@ struct Head {
     path: String,
     length: usize,
     cap: std::result::Result<String, &'static str>,
+    /// The `X-Peerspan-Resource-Token` header: absent, its decoded token, or
+    /// `invalid` for a duplicate or malformed value.
+    token: Option<std::result::Result<Vec<u8>, &'static str>>,
 }
 fn head(raw: &[u8]) -> Wire<Head> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
@@ -828,7 +917,7 @@ fn head(raw: &[u8]) -> Wire<Head> {
         let value = std::str::from_utf8(value).ok()?;
         (value.trim() == value).then(|| value.to_owned())
     };
-    let mut cap = if authorization.is_empty() {
+    let cap = if authorization.is_empty() {
         Err("forbidden")
     } else if authorization.len() != 1 {
         Err("invalid")
@@ -841,25 +930,27 @@ fn head(raw: &[u8]) -> Wire<Head> {
             })
             .ok_or("invalid")
     };
-    if tokens.len() > 1 {
-        cap = Err("invalid");
-    } else if let Some(token) = tokens.first() {
-        let valid = exact(token)
-            .and_then(|v| codec::b64(&v, 1024).ok())
-            .filter(|v| {
-                !v.is_empty()
-                    && std::str::from_utf8(v).is_ok()
-                    && !v.iter().any(|b| matches!(b, 0 | 10 | 13))
-            })
-            .is_some();
-        cap = Err(if valid { "forbidden" } else { "invalid" });
-    }
+    let token = match tokens.as_slice() {
+        [] => None,
+        [token] => Some(
+            exact(token)
+                .and_then(|v| codec::b64(&v, 1024).ok())
+                .filter(|v| !v.is_empty() && resource_token(v))
+                .ok_or("invalid"),
+        ),
+        _ => Some(Err("invalid")),
+    };
     Ok(Head {
         method,
         path,
         length,
         cap,
+        token,
     })
+}
+/// A resource token: UTF-8 without CR, LF or NUL (relay AUTH allows empty).
+pub fn resource_token(token: &[u8]) -> bool {
+    std::str::from_utf8(token).is_ok() && !token.iter().any(|b| matches!(b, 0 | 10 | 13))
 }
 enum Route {
     Create,
@@ -905,7 +996,14 @@ fn route(path: &str, completion: bool) -> Wire<Route> {
         Ok(Route::Box(id.into()))
     }
 }
-fn prepare(r: &Head, kind: Route, body: &[u8], key: &str) -> Wire<Operation> {
+fn prepare(
+    r: &Head,
+    kind: Route,
+    body: &[u8],
+    key: &str,
+    window: Window,
+    account: String,
+) -> Wire<Operation> {
     let cap = r.cap.as_ref().map_err(|c| Fault::Code(c))?;
     match kind {
         Route::Completion(_) => Err(Fault::Internal),
@@ -913,12 +1011,12 @@ fn prepare(r: &Head, kind: Route, body: &[u8], key: &str) -> Wire<Operation> {
             let c: Creation = serde_json::from_slice(body).map_err(|_| Fault::Code("invalid"))?;
             demand(
                 c.format == 1
-                    && codec::ident(&c.request_id, "link_")
+                    && window.request_id(&c.request_id)
                     && codec::digest(&c.locator)
                     && codec::digest(&c.read_cap_hash),
                 "invalid",
             )?;
-            let f = Frame::read(c.frame.get().as_bytes())?;
+            let f = Frame::read_in(c.frame.get().as_bytes(), window)?;
             demand(f.writer_host_public_key == key, "forbidden")?;
             demand(
                 f.role == "request"
@@ -928,19 +1026,19 @@ fn prepare(r: &Head, kind: Route, body: &[u8], key: &str) -> Wire<Operation> {
                     && f.expires_at == c.expires_at,
                 "invalid",
             )?;
-            frame_window(&f)?;
+            frame_window(&f, window)?;
             demand(
                 same(&c.read_cap_hash, &codec::hash(cap.as_bytes())),
                 "forbidden",
             )?;
-            Ok(Operation::Create(Box::new(c), Box::new(f)))
+            Ok(Operation::Create(Box::new(c), Box::new(f), account))
         }
         Route::Append(id) => {
             let a: Append = serde_json::from_slice(body).map_err(|_| Fault::Code("invalid"))?;
-            let f = Frame::read(a.frame.get().as_bytes())?;
+            let f = Frame::read_in(a.frame.get().as_bytes(), window)?;
             demand(f.writer_host_public_key == key, "forbidden")?;
             demand(f.locator == id, "invalid")?;
-            frame_window(&f)?;
+            frame_window(&f, window)?;
             Ok(Operation::Append(Box::new(f), cap.clone()))
         }
         Route::Box(id) => {
@@ -954,6 +1052,31 @@ fn prepare(r: &Head, kind: Route, body: &[u8], key: &str) -> Wire<Operation> {
     }
 }
 impl ParticipantMailbox {
+    /// The bearer read capability, then the optional resource credential: its
+    /// account ID, or "" for anonymous resources.
+    fn credential(&self, r: &Head) -> std::result::Result<String, &'static str> {
+        match &self.operator {
+            // A participant host has no operator credentials to accept.
+            Operator::Participant => match &r.token {
+                None => r.cap.clone().map(|_| String::new()),
+                Some(Ok(_)) => Err("forbidden"),
+                Some(Err(c)) => Err(c),
+            },
+            Operator::Helper(accounts) => {
+                r.cap.clone()?;
+                match (&r.token, accounts) {
+                    (None, None) => Ok(String::new()),
+                    (None, Some(_)) => Err("forbidden"),
+                    (Some(Err(c)), _) => Err(c),
+                    (Some(Ok(token)), accounts) => accounts
+                        .as_ref()
+                        .and_then(|a| a.get(token))
+                        .cloned()
+                        .ok_or("forbidden"),
+                }
+            }
+        }
+    }
     /// Takes one already authenticated TLS connection and no asserted identity.
     /// The caller owns listener admission, pre-handshake budgets and shutdown.
     pub async fn serve_connection(
@@ -1076,8 +1199,22 @@ impl ParticipantMailbox {
             return respond(reader, response).await;
         }
         let completion = matches!(kind, Route::Completion(_));
-        if !completion && let Err(c) = &r.cap {
-            return respond(reader, Response::fault(c)).await;
+        let mut account = String::new();
+        if !completion {
+            match self.credential(&r) {
+                Ok(a) => account = a,
+                Err(c) => return respond(reader, Response::fault(c)).await,
+            }
+        }
+        if !account.is_empty() {
+            let allowed = self
+                .limits
+                .lock()
+                .map_err(|_| anyhow::anyhow!("participant resources unavailable"))?
+                .allow_principals(&[format!("account:{account}")], get);
+            if !allowed {
+                return respond(reader, Response::fault("rate_limited")).await;
+            }
         }
         if r.length
             > if completion {
@@ -1154,8 +1291,9 @@ impl ParticipantMailbox {
         let owner = self.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _receive = receive;
-            let result =
-                prepare(&r, kind, &body, &key).and_then(|op| owner.operation(op, &key, &source));
+            let window = owner.operator.window();
+            let result = prepare(&r, kind, &body, &key, window, account)
+                .and_then(|op| owner.operation(op, &key, &source));
             if matches!(&result, Err(Fault::Internal)) {
                 owner.unavailable.store(true, Ordering::Release);
             }

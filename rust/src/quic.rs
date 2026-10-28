@@ -38,7 +38,7 @@ const MAX_BODY: usize = 1 << 20;
 /// larger than other peer responses.
 const MAX_LARGE_RESPONSE: usize = 4 << 20;
 /// The response bound of a peer request.
-fn response_limit(method: &str, path: &str) -> usize {
+pub fn response_limit(method: &str, path: &str) -> usize {
     if ((matches!(method, "GET" | "POST") && path.starts_with("/peer/v2/networks/"))
         || (method == "GET" && path.starts_with("/repair/v1/networks/")))
         && path.ends_with("/catalog")
@@ -1092,7 +1092,7 @@ async fn exchange(
 fn parse_response(data: &[u8]) -> anyhow::Result<(u16, Vec<u8>)> {
     parse_limited(data, MAX_BODY)
 }
-fn parse_limited(data: &[u8], limit: usize) -> anyhow::Result<(u16, Vec<u8>)> {
+pub fn parse_limited(data: &[u8], limit: usize) -> anyhow::Result<(u16, Vec<u8>)> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut response = httparse::Response::new(&mut headers);
     let httparse::Status::Complete(start) = response.parse(data)? else {

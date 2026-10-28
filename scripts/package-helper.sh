@@ -36,7 +36,7 @@ else
   source_dirty=null
 fi
 
-for command in go tar file cut flock; do
+for command in cargo tar file cut flock; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "missing required command: $command" >&2
     exit 1
@@ -59,10 +59,12 @@ os=linux
 case "$(uname -m)" in
   x86_64|amd64)
     arch=amd64
+    rust_target=x86_64-unknown-linux-gnu
     file_arch='x86-64'
     ;;
   arm64|aarch64)
     arch=arm64
+    rust_target=aarch64-unknown-linux-gnu
     file_arch='ARM aarch64'
     ;;
   *)
@@ -93,8 +95,11 @@ if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$chec
   exit 1
 fi
 
-GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
-  go -C "$repo/go" build -trimpath -o "$bundle/bin/peerspan-helper" ./cmd/peerspan-helper
+# The same target directory as the Rust host bundle, so both share one build.
+cargo_target="$repo/rust/target/peerspan-package-$rust_target"
+CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+  --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-helper
+cp "$cargo_target/$rust_target/release/peerspan-helper" "$bundle/bin/peerspan-helper"
 case "$(file -b "$bundle/bin/peerspan-helper")" in
   *ELF*"$file_arch"*) ;;
   *)

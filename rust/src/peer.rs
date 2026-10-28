@@ -188,7 +188,15 @@ fn certificate_at(
     store: &Store,
     now: ::time::OffsetDateTime,
 ) -> anyhow::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
-    let der = store.signing_key.to_pkcs8_der()?;
+    certificate_for(&store.signing_key, &store.identity().id, now)
+}
+/// A short-lived self-signed certificate proving possession of `signing_key`.
+fn certificate_for(
+    signing_key: &ed25519_dalek::SigningKey,
+    name: &str,
+    now: ::time::OffsetDateTime,
+) -> anyhow::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    let der = signing_key.to_pkcs8_der()?;
     let key_der = PrivatePkcs8KeyDer::from(der.as_bytes().to_vec());
     let key = rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&key_der, &rcgen::PKCS_ED25519)?;
     let mut params = rcgen::CertificateParams::default();
@@ -196,7 +204,7 @@ fn certificate_at(
     params.not_after = now + CERTIFICATE_LIFETIME;
     params
         .distinguished_name
-        .push(rcgen::DnType::CommonName, store.identity().id);
+        .push(rcgen::DnType::CommonName, name);
     params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
     params.extended_key_usages = vec![
         rcgen::ExtendedKeyUsagePurpose::ClientAuth,
@@ -211,7 +219,8 @@ type Clock = Box<dyn Fn() -> ::time::OffsetDateTime + Send + Sync>;
 /// Serves the listener's certificate, replacing it with one for the same host
 /// key once less than the renewal window of its validity remains.
 struct RenewingCertificate {
-    store: Arc<Store>,
+    key: ed25519_dalek::SigningKey,
+    name: String,
     now: Clock,
     current: std::sync::Mutex<Option<(::time::OffsetDateTime, Arc<CertifiedKey>)>>,
 }
@@ -222,8 +231,12 @@ impl fmt::Debug for RenewingCertificate {
 }
 impl RenewingCertificate {
     fn new(store: Arc<Store>, now: Clock) -> anyhow::Result<Self> {
+        Self::for_key(store.signing_key.clone(), store.identity().id, now)
+    }
+    fn for_key(key: ed25519_dalek::SigningKey, name: String, now: Clock) -> anyhow::Result<Self> {
         let resolver = Self {
-            store,
+            key,
+            name,
             now,
             current: std::sync::Mutex::new(None),
         };
@@ -241,7 +254,7 @@ impl RenewingCertificate {
         {
             return Ok(key.clone());
         }
-        let (certs, key) = certificate_at(&self.store, now)?;
+        let (certs, key) = certificate_for(&self.key, &self.name, now)?;
         let signer = default_provider()
             .key_provider
             .load_private_key(key)
@@ -329,6 +342,88 @@ pub fn bootstrap_server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig
     ];
     config.send_tls13_tickets = 0;
     Ok(config)
+}
+/// The optional helper's TLS server (`peerspan-helper`): its own transport
+/// key, any client proving possession of an Ed25519 key, and only the given
+/// protocols. It shares nothing with a host's peer or bootstrap listener.
+pub fn helper_server_config(
+    key: ed25519_dalek::SigningKey,
+    protocols: &[&[u8]],
+) -> anyhow::Result<ServerConfig> {
+    let resolver = RenewingCertificate::for_key(
+        key,
+        "peerspan-helper".into(),
+        Box::new(::time::OffsetDateTime::now_utc),
+    )?;
+    let mut config = ServerConfig::builder_with_provider(Arc::new(default_provider()))
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .with_client_cert_verifier(Arc::new(BootstrapPossession))
+        .with_cert_resolver(Arc::new(resolver));
+    config.alpn_protocols = protocols.iter().map(|p| p.to_vec()).collect();
+    config.send_tls13_tickets = 0;
+    Ok(config)
+}
+/// A conformance client (`peerspan-peer-probe`): proves `key` and checks no
+/// server pin, so a suite can reach a peer router directly. Never used by a
+/// host.
+pub fn unpinned_client_config(
+    key: &ed25519_dalek::SigningKey,
+    alpn: &[u8],
+) -> anyhow::Result<ClientConfig> {
+    let (certs, private) = certificate_for(
+        key,
+        "peerspan-peer-probe",
+        ::time::OffsetDateTime::now_utc(),
+    )?;
+    let mut config = ClientConfig::builder_with_provider(Arc::new(default_provider()))
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AnyServer))
+        .with_client_auth_cert(certs, private)?;
+    config.alpn_protocols = vec![alpn.to_vec()];
+    config.resumption = rustls::client::Resumption::disabled();
+    Ok(config)
+}
+/// Accepts any server certificate whose TLS 1.3 signature verifies.
+#[derive(Debug)]
+struct AnyServer;
+impl ServerCertVerifier for AnyServer {
+    fn verify_server_cert(
+        &self,
+        _: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        _: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Err(tls_error("TLS 1.2 is disabled"))
+    }
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            signature,
+            &default_provider().signature_verification_algorithms,
+        )
+    }
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
 }
 pub(crate) fn client_config(store: Arc<Store>, peer: &Peer) -> anyhow::Result<ClientConfig> {
     let expected = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;

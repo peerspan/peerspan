@@ -67,7 +67,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      - name: Build and check host bundles and optional helper
+      - name: Build and check host bundles
         env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
@@ -80,6 +80,12 @@ jobs:
             python conformance/installed_bundle.py \
               --archive "dist/$name.tar.gz" --node "$(command -v node)"
           done
+      - name: Build and check the optional helper (Rust)
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
           scripts/package-helper.sh "$VERSION" dist
           name="peerspan-helper-${VERSION}-linux-${ARCH}"
           (cd dist && sha256sum -c "$name.tar.gz.sha256")

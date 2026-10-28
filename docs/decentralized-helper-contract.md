@@ -11,12 +11,11 @@ direct reachable pairing/work.
 
 ## Process and authority boundary
 
-Provide an optional Go binary, `peerspan-helper`. Go is selected for this small
-operator process because it already supplies the standalone server/tooling and
-produces a native binary without libc dependencies. Both Go and Rust **hosts**
-remain fully supported clients and participant endpoints; Rust remains the
-recommended host installation. A second implementation of this resource-only
-operator is not a launch requirement. The public wire permits replacements.
+Provide an optional Rust binary, `peerspan-helper`, built from the host crate
+(DEC-OWN5: keep Rust, remove Go; it replaced the earlier Go binary). It shares
+the host's TLS identity and opaque mailbox code but never opens host state. A
+second implementation of this resource-only operator is not a launch
+requirement. The public wire permits replacements.
 
 The helper serves only opaque mailboxes and relay4. It owns a persistent
 transport Ed25519 key and local resource state. It has no network descriptors,
@@ -147,7 +146,7 @@ These deterministic operator processes are not evidence of independent real
 companies or a completed separate-machine/live-agent run; record actual
 topology and results separately.
 
-Selected: a small optional transport-only Go server and portable open wire.
+Selected: a small optional transport-only server and portable open wire.
 Discarded: a renamed coordinator, helper enrollment/signing powers, a mandatory
 vendor endpoint, requiring helper deployment for every host, and a second
 operator implementation without a launch requirement.

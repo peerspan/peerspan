@@ -21,6 +21,7 @@ pub mod decentralized;
 pub mod directory;
 pub mod disco;
 pub mod gh;
+pub mod helper;
 pub mod http_client;
 pub mod link_runtime;
 pub mod linking;

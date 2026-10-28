@@ -9,7 +9,7 @@ mod catalog;
 mod ceremony;
 mod ceremony_admin;
 mod ceremony_finalization;
-mod codec;
+pub(crate) mod codec;
 pub(crate) mod completion;
 mod controls;
 mod creation;
