@@ -1292,7 +1292,7 @@ impl Store {
     pub fn members(&self, id: &str) -> Result<Vec<Member>, Error> {
         let connection = self.connection()?;
         // A coordinator-free network lists its verified current members,
-        // which the CLIs' native reads use (DEC.impl13).
+        // which the CLIs' native reads use (DEC.impl12).
         if crate::decentralized::product::is_decentralized(&connection, id)? {
             let mut members = self.product_members(&connection, id)?;
             members.sort_by(|a, b| a.host_id.cmp(&b.host_id));
@@ -3399,7 +3399,7 @@ impl Store {
     pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
         let connection = self.connection()?;
         // A coordinator-free network lists its current persons from the
-        // verified projection for `network persons` (DEC.impl13).
+        // verified projection for `network persons` (DEC.impl12).
         if crate::decentralized::product::is_decentralized(&connection, id)? {
             let persons = self.product_persons(&connection, id)?;
             let members = self.product_members(&connection, id)?;
