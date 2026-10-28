@@ -287,6 +287,11 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
         .map(|s| s.id.clone())
         .collect();
     let mut kept: BTreeSet<String> = heads.clone();
+    // A compatible renewal fork temporarily makes dependents fail `active`:
+    // their parent lookup needs one head. Check each predecessor branch as it
+    // stood before resolution. A child dropped by either branch must stay
+    // dropped; the resolver cannot revive it by listing it again.
+    let mut branch = (heads.len() > 1).then(|| p.clone());
     for other in p.streams.values() {
         if other.key[0] == "root" || other.key == stream {
             continue;
@@ -296,7 +301,24 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
             if !(lease(&child.kind) || matches!(child.kind.as_str(), "policy" | "group")) {
                 continue;
             }
-            if p.active(id).is_err() {
+            let active = if let Some(branch) = &mut branch {
+                let mut all = true;
+                for head in heads {
+                    branch
+                        .streams
+                        .get_mut(stream)
+                        .ok_or_else(|| Error::new("proof_required"))?
+                        .heads = BTreeSet::from([head.clone()]);
+                    if branch.active(id).is_err() {
+                        all = false;
+                        break;
+                    }
+                }
+                all
+            } else {
+                p.active(id).is_ok()
+            };
+            if !active {
                 continue;
             }
             // Walk the live child's authority dependencies, including
