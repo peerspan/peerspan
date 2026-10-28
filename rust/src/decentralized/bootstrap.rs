@@ -75,14 +75,27 @@ pub fn helpers(value: &Value) -> Result<Vec<Value>> {
     }
     Ok(list.clone())
 }
-fn hint_window(issued: &str, expires: &str, now: &str, exact: bool) -> Result<()> {
+/// A contact's window: at most 300 seconds.
+fn hint_window(issued: &str, expires: &str, now: &str) -> Result<()> {
+    window(issued, expires, now, 1, 300)
+}
+/// The link request window: `expires_at = created_at + 3600` (wire formats
+/// 9.1, DEC-S4/DEC-Q1).
+pub(crate) const REQUEST_WINDOW: i64 = 3600;
+/// An invite's default lifetime and its bounds (wire formats 10.1, DEC-Q2).
+pub(crate) const INVITE_DEFAULT: i64 = 3600;
+pub(crate) const INVITE_MIN: i64 = 60;
+pub(crate) const INVITE_MAX: i64 = 86400;
+/// `issued..expires` lasts `min..=max` seconds, has started (30 seconds of
+/// skew) and has not ended at `now`.
+fn window(issued: &str, expires: &str, now: &str, min: i64, max: i64) -> Result<()> {
     let issued = stamp(issued)?;
     let expires = stamp(expires)?;
     let now = stamp(now)?;
     check(
         expires > issued
-            && expires - issued <= chrono::TimeDelta::seconds(300)
-            && (!exact || expires - issued == chrono::TimeDelta::seconds(300)),
+            && expires - issued >= chrono::TimeDelta::seconds(min)
+            && expires - issued <= chrono::TimeDelta::seconds(max),
     )?;
     require(
         issued <= now + chrono::TimeDelta::seconds(30),
@@ -172,7 +185,7 @@ impl Contact {
         })
     }
     pub fn valid_at(&self, now: &str) -> Result<()> {
-        hint_window(&self.issued_at, &self.expires_at, now, false)
+        hint_window(&self.issued_at, &self.expires_at, now)
     }
     pub fn create(
         key: &SigningKey,
@@ -322,7 +335,7 @@ impl Invitation {
         label(member)?;
         let issued = text(&p, "issued_at")?;
         let expires = text(&p, "expires_at")?;
-        hint_window(issued, expires, now, true)?;
+        window(issued, expires, now, INVITE_MIN, INVITE_MAX)?;
         let contacts = contacts(
             &super::catalog::raw_field(&payload, "contacts")?,
             now,
@@ -385,11 +398,12 @@ impl PairingToken {
             text(&packet.object, "role")? == "request"
                 && text(&packet.object, "request_id")? == request,
         )?;
-        hint_window(
+        window(
             text(&packet.payload, "created_at")?,
             text(&packet.payload, "expires_at")?,
             now,
-            true,
+            REQUEST_WINDOW,
+            REQUEST_WINDOW,
         )?;
         let context = text(&packet.payload, "expected_context_id")?;
         let contacts = contacts(
@@ -472,33 +486,26 @@ pub struct Frame {
     pub expires_at: String,
     pub ciphertext: Vec<u8>,
 }
-/// Which request windows a carrier accepts.
+/// Which request windows a carrier accepts: the request window of a `link_`
+/// request (3600 seconds) or of an invite's return mailbox, named by its
+/// `di_` invitation ID (60 to 86400 seconds). Hosts' own first-contact
+/// mailboxes and the optional helper (spec 9.2, wire section 12) both carry
+/// these; neither can tell which a mailbox is, so both accept 60 to 86400.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Window {
-    /// A host's own mailbox: `link_` requests with exactly 300 seconds.
-    Exact300,
-    /// The optional helper (spec section 9.2, wire section 12): the request
-    /// window of a `link_` request (3600 seconds) or of an invite's return
-    /// mailbox, named by its `di_` invitation ID (60 to 86400 seconds).
     Request,
 }
 impl Window {
     pub fn request_id(self, id: &str) -> bool {
-        ident(id, "link_") || (self == Self::Request && ident(id, "di_"))
+        ident(id, "link_") || ident(id, "di_")
     }
     fn lifetime(self, created: &str, expires: &str) -> Result<()> {
         let seconds = (stamp(expires)? - stamp(created)?).num_seconds();
-        check(match self {
-            Self::Exact300 => seconds == 300,
-            Self::Request => (60..=86400).contains(&seconds),
-        })
+        check((INVITE_MIN..=INVITE_MAX).contains(&seconds))
     }
     /// The mailbox creation/append window: syntax, `created_at <= now + 30`
     /// (else invalid) and `now < expires_at` (else expired).
     pub fn check_at(self, created: &str, expires: &str, now: &str) -> Result<()> {
-        if self == Self::Exact300 {
-            return hint_window(created, expires, now, true);
-        }
         self.lifetime(created, expires)?;
         let now = stamp(now)?;
         check(stamp(created)? <= now + chrono::TimeDelta::seconds(30))?;
@@ -511,7 +518,7 @@ impl Window {
 }
 impl Frame {
     pub fn read(raw: &[u8]) -> Result<Self> {
-        Self::read_in(raw, Window::Exact300)
+        Self::read_in(raw, Window::Request)
     }
     pub fn read_in(raw: &[u8], window: Window) -> Result<Self> {
         let v = parse(raw, MAX_FRAME_POST)?;
@@ -563,7 +570,7 @@ impl Frame {
         Ok(f)
     }
     pub fn valid_at(&self, now: &str) -> Result<()> {
-        hint_window(&self.created_at, &self.expires_at, now, true)
+        Window::Request.check_at(&self.created_at, &self.expires_at, now)
     }
     fn ad(&self) -> Vec<u8> {
         lines(&[

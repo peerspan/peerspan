@@ -263,6 +263,16 @@ pub(crate) async fn command(command: &Command, socket: &Path) -> Result<Option<V
     let Some(network) = network_view(&local, id).await? else {
         return Ok(None);
     };
+    let approve = match command {
+        NetworkCommand::Group(GroupCommand::Set { approve, .. })
+        | NetworkCommand::DelegateAdmin { approve, .. }
+        | NetworkCommand::RemoveAdmin { approve, .. }
+        | NetworkCommand::RemovePerson { approve, .. }
+        | NetworkCommand::Revoke { approve, .. }
+        | NetworkCommand::Unbind { approve, .. } => *approve,
+        _ => false,
+    };
+    action::APPROVED.store(approve, std::sync::atomic::Ordering::Relaxed);
     let p = Plan::read(&local, &network).await?;
     Ok(Some(match command {
         NetworkCommand::Group(GroupCommand::Set {

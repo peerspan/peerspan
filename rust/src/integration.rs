@@ -1686,6 +1686,29 @@ async fn prepare_attach_inner(
             if label.is_none() {
                 label = network["person"]["label"].as_str().map(str::to_owned);
             }
+        } else if network["mode"] == "decentralized"
+            && let Some(id) = network["id"].as_str()
+        {
+            // A coordinator-free network's entry is its network view: the
+            // bound person and label come from the verified current members.
+            let members = admin(
+                &state,
+                Method::GET,
+                format!("/v1/networks/{}/members", crate::cli::encoded(id)),
+                None,
+            )
+            .await?;
+            if let Some(own) = members.as_array().into_iter().flatten().find(|m| {
+                m["public_key"] == network["host_public_key"] && m["person_id"].is_string()
+            }) {
+                persons.insert(
+                    id.to_owned(),
+                    own["person_id"].as_str().unwrap_or_default().to_owned(),
+                );
+                if label.is_none() {
+                    label = own["person_member"].as_str().map(str::to_owned);
+                }
+            }
         }
     }
     let mut unchecked = BTreeSet::new();

@@ -155,7 +155,10 @@ impl Packet {
                 check(person == "-" || key(person))?;
                 let start = stamp(text(&payload, "created_at")?)?;
                 let end = stamp(text(&payload, "expires_at")?)?;
-                check(end.signed_duration_since(start).num_seconds() == 300)?;
+                check(
+                    end.signed_duration_since(start).num_seconds()
+                        == super::bootstrap::REQUEST_WINDOW,
+                )?;
                 check(
                     request
                         == format!(

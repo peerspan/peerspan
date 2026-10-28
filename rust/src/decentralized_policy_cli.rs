@@ -20,6 +20,22 @@ pub(crate) struct Provider {
     kind: String,
     lease: String,
 }
+/// The person's policy changed since this edit started (spec 12.1 version
+/// check); the caller reloads and starts the edit again.
+#[derive(Debug)]
+pub(crate) struct StaleEdit;
+impl std::fmt::Display for StaleEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("policy changed since the edit started (state_conflict)")
+    }
+}
+impl std::error::Error for StaleEdit {}
+impl Provider {
+    /// The selected provider is the person's original key, not a device.
+    pub fn is_original(&self) -> bool {
+        self.kind == "original_person"
+    }
+}
 pub(crate) struct Reservation {
     pub policy: Option<PolicyBody>,
     pub version: u64,
@@ -115,8 +131,22 @@ pub(crate) async fn provider(
         Err(e) => return Err(e),
     };
     descriptor(&own)?;
-    let actual = if let Some(path) = path {
-        let signer = PersonSigner::open(Some(path)).map_err(anyhow::Error::new)?;
+    // When the selected provider is the original key itself and this machine
+    // holds it (configured owner key file or ssh-agent), the CLI signs with
+    // it as with an explicit file, whether or not the daemon also holds it.
+    let held = if path.is_none() && own["provider"]["kind"] == "original_person" {
+        own["person_public_key"]
+            .as_str()
+            .and_then(PersonSigner::local_original)
+    } else {
+        None
+    };
+    let actual = if path.is_some() || held.is_some() {
+        let signer = match (path, held) {
+            (Some(path), _) => PersonSigner::open(Some(path)).map_err(anyhow::Error::new)?,
+            (None, Some(signer)) => signer,
+            (None, None) => unreachable!("checked above"),
+        };
         let person = signer.public_key_b64();
         ensure!(
             own["person_public_key"] == person
@@ -455,10 +485,9 @@ pub(crate) async fn submit(
         .map(|s| s["version"].as_u64().context("invalid native maximum"))
         .transpose()?
         .unwrap_or(0);
-    ensure!(
-        maximum.checked_add(1) == Some(policy.version),
-        "policy changed since edit started (edit_conflict)"
-    );
+    if maximum.checked_add(1) != Some(policy.version) {
+        return Err(StaleEdit.into());
+    }
     let payload = serde_json::to_vec(
         &json!({"root_state_id":plan["network"]["root_state_id"],"operation_id":"-","sequence":policy.version,"predecessors":predecessors,"resolves":[],"issuer":{"kind":issuer,"person_public_key":provider.person},"parents":parents,"issued_at":policy.issued_at,"not_before":policy.issued_at,"not_after":policy.valid_until,"body_base64":STANDARD.encode(serde_json::to_vec(&unsigned(policy)?)?)}),
     )?;

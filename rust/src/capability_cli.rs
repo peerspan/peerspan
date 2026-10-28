@@ -298,8 +298,8 @@ async fn current_people(local: &Local<'_>, network: &str) -> anyhow::Result<Valu
         .get(format!("/v1/networks/{}/persons", encoded(network)))
         .await
 }
-// Preserve exact native signed bytes for output; unsigned bodies are used only
-// for local deltas/reviews and never serialized as a fake signed legacy policy.
+// Native output is the signed policy-v2 body (the policy's fields, as the
+// commands' contracts print them); it never gains a legacy `signature`.
 async fn read_policy(
     local: &Local<'_>,
     network: &str,
@@ -310,12 +310,7 @@ async fn read_policy(
         return Ok(
             crate::decentralized_policy_cli::current_policy(local, &view, key)
                 .await?
-                .map(|(s, b)| {
-                    (
-                        json!({"statement_id":s.id,"statement_base64":STANDARD.encode(s.body)}),
-                        b,
-                    )
-                }),
+                .map(|(_, b)| (serde_json::to_value(&b).unwrap_or(Value::Null), b)),
         );
     }
     let value = match local
@@ -593,6 +588,68 @@ pub async fn trust_outcome(
         }
     }
 }
+/// `trusted`, and `trusted_error` when the trust change could not be signed,
+/// for `join` and `network create` on a coordinator-free network. `linked`
+/// says whether this host is a member bound to the person now: a created
+/// network is; a join is only once its request is applied (spec 8.1), which
+/// an interactive join waits for. A yes on a join that is still pending
+/// cannot be signed yet, so it is reported as a failed trust signing.
+pub async fn dec_trust_outcome(
+    value: &mut Value,
+    socket: &Path,
+    network: &str,
+    path: Option<&Path>,
+    trusted: bool,
+    untrusted: bool,
+    linked: bool,
+) {
+    value["trusted"] = json!(false);
+    let yes = if trusted {
+        true
+    } else if untrusted || !linked || !std::io::stdin().is_terminal() {
+        false
+    } else {
+        ask(
+            "Let this machine use your capabilities on your other machines, and the tools of those that allow it? [y/N] ",
+        )
+        .unwrap_or(false)
+    };
+    if !yes {
+        eprintln!(
+            "This machine is not trusted to use your capabilities on your other machines. Note that any host holding your person key can mark itself trusted; untrusted marking protects only against hosts without the key."
+        );
+        return;
+    }
+    if !linked {
+        value["trusted_error"] = json!(format!(
+            "this machine is not linked yet, so its trust cannot be signed; once the link is applied, run: {} trust --network {network}",
+            crate::program()
+        ));
+        return;
+    }
+    let outcome = async {
+        let local = Local(socket);
+        let signer = PolicySigner::open(&local, network, path).await?;
+        let host = local.get("/v1/host".into()).await?["id"]
+            .as_str()
+            .context("invalid daemon response")?
+            .to_owned();
+        edit_policy(&local, network, &signer, |content| {
+            if content.trusted_hosts.contains(&host) {
+                return Ok(false);
+            }
+            content.trusted_hosts.push(host.clone());
+            Ok(true)
+        })
+        .await
+    }
+    .await;
+    match outcome {
+        Ok(_) => value["trusted"] = json!(true),
+        Err(e) => value["trusted_error"] = json!(format!("{e:#}")),
+    }
+}
+
 /// After `join` or `network create` bound this host: asks whether it may
 /// use the person's capabilities on their other machines, unless a flag
 /// answered, and adds it to the trusted hosts on yes. Returns the answer.

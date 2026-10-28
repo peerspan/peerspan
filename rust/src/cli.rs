@@ -938,6 +938,9 @@ pub enum NetworkCommand {
         /// Exact owner provider; auto uses only this host's selected provider
         #[arg(long, default_value = "auto")]
         signer: String,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Remove a person and end its bindings (administrator only)
     RemovePerson {
@@ -955,6 +958,9 @@ pub enum NetworkCommand {
         /// The external root key, used only when explicitly selected
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// List a network's persons and the hosts bound to them
     Persons { id: Option<String> },
@@ -980,6 +986,9 @@ pub enum NetworkCommand {
         /// The external root key, used only when explicitly selected
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Revoke an invite, and any host that joined with it (administrator only)
     RevokeInvite {
@@ -1043,6 +1052,9 @@ pub enum NetworkCommand {
         /// Resolve exactly these remembered authority barriers or fork heads
         #[arg(long, value_name = "DS")]
         resolve: Vec<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Remove an administrator, permanently (root only)
     RemoveAdmin {
@@ -1066,6 +1078,9 @@ pub enum NetworkCommand {
         /// Exact administrator statement to withdraw when more than one is known
         #[arg(long, value_name = "DS")]
         statement: Option<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Define groups of persons (administrator or root)
     #[command(subcommand)]
@@ -1112,6 +1127,9 @@ pub enum GroupCommand {
         /// Exact finite authority deadline
         #[arg(long, value_name = "TIME")]
         not_after: Option<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
 }
 #[derive(Debug, Subcommand)]

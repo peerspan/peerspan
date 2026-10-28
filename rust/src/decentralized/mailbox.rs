@@ -191,7 +191,7 @@ enum Operator {
 impl Operator {
     fn window(&self) -> Window {
         match self {
-            Self::Participant => Window::Exact300,
+            Self::Participant => Window::Request,
             Self::Helper(_) => Window::Request,
         }
     }

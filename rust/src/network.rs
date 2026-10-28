@@ -1291,6 +1291,13 @@ impl Store {
     }
     pub fn members(&self, id: &str) -> Result<Vec<Member>, Error> {
         let connection = self.connection()?;
+        // A coordinator-free network lists its verified current members,
+        // which the CLIs' native reads use (DEC.impl13).
+        if crate::decentralized::product::is_decentralized(&connection, id)? {
+            let mut members = self.product_members(&connection, id)?;
+            members.sort_by(|a, b| a.host_id.cmp(&b.host_id));
+            return Ok(members);
+        }
         self.network_record(&connection, id)?;
         let mut statement = connection
             .prepare("SELECT record FROM network_members WHERE network_id = ?1 ORDER BY host_id")?;
@@ -3391,6 +3398,38 @@ impl Store {
 
     pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
         let connection = self.connection()?;
+        // A coordinator-free network lists its current persons from the
+        // verified projection for `network persons` (DEC.impl13).
+        if crate::decentralized::product::is_decentralized(&connection, id)? {
+            let persons = self.product_persons(&connection, id)?;
+            let members = self.product_members(&connection, id)?;
+            let admins = self.product_admins(&connection, id)?;
+            let labels: Vec<String> = persons.iter().map(|p| p.member.clone()).collect();
+            return Ok(persons
+                .into_iter()
+                .map(|p| {
+                    let mut hosts: Vec<String> = members
+                        .iter()
+                        .filter(|m| m.person_id.as_deref() == Some(p.person_id.as_str()))
+                        .map(|m| m.host_id.clone())
+                        .collect();
+                    hosts.sort();
+                    let label_conflict = labels
+                        .iter()
+                        .filter(|l| labels_conflict(l, &p.member))
+                        .count()
+                        > 1;
+                    PersonView {
+                        administrator: admins.contains(&p.person_public_key),
+                        person_id: p.person_id,
+                        public_key: p.person_public_key,
+                        member: p.member,
+                        hosts,
+                        label_conflict,
+                    }
+                })
+                .collect());
+        }
         let network = self.network_record(&connection, id)?;
         let members = self.stored_members(&connection, id)?;
         let stored = self.stored_persons(&connection, id)?;
