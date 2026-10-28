@@ -1015,9 +1015,12 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
     let mut p = load(&tx, id)?;
+    // An obsolete prepared migration (DEC-OWN3) can always be cancelled,
+    // even with its commit stored; other requests only before commit.
     require(
-        p.record.commit_packet_base64 == "-"
-            && !matches!(p.record.terminal.as_str(), "applied" | "migration_adopted"),
+        p.record.terminal == "migration_prepared"
+            || p.record.commit_packet_base64 == "-"
+                && !matches!(p.record.terminal.as_str(), "applied" | "migration_adopted"),
         "operation_conflict",
     )?;
     p.record.terminal = "cancelled".into();
