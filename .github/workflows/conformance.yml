@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, policy, work]
+        suite: [join, renewal, policy, sync, work]
     steps:
       - uses: actions/checkout@v4
         with:

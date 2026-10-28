@@ -131,6 +131,8 @@ class Host:
             "USER": self.name,
             "LOGNAME": self.name,
         }
+        if self.suite.clock_file is not None:
+            env["PEERSPAN_TEST_CLOCK_OFFSET_FILE"] = str(self.suite.clock_file)
         env.update(self.extra_env)
         return env
 
@@ -350,9 +352,27 @@ class Suite:
             sys.exit(f"missing {self.host_bin}; build with cargo build --manifest-path rust/Cargo.toml --bins")
         self.name = name
         self.work = Path(tempfile.mkdtemp(prefix=f"slim-{name}-"))
+        self.clock_file = None
+        self.offset = 0
         self.hosts = []
         self.results = []
         self.started = time.monotonic()
+
+    def use_clock(self):
+        """Put every host and CLI of this suite on one shared debug test clock (DEC-OWN9, developer guide)."""
+        self.clock_file = self.work / "clock-offset"
+        self.set_offset(0)
+
+    def set_offset(self, seconds):
+        """Move the shared clock to real time + SECONDS (atomically, as the developer guide asks)."""
+        self.offset = int(seconds)
+        temporary = self.clock_file.with_suffix(".new")
+        temporary.write_text(("-" if seconds < 0 else "+") + f"{abs(int(seconds))}s\n")
+        temporary.replace(self.clock_file)
+
+    def now(self):
+        """The suite's shifted now."""
+        return datetime.now(timezone.utc) + timedelta(seconds=self.offset)
 
     def host(self, name, start=True):
         h = Host(self, name)
@@ -569,3 +589,34 @@ def link_machine(owner, machine, network_id, person_public_key, key=None, scopes
     commit(machine, view)
     wait_linked(machine, owner, rid)
     return rid
+
+
+def statements(host, network_id, kind=None):
+    """The decoded statements in HOST's public catalog (appendix 3.3): [(kind, envelope, payload)]."""
+    status, body = host.api("GET", f"/v2/networks/{network_id}/catalog")
+    check(status == 200, f"{host.name}: catalog: {status} {body}")
+    found = []
+    for item in body["catalog"]["objects"]:
+        if kind and item["kind"] != kind:
+            continue
+        try:
+            envelope = json.loads(base64.b64decode(item["body_base64"]))
+            payload = json.loads(base64.b64decode(envelope["payload_base64"]))
+        except (ValueError, KeyError):
+            continue
+        found.append((item["kind"], envelope, payload))
+    return found
+
+
+def members(host, network_id):
+    status, body = host.api("GET", f"/v2/networks/{network_id}/members")
+    check(status == 200, f"{host.name}: members: {status} {body}")
+    return {m["host_public_key"]: m for m in body["members"]}
+
+
+def attention(host):
+    """Attention item kinds and their texts from GET /v2/status (spec 16)."""
+    status, body = host.api("GET", "/v2/status")
+    check(status == 200, f"{host.name}: status: {status} {body}")
+    items = body.get("attention") or body.get("needs_attention") or []
+    return {(i.get("kind"), i.get("detail") or "") for i in items}, body
