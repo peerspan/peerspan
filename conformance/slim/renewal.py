@@ -202,21 +202,36 @@ def expiry_world(w):
         w.a.ok("allow", "everyone")  # a fresh policy, issued after the jump
 
         last = []
+        sync_result = []
+        syncing = None
+
+        def sync_once():
+            try:
+                status, reply = carol.api("POST", f"/v2/networks/{w.net}/sync", {})
+                error = reply.get("error") if isinstance(reply, dict) else reply
+                sync_result[:] = [f"sync status={status} error={error}"]
+            except Exception as error:  # noqa: BLE001 - include the repair result in a timeout
+                sync_result[:] = [f"sync error={error}"]
 
         def control():
+            nonlocal syncing
             sent = carol.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
             state = sent.json.get("state") if isinstance(sent.json, dict) else None
             error = sent.stderr.strip().splitlines()[-1] if sent.stderr.strip() else ""
             last[:] = [f"send exit={sent.code} state={state} error={error}"]
             if sent.ok and state == "accepted":
                 return True
-            status, reply = carol.api("POST", f"/v2/networks/{w.net}/sync", {})
-            last.append(f"sync status={status} error={reply.get('error') if isinstance(reply, dict) else reply}")
+            # Sync may spend its whole 30-second bound trying offline bob.
+            # Keep checking acceptance while it learns from online alice.
+            if syncing is None or not syncing.is_alive():
+                syncing = threading.Thread(target=sync_once, daemon=True)
+                syncing.start()
             return False
         try:
             wait_for(control, timeout=30, interval=1, message="carol's control message to alice to be accepted")
         except Failure as error:
-            raise Failure(f"{error}; {'; '.join(last)}") from error
+            raise Failure(f"{error}; {'; '.join(last + sync_result)}; "
+                          f"sync running={syncing is not None and syncing.is_alive()}") from error
         w.b.start()
         view = w.b.api("GET", "/v2/networks")[1][0]
         check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
