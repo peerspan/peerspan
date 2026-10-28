@@ -962,15 +962,8 @@ fn exchange(
     if resource == "contact" {
         require(body.len() <= 16 << 10, "invalid")?;
     }
-    if resource == "migration" {
-        if *method == Method::POST {
-            let value = parse(body, WHOLE)?;
-            super::migration_evidence::peer_receive(store, network, sender, object(&value)?)?;
-        }
-        let output = super::migration_evidence::peer_export(store, network, sender)?;
-        require(output.len() <= WHOLE, "quota_exceeded")?;
-        return Ok(output);
-    }
+    // In-place migration is removed (DEC-OWN3).
+    require(resource != "migration", "not_found")?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let mut tx = c.transaction().map_err(db)?;
     let exists: bool = tx

@@ -641,15 +641,12 @@ fn apply(store: &Store, e: Evidence, caller: &str) -> Result<Vec<u8>> {
 }
 pub(crate) fn apply_local(store: &Store, id: &str) -> Result<bool> {
     let evidence = {
-        let mut c = store.connection().map_err(|_| Error::new("internal"))?;
+        let c = store.connection().map_err(|_| Error::new("internal"))?;
         let p = requests::load(&c, id)?;
         if p.record.terminal != "-" || p.record.commit_packet_base64 == "-" {
             return Ok(false);
         }
-        if p.record.migration_proposal_id != "-" {
-            super::migration_link::retain_complete(store, &mut c, id)?;
-            return Ok(false);
-        }
+        require(p.record.migration_proposal_id == "-", "not_found")?;
         Evidence::read(
             super::requester::activation_bytes(
                 &p,

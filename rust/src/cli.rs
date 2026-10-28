@@ -804,8 +804,6 @@ pub struct ReinviteArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
-    /// Review and complete an explicit all-host migration without a coordinator.
-    Migrate(crate::decentralized_migration_cli::MigrationArgs),
     /// Review an exact current-root feature recovery snapshot and target
     Repair(crate::link_cli::RepairArgs),
     /// Review and enable approved machine linking with the current root
@@ -1035,25 +1033,6 @@ pub enum NetworkCommand {
         /// identity) or unencrypted private key file
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
-        /// Retain exactly these statement IDs; repeat for every needed contribution
-        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
-        retain: Vec<String>,
-        /// Explicitly retain no finite authority
-        #[arg(long, conflicts_with = "retain")]
-        retain_none: bool,
-    },
-    /// Resolve every known root fork using each branch's exact signing key
-    ResolveRoot {
-        id: String,
-        #[arg(long, value_name = "PATH")]
-        new_root_key: PathBuf,
-        /// Existing branch key; repeat for every externally owned branch
-        #[arg(long, value_name = "PATH")]
-        root_key: Vec<PathBuf>,
-        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
-        retain: Vec<String>,
-        #[arg(long, conflicts_with = "retain")]
-        retain_none: bool,
     },
     /// Make a person an administrator (root only)
     DelegateAdmin {
@@ -1827,9 +1806,8 @@ impl Command {
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))
-            | Self::Network(NetworkCommand::Migrate(_))
             | Self::Network(
-                NetworkCommand::RotateRoot { .. } | NetworkCommand::ResolveRoot { .. },
+                NetworkCommand::RotateRoot { .. },
             )
             | Self::Run { .. }
             | Self::Status { .. }

@@ -703,7 +703,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     let mut descriptor = empty();
     let mut renewed = empty();
     let mut owned = None;
-    let mut staged_catalog = empty();
+    let staged_catalog = empty();
     let present: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
@@ -711,18 +711,9 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
             |r| r.get(0),
         )
         .map_err(db)?;
-    if migration != "-" {
-        let staged = super::migration_link::Owned::load(store, &tx, &network, migration)?;
-        let own = &staged.context.own;
-        let reviewed = text(own, "person_public_key")?;
-        require(person == "-" || person == reviewed, "operation_conflict")?;
-        person = reviewed.into();
-        now = staged.context.source.time.clone();
-        context = staged.context.source.descriptor.context_id();
-        descriptor = encode(&bytes(&staged.context.source.descriptor)?);
-        staged_catalog = staged.context.record.prepared_catalog_base64.clone();
-        owned = Some(staged.device);
-    } else if present {
+    // In-place migration is removed (DEC-OWN3).
+    require(migration == "-", "not_found")?;
+    if present {
         let s = Snapshot::load(&tx, &network, &store.identity().public_key)?;
         let p = s.project(&now)?;
         now = p.decision_time.clone();

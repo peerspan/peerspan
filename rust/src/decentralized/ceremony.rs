@@ -168,35 +168,8 @@ fn terms(
     let mut folded_host = None;
     let (descriptor, public, private, seed, catalog, member, person_lease, issuer_ids, root) =
         if text(r, "migration_proposal_id")? != "-" {
-            let plan = super::migration_link::owner_plan(
-                store,
-                c,
-                pending,
-                super::migration_link::OwnerProfile {
-                    person,
-                    provider,
-                    format,
-                    scopes,
-                    not_after,
-                },
-            )?;
-            time = plan.time;
-            (
-                plan.descriptor,
-                plan.provider,
-                intents::Provider {
-                    kind: "original".into(),
-                    signer_public_key: person.into(),
-                    signature_format: "sshsig".into(),
-                    lease_id: "-".into(),
-                },
-                None,
-                Some(plan.catalog.bytes),
-                plan.member,
-                plan.person_lease.clone(),
-                vec![plan.person_lease],
-                plan.root,
-            )
+            // In-place migration is removed (DEC-OWN3).
+            return Err(Error::new("not_found"));
         } else if exists {
             let snapshot = Snapshot::load(c, network, &store.identity().public_key)?;
             let p = snapshot.project(&time)?;

@@ -9,7 +9,6 @@ mod decentralized_admin_cli;
 mod decentralized_cli;
 mod decentralized_groups_cli;
 mod decentralized_link_cli;
-mod decentralized_migration_cli;
 mod decentralized_onboarding_cli;
 mod decentralized_policy_cli;
 mod decentralized_root_cli;
@@ -121,9 +120,6 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     if let cli::Command::Network(cli::NetworkCommand::Repair(args)) = command {
         return link_cli::repair(args, cli.state).await;
-    }
-    if let cli::Command::Network(cli::NetworkCommand::Migrate(args)) = command {
-        return decentralized_migration_cli::run(args, cli.state).await;
     }
     if let cli::Command::Network(cli::NetworkCommand::EnableLinking { network, root_key }) = command
     {
