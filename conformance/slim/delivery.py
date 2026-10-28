@@ -345,7 +345,7 @@ def _():
     state["linked"] = True
 
 
-@suite.case("request_returns_through_helper", "spec 8.1 step 4 (DEC-Q3); 20 item 29", known="DEC-Q3")
+@suite.case("request_returns_through_helper", "spec 8.1 step 4 (DEC-Q3); 20 item 29")
 def _():
     (returned,) = need("returned")
     check(returned, "the join request never reached the inviter through the helper's return mailbox")
