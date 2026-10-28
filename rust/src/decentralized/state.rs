@@ -205,13 +205,6 @@ pub struct Stream {
 }
 /// Projections recently built by `Projection::build`, by all of its inputs.
 static BUILT: super::memo::Memo<Projection> = super::memo::Memo::new();
-/// Memo of historical issuance checks: finished results and the
-/// generations whose check is in progress.
-#[derive(Default)]
-struct Issuance {
-    done: BTreeMap<String, bool>,
-    active: BTreeSet<String>,
-}
 #[derive(Default)]
 struct Preparation {
     migration: Option<(String, String)>,
@@ -1708,150 +1701,11 @@ impl Projection {
         }
         Ok(true)
     }
-    /// A generation of the signer's device stream that was current when
-    /// `at` was signed and was itself validly issued, for a receiver that
-    /// never saw it live (a cold receiver): admitted, the creator device
-    /// grant, a join-issued grant of a verified activation, or a deadline
-    /// renewal whose own signer passes the same test. Returns its scopes.
-    fn historical_signer(&self, stream: &[String], at: &str, st: &mut Issuance) -> Result<u64> {
-        let at = stamp(at)?;
-        let mut found = Vec::new();
-        for g in self.catalog.statements.values() {
-            if g.kind != "device_lease" || g.stream()?.as_deref() != Some(stream) {
-                continue;
-            }
-            // Issued by `at` (a later generation cannot have authorized it),
-            // not banned; a narrower later generation still applies below.
-            if stamp(g.issued_at()?)? > at || self.known_restrictions(g).is_err() {
-                continue;
-            }
-            // No ancestor may be banned and its host must not be unbound.
-            if !self.unbanned_chain(g)? {
-                continue;
-            }
-            // A generation whose own check is in progress (the renewal
-            // being checked lies in its own window) is skipped.
-            if st.active.contains(&g.id) {
-                continue;
-            }
-            if self.validly_issued(g, st)? {
-                found.push(g);
-            }
-        }
-        // The signer's authority at `at` is that of its latest validly issued
-        // generation issued by then, so a narrowing renewal counts; each
-        // device ancestor's latest generation issued by then narrows it too.
-        let Some(g) = found.into_iter().max_by_key(|g| g.sequence().unwrap_or(0)) else {
-            return Err(Error::new("forbidden"));
-        };
-        require(
-            stamp(text(&g.payload, "not_before")?)? <= at
-                && at < stamp(text(&g.payload, "not_after")?)?,
-            "authority_expired",
-        )?;
-        let mut scopes = num(g.subject()?, "scopes")?;
-        let mut ancestor = g.parents()?.get("issuer_device").cloned();
-        let mut steps = 0;
-        while let Some(id) = ancestor {
-            steps += 1;
-            require(steps <= 9, "forbidden")?;
-            let named = self.catalog.get(&id)?;
-            let key = named.stream()?;
-            let latest = self
-                .catalog
-                .statements
-                .values()
-                .filter(|a| a.kind == "device_lease" && a.stream().ok().flatten() == key)
-                .filter(|a| a.issued_at().is_ok_and(|t| stamp(t).is_ok_and(|t| t <= at)))
-                .max_by_key(|a| a.sequence().unwrap_or(0))
-                .unwrap_or(named);
-            scopes &= num(latest.subject()?, "scopes")?;
-            ancestor = named.parents()?.get("issuer_device").cloned();
-        }
-        Ok(scopes)
-    }
-    /// Whether a device grant was validly issued, also for a receiver that
-    /// never admitted it: admitted, the creator device grant, the exact
-    /// grant of a verified activation with its stage authority, or a
-    /// deadline renewal that met its issuance conditions with a signer that
-    /// passes the same test. `budget` bounds the work (and any cycle).
-    fn validly_issued(&self, g: &Statement, st: &mut Issuance) -> Result<bool> {
-        if let Some(done) = st.done.get(&g.id) {
-            return Ok(*done);
-        }
-        if !st.active.insert(g.id.clone()) {
-            return Ok(false);
-        }
-        require(st.done.len() + st.active.len() <= 4096, "quota_exceeded")?;
-        let result = self.validly_issued_inner(g, st);
-        st.active.remove(&g.id);
-        let result = result?;
-        st.done.insert(g.id.clone(), result);
-        Ok(result)
-    }
-    fn validly_issued_inner(&self, g: &Statement, st: &mut Issuance) -> Result<bool> {
-        let op = text(&g.payload, "operation_id")?;
-        Ok(self.admitted.contains(&g.id)
-            || self
-                .prior
-                .as_ref()
-                .is_some_and(|p| p.admitted.contains(&g.id))
-            || self.creator_device(g)?
-            // A join-issued grant: a verified activation names this exact
-            // grant and its stages had the authority to issue it. On a
-            // receiver that sees it only after its parents expired, an
-            // expiry is no denial: the authority is judged at issuance.
-            || self.activated.get(op).is_some_and(|a| {
-                let name = if g.kind == "binding_lease" {
-                    "binding_lease_id"
-                } else {
-                    "device_lease_id"
-                };
-                a.manifest.get(name).and_then(Value::as_str) == Some(g.id.as_str())
-                    && match self.activation_stage_authority(a, g) {
-                        Ok(()) => true,
-                        Err(e) => {
-                            matches!(e.code, "authority_expired" | "expired")
-                                && !self.admitted.contains(&g.id)
-                        }
-                    }
-            })
-            // A binding signed by the person's original key, which always
-            // holds that power for its own person.
-            || g.kind == "binding_lease"
-                && text(g.issuer()?, "kind")? == "person"
-                && text(g.issuer()?, "person_public_key")?
-                    == text(g.subject()?, "person_public_key")?
-            || {
-                let renewal = Self::device_renewal(g)?;
-                let device_signed = text(g.issuer()?, "kind")? == "device";
-                // A device-signed binding (a renewal with scope 2 or 4, a
-                // first issue with scope 2) or a device renewal (scope 4).
-                let need = match (g.kind.as_str(), renewal) {
-                    ("binding_lease", true) => 6,
-                    ("binding_lease", false) => 2,
-                    (_, true) => 4,
-                    _ => 0,
-                };
-                device_signed
-                    && need != 0
-                    && (!renewal || self.issuance_conditions(g, st).is_ok())
-                    && {
-                        let signer = vec![
-                            "device".to_string(),
-                            text(g.issuer()?, "person_public_key")?.to_string(),
-                            g.signer("issuer")?.public_key.clone(),
-                        ];
-                        self.historical_signer(&signer, g.issued_at()?, st)
-                            .is_ok_and(|scopes| scopes & need != 0 && (need != 4 || scopes & 4 == 4))
-                    }
-            })
-    }
     /// What a deadline-only renewal needed when it was signed: each renewed
     /// generation current at `issued_at`, and a device renewing its own grant
     /// only as the creator device while it was the person's only current
     /// device (DEC-Q8, DEC-Q27, DEC-Q30).
-    fn issuance_conditions(&self, s: &Statement, st: &mut Issuance) -> Result<()> {
+    fn issuance_conditions(&self, s: &Statement) -> Result<()> {
         let person = text(s.issuer()?, "person_public_key")?;
         let signer = s.signer("issuer")?.public_key.clone();
         let stream = vec!["device".to_string(), person.to_string(), signer.clone()];
@@ -1862,10 +1716,18 @@ impl Projection {
                     && stamp(s.issued_at()?)? < stamp(text(&old.payload, "not_after")?)?,
                 "authority_expired",
             )?;
-            // The renewed grant was itself validly issued: renewal never
-            // creates a device or binding that nobody approved.
+            // The renewed grant was admitted here: renewal never creates a
+            // device or binding that nobody approved. A receiver that never
+            // admitted it keeps the renewal inert (spec 4.2 first admission).
             if matches!(s.kind.as_str(), "device_lease" | "binding_lease") {
-                require(self.validly_issued(old, st)?, "forbidden")?;
+                require(
+                    self.admitted.contains(&id)
+                        || self
+                            .prior
+                            .as_ref()
+                            .is_some_and(|p| p.admitted.contains(&id)),
+                    "forbidden",
+                )?;
             }
         }
         if s.kind == "device_lease" && text(s.subject()?, "device_public_key")? == signer {
@@ -1940,23 +1802,16 @@ impl Projection {
             .streams
             .get(&stream)
             .is_some_and(|st| !st.heads.is_empty());
-        let scopes = if admitted {
-            // A known signer must be usable now (its denials stand) and must
-            // also have held the authority when the renewal says it was
-            // signed, so a backdated `issued_at` gains nothing.
-            let mut scopes = 15;
-            for own in self.renewable_heads(&stream)? {
-                scopes &= self
-                    .active_inner(&own.id, &mut BTreeSet::new(), true)?
-                    .scopes;
-            }
-            scopes & self.historical_signer(&stream, s.issued_at()?, &mut Issuance::default())?
-        } else {
-            // A receiver that never admitted the signer's grant (it expired
-            // before this receiver saw it) checks the generation that was
-            // current at issuance.
-            self.historical_signer(&stream, s.issued_at()?, &mut Issuance::default())?
-        };
+        // The signer's authority must be valid now through records this host
+        // already admitted (spec 4.2 first admission); a signer never admitted
+        // here leaves the renewal inert.
+        require(admitted, "forbidden")?;
+        let mut scopes = 15;
+        for own in self.renewable_heads(&stream)? {
+            scopes &= self
+                .active_inner(&own.id, &mut BTreeSet::new(), true)?
+                .scopes;
+        }
         require(
             if s.kind == "binding_lease" {
                 scopes & 6 != 0
@@ -1968,7 +1823,7 @@ impl Projection {
         if let Some(parent) = s.parents()?.get("issuer_device") {
             self.device_ancestry(&s.id, parent)?;
         }
-        self.issuance_conditions(s, &mut Issuance::default())?;
+        self.issuance_conditions(s)?;
         Ok(())
     }
     /// A cold child may already have been issued before an independently
