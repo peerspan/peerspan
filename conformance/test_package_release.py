@@ -95,6 +95,19 @@ class PackageReleaseTests(unittest.TestCase):
         }.get(machine)
         if architecture is None or not shutil.which("flock"):
             self.skipTest("requires a supported Linux architecture and flock")
+        # Package from an isolated copy of the sources: package-release.sh
+        # builds under its own checkout's rust/target, which the cargo shim
+        # must never overwrite in the real checkout.
+        self.repo = self.root / "repo"
+        (self.repo / "scripts").mkdir(parents=True)
+        shutil.copy2(REPO / "scripts/package-release.sh", self.repo / "scripts")
+        (self.repo / "docs").mkdir()
+        shutil.copy2(REPO / "docs/quick-start.md", self.repo / "docs")
+        shutil.copytree(
+            REPO / "integrations",
+            self.repo / "integrations",
+            ignore=shutil.ignore_patterns("node_modules"),
+        )
         self.archive = self.output / (
             f"peerspan-publication-test-linux-{architecture}-rust.tar.gz"
         )
@@ -119,12 +132,12 @@ class PackageReleaseTests(unittest.TestCase):
     def start(self, **environment):
         return subprocess.Popen(
             [
-                str(REPO / "scripts/package-release.sh"),
+                str(self.repo / "scripts/package-release.sh"),
                 "rust",
                 "publication-test",
                 str(self.output),
             ],
-            cwd=REPO,
+            cwd=self.repo,
             env=dict(self.env, **environment),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
