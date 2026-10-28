@@ -440,7 +440,7 @@ fn read_network_context(
                 let floors=if stream.at_maximum.is_empty() && s.context.origin=="migration" {vec![s.context.origin_proof_id.clone()]} else {Vec::new()};
                 Ok(json!({"stream_kind":kind,"subject":subject,"subject2":subject2,"head_ids":stream.heads,"version":stream.maximum,"statement_ids":stream.at_maximum,"floor_proof_ids":floors}))
             }).collect::<Result<Vec<_>>>()?;
-            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams,"restriction_ids":p.restrictions})
+            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams,"restriction_ids":p.restrictions,"admitted_ids":p.admitted})
         }
         _ => return Err(Error::new("not_found")),
     };

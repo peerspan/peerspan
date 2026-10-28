@@ -107,7 +107,7 @@ pub(crate) async fn planning(
         .await?;
     shape(
         &plan,
-        "network decision_time catalog streams restriction_ids",
+        "network decision_time catalog streams restriction_ids admitted_ids",
     )?;
     let d = descriptor(&plan["network"])?;
     ensure!(d.network_id == network, "native network mismatch");

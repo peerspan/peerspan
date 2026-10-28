@@ -499,12 +499,21 @@ async fn reinvite(
             .iter()
             .filter_map(Value::as_str)
             .collect();
+        let grants: std::collections::BTreeSet<&str> = plan["admitted_ids"]
+            .as_array()
+            .context("invalid planning admissions")?
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
         let objects: Vec<Value> = catalog
             .statements
             .values()
-            .filter(|st| {
-                !matches!(st.kind.as_str(), "host_revoke" | "person_remove")
-                    || admitted.contains(st.id.as_str())
+            .filter(|st| match st.kind.as_str() {
+                "host_revoke" | "person_remove" => admitted.contains(st.id.as_str()),
+                // Grants this host admitted, including expired ones; an inert
+                // grant (one received after the split) is not a member.
+                "host_lease" | "binding_lease" => grants.contains(st.id.as_str()),
+                _ => true,
             })
             .map(|st| json!({"kind": st.kind, "payload": Value::Object(st.payload.clone())}))
             .collect();
