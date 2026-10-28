@@ -196,12 +196,6 @@ def expiry_world(w):
         carol = suite.host(f"carol-{w.tag}", clock=w.clock)
         join_new_person(w.a, carol, "carol", ssh_key(carol.root, "carol"), w.net)
         ada = w.a.agent("ada")
-        w.clock.set(w.clock.offset + int((bob_end - w.now()).total_seconds()) + 60)
-        check(w.a.api("GET", "/v2/networks")[1][0]["authority"]["state"] == "usable",
-              "alice's host is not usable after bob's device grant ended")
-        w.a.ok("allow", "everyone")  # a fresh policy, issued after the jump
-
-        last = []
         sync_result = []
         syncing = None
 
@@ -213,19 +207,42 @@ def expiry_world(w):
             except Exception as error:  # noqa: BLE001 - include the repair result in a timeout
                 sync_result[:] = [f"sync error={error}"]
 
-        def control():
+        def sync_async():
             nonlocal syncing
+            # Sync may spend its whole 30-second bound trying offline bob.
+            if syncing is None or not syncing.is_alive():
+                syncing = threading.Thread(target=sync_once, daemon=True)
+                syncing.start()
+
+        # First admission needs current authority (spec 4.2). Let carol learn
+        # alice's renewals while the preceding grants are still live, before
+        # moving past their deadlines; cold historical evidence stays inert.
+        alice_renewed = members(w.a, w.net)[w.a.public_key]
+
+        def learned_renewals():
+            current = members(carol, w.net).get(w.a.public_key, {})
+            if all(current.get(k) == alice_renewed[k] for k in
+                   ("person_lease_id", "host_lease_id", "device_lease_id", "binding_lease_id")):
+                return True
+            sync_async()
+            return False
+
+        wait_for(learned_renewals, timeout=30, interval=1, message="carol to admit alice's renewed grants")
+        w.clock.set(w.clock.offset + int((bob_end - w.now()).total_seconds()) + 60)
+        check(w.a.api("GET", "/v2/networks")[1][0]["authority"]["state"] == "usable",
+              "alice's host is not usable after bob's device grant ended")
+        w.a.ok("allow", "everyone")  # a fresh policy, issued after the jump
+        last = []
+
+        def control():
             sent = carol.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
             state = sent.json.get("state") if isinstance(sent.json, dict) else None
             error = sent.stderr.strip().splitlines()[-1] if sent.stderr.strip() else ""
             last[:] = [f"send exit={sent.code} state={state} error={error}"]
             if sent.ok and state == "accepted":
                 return True
-            # Sync may spend its whole 30-second bound trying offline bob.
             # Keep checking acceptance while it learns from online alice.
-            if syncing is None or not syncing.is_alive():
-                syncing = threading.Thread(target=sync_once, daemon=True)
-                syncing.start()
+            sync_async()
             return False
         try:
             wait_for(control, timeout=30, interval=1, message="carol's control message to alice to be accepted")
