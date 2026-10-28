@@ -193,7 +193,7 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 ### DEC-impl: settled by the implementer for policy edits without reservations (not owner decisions)
 
 - **DEC.impl28. Planning an edit (spec 12.1, 12.2; DEC-S16, DEC-Q18).** `POST /v2/networks/{id}/policy-edits` (the reservation) is gone. The CLI plans an edit with the read-only `POST /v2/networks/{id}/policy-edits/plan` `{provider_id}`, which returns the current policy reference, its version and this host's next local edit number (`{context_id, person_public_key, policy, version, seq, created_at}`) and writes nothing. When the edit or a capability claim is checked, an edit number with no record must be the next one (the largest recorded number plus 1) and no edit may be unsettled. The edit must also follow the current head (version plus 1). Otherwise the check fails with `state_conflict`, and the CLI reloads and starts again (DEC.impl13). The edit record is written as `settled` when the edit is applied; `reserved` is no longer written, and older `reserved` records keep their old rules. A valid capability claim therefore needs no reservation and is no longer refused with `edit_conflict`.
-- **Implemented in:** this PR.
+- **Implemented in:** [PR #25](https://github.com/peerspan/peerspan/pull/25).
 
 ### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
 
