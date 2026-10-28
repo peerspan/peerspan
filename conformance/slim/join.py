@@ -7,8 +7,9 @@ Written from docs/decentralized-spec.md sections 6 and 8 and the wire appendix
 import base64
 import hashlib
 import math
+import time
 
-from harness import (Suite, b64url_json, check, commit, create_network, finalize, invite, join_request, link_view,
+from harness import (Failure, Suite, b64url_json, check, commit, create_network, finalize, invite, join_request, link_view,
                      parse_time, pull_until, rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked,
                      datetime, timedelta, timezone)
 
@@ -76,6 +77,23 @@ def _():
           f"provider is {provider['kind']} with scopes {provider['scopes']}, want the scope-15 creator device")
 
 
+def invitation_within_one_second(net_id, seconds):
+    """POST an invitation expiring SECONDS after now, retried until the request starts and finishes within one
+    wall-clock second, so the daemon's decision time is the same whole second the suite used (whole UTC seconds,
+    spec 4.4) and a boundary case cannot slip across a second. alice's host runs on the real clock."""
+    for _ in range(10):
+        now = datetime.now(timezone.utc)
+        if now.microsecond > 600_000:  # too close to the next second: wait for it
+            time.sleep(1.02 - now.microsecond / 1e6)
+            now = datetime.now(timezone.utc)
+        status, body = a.api("POST", f"/v2/networks/{net_id}/invitations", {
+            "member": "x", "expected_person_public_key": "-",
+            "expires_at": rfc3339(now.replace(microsecond=0) + timedelta(seconds=seconds))})
+        if datetime.now(timezone.utc).replace(microsecond=0) == now.replace(microsecond=0):
+            return status, body
+    raise Failure("no invitation request finished within one wall-clock second in 10 tries")
+
+
 @suite.case("invite_lifetime", "spec 8.1, 8.5; appendix 10.1, 16.7 (DEC-Q2, DEC-Q3)")
 def _():
     (net,) = need("net")
@@ -89,10 +107,8 @@ def _():
           "signed lifetime is not 3600 s")
     state["return_secret"] = payload.get("return_secret_base64")
     check(payload["member"] == "bob" and payload["descriptor"], f"payload {sorted(payload)}")
-    now = datetime.now(timezone.utc)
     for seconds, accepted in ((59, False), (60, True), (86400, True), (86401, False)):
-        status, body = a.api("POST", f"/v2/networks/{net['id']}/invitations", {
-            "member": "x", "expected_person_public_key": "-", "expires_at": rfc3339(now + timedelta(seconds=seconds))})
+        status, body = invitation_within_one_second(net["id"], seconds)
         check((status == 201) == accepted, f"lifetime {seconds}s: {status} {body if status != 201 else ''}")
         if not accepted:
             check(body.get("code") == "invalid", f"lifetime {seconds}s refused with {body}")
