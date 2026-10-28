@@ -261,8 +261,10 @@ fn cap(
     if let Some(after) = s.payload.get("not_after").and_then(Value::as_str) {
         *until = until.clone().min(after.into());
     }
-    for parent in s.parents()?.values() {
-        cap(p, parent, seen, depth + 1, until)?;
+    for (role, parent) in s.parents()? {
+        if !s.uncapped_parent(&role) {
+            cap(p, &parent, seen, depth + 1, until)?;
+        }
     }
     Ok(())
 }
@@ -632,6 +634,7 @@ pub(crate) fn attention(
 }
 pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
+    let mut attempted = BTreeMap::<String, std::time::Instant>::new();
     tick.tick().await;
     loop {
         tokio::select! {_ = shutdown.changed()=>break,_=tick.tick()=>{}}
@@ -643,11 +646,36 @@ pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::
                     return;
                 }
                 let s = store.clone();
+                let network = id.clone();
                 let _ = tokio::task::spawn_blocking(move || {
-                    let _ = renew(&s, &id);
-                    let _ = cleanup(&s, &id);
+                    let _ = renew(&s, &network);
+                    let _ = cleanup(&s, &network);
                 })
                 .await;
+                // Grants (spec 7.1): sync with known peers (30-second bound)
+                // before signing, so already renewed grants and unknown
+                // children are seen; at most one attempt per 30 seconds.
+                let s = store.clone();
+                let network = id.clone();
+                let due =
+                    tokio::task::spawn_blocking(move || super::grant_renewal::due(&s, &network))
+                        .await;
+                if !matches!(due, Ok(Ok(true)))
+                    || attempted.get(&id).is_some_and(|at: &std::time::Instant| {
+                        at.elapsed() < Duration::from_secs(30)
+                    })
+                {
+                    continue;
+                }
+                attempted.insert(id.clone(), std::time::Instant::now());
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(30),
+                    super::peer::sync(store.clone(), &id),
+                )
+                .await;
+                let s = store.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::grant_renewal::renew(&s, &id)).await;
             }
         }
     }

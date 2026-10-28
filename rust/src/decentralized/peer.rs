@@ -319,8 +319,14 @@ fn sync_plan(store: &Store, network: &str) -> Result<SyncPlan> {
         if record.conflicted {
             continue;
         }
+        // A member's expired contacts stay address hints while it has no
+        // valid one (DEC.impl25), as invite and code contacts do (DEC-Q25,
+        // DEC-Q33): the peer's key is still checked on connect, and without
+        // them two hosts that were both away longer than 300 seconds could
+        // never reach each other again.
+        let any_valid = record.contacts.iter().any(|c| c.valid_at(&now).is_ok());
         for contact in record.contacts {
-            if contact.valid_at(&now).is_err() {
+            if any_valid && contact.valid_at(&now).is_err() {
                 continue;
             }
             let payload = object(&contact.payload)?;

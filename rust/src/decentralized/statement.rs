@@ -142,7 +142,11 @@ impl Statement {
             signatures.insert(role.into(), signature);
         }
         let expected = signature_roles(kind, &payload)?;
-        check(signatures.keys().cloned().collect::<Vec<_>>() == expected)?;
+        let actual = signatures.keys().cloned().collect::<Vec<_>>();
+        // A deadline-only renewal of a host grant or binding carries only the
+        // issuer's signature (DEC-Q28); the verifier checks it moves only the
+        // deadline.
+        check(actual == expected || renewal_candidate(kind, &payload)? && actual == ["issuer"])?;
         let statement = Self {
             kind: kind.into(),
             context_id: context.into(),
@@ -163,6 +167,18 @@ impl Statement {
         }
         statement.intrinsic_signers(descriptor)?;
         Ok(statement)
+    }
+    /// Whether parent `role` does not cap this statement's deadline: the
+    /// issuer device of a deadline-only binding or device renewal signed by
+    /// a device (spec 4.4, 7.1; DEC-Q7, DEC-Q27).
+    pub fn uncapped_parent(&self, role: &str) -> bool {
+        role == "issuer_device"
+            && matches!(self.kind.as_str(), "binding_lease" | "device_lease")
+            && renewal_candidate(&self.kind, &self.payload).unwrap_or(false)
+            && (self.kind == "device_lease" || !self.signatures.contains_key("host"))
+            && self
+                .issuer()
+                .is_ok_and(|i| text(i, "kind").is_ok_and(|k| k == "device"))
     }
     pub fn signer(&self, role: &str) -> Result<&SignatureEntry> {
         self.signatures
@@ -377,6 +393,15 @@ fn common_stream(p: &Obj) -> Result<()> {
 
     reference(p, "root_state_id", "ds_", false)
 }
+/// A grant that may be a deadline-only renewal (spec 7.1, DEC-Q6, DEC-Q28):
+/// `operation_id` `-` and a later generation of an existing stream.
+pub(crate) fn renewal_candidate(kind: &str, p: &Obj) -> Result<bool> {
+    Ok(
+        matches!(kind, "host_lease" | "binding_lease" | "device_lease")
+            && text(p, "operation_id")? == "-"
+            && !ids(p, "predecessors", "ds_")?.is_empty(),
+    )
+}
 fn signature_roles(kind: &str, p: &Obj) -> Result<Vec<String>> {
     let mut roles = vec!["issuer".into()];
     match kind {
@@ -470,11 +495,14 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             check(op == "-" || ident(op, "link_") || kind == "host_lease" && ident(op, "ds_"))?;
             if kind == "device_lease" {
                 // `-` only for the creator device grant (DEC-Q21), sequence 1.
+                // ... and for a deadline-only renewal (DEC-Q6), a later
+                // generation.
                 check(
                     ident(op, "link_")
                         || op == "-"
-                            && p.get("sequence").and_then(Value::as_u64) == Some(1)
-                            && ids(p, "predecessors", "ds_")?.is_empty(),
+                            && (p.get("sequence").and_then(Value::as_u64) == Some(1)
+                                && ids(p, "predecessors", "ds_")?.is_empty()
+                                || !ids(p, "predecessors", "ds_")?.is_empty()),
                 )?;
             }
             if kind == "admin_lease" {
@@ -723,7 +751,13 @@ fn exact_parents(kind: &str, p: &Obj) -> Result<()> {
     let mut expected = Vec::new();
     if ik != "root" {
         expected.push("issuer_person");
-        if ik == "device" {
+        // A deadline-only device renewal keeps the target's issuer_device
+        // parent, if any; its device signer need not be that parent (DEC-Q7,
+        // DEC-Q31).
+        if ik == "device"
+            && (!(kind == "device_lease" && renewal_candidate(kind, p)?)
+                || parents(p)?.contains_key("issuer_device"))
+        {
             expected.push("issuer_device");
         }
     }

@@ -1167,6 +1167,29 @@ impl Snapshot {
         if queued {
             super::peer::wake_delivery();
         }
+        // A renewal of the selected device's grant (spec 7.1) moves the
+        // selection to the new head, whoever signed it.
+        if let Some(selected) = self.selection.as_ref().filter(|s| s.kind == "device") {
+            let stream = vec![
+                "device".to_string(),
+                selected.person_key.clone(),
+                selected.device_key.clone(),
+            ];
+            if let Some(head) = projection.streams.get(&stream).and_then(|s| {
+                (s.heads.len() == 1)
+                    .then(|| s.heads.first().cloned())
+                    .flatten()
+            }) && head != selected.lease_id
+                && projection.current_statement(&stream).is_ok()
+            {
+                connection
+                    .execute(
+                        "UPDATE dec_signers SET lease_id=?3 WHERE network_id=?1 AND context_id=?2",
+                        rusqlite::params![network, context, head],
+                    )
+                    .map_err(db)?;
+            }
+        }
         Ok(())
     }
 }

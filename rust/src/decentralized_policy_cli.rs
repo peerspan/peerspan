@@ -255,7 +255,12 @@ async fn policy_ceiling(
         if let Some(after) = s.payload.get("not_after").and_then(Value::as_str) {
             ceiling = ceiling.min(after.to_owned());
         }
-        pending.extend(s.parents()?.into_values());
+        pending.extend(
+            s.parents()?
+                .into_iter()
+                .filter(|(role, _)| !s.uncapped_parent(role))
+                .map(|(_, id)| id),
+        );
     }
     Ok(ceiling)
 }

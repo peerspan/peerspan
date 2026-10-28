@@ -205,6 +205,13 @@ pub struct Stream {
 }
 /// Projections recently built by `Projection::build`, by all of its inputs.
 static BUILT: super::memo::Memo<Projection> = super::memo::Memo::new();
+/// Memo of historical issuance checks: finished results and the
+/// generations whose check is in progress.
+#[derive(Default)]
+struct Issuance {
+    done: BTreeMap<String, bool>,
+    active: BTreeSet<String>,
+}
 #[derive(Default)]
 struct Preparation {
     migration: Option<(String, String)>,
@@ -1076,6 +1083,10 @@ impl Projection {
             let person = text(issuer, "person_public_key")?;
             let parents = s.parents()?;
             let mut pushed = false;
+            let renewal = Self::device_renewal(s)?;
+            if Self::deadline_renewal(s)? {
+                self.renewal_shape(s)?;
+            }
             if s.kind == "device_lease" {
                 let device = text(s.subject()?, "device_public_key")?;
                 check(!devices.iter().any(|k| k == device))?;
@@ -1110,7 +1121,11 @@ impl Projection {
                         },
                 )?;
 
-                if let Some(end) = s.payload.get("not_after").and_then(Value::as_str) {
+                // A deadline-only renewal signed by a device is not capped by
+                // the issuer device (spec 4.4, DEC-Q7, DEC-Q27).
+                if let Some(end) = s.payload.get("not_after").and_then(Value::as_str)
+                    && !(renewal && role == "issuer_device")
+                {
                     check(end <= text(&p.payload, "not_after")?)?;
                 }
                 if role.starts_with("issuer_") {
@@ -1140,7 +1155,18 @@ impl Projection {
             if ik == "root" {
                 check(s.signer("issuer")?.public_key == text(&root.payload, "root_public_key")?)?;
             }
-            if ik == "device" {
+            if ik == "device" && renewal {
+                // The signer's own grant is the head of its device stream
+                // (DEC-Q31); admission checks it is current.
+                let signer = &s.signer("issuer")?.public_key;
+                check(self.catalog.statements.values().any(|d| {
+                    d.kind == "device_lease"
+                        && d.subject().is_ok_and(|subject| {
+                            text(subject, "device_public_key").is_ok_and(|k| k == signer)
+                                && text(subject, "person_public_key").is_ok_and(|k| k == person)
+                        })
+                }))?;
+            } else if ik == "device" {
                 let parent = self.catalog.get(
                     parents
                         .get("issuer_device")
@@ -1400,8 +1426,19 @@ impl Projection {
         // be live now; repair and complete consent cannot manufacture a past
         // admission or advance a head with an expired grant.
         self.time(s)?;
+        let renewal = Self::device_renewal(s)?;
         if s.kind == "device_lease" && text(&s.payload, "operation_id")? == "-" {
-            require(self.creator_device(s)?, "forbidden")?;
+            require(
+                if ids(&s.payload, "predecessors", "ds_")?.is_empty() {
+                    self.creator_device(s)?
+                } else {
+                    renewal
+                },
+                "forbidden",
+            )?;
+        }
+        if renewal {
+            self.renewal_signer(s)?;
         }
         if lease(&s.kind) && text(&s.payload, "operation_id")? != "-" {
             let op = text(&s.payload, "operation_id")?;
@@ -1456,6 +1493,10 @@ impl Projection {
         let issuer = s.issuer()?;
         if text(issuer, "kind")? != "root" {
             for (role, parent) in s.parents()? {
+                if renewal && role == "issuer_device" {
+                    // Checked by renewal_signer (DEC-Q29, DEC-Q31).
+                    continue;
+                }
                 if role.starts_with("issuer_") {
                     require(self.issuer_available(s, &parent)?, "forbidden")?;
                     self.use_parent(s, &role, &parent, &mut BTreeSet::new(), true)?;
@@ -1470,7 +1511,7 @@ impl Projection {
             }
         }
         self.known_restrictions(s)?;
-        if s.kind == "device_lease" && text(s.issuer()?, "kind")? == "device" {
+        if s.kind == "device_lease" && text(s.issuer()?, "kind")? == "device" && !renewal {
             let parent_id = &s.parents()?["issuer_device"];
             let parent = self.catalog.get(parent_id)?;
             require(
@@ -1488,6 +1529,391 @@ impl Projection {
         if s.kind == "device_revoke" {
             self.strict_revoke(s)?;
         }
+        Ok(())
+    }
+    /// A deadline-only renewal (spec 7.1, DEC-Q6, DEC-Q28): `operation_id`
+    /// `-`, a later generation, and for a host grant or binding only the
+    /// issuer's signature.
+    fn deadline_renewal(s: &Statement) -> Result<bool> {
+        Ok(super::statement::renewal_candidate(&s.kind, &s.payload)?
+            && (s.kind == "device_lease" || !s.signatures.contains_key("host")))
+    }
+    /// A deadline-only binding or device renewal signed by a device: its
+    /// signer is found through its own device stream (DEC-Q31), and the
+    /// issuer device does not cap it (DEC-Q7, DEC-Q27).
+    fn device_renewal(s: &Statement) -> Result<bool> {
+        Ok(matches!(s.kind.as_str(), "binding_lease" | "device_lease")
+            && Self::deadline_renewal(s)?
+            && text(s.issuer()?, "kind")? == "device")
+    }
+    /// Only the deadline moves: every predecessor has the same subject (a
+    /// device grant may keep fewer scopes) and, for a device grant, the same
+    /// issuer_device parent (DEC-Q6, DEC-Q7).
+    fn renewal_shape(&self, s: &Statement) -> Result<()> {
+        let subject = s.subject()?;
+        let predecessors = ids(&s.payload, "predecessors", "ds_")?;
+        for id in ids(&s.payload, "resolves", "ds_")? {
+            check(predecessors.contains(&id))?;
+        }
+        // A renewal moves the deadline later (spec 7.1): past the single
+        // predecessor's, or no earlier than any head of a fork it resolves.
+        let end = stamp(text(&s.payload, "not_after")?)?;
+        for id in &predecessors {
+            let before = stamp(text(&self.catalog.get(id)?.payload, "not_after")?)?;
+            require(
+                if predecessors.len() == 1 {
+                    end > before
+                } else {
+                    end >= before
+                },
+                "forbidden",
+            )?;
+        }
+        for id in &predecessors {
+            let old = self.catalog.get(id)?;
+            let before = old.subject()?;
+            for name in [
+                "person_public_key",
+                "host_public_key",
+                "device_public_key",
+                "member",
+            ] {
+                check(text(subject, name)? == text(before, name)?)?;
+            }
+            let scopes = num(subject, "scopes")?;
+            check(if s.kind == "device_lease" {
+                scopes & !num(before, "scopes")? == 0
+            } else {
+                scopes == num(before, "scopes")?
+            })?;
+            if s.kind == "device_lease" {
+                check(s.parents()?.get("issuer_device") == old.parents()?.get("issuer_device"))?;
+            }
+        }
+        Ok(())
+    }
+    /// The current, unrevoked head of the device stream of `id` (DEC-Q29):
+    /// admitted, inside its own window and not banned. Its own chain is not
+    /// followed, so a binding renewed by a device and that device's grant,
+    /// which names the binding, do not depend on each other in a cycle.
+    fn unrevoked_head(&self, id: &str) -> Result<&Statement> {
+        let stream = self
+            .catalog
+            .get(id)?
+            .stream()?
+            .ok_or_else(|| Error::new("invalid"))?;
+        let head = self.head(&stream)?;
+        self.proof_complete(&head.id)?;
+        require(self.admitted.contains(&head.id), "forbidden")?;
+        self.time(head)?;
+        self.known_restrictions(head)?;
+        Ok(head)
+    }
+    /// The scopes left by a device and every device ancestor above it, each
+    /// the unrevoked head of its stream (DEC-Q29): a ban or narrowing of
+    /// any ancestor reaches the renewed grant. Only `issuer_device` parents
+    /// are followed, never bindings or deadlines.
+    /// A replaced ancestor generation still counts only when the newer
+    /// head retained the dependent (spec 7.2).
+    fn device_ancestry(&self, dependent: &str, id: &str) -> Result<u64> {
+        let mut scopes = 15;
+        let mut seen = BTreeSet::new();
+        let mut child = dependent.to_owned();
+        let mut next = Some(id.to_owned());
+        while let Some(id) = next {
+            let head = self.unrevoked_head(&id)?;
+            check(seen.insert(head.id.clone()) && seen.len() <= 9)?;
+            if head.id != id {
+                self.retained_lineage(&head.id, &id, &child)?;
+            }
+            scopes &= num(head.subject()?, "scopes")?;
+            child = head.id.clone();
+            next = head.parents()?.get("issuer_device").cloned();
+        }
+        Ok(scopes)
+    }
+    /// Whether `current` retained `child` or an earlier generation of the
+    /// child's own stream (a renewal of a retained grant stays retained)
+    /// together with the replaced generation `old` (spec 7.2).
+    fn retained_lineage(&self, current: &str, old: &str, child: &str) -> Result<()> {
+        // Every generation between `old` and `current` must have retained the
+        // child (or an earlier generation of it) and `old`, as `cover`
+        // requires: a dropped child is not revived by a later list.
+        let mut lineage = BTreeSet::new();
+        let mut pending = vec![child.to_owned()];
+        while let Some(id) = pending.pop() {
+            if !lineage.insert(id.clone()) || lineage.len() > 4096 {
+                continue;
+            }
+            if let Some(generation) = self.catalog.statements.get(&id) {
+                pending.extend(ids(&generation.payload, "predecessors", "ds_")?);
+            }
+        }
+        let mut steps = vec![current.to_owned()];
+        let mut seen = BTreeSet::new();
+        while let Some(id) = steps.pop() {
+            if id == old || !seen.insert(id.clone()) {
+                continue;
+            }
+            require(seen.len() <= 4096, "quota_exceeded")?;
+            // Only the signed lists, not the retaining generation's own
+            // chain: that chain can lead back here through a binding it
+            // renewed.
+            let generation = self.catalog.get(&id)?;
+            let retained = ids(&generation.payload, "retained_statement_ids", "ds_")?;
+            require(
+                retained.iter().any(|r| r == old) && retained.iter().any(|r| lineage.contains(r)),
+                "forbidden",
+            )?;
+            let mut any = false;
+            for predecessor in ids(&generation.payload, "predecessors", "ds_")? {
+                if self.descends(&predecessor, old, &mut BTreeSet::new())? {
+                    steps.push(predecessor);
+                    any = true;
+                }
+            }
+            require(any, "forbidden")?;
+        }
+        Ok(())
+    }
+    /// A generation of the signer's device stream that was current when
+    /// `at` was signed and was itself validly issued, for a receiver that
+    /// never saw it live (a cold receiver): admitted, the creator device
+    /// grant, a join-issued grant of a verified activation, or a deadline
+    /// renewal whose own signer passes the same test. Returns its scopes.
+    fn historical_signer(&self, stream: &[String], at: &str, st: &mut Issuance) -> Result<u64> {
+        let at = stamp(at)?;
+        let mut found = Vec::new();
+        for g in self.catalog.statements.values() {
+            if g.kind != "device_lease" || g.stream()?.as_deref() != Some(stream) {
+                continue;
+            }
+            // Issued by `at` (a later generation cannot have authorized it),
+            // not banned; a narrower later generation still applies below.
+            if stamp(g.issued_at()?)? > at || self.known_restrictions(g).is_err() {
+                continue;
+            }
+            // No ancestor of the generation may be banned.
+            let mut ancestor = g.parents()?.get("issuer_device").cloned();
+            let mut banned = false;
+            let mut steps = 0;
+            while let Some(id) = ancestor {
+                steps += 1;
+                let Some(a) = self.catalog.statements.get(&id) else {
+                    banned = true;
+                    break;
+                };
+                if steps > 9 || self.known_restrictions(a).is_err() {
+                    banned = true;
+                    break;
+                }
+                ancestor = a.parents()?.get("issuer_device").cloned();
+            }
+            if banned {
+                continue;
+            }
+            // A generation whose own check is in progress (the renewal
+            // being checked lies in its own window) is skipped.
+            if st.active.contains(&g.id) {
+                continue;
+            }
+            if self.validly_issued(g, st)? {
+                found.push(g);
+            }
+        }
+        // The signer's authority at `at` is that of its latest validly issued
+        // generation issued by then, so a narrowing renewal counts; each
+        // device ancestor's latest generation issued by then narrows it too.
+        let Some(g) = found.into_iter().max_by_key(|g| g.sequence().unwrap_or(0)) else {
+            return Err(Error::new("forbidden"));
+        };
+        require(
+            stamp(text(&g.payload, "not_before")?)? <= at
+                && at < stamp(text(&g.payload, "not_after")?)?,
+            "authority_expired",
+        )?;
+        let mut scopes = num(g.subject()?, "scopes")?;
+        let mut ancestor = g.parents()?.get("issuer_device").cloned();
+        let mut steps = 0;
+        while let Some(id) = ancestor {
+            steps += 1;
+            require(steps <= 9, "forbidden")?;
+            let named = self.catalog.get(&id)?;
+            let key = named.stream()?;
+            let latest = self
+                .catalog
+                .statements
+                .values()
+                .filter(|a| a.kind == "device_lease" && a.stream().ok().flatten() == key)
+                .filter(|a| a.issued_at().is_ok_and(|t| stamp(t).is_ok_and(|t| t <= at)))
+                .max_by_key(|a| a.sequence().unwrap_or(0))
+                .unwrap_or(named);
+            scopes &= num(latest.subject()?, "scopes")?;
+            ancestor = named.parents()?.get("issuer_device").cloned();
+        }
+        Ok(scopes)
+    }
+    /// Whether a device grant was validly issued, also for a receiver that
+    /// never admitted it: admitted, the creator device grant, the exact
+    /// grant of a verified activation with its stage authority, or a
+    /// deadline renewal that met its issuance conditions with a signer that
+    /// passes the same test. `budget` bounds the work (and any cycle).
+    fn validly_issued(&self, g: &Statement, st: &mut Issuance) -> Result<bool> {
+        if let Some(done) = st.done.get(&g.id) {
+            return Ok(*done);
+        }
+        if !st.active.insert(g.id.clone()) {
+            return Ok(false);
+        }
+        require(st.done.len() + st.active.len() <= 4096, "quota_exceeded")?;
+        let result = self.validly_issued_inner(g, st);
+        st.active.remove(&g.id);
+        let result = result?;
+        st.done.insert(g.id.clone(), result);
+        Ok(result)
+    }
+    fn validly_issued_inner(&self, g: &Statement, st: &mut Issuance) -> Result<bool> {
+        let op = text(&g.payload, "operation_id")?;
+        Ok(self.admitted.contains(&g.id)
+            || self
+                .prior
+                .as_ref()
+                .is_some_and(|p| p.admitted.contains(&g.id))
+            || self.creator_device(g)?
+            || self.activated.get(op).is_some_and(|a| {
+                a.manifest.get("device_lease_id").and_then(Value::as_str) == Some(g.id.as_str())
+                    && self.activation_stage_authority(a, g).is_ok()
+            })
+            || Self::device_renewal(g)? && self.issuance_conditions(g, st).is_ok() && {
+                let signer = vec![
+                    "device".to_string(),
+                    text(g.issuer()?, "person_public_key")?.to_string(),
+                    g.signer("issuer")?.public_key.clone(),
+                ];
+                self.historical_signer(&signer, g.issued_at()?, st)
+                    .is_ok_and(|scopes| scopes & 4 == 4)
+            })
+    }
+    /// What a deadline-only renewal needed when it was signed: each renewed
+    /// generation current at `issued_at`, and a device renewing its own grant
+    /// only as the creator device while it was the person's only current
+    /// device (DEC-Q8, DEC-Q27, DEC-Q30).
+    fn issuance_conditions(&self, s: &Statement, st: &mut Issuance) -> Result<()> {
+        let person = text(s.issuer()?, "person_public_key")?;
+        let signer = s.signer("issuer")?.public_key.clone();
+        let stream = vec!["device".to_string(), person.to_string(), signer.clone()];
+        for id in ids(&s.payload, "predecessors", "ds_")? {
+            let old = self.catalog.get(&id)?;
+            require(
+                stamp(text(&old.payload, "not_before")?)? <= stamp(s.issued_at()?)?
+                    && stamp(s.issued_at()?)? < stamp(text(&old.payload, "not_after")?)?,
+                "authority_expired",
+            )?;
+            // The renewed device grant was itself validly issued: renewal
+            // never creates a device that no join approved.
+            if s.kind == "device_lease" {
+                require(self.validly_issued(old, st)?, "forbidden")?;
+            }
+        }
+        if s.kind == "device_lease" && text(s.subject()?, "device_public_key")? == signer {
+            let first = self
+                .catalog
+                .statements
+                .values()
+                .find(|d| {
+                    d.kind == "device_lease"
+                        && d.stream().ok().flatten().as_ref() == Some(&stream)
+                        && d.sequence().ok() == Some(1)
+                })
+                .ok_or_else(|| Error::new("forbidden"))?;
+            // The person's devices current when the renewal was signed.
+            let at = stamp(s.issued_at()?)?;
+            let mut current = BTreeSet::new();
+            for d in self.catalog.statements.values() {
+                if d.kind == "device_lease"
+                    && text(d.subject()?, "person_public_key")? == person
+                    && stamp(text(&d.payload, "not_before")?)? <= at
+                    && at < stamp(text(&d.payload, "not_after")?)?
+                    && self.known_restrictions(d).is_ok()
+                {
+                    current.insert(text(d.subject()?, "device_public_key")?.to_owned());
+                }
+            }
+            let current = current.len();
+            require(self.creator_device(first)? && current == 1, "forbidden")?;
+        }
+        Ok(())
+    }
+    /// The current heads of a stream that a deadline-only renewal may name:
+    /// its single current head, or the heads of a fork of renewals with the
+    /// same kind and subject, each usable now (spec 7.1: the next renewal
+    /// resolves such a fork).
+    pub(crate) fn renewable_heads(&self, key: &[String]) -> Result<Vec<&Statement>> {
+        require(key != ["root"] || !self.origin_conflicted, "state_conflict")?;
+        let stream = self
+            .streams
+            .get(key)
+            .ok_or_else(|| Error::new("proof_required"))?;
+        let mut heads = Vec::new();
+        for id in &stream.heads {
+            self.proof_complete(id)?;
+            self.active(id)?;
+            heads.push(self.catalog.get(id)?);
+        }
+        let first = heads.first().ok_or_else(|| Error::new("proof_required"))?;
+        for other in &heads {
+            require(
+                other.kind == first.kind && other.subject()? == first.subject()?,
+                "state_conflict",
+            )?;
+        }
+        Ok(heads)
+    }
+    /// The device that signed a deadline-only renewal: the current head of
+    /// `device/PERSON/SIGNING_KEY`, unbanned, with scope 4 (or 2 for a
+    /// binding). A device renews its own grant only as the creator device
+    /// while it is its person's only current device (DEC-Q8, DEC-Q27,
+    /// DEC-Q30). The renewed grant was current when the renewal was issued,
+    /// and a kept issuer_device ancestor still has a current head (DEC-Q29).
+    fn renewal_signer(&self, s: &Statement) -> Result<()> {
+        let person = text(s.issuer()?, "person_public_key")?;
+        let signer = s.signer("issuer")?.public_key.clone();
+        let stream = vec!["device".to_string(), person.to_string(), signer.clone()];
+        // The signer's effective scopes: every current head of its stream
+        // (a fork of identical renewals is still being resolved), each
+        // intersected along its whole chain, so narrowing an ancestor also
+        // removes renewal power.
+        let admitted = self
+            .streams
+            .get(&stream)
+            .is_some_and(|st| !st.heads.is_empty());
+        let scopes = if admitted {
+            // A known signer must be usable now; its denials stand.
+            let mut scopes = 15;
+            for own in self.renewable_heads(&stream)? {
+                scopes &= self
+                    .active_inner(&own.id, &mut BTreeSet::new(), true)?
+                    .scopes;
+            }
+            scopes
+        } else {
+            // A receiver that never admitted the signer's grant (it expired
+            // before this receiver saw it) checks the generation that was
+            // current at issuance.
+            self.historical_signer(&stream, s.issued_at()?, &mut Issuance::default())?
+        };
+        require(
+            if s.kind == "binding_lease" {
+                scopes & 6 != 0
+            } else {
+                scopes & 4 == 4
+            },
+            "forbidden",
+        )?;
+        if let Some(parent) = s.parents()?.get("issuer_device") {
+            self.device_ancestry(&s.id, parent)?;
+        }
+        self.issuance_conditions(s, &mut Issuance::default())?;
         Ok(())
     }
     /// A cold child may already have been issued before an independently
@@ -2261,7 +2687,15 @@ impl Projection {
                 },
                 proven: BTreeSet::from([id.into()]),
             };
+            let renewal = Self::device_renewal(s)?;
             for (role, parent) in s.parents()? {
+                if renewal && role == "issuer_device" {
+                    // The issuer device of a deadline-only renewal counts
+                    // while its stream has a current head (DEC-Q29); it does
+                    // not cap the deadline (DEC-Q7, DEC-Q27).
+                    power.scopes &= self.device_ancestry(id, &parent)?;
+                    continue;
+                }
                 power.intersect(&self.use_parent(s, &role, &parent, path, retained)?);
             }
             Ok(power)
