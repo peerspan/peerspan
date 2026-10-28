@@ -51,6 +51,7 @@ fn status_unavailable(error: &Error) -> bool {
                 | "forbidden"
                 | "person_removed"
                 | "authority_expired"
+                | "expired"
                 | "device_revoked"
                 | "not_yet_valid"
         )
@@ -454,6 +455,7 @@ impl Store {
                     e.code,
                     "not_found"
                         | "authority_expired"
+                        | "expired"
                         | "not_yet_valid"
                         | "forbidden"
                         | "device_revoked"

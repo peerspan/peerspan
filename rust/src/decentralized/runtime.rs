@@ -201,7 +201,7 @@ pub(crate) fn status_network(
                     let kind = match e.code {
                         "proof_required" => "network_proof_required",
                         "state_conflict" => "network_state_conflict",
-                        "authority_expired" => "policy_expired",
+                        "authority_expired" | "expired" => "policy_expired",
                         "forbidden" | "not_yet_valid" | "device_revoked" | "person_removed" => {
                             "network_authority_expired"
                         }
@@ -219,6 +219,7 @@ pub(crate) fn status_network(
                     ));
                 }
             }
+            edit_attention.extend(super::renewal::attention(&s, &p, network)?);
             view
         }
         Err(e)
