@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Slim suite 10, basics: info, status and errors, old networks, storage and the host service.
+"""Slim suite 10, basics: info, status and errors, storage and the host service.
 
 alice creates a network and bob joins; carol only makes a join request. Written from
 docs/decentralized-spec.md sections 14 to 17, the wire appendix sections 16.1, 16.9 and 19, and
 docs/host-service-contract.md and docs/launch-contract.md (status).
 
 Not covered here: the installed-bundle smoke test (packaging a release bundle needs a release build and the
-Node integration bundles, several minutes on CI, over this suite's 2-minute budget), and legacy networks
-(spec 14.1), which only the retired coordinator can create.
+Node integration bundles, several minutes on CI, over this suite's 2-minute budget). Legacy-network
+history compatibility (spec 14.1) has no fixture in this suite.
 """
 import json
 import shutil
 import sqlite3
 import subprocess
 
-from harness import (Suite, Skip, attention, check, create_network, invite, join_new_person, join_request, members,
+from harness import (Suite, attention, check, create_network, invite, join_new_person, join_request, members,
                      ssh_key, wait_for)
 
 suite = Suite("basics", __doc__)
@@ -121,11 +121,6 @@ def _():
 
     found = wait_for(waiting, timeout=10, message="link_request_waiting on the inviter")
     check(any("link approve" in d or request["request_id"] in d for d in found), f"item detail {found}")
-
-
-@suite.case("legacy_network_read_only", "spec 14.1 (DEC-S12, DEC-Q15); 20 item 57")
-def _():
-    raise Skip("needs a legacy network, which only the retired coordinator can create")
 
 
 @suite.case("removed_commands", "spec 15: network migrate and network resolve-root are removed")
