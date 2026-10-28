@@ -13,8 +13,10 @@ limits.
 
 This refines the [UP-05 design](https://github.com/peerspan/docs-internal/blob/main/docs/machine-linking.md),
 accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9).
-Both Go and Rust implement the shared behavior. Rust remains the recommended
-install; Go remains supported. Private release configuration, macOS and live
+The Rust host in this repository implements the shared behavior; the Go
+implementation is maintained separately at
+[peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) ([DEC-OWN5](decision-log.md)).
+Private release configuration, macOS and live
 model validation remain separate work.
 
 This document fixes signed bytes, authority evaluation and encryption primitives.

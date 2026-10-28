@@ -1,8 +1,8 @@
 # Implementation instructions
 
-This directory contains the Rust host service, developed alongside the Go implementation in `../go`. The implementation to release as OSS is undecided.
+This directory contains the Rust host service, the only host implementation in this repository. The Go implementation is maintained separately at https://github.com/peerspan/peerspan-go.
 
-Shared external behavior and conformance tests live in this repository’s `docs/` and `conformance/` directories. The broader architecture lives in the `mesh-new` design repository. Maintain behavior parity without mechanically translating Go module structure into Rust. Record protocol and product decisions in the shared design.
+Shared external behavior and conformance tests live in this repository’s `docs/` and `conformance/` directories. The broader architecture lives in the `mesh-new` design repository. Record protocol and product decisions in the shared design.
 
 Coordination remains outside the data path. Hosts own execution, local state, and permission enforcement. Agent identity is distinct from sessions. Membership, ownership, and access are separate.
 
@@ -12,4 +12,4 @@ Implement working slices rather than empty modules. SQLite operations belong on 
 
 Use Clap with typed commands and arguments for the Rust CLI. Keep parsing separate from daemon lifecycle and local request execution. Preserve the shared command contract when extending the CLI.
 
-Run `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`. When external behavior changes, run the shared suite that covers it: `conformance/host_service.py` for local administration, `conformance/peer_messaging.py` for peer transport, and `conformance/coordination.py` with the Go `peerspan-coord` binary for enrollment. Rust has no coordinator binary.
+Run `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`. When external behavior changes, run the shared suite that covers it: `conformance/host_service.py` for local administration, and the checks named in the repository-level `AGENTS.md` for other changes. Suites that still require Go binaries or the retired `peerspan-coord` coordinator are being replaced by Rust-only conformance.

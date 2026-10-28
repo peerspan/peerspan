@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: $0 go|rust VERSION [OUTPUT_DIR]" >&2
+  echo "usage: $0 rust VERSION [OUTPUT_DIR]" >&2
   exit 2
 }
 
@@ -13,7 +13,11 @@ version=$2
 output=${3:-dist}
 
 case "$implementation" in
-  go|rust) ;;
+  rust) ;;
+  go)
+    echo "the Go host moved to https://github.com/peerspan/peerspan-go; this repository packages the Rust host only" >&2
+    exit 2
+    ;;
   *) usage ;;
 esac
 
@@ -77,13 +81,11 @@ os=linux
 case "$(uname -m)" in
   x86_64|amd64)
     arch=amd64
-    go_arch=amd64
     rust_target=x86_64-unknown-linux-gnu
     file_arch='x86-64'
     ;;
   arm64|aarch64)
     arch=arm64
-    go_arch=arm64
     rust_target=aarch64-unknown-linux-gnu
     file_arch='ARM aarch64'
     ;;
@@ -116,29 +118,14 @@ if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$chec
   exit 1
 fi
 
-case "$implementation" in
-  go)
-    command -v go >/dev/null 2>&1 || {
-      echo "missing required command: go" >&2
-      exit 1
-    }
-    go_host=github.com/peerspan/peerspan/go/internal/host
-    GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
-      go -C "$repo/go" build -trimpath \
-      -ldflags "-X $go_host.Version=$version" \
-      -o "$bundle/bin/peerspan-host" ./cmd/peerspan-host
-    ;;
-  rust)
-    command -v cargo >/dev/null 2>&1 || {
-      echo "missing required command: cargo" >&2
-      exit 1
-    }
-    cargo_target="$repo/rust/target/peerspan-package-$rust_target"
-    CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
-      --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-host
-    cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
-    ;;
-esac
+command -v cargo >/dev/null 2>&1 || {
+  echo "missing required command: cargo" >&2
+  exit 1
+}
+cargo_target="$repo/rust/target/peerspan-package-$rust_target"
+CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+  --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-host
+cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
 
 case "$(file -b "$bundle/bin/peerspan-host")" in
   *ELF*"$file_arch"*) ;;

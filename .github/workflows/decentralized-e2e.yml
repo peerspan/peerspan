@@ -14,13 +14,9 @@ concurrency:
 
 jobs:
   two-people:
-    name: Two people, two hosts, no coordinator (${{ matrix.implementation }})
+    name: Two people, two hosts, no coordinator (rust)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        implementation: [go, rust]
     env:
       CARGO_INCREMENTAL: '0'
       EXPECTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -29,32 +25,20 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install Rust toolchain
-        if: matrix.implementation == 'rust'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Build host and peer probe from this checkout
-        env:
-          IMPLEMENTATION: ${{ matrix.implementation }}
         run: |
           set -euo pipefail
           [[ $(git rev-parse HEAD) == "$EXPECTED_SOURCE" ]]
           mkdir -p "$RUNNER_TEMP/dec-bin" "$RUNNER_TEMP/dec-receipts"
-          CGO_ENABLED=0 go -C go build -o "$RUNNER_TEMP/dec-bin/peerspan-peer-probe" ./cmd/peerspan-peer-probe
-          if [[ $IMPLEMENTATION == go ]]; then
-            CGO_ENABLED=0 go -C go build -o "$RUNNER_TEMP/dec-bin/peerspan-host" ./cmd/peerspan-host
-          else
-            cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-host
-            cp rust/target/debug/peerspan-host "$RUNNER_TEMP/dec-bin/"
-          fi
+          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-host --bin peerspan-peer-probe
+          cp rust/target/debug/peerspan-host rust/target/debug/peerspan-peer-probe "$RUNNER_TEMP/dec-bin/"
           git diff --exit-code
           {
             git rev-parse HEAD
@@ -77,7 +61,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: decentralized-link-${{ matrix.implementation }}-${{ env.EXPECTED_SOURCE }}
+          name: decentralized-link-rust-${{ env.EXPECTED_SOURCE }}
           path: |
             ${{ runner.temp }}/dec-receipts/source-and-artifacts.txt
             ${{ runner.temp }}/dec-receipts/results.json

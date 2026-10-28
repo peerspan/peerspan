@@ -5,7 +5,6 @@
 .peerspans/
 /peerspan
 /peerspan-host
-/go/peerspan-host
 /dist/
 
 __pycache__/

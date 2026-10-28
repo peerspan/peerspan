@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 VERSION [--implementation rust|go] [--from DIRECTORY | --from-github OWNER/REPO] [--no-service]" >&2
+  echo "usage: $0 VERSION [--implementation rust] [--from DIRECTORY | --from-github OWNER/REPO] [--no-service]" >&2
   exit 2
 }
 
@@ -46,7 +46,11 @@ while [[ $# -gt 0 ]]; do
     *) usage ;;
   esac
 done
-[[ $implementation == rust || $implementation == go ]] || usage
+if [[ $implementation == go ]]; then
+  echo "the Go host moved to https://github.com/peerspan/peerspan-go; this installer installs the Rust host only" >&2
+  exit 2
+fi
+[[ $implementation == rust ]] || usage
 
 if [[ $(uname -s) != Linux ]]; then
   echo "release archives are currently validated for Linux only" >&2

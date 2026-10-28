@@ -14,7 +14,7 @@ From a source checkout, put a matching release archive and its `.sha256` file in
 scripts/install-release.sh VERSION --from dist
 ```
 
-The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing host between Go and Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
+The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing Go host installation to Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
 
 Once a release is published, you can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
 

@@ -95,6 +95,8 @@ python3 conformance/live_codex_agents.py --go GO_BINARY --rust RUST_BINARY \
   --thread-a TEST_THREAD_A --thread-b TEST_THREAD_B --output /tmp/codex-live.json
 ```
 
+`GO_BINARY` is a `peerspan-host` built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go); these suites still take one until Rust-only conformance replaces them.
+
 Deterministic tests use pre-existing backend fixtures and real MCP consumers
 against all Go/Rust pairings. The opt-in live runner uses two caller-selected,
 already-running test conversations and verifies pre-attachment phrases in model

@@ -56,10 +56,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -67,19 +63,17 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      - name: Build and check host bundles
+      - name: Build and check the host bundle
         env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          for implementation in rust go; do
-            scripts/package-release.sh "$implementation" "$VERSION" dist
-            name="peerspan-${VERSION}-linux-${ARCH}-${implementation}"
-            (cd dist && sha256sum -c "$name.tar.gz.sha256")
-            python conformance/installed_bundle.py \
-              --archive "dist/$name.tar.gz" --node "$(command -v node)"
-          done
+          scripts/package-release.sh rust "$VERSION" dist
+          name="peerspan-${VERSION}-linux-${ARCH}-rust"
+          (cd dist && sha256sum -c "$name.tar.gz.sha256")
+          python conformance/installed_bundle.py \
+            --archive "dist/$name.tar.gz" --node "$(command -v node)"
       - name: Build and check the optional helper (Rust)
         env:
           VERSION: ${{ inputs.version }}
@@ -124,15 +118,13 @@ jobs:
         run: |
           set -euo pipefail
           for arch in amd64 arm64; do
-            for implementation in rust go; do
-              name="peerspan-${VERSION}-linux-${arch}-${implementation}"
-              test -s "assets/$name.tar.gz"
-              test -s "assets/$name.tar.gz.sha256"
-              (cd assets && sha256sum -c "$name.tar.gz.sha256")
-              tar -xOzf "assets/$name.tar.gz" "$name/RELEASE.json" |
-                python3 -c 'import json,sys; r=json.load(sys.stdin); assert (r["version"],r["os"],r["architecture"],r["implementation"],r["source_revision"],r["source_dirty"]) == (sys.argv[1],"linux",sys.argv[2],sys.argv[3],sys.argv[4],False)' \
-                  "$VERSION" "$arch" "$implementation" "$GITHUB_SHA"
-            done
+            name="peerspan-${VERSION}-linux-${arch}-rust"
+            test -s "assets/$name.tar.gz"
+            test -s "assets/$name.tar.gz.sha256"
+            (cd assets && sha256sum -c "$name.tar.gz.sha256")
+            tar -xOzf "assets/$name.tar.gz" "$name/RELEASE.json" |
+              python3 -c 'import json,sys; r=json.load(sys.stdin); assert (r["version"],r["os"],r["architecture"],r["implementation"],r["source_revision"],r["source_dirty"]) == (sys.argv[1],"linux",sys.argv[2],"rust",sys.argv[3],False)' \
+                "$VERSION" "$arch" "$GITHUB_SHA"
             name="peerspan-helper-${VERSION}-linux-${arch}"
             test -s "assets/$name.tar.gz"
             test -s "assets/$name.tar.gz.sha256"
@@ -160,4 +152,4 @@ jobs:
           gh release create "v$VERSION" assets/* \
             --target "$GITHUB_SHA" --draft --prerelease \
             --title "Peerspan v$VERSION" \
-            --notes 'Coordinator-free Linux preview. Rust is the recommended host; Go is supported. The helper is a separate optional transport-only artifact. Verify matching SHA-256 files before installation.'
+            --notes 'Coordinator-free Linux preview. The host is the Rust implementation; the Go implementation is maintained separately at github.com/peerspan/peerspan-go. The helper is a separate optional transport-only artifact. Verify matching SHA-256 files before installation.'

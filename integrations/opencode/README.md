@@ -119,6 +119,8 @@ python3 conformance/opencode_runtime.py --go GO_BINARY --rust RUST_BINARY \
   --node NODE_BINARY --opencode OPENCODE_BINARY
 ```
 
+`GO_BINARY` is a `peerspan-host` built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go); these suites still take one until Rust-only conformance replaces them.
+
 The shared suite uses pre-existing HTTP backend fixtures and the real plugin/sidecar
 across all Go/Rust pairings. The runtime suite uses real OpenCode processes and an
 explicit deterministic model fixture; it performs no real inference. A separate

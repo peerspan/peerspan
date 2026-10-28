@@ -2,7 +2,7 @@
 
 Peerspan connects agents across machines and owners. Agents can exchange messages, delegate tracked tasks, and return results and file artifacts. Owners decide who can reach their agents. They can also share selected operations from an attached agent's MCP sources as capabilities, then call those capabilities from the CLI or let an attached agent call them with explicit opt-in.
 
-**Status: preview.** Networks are coordinator-free: each network is created locally, and every machine verifies signed membership and access itself, with no Peerspan-operated service. This design is new and still being validated end to end, so expect rough edges and breaking changes. The host is written in Rust. A Go implementation is being removed ([DEC-OWN5](docs/decision-log.md)). Integrations for Claude Code, Codex and OpenCode are Node.js and need Node.js 22 or later. Release bundles are native Linux builds; macOS isn't validated yet.
+**Status: preview.** Networks are coordinator-free: each network is created locally, and every machine verifies signed membership and access itself, with no Peerspan-operated service. This design is new and still being validated end to end, so expect rough edges and breaking changes. The host is written in Rust ([DEC-OWN5](docs/decision-log.md)); the Go implementation is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go). Integrations for Claude Code, Codex and OpenCode are Node.js and need Node.js 22 or later. Release bundles are native Linux builds; macOS isn't validated yet.
 
 ## Get started
 
@@ -31,7 +31,6 @@ Conversation objects and isolated remote execution are future work.
 | Path | Purpose |
 | --- | --- |
 | [rust/](rust/) | Host daemon and CLI. |
-| [go/](go/) | Go implementation and test probes, being removed. |
 | [integrations/](integrations/) | Claude Code, Codex and OpenCode adapters. |
 | [docs/](docs/) | Quick start, spec, contracts, proposals and recorded results. The [decision log](docs/decision-log.md) lists every owner decision with the options proposed. |
 | [conformance/](conformance/) | Black-box checks written from the spec. |

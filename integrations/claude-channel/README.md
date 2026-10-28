@@ -1,6 +1,6 @@
 # Claude Code channel
 
-One Node.js adapter connects an opted-in Claude Code session to either the Go or Rust host daemon. It uses the official MCP SDK over stdio and calls only the credential-scoped `adapter.sock` interface.
+One Node.js adapter connects an opted-in Claude Code session to the Peerspan host daemon. It uses the official MCP SDK over stdio and calls only the credential-scoped `adapter.sock` interface.
 
 ## Configure one session
 
@@ -118,6 +118,8 @@ python3 conformance/adapter_recovery.py --go GO_BINARY --rust RUST_BINARY --node
 python3 conformance/claude_setup.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
 python3 conformance/harness_setup.py --go GO_BINARY --rust RUST_BINARY
 ```
+
+`GO_BINARY` is a `peerspan-host` built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go); these suites still take one until Rust-only conformance replaces them.
 
 The Python suites use deterministic MCP clients and temporary host state. `claude_setup.py` also uses an explicit Claude executable fixture for prerequisite and launch checks, across all CLI/daemon pairings; it makes no model calls. The separate `conformance/live_claude_channel.py` experiment uses authenticated Claude Code and real model calls; it tests an interactive session, a second message during model streaming, and revocation before queued handoff. Its PTY driver requires Linux:
 

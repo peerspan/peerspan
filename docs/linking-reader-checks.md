@@ -21,9 +21,11 @@ From the repository root, build each implementation's reader probe and pass both
 executable paths. These temporary cache/output paths also work in the workspace
 sandbox:
 
+`$PEERSPAN_GO` is a checkout of [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go), which builds the Go probe.
+
 ```sh
 GOCACHE=/tmp/peerspan-link-readers-cache/go \
-  go -C go build -o /tmp/peerspan-link-readers-go ./cmd/peerspan-link-probe
+  go -C "$PEERSPAN_GO" build -o /tmp/peerspan-link-readers-go ./cmd/peerspan-link-probe
 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target \
   cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe
 python3 conformance/linking_readers.py \

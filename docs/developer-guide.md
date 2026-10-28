@@ -1,42 +1,47 @@
 # Developer guide
 
-This is the source-checkout path. For the user path, follow the [quick start](quick-start.md). Both hosts implement one external contract; use separate state directories when running them side by side.
+This is the source-checkout path. For the user path, follow the [quick start](quick-start.md). This repository contains the Rust host only ([DEC-OWN5](decision-log.md)); the Go implementation is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go). Use separate state directories when running several hosts side by side.
 
-## Build the hosts and coordinator
+## Build the host and test probes
 
 From the repository root:
 
 ```sh
-cargo build --locked --manifest-path rust/Cargo.toml
-go -C go build -o /tmp/peerspan-host-go ./cmd/peerspan-host
-go -C go build -o /tmp/peerspan-coord ./cmd/peerspan-coord
-go -C go build -o /tmp/peerspan-peer-probe ./cmd/peerspan-peer-probe
+cargo build --locked --manifest-path rust/Cargo.toml --bins
 ```
 
-`peerspan-coord` serves both host implementations. The peer probe is a conformance fixture, not a deployment binary. The [architecture map](architecture-onboarding.md) identifies the daemon, CLI, storage, transport, and adapter entry points.
+This builds `peerspan-host` (the daemon and CLI, also installed as `peerspan`), the optional `peerspan-helper`, and the `peerspan-peer-probe` and `peerspan-link-probe` conformance fixtures under `rust/target/debug/`. The probes are test clients, not deployment binaries. The [architecture map](architecture-onboarding.md) identifies the daemon, CLI, storage, transport, and adapter entry points.
 
-## Package both release choices
+## Package a release bundle
 
 ```sh
 scripts/package-release.sh rust VERSION
-scripts/package-release.sh go VERSION
+scripts/package-helper.sh VERSION
 ```
 
-The script currently packages native Linux builds, bundles pinned Node integrations, and writes an archive plus checksum under `dist/`. It requires Node.js 22 or later. The Rust bundle records the builder's glibc baseline in `RELEASE.json`. The [quick start](quick-start.md) describes installing a bundle; the [installed-bundle check](../conformance/installed_bundle.py) exercises its contents.
+The host script currently packages native Linux builds, bundles pinned Node integrations, and writes an archive plus checksum under `dist/`. It requires Node.js 22 or later and records the builder's glibc baseline in `RELEASE.json`. The [quick start](quick-start.md) describes installing a bundle; the [installed-bundle check](../conformance/installed_bundle.py) exercises its contents.
 
 ## Verify a change
 
-The [implementation instructions](../AGENTS.md) map each changed contract or CLI surface to its required checks. The common language checks are:
+The [implementation instructions](../AGENTS.md) map each changed contract or CLI surface to its required checks. The language checks, as run in CI, are:
 
 ```sh
-go -C go test -race ./internal/... ./cmd/...
-go -C go vet ./internal/... ./cmd/...
 cargo fmt --check --manifest-path rust/Cargo.toml
 cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```
 
-Shared [conformance suites](../conformance/) run the Go and Rust binaries in every relevant pairing. Changes to the documented launch path also require `conformance/launch_acceptance.py`, which packages both implementations and runs clean-user solo, pair, and team paths. Its environment requirements are in [AGENTS.md](../AGENTS.md). Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
+CI also runs the coordinator-free [native introduction suite](../conformance/decentralized_native_introduction.py) with the Rust host and the Rust peer probe:
+
+```sh
+python3 conformance/decentralized_native_introduction.py \
+  --host rust/target/debug/peerspan-host \
+  --probe rust/target/debug/peerspan-peer-probe \
+  --source "$(git rev-parse HEAD)" --work-dir /tmp/peerspan-dec-cases \
+  --results /tmp/peerspan-dec-results.json
+```
+
+Many older [conformance suites](../conformance/) still take a `--go` binary and, for enrollment, the retired `peerspan-coord` coordinator; Rust-only conformance replaces them. Until then, run them with binaries built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) where a check requires them. Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
 
 ## Explore a subsystem
 

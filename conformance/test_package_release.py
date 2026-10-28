@@ -27,8 +27,14 @@ checksum = Path(str(archive) + ".sha256")
 control = Path(os.environ["PEERSPAN_TEST_CONTROL"])
 if command == "node":
     print("22" if args[0] == "-p" else "v22.0.0")
-elif command == "go":
-    output = Path(args[args.index("-o") + 1])
+elif command == "cargo":
+    output = (
+        Path(os.environ["CARGO_TARGET_DIR"])
+        / args[args.index("--target") + 1]
+        / "release"
+        / "peerspan-host"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(os.environ["PEERSPAN_TEST_ELF"], output)
 elif command == "npm":
     prefix = Path(args[args.index("--prefix") + 1])
@@ -90,7 +96,7 @@ class PackageReleaseTests(unittest.TestCase):
         if architecture is None or not shutil.which("flock"):
             self.skipTest("requires a supported Linux architecture and flock")
         self.archive = self.output / (
-            f"peerspan-publication-test-linux-{architecture}-go.tar.gz"
+            f"peerspan-publication-test-linux-{architecture}-rust.tar.gz"
         )
         self.checksum = Path(str(self.archive) + ".sha256")
         self.env = dict(os.environ)
@@ -102,7 +108,7 @@ class PackageReleaseTests(unittest.TestCase):
             PEERSPAN_TEST_ELF=shutil.which("true"),
             PEERSPAN_TEST_LN=shutil.which("ln"),
         )
-        for command in ("node", "npm", "go"):
+        for command in ("node", "npm", "cargo"):
             self.shim(command)
 
     def shim(self, command):
@@ -114,7 +120,7 @@ class PackageReleaseTests(unittest.TestCase):
         return subprocess.Popen(
             [
                 str(REPO / "scripts/package-release.sh"),
-                "go",
+                "rust",
                 "publication-test",
                 str(self.output),
             ],

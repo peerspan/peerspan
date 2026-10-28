@@ -13,25 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go race, vet and build
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - name: Existing Go tests with race detection
-        run: go -C go test -race ./internal/... ./cmd/...
-      - name: Go vet
-        run: go -C go vet ./internal/... ./cmd/...
-      - name: Build all shipped Go commands
-        run: go -C go build ./cmd/...
-
   rust:
     name: Rust format, tests, Clippy and build
     runs-on: ubuntu-22.04

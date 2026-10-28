@@ -2,6 +2,8 @@
 
 Peerspan connects agents running on developer-owned machines. Each machine runs a host daemon that owns identity, local state, message authorization, and delivery into opted-in sessions. A separate coordinator distributes membership and reachability information. The first useful path through the code is a message from one live session to another, followed by its reply.
 
+> This map is a snapshot from before the coordinator-free redesign and the removal of the Go host from this repository ([DEC-OWN5](decision-log.md)). Go entry points now link to [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go), where the Go implementation is maintained. The `peerspan-coord` coordinator it describes is retired; see the [coordinator-free spec](decentralized-spec.md) for the current design.
+
 This map covers the primary checkout at `/root/peerspan/peerspan`, branch `admins-groups`, starting at commit `a6ee704`, including the uncommitted code present during inspection on October 6, 2026. Sibling `peerspan-*` directories are worktrees, not services. `mesh-new` holds broader design; `natbench` is a separate project. The diagrams describe logical responsibilities rather than independently deployed microservices.
 
 ## Start with these boundaries
@@ -59,24 +61,24 @@ flowchart TB
 
 The coordinator is outside the **plaintext collaboration path**, but can be in the **packet forwarding path**. The inner peer QUIC connection remains encrypted end to end when carried by relay frames. Losing coordination can still affect membership freshness, connected-only grants, and relay reachability.
 
-Sources: [Go startup](../go/cmd/peerspan-host/main.go), [Rust startup](../rust/src/main.rs), [Go socket lifecycle](../go/internal/host/daemon.go), [Go coordinator dispatch](../go/internal/coord/relay.go), [coordination contract](coordination-contract.md).
+Sources: [Go startup](https://github.com/peerspan/peerspan-go/blob/main/cmd/peerspan-host/main.go), [Rust startup](../rust/src/main.rs), [Go socket lifecycle](https://github.com/peerspan/peerspan-go/blob/main/internal/host/daemon.go), [Go coordinator dispatch](https://github.com/peerspan/peerspan-go/blob/main/internal/coord/relay.go), [coordination contract](coordination-contract.md).
 
 ## Find the responsibility in either implementation
 
-| Responsibility | Go entry points | Rust entry points |
+| Responsibility | Go entry points ([peerspan-go](https://github.com/peerspan/peerspan-go)) | Rust entry points |
 | --- | --- | --- |
-| CLI and daemon orchestration | [`cmd/peerspan-host/main.go`](../go/cmd/peerspan-host/main.go) | [`main.rs`](../rust/src/main.rs), [`cli.rs`](../rust/src/cli.rs) |
-| Local admin router | [`host/api.go`](../go/internal/host/api.go) | [`api.rs`](../rust/src/api.rs) |
-| Persistence, identity, migrations, registry | [`host/store.go`](../go/internal/host/store.go), [`session.go`](../go/internal/host/session.go) | [`store.rs`](../rust/src/store.rs), [`model.rs`](../rust/src/model.rs) |
-| Peer authorization, grants, receipts | [`host/peer_store.go`](../go/internal/host/peer_store.go), [`peer_transport.go`](../go/internal/host/peer_transport.go) | [`peer_store.rs`](../rust/src/peer_store.rs), [`peer.rs`](../rust/src/peer.rs) |
-| QUIC connections and HTTP streams | [`host/peer_quic.go`](../go/internal/host/peer_quic.go) | [`quic.rs`](../rust/src/quic.rs) |
-| Relay packet socket and direct paths | [`host/peer_relay.go`](../go/internal/host/peer_relay.go), [`peer_path.go`](../go/internal/host/peer_path.go), [`disco`](../go/internal/disco/disco.go), [`stun`](../go/internal/stun/stun.go) | [`relay.rs`](../rust/src/relay.rs), [`disco.rs`](../rust/src/disco.rs), [`quic.rs`](../rust/src/quic.rs) |
-| Network client and verified maps | [`host/network.go`](../go/internal/host/network.go), [`network_governance.go`](../go/internal/host/network_governance.go), [`network_persons.go`](../go/internal/host/network_persons.go) | [`network.rs`](../rust/src/network.rs) |
-| Signed statements and person keys | [`membership`](../go/internal/membership/membership.go), [`person`](../go/internal/person/person.go) | [`membership.rs`](../rust/src/membership.rs), [`persons.rs`](../rust/src/persons.rs) |
-| Adapter scope, handoff, replies, recovery | [`host/adapter_api.go`](../go/internal/host/adapter_api.go), [`adapter_store.go`](../go/internal/host/adapter_store.go), [`adapter_connection.go`](../go/internal/host/adapter_connection.go), [`adapter_outbound.go`](../go/internal/host/adapter_outbound.go) | [`adapter.rs`](../rust/src/adapter.rs), [`adapter_connection.rs`](../rust/src/adapter_connection.rs), [`adapter_outbound.rs`](../rust/src/adapter_outbound.rs) |
-| Durable outbound retry | [`host/outbound_retry.go`](../go/internal/host/outbound_retry.go) | [`retry.rs`](../rust/src/retry.rs) |
-| Harness discovery, setup, launch, diagnostics | [`internal/integration`](../go/internal/integration/provider.go), [`session_setup.go`](../go/cmd/peerspan-host/session_setup.go) | [`integration.rs`](../rust/src/integration.rs), [`adapter_setup.rs`](../rust/src/adapter_setup.rs) |
-| Coordination server | [`cmd/peerspan-coord`](../go/cmd/peerspan-coord/main.go), [`internal/coord`](../go/internal/coord/coord.go) | Uses the Go coordinator; no Rust coordinator binary |
+| CLI and daemon orchestration | [`cmd/peerspan-host/main.go`](https://github.com/peerspan/peerspan-go/blob/main/cmd/peerspan-host/main.go) | [`main.rs`](../rust/src/main.rs), [`cli.rs`](../rust/src/cli.rs) |
+| Local admin router | [`host/api.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/api.go) | [`api.rs`](../rust/src/api.rs) |
+| Persistence, identity, migrations, registry | [`host/store.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/store.go), [`session.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/session.go) | [`store.rs`](../rust/src/store.rs), [`model.rs`](../rust/src/model.rs) |
+| Peer authorization, grants, receipts | [`host/peer_store.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_store.go), [`peer_transport.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_transport.go) | [`peer_store.rs`](../rust/src/peer_store.rs), [`peer.rs`](../rust/src/peer.rs) |
+| QUIC connections and HTTP streams | [`host/peer_quic.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_quic.go) | [`quic.rs`](../rust/src/quic.rs) |
+| Relay packet socket and direct paths | [`host/peer_relay.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_relay.go), [`peer_path.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_path.go), [`disco`](https://github.com/peerspan/peerspan-go/blob/main/internal/disco/disco.go), [`stun`](https://github.com/peerspan/peerspan-go/blob/main/internal/stun/stun.go) | [`relay.rs`](../rust/src/relay.rs), [`disco.rs`](../rust/src/disco.rs), [`quic.rs`](../rust/src/quic.rs) |
+| Network client and verified maps | [`host/network.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network.go), [`network_governance.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network_governance.go), [`network_persons.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network_persons.go) | [`network.rs`](../rust/src/network.rs) |
+| Signed statements and person keys | [`membership`](https://github.com/peerspan/peerspan-go/blob/main/internal/membership/membership.go), [`person`](https://github.com/peerspan/peerspan-go/blob/main/internal/person/person.go) | [`membership.rs`](../rust/src/membership.rs), [`persons.rs`](../rust/src/persons.rs) |
+| Adapter scope, handoff, replies, recovery | [`host/adapter_api.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_api.go), [`adapter_store.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_store.go), [`adapter_connection.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_connection.go), [`adapter_outbound.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_outbound.go) | [`adapter.rs`](../rust/src/adapter.rs), [`adapter_connection.rs`](../rust/src/adapter_connection.rs), [`adapter_outbound.rs`](../rust/src/adapter_outbound.rs) |
+| Durable outbound retry | [`host/outbound_retry.go`](https://github.com/peerspan/peerspan-go/blob/main/internal/host/outbound_retry.go) | [`retry.rs`](../rust/src/retry.rs) |
+| Harness discovery, setup, launch, diagnostics | [`internal/integration`](https://github.com/peerspan/peerspan-go/blob/main/internal/integration/provider.go), [`session_setup.go`](https://github.com/peerspan/peerspan-go/blob/main/cmd/peerspan-host/session_setup.go) | [`integration.rs`](../rust/src/integration.rs), [`adapter_setup.rs`](../rust/src/adapter_setup.rs) |
+| Coordination server | [`cmd/peerspan-coord`](https://github.com/peerspan/peerspan-go/blob/main/cmd/peerspan-coord/main.go), [`internal/coord`](https://github.com/peerspan/peerspan-go/blob/main/internal/coord/coord.go) | Uses the Go coordinator; no Rust coordinator binary |
 | Live session bridge | [`channel.mjs`](../integrations/claude-channel/channel.mjs), [`provider.mjs`](../integrations/claude-channel/provider.mjs) | Same Node integration |
 
 `Store` is the central host state owner, and many domain operations are methods on it. In Go, most host files share the `host` package. In Rust, modules extend `Store`; blocking workers keep SQLite operations off the async executor. These files are responsibility boundaries within one daemon, not separate services.
@@ -138,7 +140,7 @@ sequenceDiagram
 
 A grant binds requester host, target agent, `message.append`, expiration, byte bound, and disconnected permission. It is checked before deduplication even on a resend. One direction's grant creates no reverse grant. Receipt lookup is a distinct read operation and can confirm earlier acceptance after grant expiration or revocation, while the sender remains a known host.
 
-Read `PrepareOutbound`, `Exchange`, `AcceptMessage`, `grantBounds`, and `grantConnected` in [peer_store.go](../go/internal/host/peer_store.go) and [peer_transport.go](../go/internal/host/peer_transport.go); compare [peer_store.rs](../rust/src/peer_store.rs) and [peer.rs](../rust/src/peer.rs).
+Read `PrepareOutbound`, `Exchange`, `AcceptMessage`, `grantBounds`, and `grantConnected` in [peer_store.go](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_store.go) and [peer_transport.go](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_transport.go); compare [peer_store.rs](../rust/src/peer_store.rs) and [peer.rs](../rust/src/peer.rs).
 
 ## Sequence 3 Live agent send and automatic reply
 
@@ -184,7 +186,7 @@ The adapter exposes four MCP tools: `list_destinations`, `send`, `send_status`, 
 
 Handoff deliberately records `unknown` **before** sending content to the session. A crash between claiming and acknowledgment cannot safely reveal whether the session received it. Unknown handoffs remain inspectable and are not automatically redelivered. Peer append retries and session handoff recovery therefore have different semantics. A reply to already delivered content can survive a lapsed coordination freshness check, but final grant bounds still apply.
 
-Sources: [adapter outbound](../go/internal/host/adapter_outbound.go), [adapter handoff](../go/internal/host/adapter_store.go), [adapter API](../go/internal/host/adapter_api.go), [Node channel](../integrations/claude-channel/channel.mjs), [adapter contract](agent-adapter-contract.md).
+Sources: [adapter outbound](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_outbound.go), [adapter handoff](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_store.go), [adapter API](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_api.go), [Node channel](../integrations/claude-channel/channel.mjs), [adapter contract](agent-adapter-contract.md).
 
 ## Sequence 4 Signed enrollment and map verification
 
@@ -220,7 +222,7 @@ This sequence shows the host-only invite chain. Default create/join flows can al
 
 By default sync runs every 30 seconds. A connected-only grant requires membership in a network the receiving host synced within three configured intervals. Verified state survives coordinator outages, but this freshness rule can pause new work. Signed revocations remain sticky even if later maps omit them. Manual peers remain an independent owner configuration.
 
-Sources: [network client](../go/internal/host/network.go), [governance enforcement](../go/internal/host/network_governance.go), [one-command flows](../go/internal/host/network_onecommand.go), [coordinator](../go/internal/coord/coord.go), [Rust network client](../rust/src/network.rs).
+Sources: [network client](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network.go), [governance enforcement](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network_governance.go), [one-command flows](https://github.com/peerspan/peerspan-go/blob/main/internal/host/network_onecommand.go), [coordinator](https://github.com/peerspan/peerspan-go/blob/main/internal/coord/coord.go), [Rust network client](../rust/src/network.rs).
 
 ## Sequence 5 Relay fallback and direct path discovery
 
@@ -256,7 +258,7 @@ sequenceDiagram
 
 The combined packet socket maps a synthetic peer address to either the relay or a validated endpoint. QUIC keeps its logical peer address; packet routing changes below it. The discovery signature, freshness, replay checks, and matching pong validate a route, not a permission. Some NAT pairs and UDP-blocked networks stay on relay. Inspect `peer path HOST` before assuming a direct connection.
 
-Sources: [Go packet socket](../go/internal/host/peer_relay.go), [Go discovery](../go/internal/host/peer_path.go), [Rust discovery](../rust/src/disco.rs), [relay server](../go/internal/coord/relay.go).
+Sources: [Go packet socket](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_relay.go), [Go discovery](https://github.com/peerspan/peerspan-go/blob/main/internal/host/peer_path.go), [Rust discovery](../rust/src/disco.rs), [relay server](https://github.com/peerspan/peerspan-go/blob/main/internal/coord/relay.go).
 
 ## Sequence 6 Lost receipt and durable retry
 
@@ -283,7 +285,7 @@ sequenceDiagram
 
 The daemon retries owner and adapter sends. Before the deadline it resubmits the same immutable request. After the deadline it only queries receipts; the inspected implementation bounds recovery to ten post-deadline receipt queries or 24 hours past the deadline. Exhausted recovery can leave the state `unknown` with no next attempt. It does not manufacture a rejection. Backoff is jittered, capped at 60 seconds, with four workers and a ten-second startup spread. Per-request locking prevents automatic and explicit attempts from racing.
 
-Sources: [Go retry scheduler](../go/internal/host/outbound_retry.go), [Rust retry scheduler](../rust/src/retry.rs), [send retry conformance](../conformance/send_retry.py).
+Sources: [Go retry scheduler](https://github.com/peerspan/peerspan-go/blob/main/internal/host/outbound_retry.go), [Rust retry scheduler](../rust/src/retry.rs), [send retry conformance](../conformance/send_retry.py).
 
 ## Sequence 7 Adapter recovery after daemon restart
 
@@ -310,7 +312,7 @@ sequenceDiagram
 
 The live lease is 15 seconds; the Node adapter normally renews after five seconds. A new adapter cannot claim a live attachment. After the lease and startup grace expire, the owner can create a replacement authorization. Old work stays bound to its original session; it is not reassigned to the replacement. Token rotation preserves routes and usage. Unknown content handoffs remain unknown.
 
-Sources: [connection state](../go/internal/host/adapter_connection.go), [replacement authorization](../go/internal/host/adapter_store.go), [recovery extension](adapter-recovery-contract.md).
+Sources: [connection state](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_connection.go), [replacement authorization](https://github.com/peerspan/peerspan-go/blob/main/internal/host/adapter_store.go), [recovery extension](adapter-recovery-contract.md).
 
 ## Durable data model
 
@@ -367,19 +369,16 @@ Some existing overview sections describe revocation and retries as future work, 
 Run from the repository root. Use a disposable private state directory for experimentation; do not reuse an existing host identity for a second daemon.
 
 ```bash
-go -C go build -o /tmp/peerspan-onboarding-go ./cmd/peerspan-host
-go -C go build -o /tmp/peerspan-onboarding-coord ./cmd/peerspan-coord
-go -C go build -o /tmp/peerspan-onboarding-probe ./cmd/peerspan-peer-probe
-cargo build --locked --manifest-path rust/Cargo.toml
+cargo build --locked --manifest-path rust/Cargo.toml --bins
 
 # Terminal 1: foreground daemon
-/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state run
+rust/target/debug/peerspan-host --state /tmp/peerspan-onboarding-state run
 
 # Terminal 2: owner-local inspection
-/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state info
-/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state agent register --name learner --owner learner
-/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state agent list
-/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state activity
+rust/target/debug/peerspan-host --state /tmp/peerspan-onboarding-state info
+rust/target/debug/peerspan-host --state /tmp/peerspan-onboarding-state agent register --name learner --owner learner
+rust/target/debug/peerspan-host --state /tmp/peerspan-onboarding-state agent list
+rust/target/debug/peerspan-host --state /tmp/peerspan-onboarding-state activity
 ```
 
 These are suggested onboarding commands, not a claim that the current uncommitted administrator/group work builds or passes conformance. For a two-host experiment, follow the [root README](../README.md) and [Claude setup guide](../integrations/claude-channel/README.md), with distinct state directories, receiver grants, and explicit peer listeners.
@@ -395,7 +394,7 @@ These are suggested onboarding commands, not a claim that the current uncommitte
 | Adapter scope, handoff or recovery | `agent_adapter.py`, `adapter_outbound.py`, `adapter_recovery.py` |
 | Integration setup or diagnostics | `claude_setup.py`, `harness_setup.py` |
 
-Build both hosts and the Go coordinator/probe as required. Cross-language suites exercise Go→Go, Go→Rust, Rust→Go, and Rust→Rust. NAT lab needs root and Linux networking tools; person flows need OpenSSH. Deterministic MCP fixtures and real model experiments establish different evidence. Run the language checks required by [AGENTS.md](../AGENTS.md) for implementation changes. This onboarding addition changes documentation only.
+Build the Rust host and peer probe with `cargo build --locked --manifest-path rust/Cargo.toml --bins`. Suites that still require a Go binary or the retired coordinator are being replaced by Rust-only conformance; the [developer guide](developer-guide.md) explains how to run them meanwhile. NAT lab needs root and Linux networking tools; person flows need OpenSSH. Deterministic MCP fixtures and real model experiments establish different evidence. Run the language checks required by [AGENTS.md](../AGENTS.md) for implementation changes. This onboarding addition changes documentation only.
 
 ## Debug by the last completed boundary
 
@@ -412,4 +411,4 @@ Build both hosts and the Go coordinator/probe as required. Cross-language suites
 
 ## Keep this map current
 
-Update the affected sequence and module row when a router, persistent record, or worker changes. Update the implementation-status table when administrator/group commands become available. Check the relevant conformance scenario and both languages before describing a new behavior as supported. Keep future design separate from current runtime behavior, and retain `legacy/` as historical context rather than treating its execution model as the new host foundation.
+Update the affected sequence and module row when a router, persistent record, or worker changes. Update the implementation-status table when administrator/group commands become available. Check the relevant conformance scenario before describing a new behavior as supported. Keep future design separate from current runtime behavior, and retain `legacy/` as historical context rather than treating its execution model as the new host foundation.

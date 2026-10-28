@@ -2,6 +2,8 @@
 
 This is the advanced path: it wires sessions together by hand with grants, routes, and explicit setup, which `peerspan help advanced` lists. For the normal path, with `install`, `join`, `allow`, and `attach`, see the [quick start](quick-start.md).
 
+This walkthrough predates coordinator-free networks. It uses the Go host and the `peerspan-coord` coordinator, which are no longer in this repository ([DEC-OWN5](decision-log.md)); it builds both from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go).
+
 Start with two conversations on one machine. This walkthrough uses Codex for A
 and OpenCode for B. Two Peerspan daemons give the test separate host identities,
 so you can exercise peer messaging over loopback. A daemon can normally register
@@ -39,8 +41,9 @@ replace that path in the guide. Skip cloning if this checkout already exists.
 git clone git@github.com:peerspan/peerspan.git ~/peerspan-test
 cd ~/peerspan-test
 mkdir -p bin
-go -C go build -o "$PWD/bin/peerspan-host" ./cmd/peerspan-host
-go -C go build -o "$PWD/bin/peerspan-coord" ./cmd/peerspan-coord
+git clone git@github.com:peerspan/peerspan-go.git ~/peerspan-go
+go -C ~/peerspan-go build -o "$PWD/bin/peerspan-host" ./cmd/peerspan-host
+go -C ~/peerspan-go build -o "$PWD/bin/peerspan-coord" ./cmd/peerspan-coord
 npm ci --ignore-scripts --prefix integrations/codex
 npm ci --ignore-scripts --prefix integrations/opencode
 ```

@@ -1,6 +1,6 @@
 # Rust agent host daemon
 
-This directory contains the Rust implementation of Peerspan’s host daemon, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
+This directory contains Peerspan’s host daemon. It follows the [shared contract](../docs/host-service-contract.md) and the repository-level conformance suites. The Go implementation is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go). The commands below run from this directory.
 
 ## Run the foundation
 
@@ -22,9 +22,9 @@ From another terminal:
 ./target/debug/peerspan-host --state /tmp/peerspan-rust-state activity
 ```
 
-Without `--state`, state lives in `$XDG_STATE_HOME/peerspan/host` or `$HOME/.local/state/peerspan/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
+Without `--state`, state lives in `$XDG_STATE_HOME/peerspan/host` or `$HOME/.local/state/peerspan/host`. Use separate explicit directories when running several hosts on one machine. An existing state directory must have private permissions (0700).
 
-Agent identity survives restarts. Session attachments become detached on restart and remain inspectable; the original running adapter can recover its bound attachment under a new connection lease. An attachment is registry metadata; the shared [Claude channel adapter](../integrations/claude-channel/README.md) connects an explicitly opted-in session, including scoped outbound sends and automatic replies. Hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `peerspan-coord` binary. Membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
+Agent identity survives restarts. Session attachments become detached on restart and remain inspectable; the original running adapter can recover its bound attachment under a new connection lease. An attachment is registry metadata; the shared [Claude channel adapter](../integrations/claude-channel/README.md) connects an explicitly opted-in session, including scoped outbound sends and automatic replies. Hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Networks are coordinator-free ([spec](../docs/decentralized-spec.md)); the earlier [coordination contract](../docs/coordination-contract.md) describes the retired coordinator-based enrollment. Membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
 
 ## Source structure
 
@@ -55,6 +55,6 @@ cargo clippy --locked --all-targets -- -D warnings
 python3 ../conformance/host_service.py --rust ./target/debug/peerspan-host
 ```
 
-`host_service.py` checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Peer and enrollment checks need the Go binaries as well: `peer_messaging.py` and `coordination.py` from the repository root. `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.
+`host_service.py` checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. The coordinator-free checks, such as `decentralized_native_introduction.py` with the Rust `peerspan-peer-probe`, run from the repository root; see the [developer guide](../docs/developer-guide.md). `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.
 
 The Cargo lockfile is tracked for reproducible dependency resolution. Build timings can be compared with `conformance/build_timings.py` at the repository root, which uses disposable source copies and isolated caches.
