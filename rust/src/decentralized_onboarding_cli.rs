@@ -163,6 +163,7 @@ pub(crate) async fn create_join(
     Ok(v)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn join(
     socket: &Path,
     token: &Option<String>,
@@ -171,18 +172,32 @@ async fn join(
     person_key: &Option<PathBuf>,
     no_person: bool,
     trusted: bool,
+    untrusted: bool,
 ) -> Result<()> {
     ensure!(
         token.is_none() && descriptor.is_none() && !no_person,
         "join needs a private psi2 introduction before choosing --person-key; use --invite-stdin or --invite-file and explicit machine approval"
     );
-    ensure!(
-        !trusted,
-        "review a separate typed trust policy after linking"
-    );
     let token = input.read().await?;
     let v = create_join(&Local(socket), &token, person_key).await?;
-    let v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    let mut v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    let network = v["network_id"].as_str().unwrap_or_default().to_owned();
+    let linked = v["state"] == "linked";
+    // The output stays the exact LINK_VIEW (spec 15, wire formats 16.8)
+    // unless a trust answer was given or asked for: a flag, or the question
+    // at a terminal once the link is applied.
+    if trusted || untrusted || linked && io::stdin().is_terminal() {
+        crate::capability_cli::dec_trust_outcome(
+            &mut v,
+            socket,
+            &network,
+            person_key.as_deref(),
+            trusted,
+            untrusted,
+            linked,
+        )
+        .await;
+    }
     crate::decentralized_link_cli::output(v, true)
 }
 async fn invite(
@@ -295,10 +310,11 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
             person_key,
             no_person,
             trusted,
+            untrusted,
             ..
         } => {
             join(
-                &socket, token, None, invitation, person_key, *no_person, *trusted,
+                &socket, token, None, invitation, person_key, *no_person, *trusted, *untrusted,
             )
             .await?
         }
@@ -309,6 +325,7 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
             person_key,
             no_person,
             trusted,
+            untrusted,
             ..
         }) => {
             join(
@@ -319,6 +336,7 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
                 person_key,
                 *no_person,
                 *trusted,
+                *untrusted,
             )
             .await?
         }

@@ -553,12 +553,28 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             if *no_person {
                 bail!("local genesis requires an original-person owner; omit --no-person");
             }
-            if *trusted {
-                bail!("create the network, then review a separate typed trust policy");
-            }
-            let _ = untrusted;
             let choice = choose_key(person_key)?;
-            decentralized_cli::create(&admin::Local(&socket), &name, &member, &choice).await?
+            let mut value =
+                decentralized_cli::create(&admin::Local(&socket), &name, &member, &choice).await?;
+            // Only a committed creation returns the network view.
+            if value["mode"] == "decentralized"
+                && let Some(id) = value["id"].as_str().map(str::to_owned)
+            {
+                // The creation key signs the trust change: an explicit file,
+                // else the configured owner key or the agent identity.
+                let path = choice.path.clone();
+                capability_cli::dec_trust_outcome(
+                    &mut value,
+                    &socket,
+                    &id,
+                    path.as_deref(),
+                    *trusted,
+                    *untrusted,
+                    true,
+                )
+                .await;
+            }
+            value
         }
         Command::Network(NetworkCommand::Join {
             token,
