@@ -1621,7 +1621,10 @@ impl Projection {
             }
             self.original_issuance_at(parent, at, seen)?;
         }
-        if statement.kind == "device_lease" {
+        if statement.kind == "device_lease"
+            && !(text(&statement.payload, "operation_id")? == "-"
+                && self.creator_device(statement)?)
+        {
             let operation = text(&statement.payload, "operation_id")?;
             let activation = self
                 .complete_operations
