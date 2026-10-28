@@ -736,17 +736,6 @@ fn route(parts: &[&str]) -> Option<Route> {
         ["v2", "networks", _, "policy-edits", "reapply-preview"] => ("POST", "repair"),
         ["v2", "networks", _, "invitations"] => ("POST", "request"),
         ["v2", "networks", _, "root-transitions"] => ("POST", "sign"),
-        ["v2", "networks", _, "migration", "identity"] => ("POST", "migration"),
-        [
-            "v2",
-            "networks",
-            _,
-            "migration",
-            "prepare" | "signed" | "resume" | "review" | "host-lease" | "device-bans" | "link"
-            | "acknowledgment" | "commit" | "adopt",
-        ] => ("POST", "migration"),
-        ["v2", "networks", _, "migration", "evidence"] => ("GET, POST", "migration"),
-        ["v2", "networks", _, "migration"] => ("GET", "migration"),
         ["v2", "networks", _, "actions" | "policy-claims"] => ("POST", "sign"),
         ["v2", "networks", _, "actions" | "policy-claims", _] => ("GET", "sign"),
         [
@@ -801,19 +790,7 @@ async fn dispatch(
     if uri.query().is_some() || (method == Method::GET && !body.is_empty()) {
         return failure(Error::new("invalid"), network, "-", route.stage, None);
     }
-    let limit = if matches!(
-        parts.as_slice(),
-        ["v2", "networks", _, "migration", "host-lease"]
-    ) {
-        2 << 20
-    } else if matches!(
-        parts.as_slice(),
-        ["v2", "networks", _, "migration", "evidence"]
-    ) {
-        20 << 20
-    } else {
-        1 << 20
-    };
+    let limit = 1 << 20;
     if body.len() > limit {
         return failure(
             Error::new("quota_exceeded"),
@@ -909,8 +886,7 @@ async fn dispatch(
         }
     }
     let create_request = method == Method::POST
-        && (parts.as_slice() == ["v2", "link", "requests"]
-            || matches!(parts.as_slice(), ["v2", "networks", _, "migration", "link"]));
+        && parts.as_slice() == ["v2", "link", "requests"];
     let resume_request = method == Method::POST
         && matches!(parts.as_slice(), ["v2", "link", "requests", _, "resume"]);
     let selection_request = method == Method::POST
@@ -950,20 +926,6 @@ async fn dispatch(
             ["v2","info"] => {let identity=store.identity();encode_json(&json!({"id":identity.id,"public_key":identity.public_key,"created_at":identity.created_at,"default_coordinator":Value::Null,"network_protocols":["peerspan-decentralized-v1"]}))},
             ["v2","networks",id,"root-transitions"] => super::roots::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
             ["v2","status"] => encode_json(&store.status_v2().map_err(|_|Error::new("state_conflict"))?),
-            ["v2","networks",id,"migration","link"] => return super::migration_link::create(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","adopt"] => super::migration_adopt::adopt(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","commit"] => super::migration_commit::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","acknowledgment"] => super::migration_ack::acknowledge(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","identity"] => super::migration_local::identity(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","prepare"] => super::migration_prepare::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","signed"] => super::migration_prepare::signed(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","resume"] => super::migration_evidence::resume(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","review"] => super::migration_evidence::participate(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","host-lease"] => super::migration_host::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","device-bans"] => super::migration_device_bans::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","evidence"] if method=="POST" => super::migration_evidence::receive(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","evidence"] => super::migration_prepare::evidence(&store,id),
-            ["v2","networks",id,"migration"] => super::migration_local::status(&store,id),
             ["v2","networks",id,"invitations"] =>return invitation(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?).map(|body|(201,body)),
             ["v2","link","admissions"] => super::ceremony_admin::prepare(&store,object.as_ref().ok_or_else(||Error::new("invalid"))?),
             ["v2","link","approvals"] => super::ceremony::owner(&store,object.as_ref().ok_or_else(||Error::new("invalid"))?),

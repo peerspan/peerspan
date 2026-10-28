@@ -214,27 +214,8 @@ impl Evidence {
                         || invite.expected_person_public_key == person),
             )?;
         }
-        if p.record.migration_proposal_id != "-" {
-            let catalog = self
-                .catalogs
-                .get(&context)
-                .ok_or_else(|| Error::missing(&p.record.migration_proposal_id))?;
-            let staged = super::migration_link::observed_owner(store, c, p, owner, catalog)?;
-            check(staged.descriptor.context_id() == context)?;
-            require(
-                text(o, "not_after")? > staged.time.as_str(),
-                "authority_expired",
-            )?;
-            return Ok(Offer {
-                descriptor,
-                owner: owner.clone(),
-                owner_bytes: observed.bytes.clone(),
-                catalog: Some(staged.catalog),
-                provider: staged.provider,
-                decision_time: staged.time,
-                staging: Some(staged.staging),
-            });
-        }
+        // In-place migration is removed (DEC-OWN3).
+        require(p.record.migration_proposal_id == "-", "not_found")?;
         let present: bool = c
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
@@ -569,56 +550,15 @@ fn advance_prefix(
         prepared.admissions.root == text(&finalization.packet.payload, "root_state_id")?
             && stamp(&prepared.admissions.decision_time)? < stamp(&p.deadline)?,
     )?;
-    if p.record.migration_proposal_id != "-"
-        && let Some(commit) = evidence.matching("commit", "-", &[])?
-    {
-        if p.record.roles.iter().any(|r| r == "requester") {
-            require(
-                p.record.commit_approved && p.record.commit_packet_base64 != "-",
-                "review_required",
-            )?;
-            check(b64(&p.record.commit_packet_base64, MAX_OBJECT)? == commit.bytes)?;
-        }
-        let raw = super::requester::activation_bytes(p, &commit.bytes)?;
-        let activation = super::transcript::Activation::read(&offer.descriptor, &raw)?;
-        let proof = super::statement::proof_id("activation", &raw);
-        let addition = Catalog::read(
-            &offer.descriptor,
-            &bytes(
-                &json!({"format":1,"context_id":offer.descriptor.context_id(),"objects":[{"id":proof,"kind":"activation","body_base64":encode(&raw)}]}),
-            )?,
-        )?;
-        let full = Catalog::union(&offer.descriptor, catalog, &addition)?;
-        let checked = offer
-            .staging
-            .as_ref()
-            .ok_or_else(|| Error::new("forbidden"))?
-            .migration_owner_prefix(&full.bytes, &offer.owner, now)?;
-        checked.activation_response(&p.id, &Value::from("-"))?;
-        p.record.commit_packet_base64 = encode(&commit.bytes);
-        p.record.activation_id = activation.id;
-        p.record.manifest_id = activation.manifest_id;
-        p.record.catalog_base64 = encode(&full.bytes);
-        super::migration_link::retain_prepared(store, c, p)?;
-    }
     Ok(())
 }
 
 pub(crate) fn owned_device(
-    store: &Store,
+    _store: &Store,
     c: &Connection,
     p: &Pending,
 ) -> Result<ed25519_dalek::SigningKey> {
-    if p.record.migration_proposal_id != "-" {
-        let staged = super::migration_link::Owned::load(
-            store,
-            c,
-            &p.record.expected_network_id,
-            &p.record.migration_proposal_id,
-        )?;
-        staged.matches(p)?;
-        return Ok(staged.device);
-    }
+    require(p.record.migration_proposal_id == "-", "not_found")?;
     let seed: Option<Vec<u8>> = c
         .query_row(
             "SELECT seed FROM link_device_keys WHERE public_key=?1",

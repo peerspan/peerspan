@@ -165,27 +165,8 @@ fn base(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<Base> 
             "forbidden",
         )?;
     } else if offer.staging.is_some() {
-        // The original-self migration path is confined to its separately
-        // approved source/roster and exact existing-or-new device profile.
-        let staged = super::migration_link::owner_plan(
-            store,
-            c,
-            p,
-            super::migration_link::OwnerProfile {
-                person: &i.record.person_public_key,
-                provider: &i.record.provider.signer_public_key,
-                format: &i.record.provider.signature_format,
-                scopes: i.record.scopes,
-                not_after: &i.record.not_after,
-            },
-        )?;
-        check(
-            i.record.provider.kind == "original"
-                && i.record.provider.lease_id == "-"
-                && staged.root == admissions.root
-                && staged.person_lease == admissions.person.id
-                && staged.provider == offer.provider,
-        )?;
+        // In-place migration is removed (DEC-OWN3).
+        return Err(Error::new("not_found"));
     } else {
         // Only the reviewed original-key possession path can exist without an
         // adopted context. Pending self P does not become an ordinary provider.

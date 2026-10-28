@@ -60,6 +60,7 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+- **Implemented in:** PR #26 (removal of the migration commands, routes and code; DEC.impl29).
 
 ### DEC-OWN9: shape of the slim conformance suites (2026-10-28)
 
@@ -215,6 +216,10 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 ### DEC-impl: settled by the implementer for root splits, reinvite and transport files (not owner decisions)
 
 - **DEC.impl31. Root split, reinvite, transport file (spec 9.8, 13.2, 14.2; DEC-Q16, DEC-Q20).** In a root split, a grant already admitted is usable when the head of at least one root branch covers it (it was issued or kept under that branch), so existing grants keep working until they expire. Admitting a new grant or renewal, locally or from a peer's catalog, still needs the single current root, so they stay frozen; bans are still admitted under branch coverage. The planning read (`GET /v2/networks/{id}/planning`) also lists `restriction_ids` and `admitted_ids`, the bans and statements this host admitted; reinvite uses only admitted host grants, bindings and bans. Status always shows `network_state_conflict` with `root split: changes are frozen; create a new network and run network reinvite` while the root is split, even when this host's own grants still work. `network reinvite OLD NEW [--expires-in D | --expires-at T]` reads OLD's stored members: for a root-split network, every host a host grant in its catalog names (latest label, person of its latest binding, minus hosts and persons with an admitted `host_revoke` or `person_remove`), even when the live member view is empty; for a legacy network, `/v1/networks/{id}/members` with person keys from `/v1/networks/{id}/persons`. It skips this host and refuses an OLD that is a current coordinator-free network. It then makes one invite per member through the ordinary invitation route, with the old label and person key, lasting 24 hours by default (a minute under, so the daemon's later decision time stays within the maximum). A transport file with `publish_contacts:true` is refused when the daemon starts. A `rotate-root` whose earlier unapproved preview no longer matches (a renewal or sync landed during its review) replaces that preview instead of failing with `operation_conflict`.
+
+### DEC-impl: settled by the implementer for removing in-place migration (not owner decisions)
+
+- **DEC.impl34. What the migration removal keeps (DEC-OWN3, DEC-S12, DEC-Q13, DEC-Q19).** Removed: `network migrate …`, every `/v2/networks/{id}/migration…` route (now 404), the peer `migration` resource, and the modules that prepared, acknowledged, committed, adopted, linked and repaired migrations (about 6,900 lines). A join or link request with a `migration_proposal_id` other than `-` is refused with `not_found`. Kept as read-only history: the `migration_*` statement kinds, a catalog's migration records and the verifier's checks for them, so a network created by an earlier migration still loads and verifies. Also removed here, since they shared the root CLI: `network resolve-root` (DEC-Q19; a forked root now says to reinvite) and `rotate-root --retain`/`--retain-none` (DEC-Q13; the full eligible set is always kept).
 
 ### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
 

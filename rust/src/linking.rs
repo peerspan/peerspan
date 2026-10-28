@@ -14,7 +14,6 @@ mod runtime_json;
 pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
 pub use runtime_json::{decode_mutation, decode_stored_json};
 mod activation;
-pub(crate) use activation::verify_stored_migration_access;
 pub(crate) use activation::verify_stored_migration_source;
 pub use activation::{
     ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority,

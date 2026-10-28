@@ -46,42 +46,21 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
     )?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
-    let staged = if text(&request.payload, "migration_proposal_id")? != "-" {
-        Some(super::migration_host::Context::load(
-            store,
-            &tx,
-            network,
-            text(&request.payload, "migration_proposal_id")?,
-        )?)
-    } else {
-        None
-    };
-    let snapshot = if staged.is_none() {
-        Some(Snapshot::load(&tx, network, &store.identity().public_key)?)
-    } else {
-        None
-    };
-    let known_descriptor = if let Some(stage) = &staged {
-        &stage.source.descriptor
-    } else {
-        &snapshot
-            .as_ref()
-            .ok_or_else(|| Error::new("state_conflict"))?
-            .descriptor
-    };
-    let base_catalog = if let Some(stage) = &staged {
-        stage
-            .prefix
-            .catalog
-            .as_ref()
-            .ok_or_else(|| Error::missing(&stage.prefix.proposal.id))?
-    } else {
-        &snapshot
-            .as_ref()
-            .ok_or_else(|| Error::new("state_conflict"))?
-            .prior
-            .catalog
-    };
+    // In-place migration is removed (DEC-OWN3).
+    require(
+        text(&request.payload, "migration_proposal_id")? == "-",
+        "not_found",
+    )?;
+    let snapshot = Some(Snapshot::load(&tx, network, &store.identity().public_key)?);
+    let known_descriptor = &snapshot
+        .as_ref()
+        .ok_or_else(|| Error::new("state_conflict"))?
+        .descriptor;
+    let base_catalog = &snapshot
+        .as_ref()
+        .ok_or_else(|| Error::new("state_conflict"))?
+        .prior
+        .catalog;
     for (field, want) in [
         ("expected_network_id", network),
         (
@@ -252,27 +231,10 @@ fn resolve(c: &Connection, b: &Base, provider: &str, format: &str) -> Result<Res
     if let Some(snapshot) = &b.snapshot {
         return Resolved::resolve(c, snapshot, &b.projection, provider, format, "host_lease");
     }
-    require(
-        b.offer.staging.is_some() && provider == "network_root",
-        "forbidden",
-    )?;
-    check(matches!(format, "auto" | "ed25519" | "sshsig"))?;
-    let root = b.projection.catalog.get(b.projection.root_state_id()?)?;
-    let key = text(&root.payload, "root_public_key")?;
-    let seed = super::migration_prepare::root_seed(c, &b.descriptor.network_id, key)?;
-    let actual = if format == "auto" {
-        if seed.is_some() { "ed25519" } else { "sshsig" }
-    } else {
-        format
-    };
-    require(actual != "ed25519" || seed.is_some(), "signer_unavailable")?;
-    Ok(Resolved {
-        provider: intents::Provider {kind: "root".into(), signer_public_key:key.into(), signature_format:actual.into(), lease_id:"-".into()},
-        concrete_id: "network_root".into(),
-        actor: object(&json!({"person_public_key":"-","host_public_key":"-","device_public_key":"-","issuer_id":root.id}))?.clone(),
-        automatic: format == "auto",
-        seed,
-    })
+    // Without an adopted network there is no administrator path; in-place
+    // migration is removed (DEC-OWN3).
+    let _ = (c, provider, format);
+    Err(Error::new("forbidden"))
 }
 fn issuer(base: &Base, r: &Resolved) -> Result<(Value, BTreeMap<String, String>)> {
     if r.provider.kind == "root" {
