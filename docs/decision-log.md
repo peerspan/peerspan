@@ -86,7 +86,7 @@ Contents:
 - **Options:** (A) port, then delete: port the helper and the probe to Rust, switch CI and release packaging to Rust only, then delete `go/` in one PR; (B) delete Go now and switch CI and packaging to Rust, leaving the helper and probe missing until they are ported.
 - **Chosen:** (A).
 - **Consequence:** from this decision on, bug fixes and conformance runs target Rust only (Rust CLI with Rust daemon). Go/Rust pairing requirements in AGENTS.md and the contracts no longer apply and are removed with `go/`.
-- **Implemented in:** PR #NNN, the first step: `peerspan-helper` and `peerspan-peer-probe` ported to Rust, and the helper bundle built from Rust. Switching CI to Rust only and deleting `go/` follow.
+- **Implemented in:** [PR #148](https://github.com/peerspan/peerspan-internal/pull/148), the first step: `peerspan-helper` and `peerspan-peer-probe` ported to Rust, and the helper bundle built from Rust. Switching CI to Rust only and deleting `go/` follow.
 
 ### DEC-OWN6: slim the conformance tests (2026-10-28)
 
@@ -117,12 +117,12 @@ Contents:
 - **DEC.impl5. Transient peer wire budget.** Running out of the shared peer wire budget because of concurrent requests returns `429 rate_limited` with Retry-After, not `quota_exceeded`, and a peer POST reserves its declared body size. `quota_exceeded` stays for fixed framing, object and catalog bounds.
 - **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
-### DEC-impl: settled by the implementer in the helper and probe port, PR #NNN (not owner decisions)
+### DEC-impl: settled by the implementer in the helper and probe port, [PR #148](https://github.com/peerspan/peerspan-internal/pull/148) (not owner decisions)
 
 - **DEC.impl6. Helper mailbox windows.** The spec makes a mailbox's lifetime the request window (wire format section 12, DEC-S4 and DEC-Q1): `created_at` + 3600 seconds for a join request (`link_` ID), and the invite's `issued_at` to `expires_at`, 60 to 86400 seconds, for an invite's return mailbox, whose frames carry the `di_` invitation ID (section 10.1). A helper cannot tell which window a mailbox belongs to, so it accepts a `link_` or `di_` request ID with any lifetime from 60 to 86400 seconds; the 30-second early bound, expiry and tombstone rules are unchanged. The Go helper accepted only `link_` IDs with exactly 300 seconds. A host's own first-contact mailbox keeps its current 300-second rule until the hosts implement DEC-S4. Discarded: keeping 300 seconds (refuses every spec-conforming request); accepting only 3600 seconds (refuses invite return mailboxes).
 - **DEC.impl7. Helper account ceilings.** The helper contract says account ceilings "additionally aggregate keys" without numbers. Kept the Go helper's: per account, 4 active mailboxes and 64 with tombstones, mailbox writes 2 per second (burst 8) and reads 1 per second (burst 4), AUTH 2 per second (burst 8), relay frames and the 32 MiB per minute datagram window as for a key, and 64 registered relay connections.
 - **DEC.impl8. Probe integers.** `peerspan-peer-probe sign-link` takes `--index` and `--depth` as unsigned integers, and `link-hash` reads them as such; the Go probe also signed negative values. No suite uses them. Everything else (flags, defaults, output, request framing) matches the Go probe.
-- **Implemented in:** PR #NNN.
+- **Implemented in:** [PR #148](https://github.com/peerspan/peerspan-internal/pull/148).
 
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
