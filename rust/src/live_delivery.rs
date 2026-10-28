@@ -18,7 +18,7 @@ use axum::{
     http::HeaderMap,
     routing::{get, post},
 };
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
@@ -89,7 +89,7 @@ pub(crate) fn migrate(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 }
 
 fn passed(text: &str) -> bool {
-    DateTime::parse_from_rfc3339(text).is_ok_and(|t| t <= Utc::now())
+    DateTime::parse_from_rfc3339(text).is_ok_and(|t| t <= crate::clock::now())
 }
 
 /// Whether an authorization has ended: replaced or revoked, expired, or

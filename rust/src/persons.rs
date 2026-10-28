@@ -1069,7 +1069,7 @@ impl PersonInviteToken {
     /// Decodes and checks a token without network contact. Its root is the
     /// one that signed the invite: the current root at issue time.
     pub fn decode(text: &str) -> Result<Self, Error> {
-        Self::decode_at(text, chrono::Utc::now())
+        Self::decode_at(text, crate::clock::now())
     }
     pub fn decode_at(text: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
         let t: Self = decode_prefixed(PERSON_TOKEN_PREFIX, text, "person invite token")?;
@@ -1215,7 +1215,7 @@ impl MemberInviteToken {
     /// Decodes and checks both parts without network contact, with the same
     /// checks as a host invite token and a person invite token.
     pub fn decode(text: &str) -> Result<Self, Error> {
-        Self::decode_at(text, chrono::Utc::now())
+        Self::decode_at(text, crate::clock::now())
     }
     pub fn decode_at(text: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
         let t: Self = decode_prefixed(MEMBER_TOKEN_PREFIX, text, "member invite token")?;
@@ -1436,7 +1436,7 @@ mod tests {
     fn member_invite_tokens_carry_both_parts_and_check_each() {
         let root = membership::seed(ROOT_SEED).unwrap();
         let invite = membership::seed(INVITE_SEED).unwrap();
-        let expires = rfc(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc(crate::clock::now() + chrono::TimeDelta::days(1));
         let coordinator = STANDARD.encode(root.verifying_key().as_bytes());
         let token = MemberInviteToken::issue(
             &root,

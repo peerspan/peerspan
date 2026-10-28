@@ -460,7 +460,7 @@ impl Editor {
             .as_ref()
             .map(|s| DateTime::parse_from_rfc3339(s).map(|t| t.with_timezone(&Utc)))
             .transpose()?
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(peerspan_host::clock::now);
         let version = start
             .version
             .checked_add(1)
@@ -605,7 +605,11 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             let (_, body) = crate::decentralized_policy_cli::current_policy(&local, &view, &person)
                 .await?
                 .context("no current policy for that person")?;
-            let soon = expires_soon(&body.issued_at, &body.valid_until, Utc::now());
+            let soon = expires_soon(
+                &body.issued_at,
+                &body.valid_until,
+                peerspan_host::clock::now(),
+            );
             let mut value = serde_json::to_value(body)?;
             value["expires_soon"] = Value::Bool(soon);
             return Ok(Some(value));

@@ -174,7 +174,7 @@ pub fn note(log: &Path, text: &str) {
         let _ = writeln!(
             file,
             "peerspan {}: {text}",
-            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
         );
     }
 }
@@ -638,7 +638,7 @@ impl Pool {
             Ok((client, _)) => {
                 let live = Live {
                     client,
-                    used: Arc::new(Mutex::new(Instant::now())),
+                    used: Arc::new(Mutex::new(crate::clock::instant())),
                     active: Arc::default(),
                 };
                 *guard = Some(live.clone());
@@ -676,7 +676,9 @@ impl Pool {
                         && live
                             .used
                             .lock()
-                            .map(|u| u.elapsed() >= IDLE_STOP)
+                            .map(|u| {
+                                crate::clock::instant().saturating_duration_since(*u) >= IDLE_STOP
+                            })
                             .unwrap_or(false))
             });
             if stop && let Some(live) = guard.take() {

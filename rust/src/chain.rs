@@ -8,7 +8,7 @@
 use crate::network::Member;
 use crate::{membership::canonical, model::Error, peer_store::valid_id, store::Store};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -273,7 +273,7 @@ impl Store {
         }
         let bindings = self.bindings(conn, network)?;
         let bound = |host: &str| bindings.get(host).cloned();
-        let at = Utc::now();
+        let at = crate::clock::now();
         let first = &chain[0];
         for (k, link) in chain.iter().enumerate() {
             // 2. Positions and hashes.

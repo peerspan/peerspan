@@ -89,7 +89,7 @@ pub fn local_decision_time() -> Result<String> {
         stamp(value).map_err(|_| failure("clock"))?;
         return Ok(value.into());
     }
-    Ok(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    Ok(crate::clock::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 fn barrier_file(path: &Path, write: bool, create: bool) -> Result<File> {
     let file = regular(path, write, create, "apply")?;

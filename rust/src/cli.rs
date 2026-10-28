@@ -1,6 +1,6 @@
 use crate::integration::relative_expiry;
 use anyhow::bail;
-use chrono::{SecondsFormat, TimeDelta, Utc};
+use chrono::{SecondsFormat, TimeDelta};
 use clap::{Parser, Subcommand};
 use hyper::Method;
 use serde_json::{Value, json};
@@ -2377,7 +2377,7 @@ fn with_expiry(mut body: Value, expires_at: Option<String>) -> Value {
     body
 }
 fn after(duration: TimeDelta) -> String {
-    (Utc::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true)
+    (peerspan_host::clock::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 /// A network ID the CLI filled in before the request; see `network_mut`.
 pub fn resolved(network: &Option<String>) -> &str {
@@ -2494,7 +2494,7 @@ mod tests {
         };
         let within = |value: &Value, key: &str, expected: TimeDelta| {
             let at = chrono::DateTime::parse_from_rfc3339(value[key].as_str().unwrap()).unwrap();
-            let off = at.with_timezone(&Utc) - (Utc::now() + expected);
+            let off = at.with_timezone(&chrono::Utc) - (peerspan_host::clock::now() + expected);
             assert!(off.abs() < TimeDelta::seconds(5), "{key}: {value}");
         };
         let grant = ["grant", "create", "--peer", "host_x", "--agent", "agent_y"];

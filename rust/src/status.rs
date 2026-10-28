@@ -114,14 +114,14 @@ impl Store {
         self.renewal_signer(key).err()
     }
     pub fn status(&self) -> Result<Value, Error> {
-        self.status_in(&*self.connection()?, Utc::now(), None)
+        self.status_in(&*self.connection()?, crate::clock::now(), None)
     }
     pub fn status_v2(&self) -> Result<Value, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let at = crate::decentralized::local_decision_time()
             .map_err(crate::decentralized::product::model)?;
-        let now = Utc::now();
+        let now = crate::clock::now();
         crate::decentralized::product::with_read_time(&at, || self.status_in(&tx, now, Some(&at)))
     }
     fn status_in(
@@ -683,7 +683,9 @@ mod tests {
         let fixed = store
             .create_adapter(CreateAdapter {
                 session_id: sessions[0].id.clone(),
-                expires_at: Some(crate::store::rfc3339(Utc::now() + TimeDelta::hours(2))),
+                expires_at: Some(crate::store::rfc3339(
+                    crate::clock::now() + TimeDelta::hours(2),
+                )),
             })
             .unwrap()
             .adapter;

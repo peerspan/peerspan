@@ -251,23 +251,25 @@ async fn attempt(store: Arc<Store>, peer: String, id: String) {
         return;
     };
     // An explicit retry or refresh may have finished it or moved its schedule.
-    if out.state != "unknown" || due_at(&out.next_attempt_at).is_none_or(|at| at > Utc::now()) {
+    if out.state != "unknown"
+        || due_at(&out.next_attempt_at).is_none_or(|at| at > crate::clock::now())
+    {
         return;
     }
-    let receipt_only = receipt_only(&out, Utc::now());
+    let receipt_only = receipt_only(&out, crate::clock::now());
     let _ = crate::peer::exchange(store, out, receipt_only).await;
 }
 
 /// Runs automatic retries until shutdown.
 pub async fn retry_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
-    let _ = blocking(store.clone(), |s| s.spread_overdue(Utc::now())).await;
+    let _ = blocking(store.clone(), |s| s.spread_overdue(crate::clock::now())).await;
     let dispatcher = Dispatcher::new(CONCURRENCY);
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
             _ = tokio::time::sleep(POLL) => {}
         }
-        let Ok(due) = blocking(store.clone(), |s| s.due_retries(Utc::now())).await else {
+        let Ok(due) = blocking(store.clone(), |s| s.due_retries(crate::clock::now())).await else {
             continue;
         };
         for claim in dispatcher.claim(due) {

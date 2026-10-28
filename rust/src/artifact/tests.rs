@@ -78,7 +78,7 @@ impl Fixture {
             .create_grant(CreateGrant {
                 requester_host_id: self.peer.clone(),
                 target_agent_id: self.agent.clone(),
-                expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+                expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: bound,
                 allow_disconnected: true,
@@ -95,7 +95,7 @@ impl Fixture {
             policy: None,
             self_access: None,
             target_agent_id: self.agent.clone(),
-            deadline: rfc3339(Utc::now() + TimeDelta::minutes(30)),
+            deadline: rfc3339(crate::clock::now() + TimeDelta::minutes(30)),
             input: "summarize the attached report".into(),
             origin: None,
             artifacts: inputs,
@@ -240,7 +240,7 @@ fn grant_bounds_are_validated_and_need_task_submit() {
         f.store.create_grant(CreateGrant {
             requester_host_id: f.peer.clone(),
             target_agent_id: f.agent.clone(),
-            expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+            expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
             max_message_bytes: 1000,
             max_artifact_bytes: bound,
             allow_disconnected: true,
@@ -699,7 +699,7 @@ fn retention_keeps_uploads_and_tasks_until_released() {
     assert_eq!(state, PRUNED);
     // An expired upload hold or a week-old final task releases by itself.
     let held = upload(&f.store, "held", b"held").unwrap();
-    let past = rfc3339(Utc::now() - TimeDelta::seconds(1));
+    let past = rfc3339(crate::clock::now() - TimeDelta::seconds(1));
     f.store
         .connection()
         .unwrap()
@@ -717,7 +717,7 @@ fn retention_keeps_uploads_and_tasks_until_released() {
     f.store
         .change_task(&f.auth, &r2.task_id, Change::Reject("no".into()))
         .unwrap();
-    let week_ago = rfc3339(Utc::now() - TASK_HOLD - TimeDelta::seconds(1));
+    let week_ago = rfc3339(crate::clock::now() - TASK_HOLD - TimeDelta::seconds(1));
     f.store
         .connection()
         .unwrap()
@@ -742,7 +742,7 @@ fn restart_discards_partial_files_and_resumes_fetches() {
             .create_grant(CreateGrant {
                 requester_host_id: peer.clone(),
                 target_agent_id: agent.clone(),
-                expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+                expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: 1000,
                 allow_disconnected: true,
@@ -757,7 +757,7 @@ fn restart_discards_partial_files_and_resumes_fetches() {
             policy: None,
             self_access: None,
             target_agent_id: agent,
-            deadline: rfc3339(Utc::now() + TimeDelta::minutes(30)),
+            deadline: rfc3339(crate::clock::now() + TimeDelta::minutes(30)),
             input: "x".into(),
             origin: None,
             artifacts: Some(vec![input.clone()]),
@@ -872,7 +872,7 @@ async fn receivers_fetch_inputs_over_quic_and_reject_corruption() {
         .create_grant(CreateGrant {
             requester_host_id: submitter.identity().id,
             target_agent_id: agent.clone(),
-            expires_at: rfc3339(Utc::now() + TimeDelta::hours(2)),
+            expires_at: rfc3339(crate::clock::now() + TimeDelta::hours(2)),
             max_message_bytes: 1000,
             max_artifact_bytes: MAX_BOUND,
             allow_disconnected: true,

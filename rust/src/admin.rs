@@ -61,7 +61,7 @@ impl Local<'_> {
 }
 
 fn at() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    peerspan_host::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 fn text<'a>(value: &'a Value, field: &str) -> &'a str {
     value[field].as_str().unwrap_or_default()

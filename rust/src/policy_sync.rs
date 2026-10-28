@@ -470,7 +470,7 @@ impl Store {
         if !r.same_policy(attempted) || r.delivery.state != "pending" {
             return Ok(false);
         }
-        let at = Utc::now();
+        let at = crate::clock::now();
         let d = &mut r.delivery;
         d.attempts = d.attempts.saturating_add(1);
         let delivered = outcome.is_ok();
@@ -533,7 +533,7 @@ impl Store {
     ) -> Result<Accepted, Error> {
         self.network_record(tx, network)?;
         let edit = self.check_edit(tx, network, p)?;
-        let outcome = self.accept_policy(tx, network, p, Utc::now())?;
+        let outcome = self.accept_policy(tx, network, p, crate::clock::now())?;
         match &outcome {
             Accepted::Kept(old) => {
                 return Err(Error::Conflict(format!(
@@ -569,7 +569,7 @@ impl Store {
             return Err(Error::Forbidden);
         }
         // A sibling's policy whose owner is not current is invalid.
-        self.accept_policy(&tx, network, p, Utc::now())
+        self.accept_policy(&tx, network, p, crate::clock::now())
             .map_err(|e| match e {
                 Error::Forbidden => invalid("the policy owner is not a current person"),
                 other => other,
@@ -607,7 +607,7 @@ impl Store {
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        let stored = self.accept_policy(&tx, network, p, Utc::now())? == Accepted::Stored;
+        let stored = self.accept_policy(&tx, network, p, crate::clock::now())? == Accepted::Stored;
         if stored {
             append_event(
                 &tx,
@@ -987,7 +987,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
             known = seen;
         }
         if let Ok(due) = blocking(store.clone(), |s| {
-            s.due_policy_deliveries(None, Some(Utc::now()))
+            s.due_policy_deliveries(None, Some(crate::clock::now()))
         })
         .await
         {
@@ -1093,7 +1093,7 @@ mod tests {
         t.to_rfc3339_opts(SecondsFormat::Secs, true)
     }
     fn sign(owner: &PersonSigner, version: u64, offset: i64, principal: &str) -> Policy {
-        let issued = Utc::now() - TimeDelta::minutes(1) + TimeDelta::seconds(offset);
+        let issued = crate::clock::now() - TimeDelta::minutes(1) + TimeDelta::seconds(offset);
         Policy::sign(
             owner,
             NETWORK,
@@ -1368,10 +1368,12 @@ mod tests {
         let s = &f.store;
         let v1 = sign(&f.owner, 1, 0, "network");
         s.submit_local_policy(NETWORK, &v1).unwrap();
-        let due = s.due_policy_deliveries(None, Some(Utc::now())).unwrap();
+        let due = s
+            .due_policy_deliveries(None, Some(crate::clock::now()))
+            .unwrap();
         assert_eq!(due.len(), 2);
         let attempted = record(s, &f.owner_id, &host('a'));
-        let before = Utc::now();
+        let before = crate::clock::now();
         assert!(
             !s.finish_delivery(NETWORK, &f.owner_id, &attempted, Err("down".into()), 0.0)
                 .unwrap()
@@ -1387,9 +1389,11 @@ mod tests {
         );
         let next = crate::retry::due_at(&failed.next_attempt_at).unwrap();
         assert!(next >= before + TimeDelta::milliseconds(900));
-        assert!(next <= Utc::now() + TimeDelta::milliseconds(1100));
+        assert!(next <= crate::clock::now() + TimeDelta::milliseconds(1100));
         // Not due until then, but `access sync` retries pending ones at once.
-        let due = s.due_policy_deliveries(None, Some(Utc::now())).unwrap();
+        let due = s
+            .due_policy_deliveries(None, Some(crate::clock::now()))
+            .unwrap();
         assert_eq!(
             due,
             [(NETWORK.into(), f.owner_id.clone(), COORDINATOR.into())]
@@ -1447,7 +1451,8 @@ mod tests {
             Accepted::Stored
         );
         assert_eq!(
-            s.due_policy_deliveries(None, Some(Utc::now())).unwrap(),
+            s.due_policy_deliveries(None, Some(crate::clock::now()))
+                .unwrap(),
             [(NETWORK.into(), f.other_id.clone(), COORDINATOR.into())]
         );
         let status = s.policy_sync_status(NETWORK).unwrap();
@@ -1456,8 +1461,13 @@ mod tests {
         // propagated at all.
         let mut connection = s.connection().unwrap();
         let tx = connection.transaction().unwrap();
-        s.accept_policy(&tx, NETWORK, &sign(&f.other, 2, 0, "network"), Utc::now())
-            .unwrap();
+        s.accept_policy(
+            &tx,
+            NETWORK,
+            &sign(&f.other, 2, 0, "network"),
+            crate::clock::now(),
+        )
+        .unwrap();
         tx.commit().unwrap();
         drop(connection);
         assert_eq!(record(s, &f.other_id, COORDINATOR).delivery.version, 1);

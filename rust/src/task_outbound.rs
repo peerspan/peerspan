@@ -403,7 +403,7 @@ impl Store {
         };
         let given = r.deadline.filter(|d| !d.is_empty());
         let explicit_deadline = given.is_some();
-        let default_deadline = Utc::now() + DEFAULT_DEADLINE;
+        let default_deadline = crate::clock::now() + DEFAULT_DEADLINE;
         let deadline = match given {
             Some(deadline) => deadline,
             None => rfc3339(default_deadline),
@@ -590,7 +590,7 @@ impl Store {
             route_id: None,
             attempts: 0,
             // Retried automatically if the inline submission never finishes.
-            next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+            next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
             parent: forward.as_ref().map(|f| f.parent.clone()),
@@ -744,7 +744,7 @@ impl Store {
         let expiry = time(&route.expires_at)?;
         if route.revoked_at.is_some()
             || route.action != crate::policy::TASK_ACTION
-            || expiry <= Utc::now()
+            || expiry <= crate::clock::now()
             || r.input.len() as i64 > route.max_message_bytes
         {
             return Err(Error::Forbidden);
@@ -791,7 +791,8 @@ impl Store {
                     "task ID reused with different fields".into(),
                 ));
             }
-            if time(&old.request.deadline)? <= Utc::now() && old.submit_state != "accepted" {
+            if time(&old.request.deadline)? <= crate::clock::now() && old.submit_state != "accepted"
+            {
                 return Err(Error::Forbidden);
             }
             return Ok(old);
@@ -868,7 +869,7 @@ impl Store {
             }
             None => None,
         };
-        let mut deadline = (Utc::now() + DEFAULT_DEADLINE).min(target.expiry);
+        let mut deadline = (crate::clock::now() + DEFAULT_DEADLINE).min(target.expiry);
         if let Some(f) = &forward {
             deadline = deadline.min(f.deadline);
         }
@@ -941,7 +942,7 @@ impl Store {
             adapter_id: Some(a.id.clone()),
             route_id: target.route.map(|r| r.id),
             attempts: 0,
-            next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+            next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
             parent: forward.as_ref().map(|f| f.parent.clone()),
@@ -1008,7 +1009,7 @@ impl Store {
                 "task ID reused with different fields".into(),
             ));
         }
-        if time(&old.request.deadline)? <= Utc::now() && old.submit_state != "accepted" {
+        if time(&old.request.deadline)? <= crate::clock::now() && old.submit_state != "accepted" {
             return Err(Error::Forbidden);
         }
         Ok(Some(old))
@@ -1565,7 +1566,12 @@ pub(crate) async fn submit(
         }
         Err(e) => out.error = Some(format!("{e:#}")),
     }
-    crate::retry::schedule(&mut out, status_only, Utc::now(), crate::retry::jitter());
+    crate::retry::schedule(
+        &mut out,
+        status_only,
+        crate::clock::now(),
+        crate::retry::jitter(),
+    );
     blocking(store, move |s| s.finish_task_submit(out)).await
 }
 
@@ -1636,7 +1642,10 @@ type PollPlan = HashMap<(String, String), (Instant, Duration)>;
 /// Runs task submission retries, event polls, and cancellation resends,
 /// at most 4 at once, until shutdown.
 pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
-    let _ = blocking(store.clone(), |s| s.spread_overdue_tasks(Utc::now())).await;
+    let _ = blocking(store.clone(), |s| {
+        s.spread_overdue_tasks(crate::clock::now())
+    })
+    .await;
     let dispatcher = Dispatcher::new(crate::retry::CONCURRENCY);
     // In-memory poll backoff per task: when next due, and the current interval.
     let schedule: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
@@ -1651,7 +1660,8 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
             _ = tokio::time::sleep(crate::retry::POLL) => {}
         }
         let mut jobs: Vec<((String, String), bool)> = Vec::new();
-        if let Ok(due) = blocking(store.clone(), |s| s.due_task_retries(Utc::now())).await {
+        if let Ok(due) = blocking(store.clone(), |s| s.due_task_retries(crate::clock::now())).await
+        {
             jobs.extend(due.into_iter().map(|k| (k, false)));
         }
         if let Ok(pollable) = blocking(store.clone(), |s| s.pollable_tasks()).await
@@ -1669,7 +1679,7 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
         // Outbound calls: retries of uncertain submissions, and status polls.
         let mut calls: HashMap<(String, String), bool> = HashMap::new();
         if let Ok((due, pollable, followed)) = blocking(store.clone(), |s| {
-            Ok(crate::call_outbound::jobs(s, Utc::now()))
+            Ok(crate::call_outbound::jobs(s, crate::clock::now()))
         })
         .await
             && let Ok(mut plan) = call_plan.lock()
@@ -1773,11 +1783,11 @@ async fn retry(store: Arc<Store>, peer: String, id: String) {
         return;
     };
     if out.submit_state != "unknown"
-        || due_at(&out.next_attempt_at).is_none_or(|at| at > Utc::now())
+        || due_at(&out.next_attempt_at).is_none_or(|at| at > crate::clock::now())
     {
         return;
     }
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     let _ = submit(store, out, status_only).await;
 }
 
@@ -1847,7 +1857,7 @@ async fn create(
         s.prepare_task_to(request, addressed)
     })
     .await?;
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     Ok(Json(submit(store, out, status_only).await?))
 }
 async fn inspect(
@@ -1920,7 +1930,7 @@ async fn delegate(
             .await?
         }
     };
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     Ok(Json(submit(store, out, status_only).await?))
 }
 /// A delegation by address: checked, resolved, authorized, then persisted.
@@ -2048,7 +2058,7 @@ mod tests {
         let mut done = out.clone();
         done.submit_state = "accepted".into();
         done.status = Some(status(store, out, "queued", 1));
-        crate::retry::schedule(&mut done, false, Utc::now(), 0.0);
+        crate::retry::schedule(&mut done, false, crate::clock::now(), 0.0);
         store.finish_task_submit(done).unwrap()
     }
 
@@ -2072,7 +2082,7 @@ mod tests {
         let out = store.prepare_task(submission(&peer, &id)).unwrap();
         assert_eq!(out.submit_state, "unknown");
         assert!(out.next_attempt_at.is_some());
-        let deadline = time(&out.request.deadline).unwrap() - Utc::now();
+        let deadline = time(&out.request.deadline).unwrap() - crate::clock::now();
         assert!(deadline > TimeDelta::minutes(59) && deadline <= TimeDelta::hours(1));
         let shown = serde_json::to_value(&out).unwrap();
         for field in ["status", "cancel_state", "adapter_id", "route_id", "error"] {
@@ -2129,12 +2139,17 @@ mod tests {
         let out = store
             .prepare_task(submission(&peer, &format!("task_{}", "a".repeat(32))))
             .unwrap();
-        assert!(store.due_task_retries(Utc::now()).unwrap().is_empty());
-        let later = Utc::now() + TimeDelta::seconds(11);
+        assert!(
+            store
+                .due_task_retries(crate::clock::now())
+                .unwrap()
+                .is_empty()
+        );
+        let later = crate::clock::now() + TimeDelta::seconds(11);
         assert_eq!(store.due_task_retries(later).unwrap().len(), 1);
         let mut uncertain = out.clone();
         uncertain.error = Some("timeout".into());
-        crate::retry::schedule(&mut uncertain, false, Utc::now(), 0.0);
+        crate::retry::schedule(&mut uncertain, false, crate::clock::now(), 0.0);
         let saved = store.finish_task_submit(uncertain.clone()).unwrap();
         assert_eq!(
             (saved.attempts, saved.submit_state.as_str()),
@@ -2150,10 +2165,10 @@ mod tests {
         assert!(store.due_task_retries(later).unwrap().is_empty());
         // After the deadline only status queries count, up to ten.
         let mut late = out.clone();
-        late.request.deadline = rfc3339(Utc::now() - TimeDelta::minutes(1));
-        assert!(crate::retry::receipt_only(&late, Utc::now()));
+        late.request.deadline = rfc3339(crate::clock::now() - TimeDelta::minutes(1));
+        assert!(crate::retry::receipt_only(&late, crate::clock::now()));
         for _ in 0..10 {
-            crate::retry::schedule(&mut late, true, Utc::now(), 0.0);
+            crate::retry::schedule(&mut late, true, crate::clock::now(), 0.0);
         }
         assert_eq!((late.status_queries, late.next_attempt_at), (10, None));
         let updated = store
@@ -2280,7 +2295,7 @@ mod tests {
                     peer_host_id: peer.clone(),
                     target_agent_id: format!("agent_{}", "1".repeat(32)),
                     grant_id: Some(format!("grant_{}", "1".repeat(32))),
-                    expires_at: Some(rfc3339(Utc::now() + TimeDelta::minutes(30))),
+                    expires_at: Some(rfc3339(crate::clock::now() + TimeDelta::minutes(30))),
                     max_message_bytes: 100,
                     max_messages: budget,
                     action: action.map(Into::into),
@@ -2339,7 +2354,7 @@ mod tests {
                 session_id: Some(session.id.clone()),
             })
         );
-        assert!(time(&out.request.deadline).unwrap() <= Utc::now() + DEFAULT_DEADLINE);
+        assert!(time(&out.request.deadline).unwrap() <= crate::clock::now() + DEFAULT_DEADLINE);
         // Identical repeats reuse the task; changes conflict.
         assert_eq!(
             delegate("worker", '1', "do the thing").unwrap().request,

@@ -506,7 +506,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
     let signer = |path: &Option<PathBuf>| {
         persons::PersonSigner::open(path.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))
     };
-    let at = || chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let at = || peerspan_host::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let local = |method: Method, path: String, body: Option<Value>| {
         let socket = socket.clone();
         async move {

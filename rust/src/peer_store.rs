@@ -4,7 +4,6 @@ use crate::{
     store::{Store, append_event, new_id, now, rfc3339},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -346,7 +345,7 @@ pub(crate) fn grant_bounds(
         .map_err(|e| Error::Internal(e.into()))?;
     let deadline =
         chrono::DateTime::parse_from_rfc3339(r.deadline).map_err(|e| Error::Internal(e.into()))?;
-    let at = Utc::now();
+    let at = crate::clock::now();
     if g.requester_host_id != sender
         || g.target_agent_id != r.target_agent_id
         || !crate::policy::allows(&g.action, r.action)
@@ -501,7 +500,7 @@ impl Store {
     pub fn create_grant(&self, r: CreateGrant) -> Result<Grant, Error> {
         let expires = chrono::DateTime::parse_from_rfc3339(&r.expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
-        if expires <= Utc::now() || !(1..=65536).contains(&r.max_message_bytes) {
+        if expires <= crate::clock::now() || !(1..=65536).contains(&r.max_message_bytes) {
             return Err(Error::Invalid("invalid grant bounds".into()));
         }
         let g = Grant {
@@ -757,7 +756,7 @@ impl Store {
             error: None,
             attempts: 0,
             // Retried automatically if the inline send never finishes.
-            next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+            next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
             receipt_queries: 0,
             to: addressed.map(|a| a.to),
         };
@@ -873,7 +872,7 @@ pub(crate) mod tests {
             .create_grant(CreateGrant {
                 requester_host_id: peer.into(),
                 target_agent_id: agent.into(),
-                expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
+                expires_at: rfc3339(crate::clock::now() + chrono::Duration::hours(1)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: 0,
                 allow_disconnected: true,
@@ -889,7 +888,7 @@ pub(crate) mod tests {
             policy: None,
             self_access: None,
             target_agent_id: agent.into(),
-            deadline: rfc3339(Utc::now() + chrono::Duration::minutes(5)),
+            deadline: rfc3339(crate::clock::now() + chrono::Duration::minutes(5)),
             content: "hello".into(),
             origin,
         }
@@ -974,7 +973,7 @@ pub(crate) mod tests {
         let bad = store.create_grant(CreateGrant {
             requester_host_id: peer.id.clone(),
             target_agent_id: target.clone(),
-            expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
+            expires_at: rfc3339(crate::clock::now() + chrono::Duration::hours(1)),
             max_message_bytes: 1000,
             max_artifact_bytes: 0,
             allow_disconnected: true,
@@ -1030,7 +1029,7 @@ pub(crate) mod tests {
                 request_id: String::new(),
                 grant_id: Some(format!("grant_{}", "1".repeat(32))),
                 target_agent_id: format!("agent_{}", "2".repeat(32)),
-                deadline: rfc3339(Utc::now() + chrono::Duration::minutes(5)),
+                deadline: rfc3339(crate::clock::now() + chrono::Duration::minutes(5)),
                 content: "hello".into(),
                 origin: o,
             })
