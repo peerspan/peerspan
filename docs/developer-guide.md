@@ -31,13 +31,13 @@ cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI also runs the [slim conformance suites](../conformance/slim/) (one small black-box suite per area, written from the spec; DEC-OWN6, DEC-OWN9) against the Rust host and peer probe, in parallel. To run one locally after building the binaries, put `peerspan-host` and `peerspan-peer-probe` in one directory and run, for example:
+CI also runs the [slim conformance suites](../conformance/slim/) (one small black-box suite per area, written from the spec; DEC-OWN6, DEC-OWN9, DEC-OWN10) against the Rust host and peer probe, in parallel. To run one locally after building the binaries, put `peerspan-host` and `peerspan-peer-probe` in one directory and run, for example:
 
 ```sh
 python3 conformance/slim/join.py --bin DIR
 ```
 
-Many older [conformance suites](../conformance/) still take a `--go` binary and, for enrollment, the retired `peerspan-coord` coordinator; Rust-only conformance replaces them. Until then, run them with binaries built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) where a check requires them. Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
+The large earlier conformance suites were deleted in favour of the slim suites ([DEC-OWN10](decision-log.md)). Verification sections of older contracts and proposals still name them as history; the slim suites are what CI and reviewers use now. `conformance/installed_bundle.py` remains for checking packaged bundles.
 
 ## Test clock (debug builds only)
 
@@ -64,6 +64,6 @@ With `PEERSPAN_TIMING=1`, a debug build prints one `timing #N KIND WHAT MS` line
 - [Manual agent testing](manual-agent-testing.md) covers explicit sessions, routes, and local fixtures.
 - [Coordination contract](coordination-contract.md) and [peer messaging contract](peer-messaging-contract.md) explain enrollment and transport.
 - [Connectivity evaluation](connectivity-evaluation.md) explains the controlled network benchmarks and their limits.
-- [Build timing script](../conformance/build_timings.py) and [peer transport benchmark](../conformance/peer_transport_bench.py) provide reproducible measurements.
+- `PEERSPAN_TIMING=1` in debug builds prints per-request timings (see above), and the ignored Rust connectivity benchmarks in `rust/src/quic/` can be run on demand.
 
 The [earlier prototype](../legacy/README.md) has its own Go module and test requirements. It is historical code, separate from the current hosts.

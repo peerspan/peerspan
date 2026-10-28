@@ -19,6 +19,7 @@ Contents:
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
   - [DEC-OWN9: shape of the slim conformance suites](#dec-own9-shape-of-the-slim-conformance-suites-2026-10-28) (2026-10-28)
+  - [DEC-OWN10: delete the old conformance suites](#dec-own10-delete-the-old-conformance-suites-2026-10-28) (2026-10-28)
   - [DEC-OWN8: move the Go implementation to its own repository](#dec-own8-move-the-go-implementation-to-its-own-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN7: publish the repository](#dec-own7-publish-the-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
@@ -71,6 +72,13 @@ Contents:
 - **Options:** (A) a test clock in debug builds only (an environment variable the release build ignores), so suites jump hours or days in seconds; (B) real time only.
 - **Chosen:** (A).
 - **Implemented in:** [PR #7](https://github.com/peerspan/peerspan/pull/7), the test clock of question 2 (DEC.impl16); this decision's PR, the first three suites (`conformance/slim/join.py`, `policy.py`, `work.py`) and the parallel CI workflow `.github/workflows/conformance.yml`.
+
+### DEC-OWN10: delete the old conformance suites (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question:** once the slim suites (DEC-OWN9) cover every area, should the old suites be kept, deleted area by area, or deleted completely?
+- **Options:** keep them; delete each area's old suites as its slim suite lands; delete them completely now.
+- **Chosen:** delete them completely now. `conformance/` keeps only `slim/`, the fixtures the slim suites use (`mcp`, `remote`, `gh`), and the packaging checks `installed_bundle.py` and `test_package_release.py` with the modules they import (`agent_adapter.py`, `claude_setup.py`, `host_service.py`, `peer_messaging.py`). The Rust connectivity benchmark drivers move from `conformance/connectivity/` into `rust/src/quic/`. Recorded results under `docs/results/` and the verification sections of older contracts stay as history.
 
 ### DEC-OWN8: move the Go implementation to its own repository (2026-10-28)
 
