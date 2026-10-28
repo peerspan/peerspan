@@ -52,7 +52,13 @@ pub(crate) struct Record {
     pub terminal: String,
     pub carrier_endpoints: Vec<Value>,
     pub outbound_frames: Vec<Value>,
+    /// When this host recorded the request's latest stage (spec 8.5); `-`
+    /// for a record written before stage times were kept.
+    #[serde(default = "empty")]
+    pub stage_at: String,
 }
+/// Each stage times out after 10 minutes of inactivity (spec 8.5).
+const STAGE_SECONDS: i64 = 600;
 pub(crate) struct Pending {
     pub id: String,
     pub deadline: String,
@@ -70,6 +76,32 @@ fn empty() -> String {
     "-".into()
 }
 impl Pending {
+    fn stages(&self) -> usize {
+        let r = &self.record;
+        [
+            &r.owner_packet_base64,
+            &r.selection_packet_base64,
+            &r.administrator_packet_base64,
+            &r.owner_finalization_packet_base64,
+            &r.commit_packet_base64,
+        ]
+        .iter()
+        .filter(|raw| raw.as_str() != "-")
+        .count()
+    }
+    /// Whether the request sat more than 600 seconds after its latest stage
+    /// was recorded here, before a commit was persisted (spec 8.5).
+    pub(crate) fn stage_expired(&self, now: &str) -> Result<bool> {
+        if self.record.commit_packet_base64 != "-" {
+            return Ok(false);
+        }
+        let latest = if self.record.stage_at == "-" {
+            text(&self.packet()?.payload, "created_at")?.to_owned()
+        } else {
+            self.record.stage_at.clone()
+        };
+        Ok(stamp(now)? - stamp(&latest)? > chrono::TimeDelta::seconds(STAGE_SECONDS))
+    }
     pub fn validate(&self) -> Result<()> {
         let r = &self.record;
         check(
@@ -310,7 +342,7 @@ impl Pending {
             _ => {
                 if r.commit_packet_base64 != "-" {
                     "finalizing"
-                } else if stamp(now)? >= stamp(&self.deadline)? {
+                } else if stamp(now)? >= stamp(&self.deadline)? || self.stage_expired(now)? {
                     "expired"
                 } else if r.owner_packet_base64 == "-" {
                     "pending"
@@ -487,7 +519,28 @@ pub(crate) fn frames(c: &Connection, pending: &Pending) -> Result<Vec<Frame>> {
 }
 pub(crate) fn save(c: &Connection, p: &Pending) -> Result<()> {
     p.validate()?;
-    let record = String::from_utf8(bytes(&p.record)?).map_err(|_| Error::new("internal"))?;
+    // A new stage is recorded only within 600 seconds of the latest one
+    // (spec 8.5); its time starts the next stage's window.
+    let now = controls::local_decision_time()?;
+    let mut record = p.record.clone();
+    let old = match load(c, &p.id) {
+        Ok(old) => Some(old),
+        Err(e) if e.code == "not_found" => None,
+        Err(e) => return Err(e),
+    };
+    match old {
+        // The requester recorded its request when it signed it.
+        None if p.record.roles.iter().any(|r| r == "requester") => {
+            record.stage_at = text(&p.packet()?.payload, "created_at")?.to_owned()
+        }
+        None => record.stage_at = now,
+        Some(old) if p.stages() > old.stages() => {
+            require(!old.stage_expired(&now)?, "expired")?;
+            record.stage_at = now;
+        }
+        Some(_) => {}
+    }
+    let record = String::from_utf8(bytes(&record)?).map_err(|_| Error::new("internal"))?;
     c.execute("INSERT INTO dec_pending(request_id,deadline,record,secret,terminal_read_cap) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id) DO UPDATE SET deadline=excluded.deadline,record=excluded.record,secret=excluded.secret,terminal_read_cap=excluded.terminal_read_cap",rusqlite::params![p.id,p.deadline,record,p.secret.as_ref().map(|s|s.as_slice()),p.terminal_read_cap.as_ref().map(|s|s.as_slice())]).map_err(db)?;
     Ok(())
 }
@@ -506,7 +559,10 @@ fn cleanup(c: &Connection, now: &str) -> Result<()> {
         if p.record.terminal == "migration_prepared" {
             continue;
         }
-        if stamp(now)? < stamp(&p.deadline)? {
+        // A stage idle for more than 600 seconds ends the request early (spec 8.5).
+        if stamp(now)? < stamp(&p.deadline)?
+            && !(p.record.terminal == "-" && p.stage_expired(now)?)
+        {
             continue;
         }
         if p.record.terminal == "-" && p.record.commit_packet_base64 == "-" {
@@ -828,6 +884,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         outbound_frames: vec![
             json!({"role":"request","writer_public_key":host,"frame_id":frame.frame_id,"acknowledged_by":[]}),
         ],
+        stage_at: empty(),
     };
     let p = Pending {
         id: id.clone(),

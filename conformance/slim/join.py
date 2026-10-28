@@ -285,7 +285,7 @@ def _():
     state["clock_at"] = expires
 
 
-@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); 20 item 33; test clock", known="spec 8.5")
+@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); 20 item 33; test clock")
 def _():
     net, key, start = need("net", "carol_key", "clock_at")
     # The clock only moves forward, so the 600 s case comes first, on a fresh request.
