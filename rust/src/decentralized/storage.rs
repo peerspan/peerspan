@@ -1491,7 +1491,8 @@ impl Snapshot {
     }
     /// Called only after the fixed owner-local creation intent has all explicit
     /// approval/signature slots. Ordinary ingestion never calls this gate.
-    /// Genesis initializes an ORIGINAL provider and issues no device lease.
+    /// Genesis selects the creator device (DEC-Q21), or the original key for a
+    /// creation that predates it.
     pub fn install_genesis(
         transaction: &mut rusqlite::Transaction<'_>,
         descriptor_bytes: &[u8],
@@ -1499,6 +1500,7 @@ impl Snapshot {
         now: &str,
         identity: &OwnIdentity,
         root_seed: &[u8; 32],
+        creator_device: &str,
     ) -> Result<Self> {
         let descriptor = Descriptor::read(descriptor_bytes)?;
         require(
@@ -1636,7 +1638,43 @@ impl Snapshot {
             migrations: Vec::new(),
         };
         initial.persist(&savepoint, &projection)?;
-        savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'original',?3,'-','-')",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key]).map_err(db)?;
+        if creator_device == "-" {
+            savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'original',?3,'-','-')",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key]).map_err(db)?;
+        } else {
+            // The creator device is the selected provider (DEC-Q21).
+            let device = projection
+                .catalog
+                .statements
+                .values()
+                .find(|s| {
+                    s.kind == "device_lease"
+                        && s.subject().is_ok_and(|subject| {
+                            text(subject, "device_public_key").is_ok_and(|k| k == creator_device)
+                        })
+                })
+                .ok_or_else(|| Error::new("state_conflict"))?;
+            let seed: Option<Vec<u8>> = savepoint
+                .query_row(
+                    "SELECT seed FROM link_device_keys WHERE public_key=?1",
+                    [creator_device],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db)?;
+            let seed: [u8; 32] = seed
+                .ok_or_else(|| Error::new("signer_unavailable"))?
+                .try_into()
+                .map_err(|_| Error::new("state_conflict"))?;
+            require(
+                encode(
+                    ed25519_dalek::SigningKey::from_bytes(&seed)
+                        .verifying_key()
+                        .as_bytes(),
+                ) == creator_device,
+                "signer_unavailable",
+            )?;
+            savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'device',?3,?4,?5)",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key,creator_device,device.id]).map_err(db)?;
+        }
         savepoint
             .execute(
                 "INSERT INTO events(kind,subject_id,created_at) VALUES('network.created',?1,?2)",

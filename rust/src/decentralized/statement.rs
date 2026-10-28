@@ -469,7 +469,13 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             let op = text(p, "operation_id")?;
             check(op == "-" || ident(op, "link_") || kind == "host_lease" && ident(op, "ds_"))?;
             if kind == "device_lease" {
-                check(ident(op, "link_"))?;
+                // `-` only for the creator device grant (DEC-Q21), sequence 1.
+                check(
+                    ident(op, "link_")
+                        || op == "-"
+                            && p.get("sequence").and_then(Value::as_u64) == Some(1)
+                            && ids(p, "predecessors", "ds_")?.is_empty(),
+                )?;
             }
             if kind == "admin_lease" {
                 check(op == "-")?;

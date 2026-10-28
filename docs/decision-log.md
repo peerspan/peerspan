@@ -172,6 +172,13 @@ The test clock that DEC-OWN9 asks for, so fast suites can test long timers.
 
 - **DEC.impl17. Trust answer at `network create` and `join`.** Both accept `--trusted` and `--untrusted` on coordinator-free networks. `network create` signs a yes at once with the creation key and always outputs `trusted`. A `join` is asynchronous (spec 8.1): it only creates a request, so nothing can be signed into the person's policy when it returns. An interactive join waits until its request is applied and then asks and signs. A non-interactive join that returns a pending request gives `trusted: false` with `trusted_error` naming `peerspan trust --network ID` when `--trusted` was given (the contract's failure branch), and `trusted: false` with `--untrusted`. Without a flag and without the question, `join` prints the exact LINK_VIEW unchanged. Discarded: refusing the flags; recording the answer for a later automatic signing.
 
+### DEC-impl: settled by the implementer in the spec-gap fixes (not owner decisions)
+
+Fixes for the places where the Rust host did not yet follow the simplified [spec](decentralized-spec.md), found by the slim conformance suites (DEC-OWN9).
+
+- **DEC.impl18. Creator device key (DEC-Q21).** `network create` generates the creator's device key when it prepares the creation (the preview), and stores it with the host's other device keys, so the reviewed and signed templates name it. The original key signs the device grant as the seventh creation template, after the binding it depends on. A creation prepared before this change keeps its six templates and selects the original key; it gets no device grant. A verifier accepts a device grant with `operation_id` `-` only in the exact creator shape: sequence 1, no predecessors, scopes 15, issued by the original key at the genesis root's time, with that network's genesis person, host and binding grants as its parents. Self-renewal of the creator device and binding (DEC-Q27, DEC-Q30) is not part of this change. Discarded: deriving the device key from the root seed (it would tie the device to the root key).
+- **Implemented in:** [PR #11](https://github.com/peerspan/peerspan/pull/11).
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -286,6 +293,7 @@ The test clock that DEC-OWN9 asks for, so fast suites can test long timers.
 
 - **Options:** (a) the daemon on the original key's machine signs through `ssh-agent` or a CLI-generated key file (the draft's recommendation); (b) `network create` also gives the creator's host a scope-15 device grant, so device renewal covers the creator's binding and policy.
 - **Chosen:** **(b), against the draft's recommendation.** The device grant is held by the daemon, so no SSH key has to stay unlocked.
+- **Implemented in:** [PR #11](https://github.com/peerspan/peerspan/pull/11) (DEC.impl18).
 
 #### DEC-Q22. Approval of automatic renewals
 

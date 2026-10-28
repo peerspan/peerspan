@@ -15,14 +15,20 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-const KINDS: [&str; 6] = [
+const KINDS: [&str; 7] = [
     "root_state",
     "admin_lease",
     "person_lease",
     "host_lease",
     "binding_lease",
     "policy",
+    "device_lease",
 ];
+/// Creations before the creator device grant (DEC-Q21) have no device key
+/// and only the first six templates.
+fn kinds(device: &str) -> &'static [&'static str] {
+    if device == "-" { &KINDS[..6] } else { &KINDS }
+}
 fn db(_: rusqlite::Error) -> Error {
     Error::new("internal")
 }
@@ -70,13 +76,13 @@ pub(super) fn remember_clock(connection: &Connection, network: &str, time: &str)
 fn payload(
     index: usize,
     d: &Descriptor,
-    identity: (&str, &str),
+    identity: (&str, &str, &str),
     member: &str,
     time: &str,
     ids: &[String],
     body: Option<&str>,
 ) -> Result<Value> {
-    let (person, host) = identity;
+    let (person, host, device) = identity;
     if index == 0 {
         return Ok(
             json!({"epoch":0,"predecessors":[],"resolves":[],"migration_proposal_id":"-","root_public_key":d.genesis_root_public_key,"issued_at":time,"retained_statement_ids":[]}),
@@ -88,6 +94,11 @@ fn payload(
             json!([{"role":"issuer_person","id":ids[2]},{"role":"subject_host","id":ids[3]},{"role":"subject_person","id":ids[2]}])
         }
         5 => json!([{"role":"issuer_person","id":ids[2]}]),
+        // The creator device grant (DEC-Q21): the genesis person, host and
+        // binding grants are its parents; the original key is its issuer.
+        6 => {
+            json!([{"role":"issuer_person","id":ids[2]},{"role":"subject_binding","id":ids[4]},{"role":"subject_host","id":ids[3]},{"role":"subject_person","id":ids[2]}])
+        }
         _ => json!([]),
     };
     let mut value = json!({"root_state_id":ids[0],"operation_id":"-","sequence":1,"predecessors":[],"resolves":[],"issuer":{"kind":if person_issuer {"person"} else {"root"},"person_public_key":if person_issuer {person} else {"-"}},"parents":parents,"issued_at":time,"not_before":time,"not_after":at(time,if index==5 {86400} else {604800})?});
@@ -102,7 +113,7 @@ fn payload(
         value["body_base64"] = Value::from(actual);
     } else {
         value["retained_statement_ids"] = json!([]);
-        value["subject"] = json!({"person_public_key":if index==3 {"-"} else {person},"host_public_key":if index>=3 {host} else {"-"},"device_public_key":"-","member":if index==1 || index==4 {"-"} else {member},"scopes":match index {1=>8,4=>2,_=>0}});
+        value["subject"] = json!({"person_public_key":if index==3 {"-"} else {person},"host_public_key":if index>=3 {host} else {"-"},"device_public_key":if index==6 {device} else {"-"},"member":if index==1 || index==4 || index==6 {"-"} else {member},"scopes":match index {1=>8,4=>2,6=>15,_=>0}});
     }
     Ok(value)
 }
@@ -122,15 +133,15 @@ fn signers(index: usize, d: &Descriptor, person: &str, host: &str) -> Value {
 }
 fn templates(
     d: &Descriptor,
-    person: &str,
-    host: &str,
+    identity: (&str, &str, &str),
     member: &str,
     time: &str,
 ) -> Result<Vec<Template>> {
+    let (person, host, device) = identity;
     let mut output = Vec::new();
     let mut ids = Vec::new();
-    for (index, kind) in KINDS.iter().enumerate() {
-        let p = payload(index, d, (person, host), member, time, &ids, None)?;
+    for (index, kind) in kinds(device).iter().enumerate() {
+        let p = payload(index, d, identity, member, time, &ids, None)?;
         let raw = bytes(
             &json!({"format":1,"kind":kind,"context_id":d.context_id(),"payload_base64":encode(&bytes(&p)?),"signatures":signers(index,d,person,host)}),
         )?;
@@ -167,9 +178,9 @@ fn validate(intent: &Intent, host: &str) -> Result<Descriptor> {
             && ident(&r.operation_id, "create_")
             && r.host_public_key == host
             && key(&r.person_public_key)
-            && r.device_public_key == "-"
+            && (r.device_public_key == "-" || key(&r.device_public_key))
             && r.scopes == 15
-            && r.templates.len() == 6,
+            && r.templates.len() == kinds(&r.device_public_key).len(),
     )?;
     check(
         text(view, "person_public_key")? == r.person_public_key
@@ -187,7 +198,7 @@ fn validate(intent: &Intent, host: &str) -> Result<Descriptor> {
     )?;
     let mut ids = Vec::new();
     for (index, template) in r.templates.iter().enumerate() {
-        check(template.object_type == KINDS[index])?;
+        check(template.object_type == kinds(&r.device_public_key)[index])?;
         let fixed = FixedStatement::read(&d, &b64(&template.template_base64, MAX_OBJECT)?)?;
         let s = fixed.typed();
         let body = s.payload.get("body_base64").and_then(Value::as_str);
@@ -196,7 +207,7 @@ fn validate(intent: &Intent, host: &str) -> Result<Descriptor> {
                 == payload(
                     index,
                     &d,
-                    (&r.person_public_key, host),
+                    (&r.person_public_key, host, &r.device_public_key),
                     member,
                     &r.created_at,
                     &ids,
@@ -283,10 +294,11 @@ fn validate_result(intent: &Intent, d: &Descriptor, review: &Value) -> Result<()
         &intent.record.person_public_key,
         &intent.record.host_public_key,
     )?;
+    let device = creator_device(intent, &projected)?;
     let provider = projected.provider_potential(
         &intent.record.person_public_key,
         &intent.record.host_public_key,
-        None,
+        device.as_deref(),
     )?;
     check(n.get("provider") == Some(&provider))?;
     let member = projected.member_for(
@@ -316,6 +328,20 @@ fn validate_result(intent: &Intent, d: &Descriptor, review: &Value) -> Result<()
         _ => return Err(Error::new("invalid")),
     }
     check(intent.secret.is_none())
+}
+/// The creator device grant's ID, or none for a creation that predates it.
+fn creator_device(intent: &Intent, projected: &super::state::Projection) -> Result<Option<String>> {
+    if intent.record.device_public_key == "-" {
+        return Ok(None);
+    }
+    let id = projected
+        .catalog
+        .statements
+        .values()
+        .find(|s| s.kind == "device_lease")
+        .map(|s| s.id.clone())
+        .ok_or_else(|| Error::new("state_conflict"))?;
+    Ok(Some(id))
 }
 fn completed_catalog(intent: &Intent, d: &Descriptor) -> Result<Vec<u8>> {
     let mut objects = BTreeMap::new();
@@ -438,7 +464,7 @@ fn available(store: &Store, person: &str) -> Result<()> {
 fn finish(store: &Store, id: &str) -> Result<Vec<u8>> {
     // Availability discovery may contact the local SSH agent; no database
     // guard or transaction survives that external operation.
-    let (person, complete) = {
+    let (person, complete, device) = {
         let c = store.connection().map_err(|_| Error::new("internal"))?;
         let (i, _) = load_operation(&c, id, &store.identity().public_key)?;
         if i.record.terminal == "applied" {
@@ -448,9 +474,17 @@ fn finish(store: &Store, id: &str) -> Result<Vec<u8>> {
             let d = validate(&i, &store.identity().public_key)?;
             return response(&i, &d);
         }
-        (i.record.person_public_key, i.record.completed)
+        (
+            i.record.person_public_key,
+            i.record.completed,
+            i.record.device_public_key,
+        )
     };
-    let availability = if complete {
+    // The creator device signs for this host; its key is checked when the
+    // network is installed. Older creations select the original key.
+    let availability = if complete && device != "-" {
+        Ok(())
+    } else if complete {
         available(store, &person)
     } else {
         Err(Error::new("signer_unavailable"))
@@ -556,6 +590,7 @@ fn finish(store: &Store, id: &str) -> Result<Vec<u8>> {
         &decision,
         &identity,
         &seed,
+        &intent.record.device_public_key,
     )?;
     let projection = snapshot.project(&decision)?;
     let delivery = views::delivery(&tx, &d.network_id, &d.context_id())?;
@@ -656,7 +691,17 @@ pub(crate) fn create(store: &Store, request: &Obj, _now: &str) -> Result<Vec<u8>
                 genesis_root_public_key: public,
             };
             let created = decision(&tx, &d.network_id, now)?;
-            let templates = templates(&d, person, &host, member, &created)?;
+            // The creator's device key (DEC-Q21), kept with the other
+            // device keys of this host; approving the creation is its consent.
+            let mut device_seed = [0u8; 32];
+            getrandom::fill(&mut device_seed).map_err(|_| Error::new("internal"))?;
+            let device = encode(
+                SigningKey::from_bytes(&device_seed)
+                    .verifying_key()
+                    .as_bytes(),
+            );
+            tx.execute("INSERT INTO link_device_keys(public_key,seed,created_at) VALUES(?1,?2,?3) ON CONFLICT(public_key) DO NOTHING",rusqlite::params![device,device_seed.as_slice(),created]).map_err(db)?;
+            let templates = templates(&d, (person, &host, &device), member, &created)?;
             let root_id =
                 FixedStatement::read(&d, &b64(&templates[0].template_base64, MAX_OBJECT)?)?
                     .statement_id()
@@ -683,7 +728,7 @@ pub(crate) fn create(store: &Store, request: &Obj, _now: &str) -> Result<Vec<u8>
                     root_state_id: root_id,
                     person_public_key: person.into(),
                     host_public_key: host.clone(),
-                    device_public_key: "-".into(),
+                    device_public_key: device,
                     scopes: 15,
                     not_after,
                     created_at: created.clone(),

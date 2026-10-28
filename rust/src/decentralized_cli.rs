@@ -107,7 +107,9 @@ fn signatures(
         let outer: Value = serde_json::from_slice(&raw)?;
         let kind = text(&outer, "kind")?;
         ensure!(
-            (kind == "binding_lease" && slot == 5) || (kind == "policy" && slot == 6),
+            (kind == "binding_lease" && slot == 5)
+                || (kind == "policy" && slot == 6)
+                || (kind == "device_lease" && slot == 7),
             "unexpected creation object"
         );
         ensure!(
@@ -144,6 +146,16 @@ fn signatures(
                     && host_role["format"] == "ed25519"
                     && host_role["signature"] != "-",
                 "initial binding lacks the actual host consent"
+            );
+        } else if kind == "device_lease" {
+            // The creator device grant (DEC-Q21): this host, scopes 15.
+            ensure!(
+                p["subject"]["person_public_key"] == choice.signer.public_key_b64()
+                    && p["subject"]["host_public_key"] == host
+                    && p["subject"]["member"] == "-"
+                    && p["subject"]["scopes"] == 15
+                    && p["retained_statement_ids"] == json!([]),
+                "unexpected creator device subject/scopes"
             );
         } else {
             let body: Value = serde_json::from_slice(&decode(text(&p, "body_base64")?)?)?;
@@ -206,7 +218,10 @@ pub(crate) async fn create(
                     && network["context_id"] == descriptor.context_id()
                     && network["person_public_key"] == choice.signer.public_key_b64()
                     && network["host_public_key"] == host
-                    && network["provider"]["kind"] == "original_person",
+                    && matches!(
+                        network["provider"]["kind"].as_str(),
+                        Some("device" | "original_person")
+                    ),
                 "invalid committed creation identity/provider"
             );
             return Ok(network.clone());
