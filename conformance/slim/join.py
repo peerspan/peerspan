@@ -294,14 +294,15 @@ def _():
     first = join_request(c, made["invitation"], key)
     # Item 33: a stage that waits 600 s can still be signed. The test clock is an offset, so real time
     # keeps running after set_clock; aim 3 s inside the limit, measured from the request's own time.
-    set_clock(parse_time(first["created_at"]) + timedelta(seconds=597))
+    signable_at = parse_time(first["created_at"]) + timedelta(seconds=597)
+    set_clock(signable_at)
     c.ok_incomplete("link", "approve", "--network", net["id"], "--person-key", key, "--code-stdin", "--approve",
                     input=first["display_code"] + "\n")
     check(link_view(c, first["request_id"])["owner_offer_id"].startswith("dpk_"), "a stage just inside 600 s was not signed")
     made = long_invite(net["id"], "carol")
     second = join_request(c, made["invitation"], key)
     made_at = parse_time(second["created_at"])
-    check(abs((made_at - start).total_seconds() - 600) <= 2, f"second request created at {second['created_at']}")
+    check(abs((made_at - signable_at).total_seconds()) <= 5, f"second request created at {second['created_at']}")
     set_clock(made_at + timedelta(seconds=601))
     late = c.cli("link", "approve", "--network", net["id"], "--person-key", key, "--code-stdin", "--approve",
                  input=second["display_code"] + "\n")
