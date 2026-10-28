@@ -949,6 +949,19 @@ pub(crate) fn signed(store: &Store, request: &str, input: &Obj) -> Result<Vec<u8
 }
 pub(crate) fn resume(store: &Store, request: &str) -> Result<()> {
     resume_offer(store, request)?;
+    // A new person's own possession-only owner offer is signed on the new
+    // machine: as its only offer, it is selected there at once (spec 8.4).
+    let unselected = {
+        let c = store.connection().map_err(|_| Error::new("internal"))?;
+        let p = requests::load(&c, request)?;
+        p.record.roles.iter().any(|r| r == "requester")
+            && p.record.owner_offer_id != "-"
+            && !p.record.selection_approved
+    };
+    if unselected {
+        // A selection that cannot be signed now waits for `link resume`.
+        let _ = super::observer::observe(store, request);
+    }
     super::ceremony_finalization::resume(store, request)
 }
 /// The combined resume runs F after any administrator progress. Direct owner

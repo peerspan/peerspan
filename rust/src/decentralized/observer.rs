@@ -377,7 +377,22 @@ pub(crate) fn observe(store: &Store, id: &str) -> Result<()> {
         }
     };
     let mut barriers = Vec::new();
+    let mut automatic = None;
     if let Some(offer) = chosen {
+        // Exactly one valid owner offer was present when this request first
+        // processed offers: the requester selects it without a prompt
+        // (spec 8.4, DEC-S5, DEC-Q5). A later offer is ignored.
+        if p.record.roles.iter().any(|r| r == "requester") && !p.record.selection_approved {
+            automatic = Some(json!({
+                "owner_offer_id": offer.owner.id,
+                "network_id": offer.descriptor.network_id,
+                "context_id": offer.descriptor.context_id(),
+                "person_public_key": text(&offer.owner.object, "person_public_key")?,
+                "host_public_key": p.record.host_public_key,
+                "device_public_key": p.record.device_public_key,
+                "approve": true,
+            }));
+        }
         offer.remember(&mut p)?;
         if previous_owner == "-" {
             barriers.push("dec.owner.after_commit")
@@ -389,6 +404,11 @@ pub(crate) fn observe(store: &Store, id: &str) -> Result<()> {
     drop(c);
     for barrier in barriers {
         controls::barrier(store, barrier, id)?
+    }
+    if let Some(input) = automatic {
+        // A selection that cannot be signed now stays `needs_selection`;
+        // the next observation or `link resume` tries again.
+        let _ = super::requester::select(store, id, object(&input)?);
     }
     Ok(())
 }

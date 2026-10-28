@@ -186,7 +186,7 @@ def _():
                     "join printed a psl2- code at once")
 
 
-@suite.case("single_offer_selected_without_prompt", "spec 8.4 (DEC-S5, DEC-Q5); 20 item 34", known="DEC-S5/DEC-Q5")
+@suite.case("single_offer_selected_without_prompt", "spec 8.4 (DEC-S5, DEC-Q5); 20 item 34")
 def _():
     (seen,) = need("bob_single_offer_state")
     check(seen != "needs_selection", "with exactly one owner offer the request still waited in needs_selection "
