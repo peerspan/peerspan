@@ -68,10 +68,15 @@ fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> 
         "migration_pending" => "network_migration_pending",
         _ => "network_authority_expired",
     };
-    let mut detail = format!(
-        "network authority requires repair: {code}; required_ids {}; deadline {}",
-        v["authority"]["required_ids"], v["authority"]["not_after"]
-    );
+    // A root split (spec 13.2): the network view shows root_state_id `-`.
+    let mut detail = if code == "state_conflict" && v["root_state_id"] == "-" {
+        "root split: changes are frozen; create a new network and run network reinvite".to_owned()
+    } else {
+        format!(
+            "network authority requires repair: {code}; required_ids {}; deadline {}",
+            v["authority"]["required_ids"], v["authority"]["not_after"]
+        )
+    };
     if code == "clock_rollback" {
         detail.push_str(&format!("; correct local UTC or wait until retained guard {guard} and rerun the command; the guard cannot be lowered or reset"));
     }

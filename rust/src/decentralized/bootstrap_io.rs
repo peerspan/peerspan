@@ -140,9 +140,12 @@ pub fn configure(store: &Store, config: Option<&Path>, bound: SocketAddr) -> Res
         version(o)?;
         s.bootstrap = addresses(&v, "advertise_bootstrap")?;
         s.quic = addresses(&v, "advertise_quic")?;
+        // Contacts travel only inside codes and between members; a file
+        // that asks to publish them is refused (spec 9.8, DEC-Q20).
         s.publish_contacts = o["publish_contacts"]
             .as_bool()
             .ok_or_else(|| Error::new("invalid"))?;
+        check(!s.publish_contacts)?;
         let mut helpers = Vec::new();
         for (kind, name) in [("rendezvous", "rendezvous"), ("relay", "relays")] {
             let list = array(o, name)?;

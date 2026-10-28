@@ -787,6 +787,21 @@ pub enum PersonCommand {
     },
 }
 
+/// `network reinvite OLD NEW` (spec 14.2).
+#[derive(Debug, clap::Args)]
+pub struct ReinviteArgs {
+    /// The legacy or root-split network
+    pub old: String,
+    /// A coordinator-free network this host is a current member of
+    pub new: String,
+    /// When the invites expire (RFC 3339), 60 seconds to 24 hours ahead
+    #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
+    pub expires_at: Option<String>,
+    /// How long the invites last, 60 seconds to 24 hours; default 24h
+    #[arg(long, value_name = "DURATION")]
+    pub expires_in: Option<String>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
     /// Review and complete an explicit all-host migration without a coordinator.
@@ -1007,6 +1022,9 @@ pub enum NetworkCommand {
     },
     /// Leave a network; takes effect locally even if coordination is down
     Leave { id: String },
+    /// Print an invite into NEW for each member machine of OLD, a legacy
+    /// network or one frozen by a root split; invites last 24 hours by default
+    Reinvite(ReinviteArgs),
     /// Rotate the root after reviewing the exact finite authority to retain
     RotateRoot {
         id: String,
@@ -1827,6 +1845,7 @@ impl Command {
             | Self::Person(_)
             | Self::Join { .. }
             | Self::Invite { .. }
+            | Self::Network(NetworkCommand::Reinvite(_))
             | Self::Allow { .. }
             | Self::Deny { .. }
             | Self::Sources(_)

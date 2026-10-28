@@ -65,7 +65,7 @@ impl Plan {
         let v = local
             .get(format!("/v2/networks/{}/planning", encoded(id)))
             .await?;
-        shape(&v, "network decision_time catalog streams")?;
+        shape(&v, "network decision_time catalog streams restriction_ids")?;
         let n = &v["network"];
         ensure!(
             n["id"] == id

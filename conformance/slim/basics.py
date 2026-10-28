@@ -145,8 +145,7 @@ def _():
         check(status in (404, 405), f"{method} {path}: {status} {body}, want 404")
 
 
-@suite.case("reinvite_refuses_a_current_network", "spec 14.2 (DEC-Q16): OLD is legacy or root-split",
-            known="DEC-Q16")
+@suite.case("reinvite_refuses_a_current_network", "spec 14.2 (DEC-Q16): OLD is legacy or root-split")
 def _():
     (net,) = need("net")
     other = create_network(a, "other", "alice")
