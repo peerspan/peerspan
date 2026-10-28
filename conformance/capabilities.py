@@ -1089,10 +1089,17 @@ class Pairing:
         completes through dec_network (invite, join, approvals, commit), and a requested yes is signed with `trust`
         so later sections run with the intended trusted hosts. Returns the first attempt's output or the refusal."""
         dec, h = self.decs[net], self.hosts[name]
-        if not flags and terminal is None and any(p is dec.person(person or label) for p in dec.hosts.values()):
-            # Another machine of a person already in the network links (decentralized-spec.md 8.1, last
-            # paragraph); there is no trust flag or prompt to check on this join.
+        existing = any(p is dec.person(person or label) for p in dec.hosts.values())
+        if terminal is not None:
+            # Not ported yet: on a coordinator-free network an interactive join waits for the owner's and the
+            # administrator's stages and asks its commit question before any trust question (decentralized-spec.md
+            # 8.1 steps 5-7, 8.4), so answering only the trust prompt cannot drive it; that needs a driver which
+            # approves on the other hosts while the terminal session waits. Reported, never counted as passing.
+            self.join_terminal[name] = None
+            self.notes.append('NOT PORTED: join at a terminal (trust prompt answered y) on a coordinator-free network')
             dec.join(dec.root_host, h, label, person=person)
+            if terminal == 'y':
+                dec_network.trust(h, net)
             return {}
         key = dec.person(person or label).key
         invitation = dec_network.cli_json(dec.root_host, 'network', 'invite', '--network', net, '--member', label,
@@ -1113,7 +1120,13 @@ class Pairing:
         else:
             code, out, stdout, text = h.outcome(*argv)
         attempt = out if isinstance(out, dict) else {}
-        if 'request_id' in attempt:
+        if 'request_id' in attempt and existing:
+            # The join's output is what the trust section checks. A further machine of a person already in the
+            # network is added with `link` (decentralized-spec.md 8.1, last paragraph), so the join request is
+            # cancelled (spec 8.7 "Cancel ... works before commit") and the machine links instead.
+            dec_network.api(h, 'POST', f'/v2/link/requests/{attempt["request_id"]}/cancel', {})
+            dec.join(dec.root_host, h, label, person=person)
+        elif 'request_id' in attempt:
             # The flags were accepted and a join request exists: continue that request.
             dec.complete_join(h, attempt, label, person or label)
         else:
@@ -1314,27 +1327,34 @@ class Pairing:
         team, other = self.create_outputs['team'], self.create_outputs['other']
         need(team.get('trusted') is False, 'network create --untrusted: output trusted false', team)
         need(other.get('trusted') is True, 'network create --trusted: output trusted true', other)
-        need(self.join_outputs['p2'].get('trusted') is True, 'join --trusted: trusted true', self.join_outputs['p2'])
-        need(self.join_outputs['p3'].get('trusted') is False,
+        # On a coordinator-free network `join` returns with a pending link request: the host is not yet a member
+        # and nothing can be signed into the person's policy (decentralized-spec.md 8.1 steps 3-7). The contract's
+        # failure branch then applies: "If the trust signing fails, the command still succeeds, with `trusted:
+        # false` and `trusted_error`" (capabilities contract, "`join` and `network create`"); dispute D1.
+        p2 = self.join_outputs['p2']
+        need(p2.get('trusted') is False and isinstance(p2.get('trusted_error'), str) and p2['trusted_error'].strip(),
+             'join --trusted before the link applies: trusted false with trusted_error', p2)
+        need(self.join_outputs['p3'].get('trusted') is False and 'trusted_error' not in self.join_outputs['p3'],
              'join with neither flag and no terminal: the answer is no (trusted false)', self.join_outputs['p3'])
-        code, out, tty, seen = self.join_terminal['p4']
-        need(seen, f'join at a terminal asks: {JOIN_PROMPT}', tty[-400:])
-        need(out and out.get('trusted') is True, 'join at a terminal answered y: trusted true', out)
+        # join at a terminal answered y (p4): not ported yet, see join().
         need(self.join_outputs['p2-other'].get('trusted') is False, 'join --untrusted: trusted false',
              self.join_outputs['p2-other'])
         code, out, tty, seen = self.create_terminal
         need(code == 0 and seen, 'network create at a terminal asks the trust question', code, tty[-400:])
         need(out.get('trusted') is False, 'network create answered n: trusted false', out)
         for name, value in [*self.join_outputs.items(), *self.create_outputs.items()]:
-            if name in ('u1', 'u2'):
+            if name in ('u1', 'u2', 'p4'):
                 continue
-            need(isinstance(value.get('trusted'), bool) and 'trusted_error' not in value,
-                 'join and network create always output trusted, signing the trust change at once', name, value)
+            need(isinstance(value.get('trusted'), bool), 'join and network create always output trusted', name, value)
+            if name != 'p2':   # p2's join --trusted takes the failure branch above
+                need('trusted_error' not in value, 'no trusted_error where nothing had to be signed or the signing '
+                     'succeeded', name, value)
         ids = self.ids
         self.hosts['p1'].run('network', 'sync', self.team)
         p = self.policy('p1')
         need(p and p.get('format') == 2 and p['trusted_hosts'] == sorted([ids['p2'], ids['p4']]),
-             'a yes adds the host to trusted_hosts, signed at once (sorted); no adds nothing',
+             'trusted_hosts holds the hosts given a yes (for joins, signed with `trust` once linked, sorted); '
+             'no adds nothing',
              p and p.get('trusted_hosts'), ids)
         o = self.policy('p1', self.other)
         need(o and o['trusted_hosts'] == [ids['p1']], 'network create --trusted adds the creator', o)
