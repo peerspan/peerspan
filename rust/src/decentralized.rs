@@ -14,6 +14,7 @@ pub(crate) mod completion;
 mod controls;
 mod creation;
 mod edits;
+mod grant_renewal;
 pub(crate) mod history;
 mod intents;
 mod invite_return;
