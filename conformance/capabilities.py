@@ -1089,6 +1089,11 @@ class Pairing:
         completes through dec_network (invite, join, approvals, commit), and a requested yes is signed with `trust`
         so later sections run with the intended trusted hosts. Returns the first attempt's output or the refusal."""
         dec, h = self.decs[net], self.hosts[name]
+        if not flags and terminal is None and any(p is dec.person(person or label) for p in dec.hosts.values()):
+            # Another machine of a person already in the network links (decentralized-spec.md 8.1, last
+            # paragraph); there is no trust flag or prompt to check on this join.
+            dec.join(dec.root_host, h, label, person=person)
+            return {}
         key = dec.person(person or label).key
         invitation = dec_network.cli_json(dec.root_host, 'network', 'invite', '--network', net, '--member', label,
                                           expect=True)
