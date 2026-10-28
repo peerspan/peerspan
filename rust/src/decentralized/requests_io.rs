@@ -163,7 +163,17 @@ async fn publish_to(store: Arc<Store>, plan: &Plan, endpoint: &Value) -> Result<
         )
         .await?;
     }
-    for frame in &plan.frames {
+    // Proof frames go first: a stage packet needs the proofs that travel
+    // beside it, and a reader takes each mailbox as one snapshot. Posting a
+    // packet before its proofs let a reader see the packet alone and answer
+    // proof_required (stored frames are listed by role, so `administrator`
+    // came before `proofs`).
+    let ordered = plan
+        .frames
+        .iter()
+        .filter(|f| f.role == "proofs")
+        .chain(plan.frames.iter().filter(|f| f.role != "proofs"));
+    for frame in ordered {
         if frame.role == "request"
             || frame.writer_host_public_key != own
             || !unacknowledged(frame, plan, endpoint)
