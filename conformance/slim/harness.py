@@ -118,6 +118,7 @@ class Host:
         self.id = None
         self.public_key = None
         self.extra_env = {}
+        self.clock = None  # a Clock of its own, else the suite's
 
     @property
     def env(self):
@@ -131,10 +132,16 @@ class Host:
             "USER": self.name,
             "LOGNAME": self.name,
         }
-        if self.suite.clock_file is not None:
-            env["PEERSPAN_TEST_CLOCK_OFFSET_FILE"] = str(self.suite.clock_file)
+        clock = self.clock or self.suite.clock
+        if clock is not None:
+            env["PEERSPAN_TEST_CLOCK_OFFSET_FILE"] = str(clock.path)
         env.update(self.extra_env)
         return env
+
+    def now(self):
+        """This host's now, on its test clock if it has one."""
+        clock = self.clock or self.suite.clock
+        return clock.now() if clock else datetime.now(timezone.utc)
 
     @property
     def peer_address(self):
@@ -252,7 +259,7 @@ class Host:
         check(status in (200, 201), f"{self.name}: register {name}: {status} {agent}")
         session_id = "session_" + os.urandom(16).hex()
         body = {"agent_id": agent["id"], "session_id": session_id, "integration": "fixture",
-                "expires_at": in_future(hours=2)}
+                "expires_at": rfc3339(self.now() + timedelta(hours=2))}
         if directory:
             body["directory"] = True
         if calls:
@@ -336,6 +343,25 @@ class Adapter:
         return wait_for(claim, timeout=timeout, interval=0.3, message=f"a task for {self.name}")
 
 
+class Clock:
+    """A debug test clock: an offset file that every process of the hosts using it reads (developer guide)."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.offset = 0
+        self.set(0)
+
+    def set(self, seconds):
+        """Move to real time + SECONDS, rewriting the file atomically as the developer guide asks."""
+        self.offset = int(seconds)
+        temporary = self.path.with_suffix(".new")
+        temporary.write_text(("-" if seconds < 0 else "+") + f"{abs(int(seconds))}s\n")
+        temporary.replace(self.path)
+
+    def now(self):
+        return datetime.now(timezone.utc) + timedelta(seconds=self.offset)
+
+
 class Suite:
     """Runs named cases, one PASS/FAIL/SKIP line each, and keeps going."""
 
@@ -354,32 +380,32 @@ class Suite:
             sys.exit(f"missing {self.host_bin}; build with cargo build --manifest-path rust/Cargo.toml --bins")
         self.name = name
         self.work = Path(tempfile.mkdtemp(prefix=f"slim-{name}-"))
-        self.clock_file = None
-        self.offset = 0
+        self.clock = None
         self.hosts = []
         self.results = []
         self.started = time.monotonic()
 
     def use_clock(self):
         """Put every host and CLI of this suite on one shared debug test clock (DEC-OWN9, developer guide)."""
-        self.clock_file = self.work / "clock-offset"
-        self.set_offset(0)
+        self.clock = Clock(self.work / "clock-offset")
+        return self.clock
 
     def set_offset(self, seconds):
-        """Move the shared clock to real time + SECONDS (atomically, as the developer guide asks)."""
-        self.offset = int(seconds)
-        temporary = self.clock_file.with_suffix(".new")
-        temporary.write_text(("-" if seconds < 0 else "+") + f"{abs(int(seconds))}s\n")
-        temporary.replace(self.clock_file)
+        self.clock.set(seconds)
+
+    @property
+    def offset(self):
+        return self.clock.offset
 
     def now(self):
-        """The suite's shifted now."""
-        return datetime.now(timezone.utc) + timedelta(seconds=self.offset)
+        return self.clock.now()
 
-    def host(self, name, start=True):
+    def host(self, name, start=True, clock=None):
         h = Host(self, name)
+        h.clock = clock
         self.hosts.append(h)
         return h.start() if start else h
+
 
     def case(self, name, spec, known=None):
         """Decorator: run the function now as one case.
