@@ -362,9 +362,9 @@ class Suite:
     def case(self, name, spec, known=None):
         """Decorator: run the function now as one case.
 
-        KNOWN names a product failure already reported (the PR that tracks it): the case still runs and prints
-        XFAIL instead of FAIL without failing the suite, and XPASS, which does fail it, once the product is
-        fixed, so the marker gets removed.
+        KNOWN marks an expected product failure and gives its reason (the spec decision it breaks): the case
+        still runs; a failure prints XFAIL and does not fail the suite; a pass prints XPASS and fails it, so the
+        marker is removed once the product is fixed.
         """
         def run(function):
             if self.args.only and name not in self.args.only:
@@ -383,9 +383,9 @@ class Suite:
             took = time.monotonic() - began
             if known and outcome == "FAIL":
                 outcome = "XFAIL"
-                detail += f" (known product failure: {known})"
+                detail = f"({known}) {detail}"
             elif known and outcome == "PASS":
-                outcome, detail = "FAIL", f"XPASS: now passes; remove the known-failure marker ({known})"
+                outcome, detail = "XPASS", f"({known}) now passes; remove the expected-failure marker"
             self.results.append((outcome, name))
             line = f"{outcome} {name} [{spec}] ({took:.1f}s)"
             if detail:
@@ -398,10 +398,10 @@ class Suite:
         for h in self.hosts:
             h.stop(kill=True)
         total = time.monotonic() - self.started
-        failed = [n for o, n in self.results if o == "FAIL"]
-        counts = {o: sum(1 for x, _ in self.results if x == o) for o in ("PASS", "FAIL", "XFAIL", "SKIP")}
-        print(f"{self.name}: {counts['PASS']} passed, {counts['FAIL']} failed, {counts['XFAIL']} known product "
-              f"failures, {counts['SKIP']} skipped in {total:.0f}s", flush=True)
+        failed = [n for o, n in self.results if o in ("FAIL", "XPASS")]
+        counts = {o: sum(1 for x, _ in self.results if x == o) for o in ("PASS", "FAIL", "XFAIL", "XPASS", "SKIP")}
+        print(f"{self.name}: {counts['PASS']} passed, {counts['FAIL']} failed, {counts['XFAIL']} expected failures, "
+              f"{counts['XPASS']} unexpected passes, {counts['SKIP']} skipped in {total:.0f}s", flush=True)
         if failed or self.args.keep:
             print(f"work directory kept: {self.work}", flush=True)
         else:
