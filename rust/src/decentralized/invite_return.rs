@@ -169,7 +169,7 @@ fn waiting(store: &Store) -> Result<Vec<Waiting>> {
     let now = controls::local_decision_time()?;
     cleanup(&c, &now)?;
     let mut q = c
-        .prepare("SELECT record,secret FROM dec_pending WHERE request_id GLOB 'di_*' AND deadline>?1 ORDER BY request_id")
+        .prepare("SELECT record,secret FROM dec_pending WHERE request_id GLOB 'di_*' AND deadline>?1 ORDER BY rowid DESC")
         .map_err(db)?;
     let rows = q
         .query_map([&now], |r| {
@@ -256,19 +256,33 @@ pub(crate) async fn receive(store: Arc<Store>) {
     let Ok(Ok(list)) = tokio::task::spawn_blocking(move || waiting(&capture)).await else {
         return;
     };
-    // Rotate the starting invite each pass and read each endpoint at most
-    // once per pass (passes are 2 seconds apart), so every live invite is
-    // read in turn while at least half of an endpoint's one-GET-per-second
-    // allowance stays free for the requests' own mailboxes. An endpoint that
-    // rate-limits is left alone for 10 seconds.
+    // Passes are 2 seconds apart. The newest invite, the one most likely
+    // to be in use, is read on every pass; the others take turns, one per
+    // endpoint on every other pass. That uses at most three quarters of an
+    // endpoint's one-GET-per-second allowance and leaves the rest for the
+    // requests' own mailboxes. An endpoint that rate-limits is left alone
+    // for 10 seconds.
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let pass = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut list = list;
-    if !list.is_empty() {
-        let start = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % list.len();
+    // `waiting` lists the most recently made invite first.
+    let newest = if list.is_empty() {
+        None
+    } else {
+        Some(list.remove(0))
+    };
+    if pass % 2 == 1 || list.is_empty() {
+        list.clear();
+    } else {
+        let start = (pass / 2) % list.len();
         list.rotate_left(start);
     }
     let mut limited = std::collections::BTreeSet::new();
-    for w in list {
+    for (first, w) in newest
+        .into_iter()
+        .map(|w| (true, w))
+        .chain(list.into_iter().map(|w| (false, w)))
+    {
         let Ok(endpoints) = endpoints(&w.invite) else {
             continue;
         };
@@ -279,7 +293,7 @@ pub(crate) async fn receive(store: Arc<Store>) {
                 endpoint["address"].to_string(),
                 endpoint["public_key"].to_string(),
             );
-            if limited.contains(&target)
+            if !first && limited.contains(&target)
                 || BACKOFF
                     .lock()
                     .ok()
@@ -288,7 +302,9 @@ pub(crate) async fn receive(store: Arc<Store>) {
             {
                 continue;
             }
-            limited.insert(target.clone());
+            if !first {
+                limited.insert(target.clone());
+            }
             let body = match bootstrap_io::exchange(
                 store.clone(),
                 &endpoint,
