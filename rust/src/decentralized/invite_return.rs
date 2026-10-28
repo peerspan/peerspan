@@ -26,6 +26,7 @@ fn db(_: rusqlite::Error) -> Error {
 }
 /// Keep the return secret of a new invite until it expires (DEC-Q26).
 pub(crate) fn remember(c: &Connection, invite: &Invitation, secret: &[u8; 16]) -> Result<()> {
+    total_below_limit(c)?;
     let record = json!({"format":1,"kind":"invite_return","network_id":invite.descriptor.network_id,"invitation_base64":encode(&invite.body)});
     c.execute(
         "INSERT INTO dec_pending(request_id,deadline,record,secret,terminal_read_cap) VALUES(?1,?2,?3,?4,NULL)",
@@ -33,6 +34,13 @@ pub(crate) fn remember(c: &Connection, invite: &Invitation, secret: &[u8; 16]) -
     )
     .map_err(db)?;
     Ok(())
+}
+/// At most 4096 pending rows of any kind (spec 8.7, DEC-Q32).
+fn total_below_limit(c: &Connection) -> Result<()> {
+    let total: i64 = c
+        .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
+        .map_err(db)?;
+    require(total < 4096, "quota_exceeded")
 }
 /// Forget return secrets of expired invites.
 pub(crate) fn cleanup(c: &Connection, now: &str) -> Result<()> {
@@ -184,11 +192,11 @@ fn waiting(store: &Store) -> Result<Vec<Waiting>> {
 }
 /// Record a returned request as waiting for approval here, unless it is
 /// already known.
-fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<()> {
+fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<bool> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
     match requests::load(&tx, &code.request_id) {
-        Ok(_) => return Ok(()),
+        Ok(_) => return Ok(false),
         Err(e) if e.code == "not_found" => {}
         Err(e) => return Err(e),
     }
@@ -210,10 +218,12 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<()>
         )
         .map_err(db)?;
     require(active < 8, "quota_exceeded")?;
+    total_below_limit(&tx)?;
     let mut pending = super::ceremony::from_code(code, &invite.descriptor)?;
     pending.record.roles = vec!["administrator".into()];
     requests::save(&tx, &pending)?;
-    tx.commit().map_err(db)
+    tx.commit().map_err(db)?;
+    Ok(true)
 }
 /// The inviter's side: read each live invite's return mailboxes and record
 /// the requests found there.
@@ -222,6 +232,16 @@ pub(crate) async fn receive(store: Arc<Store>) {
     let Ok(Ok(list)) = tokio::task::spawn_blocking(move || waiting(&capture)).await else {
         return;
     };
+    // Rotate the starting invite each pass and stop reading an endpoint for
+    // this pass once it rate-limits (one GET per second, burst 4), so every
+    // live invite is read in turn.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let mut list = list;
+    if !list.is_empty() {
+        let start = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % list.len();
+        list.rotate_left(start);
+    }
+    let mut limited = std::collections::BTreeSet::new();
     for w in list {
         let Ok(endpoints) = endpoints(&w.invite) else {
             continue;
@@ -229,7 +249,14 @@ pub(crate) async fn receive(store: Arc<Store>) {
         let cap = bootstrap::read_cap(&w.secret);
         let locator = bootstrap::locator(&w.secret);
         for endpoint in endpoints {
-            let Ok(Ok(body)) = bootstrap_io::exchange(
+            let target = (
+                endpoint["address"].to_string(),
+                endpoint["public_key"].to_string(),
+            );
+            if limited.contains(&target) {
+                continue;
+            }
+            let body = match bootstrap_io::exchange(
                 store.clone(),
                 &endpoint,
                 Method::GET,
@@ -238,8 +265,15 @@ pub(crate) async fn receive(store: Arc<Store>) {
                 Vec::new(),
             )
             .await
-            .map(bootstrap_io::success) else {
-                continue;
+            .and_then(bootstrap_io::success)
+            {
+                Ok(body) => body,
+                Err(e) => {
+                    if e.code == "rate_limited" {
+                        limited.insert(target);
+                    }
+                    continue;
+                }
             };
             let Ok(now) = controls::local_decision_time() else {
                 continue;
@@ -266,7 +300,14 @@ pub(crate) async fn receive(store: Arc<Store>) {
                 };
                 let target = store.clone();
                 let invite = w.invite.clone();
-                let _ = tokio::task::spawn_blocking(move || import(&target, &invite, &code)).await;
+                let id = code.request_id.clone();
+                let imported =
+                    tokio::task::spawn_blocking(move || import(&target, &invite, &code)).await;
+                if matches!(imported, Ok(Ok(true))) {
+                    // Read the request's own mailbox at once, so its frames
+                    // (and the code) are here for `link admit REQUEST_ID`.
+                    let _ = super::requests_io::poll(store.clone(), &id).await;
+                }
             }
         }
     }

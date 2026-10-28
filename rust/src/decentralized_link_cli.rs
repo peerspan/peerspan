@@ -39,6 +39,9 @@ struct Keys {
 }
 #[derive(Debug, Args)]
 struct Approval {
+    /// A link request ID already on this machine, for example one returned
+    /// through an invite; its code is read from the daemon, not the prompt.
+    request: Option<String>,
     #[arg(long)]
     network: String,
     #[arg(long, alias = "expect-person")]
@@ -829,7 +832,18 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         .signer
         .as_deref()
         .unwrap_or(if admin { "network_root" } else { "auto" });
-    let private = private_code(input.code_stdin).await?;
+    let private = match (&input.request, input.code_stdin) {
+        (Some(id), false) => {
+            let view = local
+                .post(format!("{}/resume", base(id)?), json!({}))
+                .await?;
+            view["display_code"]
+                .as_str()
+                .context("this request's code is not here yet; enter it with --code-stdin")?
+                .to_owned()
+        }
+        _ => private_code(input.code_stdin).await?,
+    };
     let now = local_decision_time()?;
     let token = PairingToken::read(&private, &now)?;
     let packet: Value = serde_json::from_slice(&token.request_packet)?;
