@@ -210,9 +210,10 @@ pub(crate) fn prepare(store: &Store, network: &str, r: &Obj) -> Result<Vec<u8>> 
         let mut i;
         let new;
         let mut existing = pending(&tx, network, &s.descriptor)?;
-        // An unapproved earlier preview that no longer matches this request
-        // or the current root (a renewal or sync landed during its review)
-        // signed nothing; the new review replaces it.
+        // An unapproved earlier preview that no longer matches a new preview
+        // request or the current root (a renewal or sync landed during its
+        // review) signed nothing; the new review replaces it. An approval
+        // never replaces what was reviewed.
         if let Some(old) = &existing
             && !approve
             && !old.record.approved
