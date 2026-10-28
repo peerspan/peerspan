@@ -187,6 +187,17 @@ impl Contact {
     pub fn valid_at(&self, now: &str) -> Result<()> {
         hint_window(&self.issued_at, &self.expires_at, now)
     }
+    /// The contact's window shape and start, without its expiry: for an
+    /// address hint inside a current invite or request code.
+    fn started_by(&self, now: &str) -> Result<()> {
+        let issued = stamp(&self.issued_at)?;
+        let expires = stamp(&self.expires_at)?;
+        check(expires > issued && expires - issued <= chrono::TimeDelta::seconds(300))?;
+        require(
+            issued <= stamp(now)? + chrono::TimeDelta::seconds(30),
+            "not_yet_valid",
+        )
+    }
     pub fn create(
         key: &SigningKey,
         context: &str,
@@ -213,11 +224,16 @@ impl Contact {
         )?)
     }
 }
+/// `hints`: the contacts are address hints inside an invite or request code
+/// that is itself within its window. They are used even after their own
+/// 300-second expiry (DEC-Q25, DEC-Q33), but must still be well-formed,
+/// signed, at most 300 seconds long and not issued in the future.
 fn contacts(
     raw: &[u8],
     now: &str,
     writer: Option<&str>,
     context: Option<&str>,
+    hints: bool,
 ) -> Result<Vec<Contact>> {
     let value = parse_array(raw, (32 << 10) + 5)?;
     let list = value.as_array().ok_or_else(|| Error::new("invalid"))?;
@@ -230,7 +246,11 @@ fn contacts(
     for (entry, original) in list.iter().zip(originals) {
         let raw = original.get().as_bytes();
         let contact = Contact::read(raw)?;
-        contact.valid_at(now)?;
+        if hints {
+            contact.started_by(now)?;
+        } else {
+            contact.valid_at(now)?;
+        }
         check(
             writer.is_none_or(|w| w == contact.host_public_key)
                 && context.is_none_or(|c| c == contact.context_id),
@@ -341,6 +361,7 @@ impl Invitation {
             now,
             Some(host),
             Some(&context),
+            true,
         )?;
         let helpers = helpers(p.get("helpers").ok_or_else(|| Error::new("invalid"))?)?;
         let message = lines(&[
@@ -411,6 +432,7 @@ impl PairingToken {
             now,
             Some(text(&packet.object, "writer_host_public_key")?),
             Some(context),
+            true,
         )?;
         let helpers = helpers(o.get("helpers").ok_or_else(|| Error::new("invalid"))?)?;
         Ok(Self {
@@ -718,6 +740,7 @@ impl Frame {
             now,
             None,
             None,
+            false,
         )?;
         Ok(value)
     }
