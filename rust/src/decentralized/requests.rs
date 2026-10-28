@@ -883,7 +883,9 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         )
     });
     carrier_endpoints.dedup();
-    require(carrier_endpoints.len() <= 8, "quota_exceeded")?;
+    if carrier_endpoints.len() > 8 {
+        return Err(Error::quota("more than 8 carrier endpoints"));
+    }
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(|_| Error::new("internal"))?;
     let device = owned.unwrap_or_else(|| SigningKey::from_bytes(&random));
