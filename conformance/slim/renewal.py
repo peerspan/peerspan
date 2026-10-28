@@ -1,185 +1,239 @@
 #!/usr/bin/env python3
 """Slim suite 2, renewal: grant lifetimes, automatic renewal, retention, warnings and expiry.
 
-alice creates a network (her host holds the root seed) and bob joins it. Every host and CLI runs on one shared
-debug test clock, which the suite moves forward through a week. Written from docs/decentralized-spec.md
-sections 4.4, 5, 7 and 16, and the wire appendix sections 4 and 5.
+Three independent networks run side by side, each with its own debug test clock, so each renewal window gets
+the full time the spec allows (hosts check every 60 seconds, spec 7.1) without the suite taking three times as
+long. In each, alice creates the network (her host holds the root seed) and bob joins. Written from
+docs/decentralized-spec.md sections 4.4, 5, 7 and 16, and the wire appendix sections 4 and 5.
 """
-from harness import (Suite, timedelta, attention, check, create_network, join_new_person, members, parse_time, ssh_key,
-                     statements, wait_for)  # noqa: F401
+import threading
+import traceback
+
+from harness import (Clock, Suite, attention, check, create_network, join_new_person, members, parse_time, ssh_key,
+                     statements, timedelta, wait_for)
 
 DAY, HOUR = 86400, 3600
+WINDOW = 75  # one 60-second renewal pass plus the 10-second sync jitter and bounded sync (spec 7.1, 10)
 suite = Suite("renewal", __doc__)
-suite.use_clock()
-a, b = suite.host("alice"), suite.host("bob")
-state = {}
 
 
-def renewal_wait():
-    """How long to wait for a renewal: hosts check every 60 seconds (spec 7.1). Once one expected renewal never
-    came, later cases wait briefly, so a product without automatic renewal still finishes within the budget."""
-    return 70 if state.get("renewal_seen", True) else 12
+class World:
+    """One network on its own clock: alice (root) and bob."""
+
+    def __init__(self, tag):
+        self.tag = tag
+        self.clock = Clock(suite.work / f"clock-{tag}")
+        self.a = suite.host(f"alice-{tag}", clock=self.clock)
+        self.b = suite.host(f"bob-{tag}", clock=self.clock)
+        self.results = {}
+        self.errors = {}
+
+    def setup(self):
+        net = create_network(self.a, f"renewal-{self.tag}", "alice")
+        self.net = net["id"]
+        self.bob_key = ssh_key(self.b.root, "bob")
+        join_new_person(self.a, self.b, "bob", self.bob_key, self.net)
+        self.bob_person = self.b.api("GET", "/v2/networks")[1][0]["person_public_key"]
+        self.b.ok("allow", "alice", "--person-key", self.bob_key)
+        self.start = {k: dict(v) for k, v in members(self.a, self.net).items()}
+
+    def now(self):
+        return self.clock.now()
+
+    def left(self, text):
+        return (parse_time(text) - self.now()).total_seconds()
+
+    def policy_version(self):
+        versions = self.b.api("GET", f"/v2/networks/{self.net}/access-versions")[1]["policies"]
+        return max([p["version"] for p in versions if p["person_public_key"] == self.bob_person] or [0])
+
+    def newest(self, kind, **subject):
+        found = [p for k, _, p in statements(self.a, self.net, kind)
+                 if all(p["subject"].get(f) == v for f, v in subject.items())]
+        return max(found, key=lambda p: p["sequence"]) if found else None
+
+    def step(self, name, function):
+        """Run one timed step; its outcome is reported later by the case of the same name."""
+        try:
+            self.results[name] = function()
+        except Exception as error:  # noqa: BLE001 - reported by the case
+            self.errors[name] = error
+            traceback.print_exc()
 
 
-def renewed(predicate, message):
-    try:
-        wait_for(predicate, timeout=renewal_wait(), interval=1, message=message)
-    except AssertionError:
-        state["renewal_seen"] = False
-        raise
+worlds = {}
 
 
-def need(*names):
-    missing = [n for n in names if n not in state]
-    check(not missing, f"an earlier case did not finish ({', '.join(missing)} missing)")
-    return [state[n] for n in names]
+def in_parallel(functions):
+    threads = [threading.Thread(target=f) for f in functions]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
-def left(text):
-    """Seconds from the shifted now to TEXT."""
-    return (parse_time(text) - suite.now()).total_seconds()
+def outcome(world, name):
+    w = worlds.get(world)
+    check(w is not None and "setup" not in w.errors, f"network {world} did not set up")
+    if name in w.errors:
+        raise w.errors[name]
+    check(name in w.results, f"step {name} did not run")
+    return w.results[name]
 
 
-def bob_policy_version():
-    versions = b.api("GET", f"/v2/networks/{state['net']}/access-versions")[1]["policies"]
-    return max([p["version"] for p in versions if p["person_public_key"] == state["bob_person"]] or [0])
+def policy_world(w):
+    """A 24-hour policy renews with 8 hours left."""
+    def renews():
+        version = w.policy_version()
+        w.clock.set(15 * HOUR + 30 * 60)  # 8.5 hours left: not yet
+        w.b.api("POST", f"/v2/networks/{w.net}/sync", {})
+        check(w.policy_version() == version, "the policy was renewed before 8 hours were left")
+        w.clock.set(16 * HOUR + 10 * 60)  # 7 h 50 min left
+        wait_for(lambda: w.policy_version() > version, timeout=WINDOW, interval=1,
+                 message="bob's host to renew his 24-hour policy with 8 hours left")
+    w.step("policy_renewed_at_8_hours", renews)
 
 
-def newest(host, kind, **subject):
-    """The highest-sequence payload of KIND whose subject matches."""
-    found = [p for k, _, p in statements(host, state["net"], kind)
-             if all(p["subject"].get(f) == v for f, v in subject.items())]
-    return max(found, key=lambda p: p["sequence"]) if found else None
+def root_world(w):
+    """Root-signed grants renew 4 days early and keep their children; the countdown; expiry."""
+    def renews():
+        w.clock.set(2 * DAY + 23 * HOUR)  # 4 days and 1 hour left
+        w.a.api("POST", f"/v2/networks/{w.net}/sync", {})
+        now = {k: v["host_lease_id"] for k, v in members(w.a, w.net).items()}
+        check(now == {k: v["host_lease_id"] for k, v in w.start.items()}, "renewed before 4 days were left")
+        w.clock.set(3 * DAY + 1 * HOUR)  # 3 days and 23 hours left
+        wait_for(lambda: all(m["host_lease_id"] != w.start[k]["host_lease_id"]
+                             for k, m in members(w.a, w.net).items()), timeout=WINDOW, interval=1,
+                 message="the root host to renew both host grants with 4 days left")
+        admin = w.newest("admin_lease")
+        check(admin and admin["sequence"] >= 2 and w.left(admin["not_after"]) > 6 * DAY, "the admin grant was not renewed")
+        check(w.newest("person_lease", person_public_key=w.bob_person)["sequence"] >= 2,
+              "bob's person grant was not renewed")
+    w.step("root_renews_root_signed_grants_4_days_early", renews)
+
+    def keeps():
+        renewed = w.newest("person_lease", person_public_key=w.bob_person)
+        check(renewed and renewed["sequence"] >= 2, "no renewed person grant for bob")
+        kept = set(renewed["retained_statement_ids"])
+        for name in ("binding_lease_id", "device_lease_id"):
+            check(w.start[w.b.public_key][name] in kept,
+                  f"the renewed person grant does not keep bob's {name.replace('_lease_id', '')} grant")
+        check(w.b.api("GET", "/v2/networks")[1][0]["authority"]["state"] == "usable", "bob is no longer usable")
+    w.step("renewal_keeps_children", keeps)
+
+    def countdown():
+        check("network_root_unreachable" not in {k for k, _ in attention(w.b)[0]},
+              "the root countdown shows while the root host is online")
+        deadline = parse_time(w.newest("admin_lease")["not_after"])
+        w.a.stop()
+        w.clock.set(w.clock.offset + int((deadline - timedelta(days=3, hours=2) - w.now()).total_seconds()))
+        check("network_root_unreachable" not in {k for k, _ in attention(w.b)[0]}, "the countdown shows with N = 4")
+        w.clock.set(w.clock.offset + 4 * HOUR)
+        items, _ = attention(w.b)
+        texts = [d for k, d in items if k == "network_root_unreachable"]
+        check(texts and "root unreachable: network stops in 3 days" in texts[0],
+              f"with the root offline and 2 days 22 hours left, bob's status shows {sorted(items)}")
+    w.step("root_offline_countdown", countdown)
+
+    def expiry():
+        if w.a.process is None:
+            w.a.start()
+        ada = w.a.agent("ada")
+        w.a.ok("allow", "everyone")
+        end = parse_time(w.newest("device_lease", person_public_key=w.bob_person)["not_after"])
+        w.clock.set(w.clock.offset + int((end - w.now()).total_seconds()) + 60)
+        view = w.b.api("GET", "/v2/networks")[1][0]
+        check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
+        sent = w.b.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "after expiry")
+        check(not sent.ok or sent.json["state"] != "accepted", "a host with expired grants had a message accepted")
+    w.step("expiry_stops_access", expiry)
+
+
+def device_world(w):
+    """The device-signed binding renewal, the signer warning, and the creator device's own renewals."""
+    def binding_and_creator():
+        w.clock.set(5 * DAY + 1 * HOUR)  # every 7-day grant has under 2 days left
+        bob_start = w.start[w.b.public_key]["binding_lease_id"]
+        alice_start = w.start[w.a.public_key]
+
+        def creator_done(m):
+            return (m["device_lease_id"] != alice_start["device_lease_id"]
+                    and m["binding_lease_id"] != alice_start["binding_lease_id"])
+        # One window for both: each renewal gets the whole of it.
+        try:
+            wait_for(lambda: (lambda m: m[w.b.public_key]["binding_lease_id"] != bob_start
+                              and creator_done(m[w.a.public_key]))(members(w.a, w.net)),
+                     timeout=WINDOW, interval=1, message="the renewals")
+        except AssertionError:
+            pass
+        m = members(w.a, w.net)
+        return {"bob": m[w.b.public_key]["binding_lease_id"] != bob_start, "creator_has_device":
+                alice_start["device_lease_id"].startswith("ds_"), "creator": creator_done(m[w.a.public_key])}
+    w.step("window", binding_and_creator)
+
+    def binding():
+        seen = outcome("device", "window")
+        check(seen["bob"], f"bob's device did not renew his binding within {WINDOW}s of 2 days being left")
+        renewed = w.newest("binding_lease", person_public_key=w.bob_person)
+        roles = [[s["role"] for s in e["signatures"]] for _, e, p in statements(w.a, w.net, "binding_lease")
+                 if p == renewed][0]
+        check(renewed["operation_id"] == "-" and renewed["issuer"]["kind"] == "device", f"issuer {renewed['issuer']}")
+        check(roles == ["issuer"], f"a deadline-only binding renewal carries roles {roles}, want issuer only")
+    w.step("binding_renewed_by_device_issuer_only", binding)
+
+    def warns():
+        kinds = {k for k, _ in attention(w.b)[0]}
+        check("person_device_signer_unavailable" in kinds,
+              f"inside the renewal threshold with no renewer, bob's status shows {sorted(kinds)}")
+    w.step("sole_device_warns_signer_unavailable", warns)
+
+    def creator():
+        seen = outcome("device", "window")
+        check(seen["creator_has_device"], "the creator's host has no device grant (DEC-Q21)")
+        check(seen["creator"], "the creator device did not renew both its own device grant and the creator's binding "
+                               f"within {WINDOW}s of 2 days being left")
+    w.step("creator_device_renews_itself", creator)
 
 
 @suite.case("setup_and_lifetimes", "spec 4.4, 6, 8; appendix 4.3, 5")
 def _():
-    net = create_network(a, "renewal", "alice")
-    state["net"] = net["id"]
-    state["bob_key"] = ssh_key(b.root, "bob")
-    join_new_person(a, b, "bob", state["bob_key"], net["id"])
-    state["bob_person"] = b.api("GET", "/v2/networks")[1][0]["person_public_key"]
-    b.ok("allow", "alice", "--person-key", state["bob_key"])
-    m = members(a, net["id"])
-    state["start"] = {k: dict(v) for k, v in m.items()}
-    for key, member in m.items():
-        check(6 * DAY < left(member["not_after"]) <= 7 * DAY, f"{member['member']} lasts {left(member['not_after'])}s")
-    for kind, _, payload in statements(a, net["id"]):
-        if kind.endswith("_lease"):
+    for tag in ("policy", "root", "device"):
+        worlds[tag] = World(tag)
+    in_parallel([lambda w=w: w.step("setup", w.setup) for w in worlds.values()])
+    for w in worlds.values():
+        if "setup" in w.errors:
+            raise w.errors["setup"]
+    w = worlds["root"]
+    for member in members(w.a, w.net).values():
+        check(6 * DAY < w.left(member["not_after"]) <= 7 * DAY, f"{member['member']} lasts {w.left(member['not_after'])}s")
+    for kind, _, payload in statements(w.a, w.net):
+        if kind.endswith("_lease") or kind in ("policy", "group"):
             life = (parse_time(payload["not_after"]) - parse_time(payload["issued_at"])).total_seconds()
-            check(0 < life <= 7 * DAY, f"a {kind} lasts {life:.0f}s, over 7 days")
-        if kind in ("policy", "group"):
-            life = (parse_time(payload["not_after"]) - parse_time(payload["issued_at"])).total_seconds()
-            check(0 < life <= DAY, f"a {kind} lasts {life:.0f}s, over 24 hours")
-    state["policy_version"] = bob_policy_version()
-    check(state["policy_version"] >= 1, "bob has no policy")
-    a.ok("allow", "everyone")
-    state["ada"] = a.agent("ada")
+            limit = DAY if kind in ("policy", "group") else 7 * DAY
+            check(0 < life <= limit, f"a {kind} lasts {life:.0f}s, over {limit}s")
+    # The timed steps of the three networks run now, side by side.
+    in_parallel([lambda: policy_world(worlds["policy"]), lambda: root_world(worlds["root"]),
+                 lambda: device_world(worlds["device"])])
 
 
-@suite.case("policy_renewed_at_8_hours", "spec 7.1 thresholds (DEC-Q24); 20 item 18", known="DEC-S8/DEC-Q24: no automatic renewal")
-def _():
-    (version,) = need("policy_version")
-    suite.set_offset(15 * HOUR + 30 * 60)  # 8.5 hours left: not yet
-    b.api("POST", f"/v2/networks/{state['net']}/sync", {})
-    check(bob_policy_version() == version, "the policy was renewed before 8 hours were left")
-    suite.set_offset(16 * HOUR + 10 * 60)  # 7 h 50 min left
-    renewed(lambda: bob_policy_version() > version, "bob's host to renew his 24-hour policy with 8 hours left")
-    state["policy_version"] = bob_policy_version()
-
-
-@suite.case("root_renews_root_signed_grants_4_days_early", "spec 7.1, 7.3 (DEC-Q12); 20 item 18", known="DEC-S11/DEC-Q12: no automatic renewal")
-def _():
-    (start,) = need("start")
-    suite.set_offset(2 * DAY + 23 * HOUR)  # 4 days and 1 hour left
-    a.api("POST", f"/v2/networks/{state['net']}/sync", {})
-    first = {k: v["host_lease_id"] for k, v in members(a, state["net"]).items()}
-    check(first == {k: v["host_lease_id"] for k, v in start.items()}, "host grants were renewed before 4 days were left")
-    suite.set_offset(3 * DAY + 1 * HOUR)  # 3 days and 23 hours left
-    renewed(lambda: all(m["host_lease_id"] != start[k]["host_lease_id"]
-                        for k, m in members(a, state["net"]).items()),
-            "the root host to renew both host grants with 4 days left")
-    admin = newest(a, "admin_lease")
-    check(admin and admin["sequence"] >= 2 and left(admin["not_after"]) > 6 * DAY, "the admin grant was not renewed")
-    bob_person = newest(a, "person_lease", person_public_key=state["bob_person"])
-    check(bob_person["sequence"] >= 2, "bob's person grant was not renewed")
-
-
-@suite.case("renewal_keeps_children", "spec 7.2 retention (DEC-S10); 20 item 23", known="DEC-S10: no renewal to keep children")
-def _():
-    (start,) = need("start")
-    bob = start[b.public_key]
-    renewed = newest(a, "person_lease", person_public_key=state["bob_person"])
-    check(renewed and renewed["sequence"] >= 2, "no renewed person grant for bob")
-    kept = set(renewed["retained_statement_ids"])
-    for name in ("binding_lease_id", "device_lease_id"):
-        check(bob[name] in kept, f"the renewed person grant does not keep bob's {name.replace('_lease_id', '')} grant")
-    view = b.api("GET", "/v2/networks")[1][0]
-    check(view["authority"]["state"] == "usable", f"bob's authority after the renewal: {view['authority']}")
-
-
-@suite.case("binding_renewed_by_device_issuer_only", "spec 7.1 (DEC-Q10, DEC-Q28); 20 item 21", known="DEC-Q10/DEC-Q28: no automatic renewal")
-def _():
-    (start,) = need("start")
-    suite.set_offset(5 * DAY + 1 * HOUR)  # bob's binding has under 2 days left
-    renewed(lambda: members(a, state["net"])[b.public_key]["binding_lease_id"]
-            != start[b.public_key]["binding_lease_id"], "bob's device to renew his binding with 2 days left")
-    binding = newest(a, "binding_lease", person_public_key=state["bob_person"])
-    roles = None
-    for kind, envelope, payload in statements(a, state["net"], "binding_lease"):
-        if payload == binding:
-            roles = [s["role"] for s in envelope["signatures"]]
-    check(binding["operation_id"] == "-" and binding["issuer"]["kind"] == "device", f"binding issuer {binding['issuer']}")
-    check(roles == ["issuer"], f"a deadline-only binding renewal carries roles {roles}, want issuer only")
-
-
-@suite.case("sole_device_warns_signer_unavailable", "spec 7.1 warnings, DEC-Q8; 20 item 24", known="spec 7.1, 16: status fails 409 after the clock moves")
-def _():
-    # bob's only device may not renew its own grant (DEC-Q8), and his original key is not on any host.
-    kinds = {k for k, _ in attention(b)[0]}
-    check("person_device_signer_unavailable" in kinds,
-          f"inside the renewal threshold with no renewer, bob's status shows {sorted(kinds)}")
-
-
-@suite.case("creator_device_renews_itself", "spec 6, 7.1 (DEC-Q21, DEC-Q27); 20 item 17", known="DEC-Q21/DEC-Q27")
-def _():
-    (start,) = need("start")
-    alice = members(a, state["net"])[a.public_key]
-    check(alice["device_lease_id"].startswith("ds_"), "the creator's host has no device grant to renew (DEC-Q21)")
-    check(alice["binding_lease_id"] != start[a.public_key]["binding_lease_id"],
-          "the creator device did not renew the creator's binding with 2 days left")
-
-
-@suite.case("root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25", known="DEC-Q12, spec 16: status fails 409 after the clock moves")
-def _():
-    check("network_root_unreachable" not in {k for k, _ in attention(b)[0]},
-          "the root countdown shows while the root host is online")
-    admin = newest(a, "admin_lease")
-    a.stop()
-    deadline = parse_time(admin["not_after"])
-    # 3 days and 2 hours left is N = 4: no countdown yet; 2 days and 22 hours left is N = 3.
-    target = deadline - timedelta(days=3, hours=2)
-    suite.set_offset(suite.offset + int((target - suite.now()).total_seconds()))
-    check("network_root_unreachable" not in {k for k, _ in attention(b)[0]}, "the countdown shows with N = 4")
-    suite.set_offset(suite.offset + 4 * HOUR)
-    items, _ = attention(b)
-    texts = [d for k, d in items if k == "network_root_unreachable"]
-    check(texts and "root unreachable: network stops in 3 days" in texts[0],
-          f"with the root offline and 2 days 22 hours left, bob's status shows {sorted(items)}")
-
-
-@suite.case("expiry_stops_access", "spec 4.4, 5 (accepted work), 16")
-def _():
-    (start,) = need("start")
-    if a.process is None:
-        a.start()
-    device_end = parse_time(newest(b, "device_lease", person_public_key=state["bob_person"])["not_after"])
-    suite.set_offset(suite.offset + int((device_end - suite.now()).total_seconds()) + 60)
-    view = b.api("GET", "/v2/networks")[1][0]
-    check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
-    (ada,) = need("ada")
-    sent = b.cli("message", "send", "--peer", a.id, "--agent", ada.id, "--content", "after expiry")
-    check(not sent.ok or sent.json["state"] != "accepted", "a host with expired grants still had a message accepted")
-
+CASES = [
+    ("policy", "policy_renewed_at_8_hours", "spec 7.1 thresholds (DEC-Q24); 20 item 18",
+     "DEC-S8/DEC-Q24: no automatic renewal"),
+    ("root", "root_renews_root_signed_grants_4_days_early", "spec 7.1, 7.3 (DEC-Q12); 20 item 18",
+     "DEC-S11/DEC-Q12: no automatic renewal"),
+    ("root", "renewal_keeps_children", "spec 7.2 retention (DEC-S10); 20 item 23",
+     "DEC-S10: no renewal to keep children"),
+    ("device", "binding_renewed_by_device_issuer_only", "spec 7.1 (DEC-Q10, DEC-Q28); 20 item 21",
+     "DEC-Q10/DEC-Q28: no automatic renewal"),
+    ("device", "sole_device_warns_signer_unavailable", "spec 7.1 warnings, DEC-Q8; 20 item 24",
+     "spec 7.1, 16: status fails 409 after the clock moves"),
+    ("device", "creator_device_renews_itself", "spec 6, 7.1 (DEC-Q21, DEC-Q27, DEC-Q30); 20 item 17",
+     "DEC-Q21/DEC-Q27"),
+    ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
+     "DEC-Q12, spec 16: status fails 409 after the clock moves"),
+    ("root", "expiry_stops_access", "spec 4.4, 5 (accepted work), 16", None),
+]
+for _world, _name, _spec, _known in CASES:
+    suite.case(_name, _spec, known=_known)(lambda world=_world, name=_name: outcome(world, name))
 
 suite.finish()
