@@ -296,16 +296,32 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
             if !(lease(&child.kind) || matches!(child.kind.as_str(), "policy" | "group")) {
                 continue;
             }
-            let named: Vec<String> = child
-                .parents()?
-                .into_values()
-                .filter(|parent| generations.contains(parent))
-                .collect();
-            if named.is_empty() || p.active(id).is_err() {
+            if p.active(id).is_err() {
                 continue;
             }
-            kept.insert(id.clone());
-            kept.extend(named);
+            // Walk the live child's authority dependencies, including
+            // non-head generations it still names (a device naming an older
+            // binding that names an older person grant): each statement on
+            // the way that names a generation of the renewed stream is kept
+            // with that generation.
+            let mut pending = vec![id.clone()];
+            let mut seen = BTreeSet::new();
+            while let Some(current) = pending.pop() {
+                if !seen.insert(current.clone()) || seen.len() > 4096 {
+                    continue;
+                }
+                let Ok(node) = p.catalog.get(&current) else {
+                    continue;
+                };
+                for parent in node.parents()?.into_values() {
+                    if generations.contains(&parent) {
+                        kept.insert(current.clone());
+                        kept.insert(parent);
+                    } else {
+                        pending.push(parent);
+                    }
+                }
+            }
         }
     }
     Ok(kept.into_iter().collect())
