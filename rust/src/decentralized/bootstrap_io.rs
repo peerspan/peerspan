@@ -631,13 +631,14 @@ where
                     return Err(Error::quota("response larger than its limit"));
                 }
                 if data.len() > bytes.capacity() - len {
-                    // Grow by doubling, capped at the limit; the budget covers capacity.
+                    // Grow by doubling, capped at the limit. The budget is
+                    // charged for the new capacity before it is allocated.
                     let target = (len + data.len()).max(len * 2).min(max as usize);
-                    bytes.reserve_exact(target - len);
-                    let extra = bytes.capacity().saturating_sub(budget.num_permits());
+                    let extra = target.saturating_sub(budget.num_permits());
                     if extra > 0 {
                         budget.merge(charge(extra)?);
                     }
+                    bytes.reserve_exact(target - len);
                 }
                 bytes.extend_from_slice(data);
             }
