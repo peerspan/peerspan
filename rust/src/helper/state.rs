@@ -11,7 +11,7 @@ use std::{
     io::{self, Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
-        unix::ffi::OsStrExt,
+        unix::{ffi::OsStrExt, fs::DirBuilderExt},
     },
     path::{Path, PathBuf},
 };
@@ -78,8 +78,6 @@ pub(crate) fn private_directory(path: &Path, create: bool) -> io::Result<File> {
     }
     Ok(directory)
 }
-use std::os::unix::fs::DirBuilderExt;
-
 /// An owner-only regular file opened relative to `directory` (or the working
 /// directory), never through a final symlink.
 pub(crate) fn protected_file(

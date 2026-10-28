@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{mpsc, oneshot, watch},
 };
 
@@ -614,4 +614,3 @@ impl Hub {
         }
     }
 }
-use tokio::io::AsyncBufRead;
