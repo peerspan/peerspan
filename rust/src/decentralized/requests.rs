@@ -278,9 +278,12 @@ impl Pending {
         Packet::read(&b64(&self.record.request_packet_base64, 8 << 10)?)
     }
     /// Whether the owner can fold the admin stage into owner finalization
-    /// (spec 8.2): an existing person whose current grants include an admin
-    /// grant, outside renew mode. Only the request's display state uses it.
-    fn folds(&self, d: Option<&Descriptor>) -> bool {
+    /// (spec 8.2), judged from the owner offer's own signing path: an
+    /// existing person outside renew mode, whose signing device (if any) has
+    /// the admin bit, and who holds an admin grant that is the head of its
+    /// stream, unexpired at NOW and not withdrawn. Only the display state
+    /// uses it; verification is separate.
+    fn folds(&self, d: Option<&Descriptor>, now: &str) -> bool {
         let r = &self.record;
         let (Some(d), false) = (d, r.mode == "renew" || r.catalog_base64 == "-") else {
             return false;
@@ -289,23 +292,48 @@ impl Pending {
         else {
             return false;
         };
-        let (Ok(person), Ok(lease)) = (
+        let (Ok(person), Ok(lease), Ok(issuer)) = (
             text(&owner.object, "person_public_key"),
             text(&owner.payload, "person_lease_id"),
+            text(&owner.object, "issuer_id"),
         ) else {
             return false;
         };
+        let Ok(catalog) = b64(&r.catalog_base64, MAX_CATALOG)
+            .and_then(|raw| super::catalog::Catalog::read(d, &raw))
+        else {
+            return false;
+        };
+        let statements = &catalog.statements;
+        let device_admin = issuer == "-"
+            || statements.get(issuer).is_some_and(|device| {
+                device
+                    .subject()
+                    .is_ok_and(|v| num(v, "scopes").is_ok_and(|scopes| scopes & 8 == 8))
+            });
+        let superseded = |id: &str| {
+            statements.values().any(|s| {
+                s.payload
+                    .get("predecessors")
+                    .and_then(Value::as_array)
+                    .is_some_and(|p| p.iter().any(|x| x.as_str() == Some(id)))
+                    || s.kind == "admin_withdraw"
+                        && s.payload
+                            .get("target")
+                            .and_then(|t| t.get("statement_id"))
+                            .and_then(Value::as_str)
+                            == Some(id)
+            })
+        };
         lease != "-"
-            && b64(&r.catalog_base64, MAX_CATALOG)
-                .and_then(|raw| super::catalog::Catalog::read(d, &raw))
-                .is_ok_and(|catalog| {
-                    catalog.statements.values().any(|s| {
-                        s.kind == "admin_lease"
-                            && s.subject().is_ok_and(|v| {
-                                text(v, "person_public_key").is_ok_and(|k| k == person)
-                            })
-                    })
-                })
+            && device_admin
+            && statements.values().any(|s| {
+                s.kind == "admin_lease"
+                    && s.subject()
+                        .is_ok_and(|v| text(v, "person_public_key").is_ok_and(|k| k == person))
+                    && text(&s.payload, "not_after").is_ok_and(|end| now < end)
+                    && !superseded(&s.id)
+            })
     }
     pub fn view(&self, now: &str) -> Result<Value> {
         let r = &self.record;
@@ -347,7 +375,7 @@ impl Pending {
                 } else if r.selection_packet_base64 == "-" {
                     "needs_selection"
                 } else if r.owner_finalization_packet_base64 == "-" {
-                    if r.administrator_packet_base64 == "-" && !self.folds(d.as_ref()) {
+                    if r.administrator_packet_base64 == "-" && !self.folds(d.as_ref(), now) {
                         "needs_administrator"
                     } else {
                         "needs_owner_finalization"
