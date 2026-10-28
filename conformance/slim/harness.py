@@ -24,6 +24,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+def redact(text):
+    """Invite and request codes are secret (appendix 10): never print them."""
+    import re
+    return re.sub(r"ps[il]2-[A-Za-z0-9_-]+", "<code>", text)
+
+
 class Failure(AssertionError):
     pass
 
@@ -81,7 +87,7 @@ class Result:
     """One CLI run: exit code, decoded JSON stdout (or None) and raw text."""
 
     def __init__(self, args, code, stdout, stderr):
-        self.args, self.code, self.stdout, self.stderr = args, code, stdout, stderr
+        self.args, self.code, self.stdout, self.stderr = args, code, stdout, redact(stderr)
         try:
             self.json = json.loads(stdout) if stdout.strip() else None
         except ValueError:
@@ -373,7 +379,7 @@ class Suite:
             self.results.append((outcome, name))
             line = f"{outcome} {name} [{spec}] ({took:.1f}s)"
             if detail:
-                line += f": {detail}"
+                line += ": " + redact(" ".join(detail.split()))
             print(line, flush=True)
             return function
         return run

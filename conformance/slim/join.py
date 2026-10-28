@@ -6,18 +6,18 @@ Written from docs/decentralized-spec.md sections 6 and 8 and the wire appendix
 """
 import base64
 import hashlib
+import math
 
-from harness import (Skip, Suite, b64url_json, check, commit, create_network, finalize, invite, join_request, link_view,
+from harness import (Suite, b64url_json, check, commit, create_network, finalize, invite, join_request, link_view,
                      parse_time, pull_until, rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked,
                      datetime, timedelta, timezone)
 
 suite = Suite("join", __doc__)
 a, b, a2 = suite.host("alice"), suite.host("bob"), suite.host("alice2")
-# A joiner whose decision time the suite sets (appendix 20.2 test controls).
+# A joiner whose clock the suite moves (debug-build test clock, DEC-OWN9; developer guide).
 c = suite.host("clocked", start=False)
-clock = c.root / "clock"
-clock.write_text(rfc3339(datetime.now(timezone.utc)) + "\n")
-c.extra_env = {"PEERSPAN_DEC_TEST_MODE": "1", "PEERSPAN_DEC_TEST_CLOCK_FILE": str(clock)}
+clock = c.root / "clock-offset"
+c.extra_env = {"PEERSPAN_TEST_CLOCK_OFFSET_FILE": str(clock)}
 c.start()
 state = {}
 
@@ -38,7 +38,11 @@ def long_invite(net_id, member):
 
 
 def set_clock(moment):
-    clock.write_text(rfc3339(moment) + "\n")
+    """Shift the clocked joiner (daemon and CLI) so that its now is MOMENT."""
+    offset = math.ceil((moment - datetime.now(timezone.utc)).total_seconds())  # never short of MOMENT
+    temporary = clock.with_suffix(".new")
+    temporary.write_text(("-" if offset < 0 else "+") + f"{abs(offset)}s\n")
+    temporary.replace(clock)
 
 
 def no_secret(text, code):
@@ -228,7 +232,6 @@ def _():
     (net,) = need("net")
     key = ssh_key(c.root, "carol")
     state["carol_key"] = key
-    set_clock(datetime.now(timezone.utc))
     before = c.api("GET", "/v2/link/requests")[1]
     garbage = c.cli("join", "--invite-stdin", "--person-key", key, input="psi2-AAAA\n")
     check(not garbage.ok and "invalid" in garbage.stderr, f"garbage invite: {garbage}")
@@ -249,10 +252,15 @@ def _():
     check(not refused.ok, "a request code was accepted for another network")
 
 
-@suite.case("expired_invite_refused", "spec 8.1, 8.5; appendix 10.1, 20.2; 20 item 32")
+@suite.case("expired_invite_refused", "spec 8.1, 8.5; appendix 10.1; 20 item 32; test clock")
 def _():
     net, key = need("net", "carol_key")
     made = invite(a, "carol", net["id"])
+    expires = parse_time(made["expires_at"])
+    set_clock(expires - timedelta(seconds=1))
+    last = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
+    check((last.json or {}).get("request_id"), f"join at expires_at - 1 s: exit {last.code} {last.stderr.strip()[-200:]}")
+    made = invite(a, "carol", net["id"])  # a fresh invite: re-joining the first one resumes its request
     expires = parse_time(made["expires_at"])
     set_clock(expires)
     late = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
@@ -261,9 +269,8 @@ def _():
     state["clock_at"] = expires
 
 
-@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); appendix 20.2; 20 item 33")
+@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); 20 item 33; test clock")
 def _():
-    raise Skip("needs test clock (PEERSPAN_TEST_CLOCK_OFFSET, PR #7, not merged)")
     net, key, start = need("net", "carol_key", "clock_at")
     # The clock only moves forward, so the 600 s case comes first, on a fresh request.
     made = long_invite(net["id"], "carol")
@@ -275,11 +282,14 @@ def _():
     check(link_view(c, first["request_id"])["owner_offer_id"].startswith("dpk_"), "a stage at 600 s was not signed")
     made = long_invite(net["id"], "carol")
     second = join_request(c, made["invitation"], key)
-    set_clock(start + timedelta(seconds=1201))
+    made_at = parse_time(second["created_at"])
+    check(abs((made_at - start).total_seconds() - 600) <= 2, f"second request created at {second['created_at']}")
+    set_clock(made_at + timedelta(seconds=601))
     late = c.cli("link", "approve", "--network", net["id"], "--person-key", key, "--code-stdin", "--approve",
                  input=second["display_code"] + "\n")
     view = link_view(c, second["request_id"])
-    check(view["owner_offer_id"] == "-", "a stage 601 s after the last one was signed")
+    check(view["owner_offer_id"] == "-", f"the owner offer was signed 601 s after the request (created "
+                                         f"{second['created_at']}); want refusal and state expired, got {view['state']}")
     check(view["state"] == "expired", f"request state {view['state']} after the 601 s refusal, want expired")
 
 
