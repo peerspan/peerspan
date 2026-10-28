@@ -26,6 +26,7 @@ fn db(_: rusqlite::Error) -> Error {
 }
 /// Keep the return secret of a new invite until it expires (DEC-Q26).
 pub(crate) fn remember(c: &Connection, invite: &Invitation, secret: &[u8; 16]) -> Result<()> {
+    cleanup(c, &controls::local_decision_time()?)?;
     total_below_limit(c)?;
     let record = json!({"format":1,"kind":"invite_return","network_id":invite.descriptor.network_id,"invitation_base64":encode(&invite.body)});
     c.execute(
@@ -166,6 +167,7 @@ struct Waiting {
 fn waiting(store: &Store) -> Result<Vec<Waiting>> {
     let c = store.connection().map_err(|_| Error::new("internal"))?;
     let now = controls::local_decision_time()?;
+    cleanup(&c, &now)?;
     let mut q = c
         .prepare("SELECT record,secret FROM dec_pending WHERE request_id GLOB 'di_*' AND deadline>?1 ORDER BY request_id")
         .map_err(db)?;
@@ -221,6 +223,22 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
     total_below_limit(&tx)?;
     let mut pending = super::ceremony::from_code(code, &invite.descriptor)?;
     pending.record.roles = vec!["administrator".into()];
+    // The requester also posted its request to the invite's mailboxes; read
+    // them too, for a requester this host cannot reach.
+    for endpoint in endpoints(invite)? {
+        if !pending.record.carrier_endpoints.contains(&endpoint)
+            && pending.record.carrier_endpoints.len() < 8
+        {
+            pending.record.carrier_endpoints.push(endpoint);
+        }
+    }
+    pending.record.carrier_endpoints.sort_by_key(|e| {
+        (
+            e["kind"].as_str().unwrap_or_default().to_owned(),
+            e["address"].as_str().unwrap_or_default().to_owned(),
+            e["public_key"].as_str().unwrap_or_default().to_owned(),
+        )
+    });
     requests::save(&tx, &pending)?;
     tx.commit().map_err(db)?;
     Ok(true)
@@ -307,6 +325,11 @@ pub(crate) async fn receive(store: Arc<Store>) {
                     // Read the request's own mailbox at once, so its frames
                     // (and the code) are here for `link admit REQUEST_ID`.
                     let _ = super::requests_io::poll(store.clone(), &id).await;
+                    // This read must not count as a recent poll: the next
+                    // command on the request reads the mailbox again.
+                    if let Ok(mut polls) = store.bootstrap_polls.lock() {
+                        polls.retain(|key, _| key.0 != id);
+                    }
                 }
             }
         }
