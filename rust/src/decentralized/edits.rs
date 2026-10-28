@@ -418,7 +418,10 @@ fn selected_policy<'a>(p: &'a Projection, person: &str) -> Result<(u64, Option<&
     };
     Ok((stream.maximum, selected))
 }
-pub(crate) fn reserve(store: &Store, network: &str, request: &Obj) -> Result<Vec<u8>> {
+/// The plan of a new edit (spec 12.1, DEC-S16): the current policy head and
+/// version, and this host's next local edit number. Nothing is written; the
+/// version and the number are checked when the edit is applied.
+pub(crate) fn plan(store: &Store, network: &str, request: &Obj) -> Result<Vec<u8>> {
     fields(request, "provider_id")?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
@@ -456,35 +459,9 @@ pub(crate) fn reserve(store: &Store, network: &str, request: &Obj) -> Result<Vec
         .map(|s| reference(&p, s))
         .transpose()?
         .unwrap_or(Value::from("-"));
-    let e = Edit {
-        format: 2,
-        mode: "decentralized".into(),
-        context_id: p.descriptor.context_id(),
-        seq,
-        state: "reserved".into(),
-        start: start.clone(),
-        signed: Value::from("-"),
-        signed_version: 0,
-        dropped: Vec::new(),
-        reserved_at: p.decision_time.clone(),
-        signed_at: "-".into(),
-        unsettled_at: "-".into(),
-        closed_at: "-".into(),
-        dropped_at: "-".into(),
-    };
-    save(&tx, &p, person, &e)?;
-    let clock = json!({"format":1,"largest_local_time":p.decision_time});
-    tx.execute(
-        "UPDATE dec_clock SET record=?2 WHERE network_id=?1",
-        rusqlite::params![network, clock.to_string()],
-    )
-    .map_err(db)?;
-    tx.commit().map_err(db)?;
-    let expires = (stamp(&p.decision_time)? + chrono::TimeDelta::minutes(10))
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    drop(tx);
     bytes(
-        &json!({"context_id":p.descriptor.context_id(),"person_public_key":person,"policy":start,"version":version,"seq":seq,"created_at":p.decision_time,"expires_at":expires}),
+        &json!({"context_id":p.descriptor.context_id(),"person_public_key":person,"policy":start,"version":version,"seq":seq,"created_at":p.decision_time}),
     )
 }
 /// Status-only diagnostics from the same exact admitted references. No edit is
@@ -670,9 +647,11 @@ pub(crate) fn check_policy(
             .and_then(|o| o.get("seq").and_then(Value::as_u64))
     });
     let (maximum, selected) = selected_policy(p, person)?;
+    // The version check (spec 12.1): the edit names the current head; if
+    // the policy changed in between, the CLI reloads and starts again.
     require(
         maximum.checked_add(1) == Some(s.sequence()?),
-        "edit_conflict",
+        "state_conflict",
     )?;
     let Some(seq) = seq else {
         // An initial policy can have no local edit. Renew only its exact
@@ -692,10 +671,25 @@ pub(crate) fn check_policy(
         }
         return require(a == b, "edit_conflict");
     };
-    let row = rows
-        .iter()
-        .find(|e| e.seq == seq)
-        .ok_or_else(|| Error::new("edit_conflict"))?;
+    let Some(row) = rows.iter().find(|e| e.seq == seq) else {
+        // A new edit: this host's next local edit number, unique when it
+        // is applied (DEC-S16, DEC-Q18), and no unsettled edit.
+        require(
+            !rows.iter().any(|e| e.state == "unsettled"),
+            "state_conflict",
+        )?;
+        let largest: i64 = connection
+            .query_row(
+                "SELECT COALESCE(MAX(seq),0) FROM policy_edits WHERE network_id=?1 AND person_id=?2",
+                rusqlite::params![p.descriptor.network_id, pid(person)?],
+                |r| r.get(0),
+            )
+            .map_err(db)?;
+        return require(
+            u64::try_from(largest).ok().and_then(|l| l.checked_add(1)) == Some(seq),
+            "state_conflict",
+        );
+    };
     if row.state == "reserved" {
         require(
             !rows.iter().any(|e| e.state == "unsettled"),
@@ -726,7 +720,8 @@ pub(crate) fn check_policy(
             a.remove(name);
             b.remove(name);
         }
-        require(a == b, "edit_conflict")?;
+        // Another edit with the same number was applied first.
+        require(a == b, "state_conflict")?;
     }
     Ok(())
 }
@@ -756,10 +751,31 @@ pub(crate) fn settle(
         return Ok(());
     };
     let mut rows = read(connection, p, person)?;
-    let e = rows
-        .iter_mut()
-        .find(|e| e.seq == seq)
-        .ok_or_else(|| Error::new("edit_conflict"))?;
+    let Some(e) = rows.iter_mut().find(|e| e.seq == seq) else {
+        // A new edit is recorded when it is applied (DEC-S16).
+        let start = selected_policy(before, person)?
+            .1
+            .map(|s| reference(before, s))
+            .transpose()?
+            .unwrap_or(Value::from("-"));
+        let e = Edit {
+            format: 2,
+            mode: "decentralized".into(),
+            context_id: p.descriptor.context_id(),
+            seq,
+            state: "settled".into(),
+            start,
+            signed: reference(p, s)?,
+            signed_version: s.sequence()?,
+            dropped: Vec::new(),
+            reserved_at: p.decision_time.clone(),
+            signed_at: p.decision_time.clone(),
+            unsettled_at: "-".into(),
+            closed_at: "-".into(),
+            dropped_at: "-".into(),
+        };
+        return save(connection, p, person, &e);
+    };
     if e.state == "reserved" {
         e.state = "settled".into();
         e.signed = reference(p, s)?;
