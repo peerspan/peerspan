@@ -467,21 +467,31 @@ impl Hub {
                 pending: None,
             },
         );
+        // Also on cancellation (shutdown): close the connection so its writer
+        // and watchdog end, and drop its routing state.
+        struct Cleanup(Arc<Hub>, Arc<Conn>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let (hub, conn) = (&self.0, &self.1);
+                conn.close();
+                let mut state = hub.state();
+                state.entries.remove(&conn.serial);
+                if state
+                    .clients
+                    .get(&conn.id)
+                    .is_some_and(|c| c.serial == conn.serial)
+                {
+                    state.clients.remove(&conn.id);
+                }
+            }
+        }
+        let _cleanup = Cleanup(self.clone(), conn.clone());
         let writer = tokio::spawn(self.clone().writer(conn.clone(), output, receiver));
         let watchdog = tokio::spawn(self.clone().watchdog(conn.clone()));
         self.read(&conn, input).await;
         conn.close();
         let _ = writer.await;
         let _ = watchdog.await;
-        let mut state = self.state();
-        state.entries.remove(&conn.serial);
-        if state
-            .clients
-            .get(&conn.id)
-            .is_some_and(|c| c.serial == conn.serial)
-        {
-            state.clients.remove(&conn.id);
-        }
     }
     /// Closes the connection after 5 seconds without a first AUTH, 60 seconds
     /// without any frame in either direction, or at registration expiry.
