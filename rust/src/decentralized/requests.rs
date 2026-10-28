@@ -458,7 +458,7 @@ impl Pending {
             json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":[]}),
         )
     }
-    fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
+    pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
         if self.record.terminal != "-" || stamp(now)? >= stamp(&self.deadline)? {
             return Ok(None);
         }
@@ -607,7 +607,9 @@ pub(crate) fn save(c: &Connection, p: &Pending) -> Result<()> {
 }
 fn ids_in(c: &Connection) -> Result<Vec<String>> {
     let mut q = c
-        .prepare("SELECT request_id FROM dec_pending ORDER BY request_id")
+        .prepare(
+            "SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*' ORDER BY request_id",
+        )
         .map_err(db)?;
     q.query_map([], |r| r.get(0))
         .map_err(db)?
@@ -615,6 +617,7 @@ fn ids_in(c: &Connection) -> Result<Vec<String>> {
         .map_err(db)
 }
 fn cleanup(c: &Connection, now: &str) -> Result<()> {
+    super::invite_return::cleanup(c, now)?;
     for id in ids_in(c)? {
         let mut p = load(c, &id)?;
         if p.record.terminal == "migration_prepared" {

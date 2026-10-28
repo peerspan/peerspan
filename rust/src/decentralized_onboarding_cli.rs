@@ -158,7 +158,7 @@ pub(crate) async fn create_join(
         "request creation changed the reviewed introduction or original identity"
     );
     eprintln!(
-        "Return the private reply code to the inviting machine for explicit owner and administrator approval. Membership remains pending."
+        "The request was sent to the inviting machine through the invite's return path when it was reachable; otherwise return the private reply code to it. Owner and administrator approval follow there. Membership remains pending."
     );
     Ok(v)
 }

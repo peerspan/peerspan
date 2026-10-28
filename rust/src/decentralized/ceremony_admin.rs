@@ -98,7 +98,7 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
             let count: i64 = tx
                 .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
                 .map_err(db)?;
-            let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_pending WHERE json_extract(record,'$.terminal') IN ('-','migration_prepared')",[],|r|r.get(0)).map_err(db)?;
+            let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_pending WHERE request_id GLOB 'link_*' AND json_extract(record,'$.terminal') IN ('-','migration_prepared')",[],|r|r.get(0)).map_err(db)?;
             require(count < 4096 && active < 8, "quota_exceeded")?;
             let mut p = from_code(&code, known_descriptor)?;
             p.record.roles = vec!["administrator".into()];

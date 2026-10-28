@@ -748,7 +748,7 @@ pub(crate) fn owner(store: &Store, input: &Obj) -> Result<Vec<u8>> {
                 .map_err(db)?;
             require(count < 4096, "quota_exceeded")?;
             let mut q = tx
-                .prepare("SELECT request_id FROM dec_pending")
+                .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*'")
                 .map_err(db)?;
             let ids = q
                 .query_map([], |r| r.get::<_, String>(0))

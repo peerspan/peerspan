@@ -178,7 +178,7 @@ def _():
     state["bob_joined"] = True
 
 
-@suite.case("join_request_returns_without_code", "spec 8.1 step 4 (DEC-Q3); appendix 10.1; 20 item 29", known="DEC-Q3")
+@suite.case("join_request_returns_without_code", "spec 8.1 step 4 (DEC-Q3); appendix 10.1; 20 item 29")
 def _():
     secret, returned = need("return_secret", "returned")
     check(secret and len(base64.b64decode(secret)) == 16, "the invite payload carries no 16-byte return_secret_base64")
