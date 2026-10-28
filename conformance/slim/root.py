@@ -95,7 +95,7 @@ def _():
     state["candidates"] = {x["statement_id"] for x in body["candidates"]}
 
 
-@suite.case("retain_flags_removed", "spec 13.1 (DEC-Q13); 20 item 54", known="DEC-Q13")
+@suite.case("retain_flags_removed", "spec 13.1 (DEC-Q13); 20 item 54")
 def _():
     (net,) = need("net")
     for flags in (["--retain", "ds_" + "0" * 64], ["--retain-none"]):
@@ -252,8 +252,7 @@ def _():
     check(not again.ok, "alice rotated the root during a root split")
 
 
-@suite.case("no_resolve_root", "spec 13.2 (DEC-Q19), 15: network resolve-root is removed; 20 item 55",
-            known="DEC-Q19")
+@suite.case("no_resolve_root", "spec 13.2 (DEC-Q19), 15: network resolve-root is removed; 20 item 55")
 def _():
     (net,) = need("net")
     result = a.cli("network", "resolve-root", net, "--new-root-key", str(a.root / "none"))
