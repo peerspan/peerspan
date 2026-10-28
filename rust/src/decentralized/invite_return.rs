@@ -346,3 +346,41 @@ pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::
         receive(store.clone()).await;
     }
 }
+/// `link_request_waiting` (spec 8.1 step 5, 16): join requests for this
+/// network that this host holds as approver and has not approved yet.
+pub(crate) fn waiting_items(
+    c: &Connection,
+    network: &str,
+) -> Result<Vec<(String, String, String, String)>> {
+    let now = controls::local_decision_time()?;
+    let mut q = c
+        .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*' AND deadline>?1 ORDER BY request_id")
+        .map_err(db)?;
+    let ids = q
+        .query_map([&now], |r| r.get::<_, String>(0))
+        .map_err(db)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for id in ids {
+        let Ok(p) = requests::load(c, &id) else {
+            continue;
+        };
+        let r = &p.record;
+        if r.terminal != "-"
+            || r.roles.iter().any(|role| role == "requester")
+            || r.owner_intent_id != "-"
+            || r.administrator_intent_id != "-"
+            || !(r.expected_network_id == network || r.expected_network_id == "-")
+        {
+            continue;
+        }
+        out.push((
+            "link_request_waiting".into(),
+            network.into(),
+            format!("join request {id} waits for approval on this host"),
+            format!("peerspan link admit {id} --network {network}"),
+        ));
+    }
+    Ok(out)
+}

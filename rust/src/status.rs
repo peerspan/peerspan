@@ -26,7 +26,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 24] = [
+pub const ATTENTION_ORDER: [&str; 26] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -42,7 +42,9 @@ pub const ATTENTION_ORDER: [&str; 24] = [
     "network_state_conflict",
     "network_clock_rollback",
     "network_migration_pending",
+    "network_root_unreachable",
     "person_device_signer_unavailable",
+    "link_request_waiting",
     "coordinator_limit",
     "agent_name_conflict",
     "channel_unverified",
