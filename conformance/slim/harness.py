@@ -7,6 +7,7 @@ owner-local API on `admin.sock`. Written from the spec in docs/ only.
 from __future__ import annotations
 
 import argparse
+import atexit
 import base64
 import http.client
 import json
@@ -118,6 +119,7 @@ class Host:
         self.id = None
         self.public_key = None
         self.extra_env = {}
+        self.extra_args = []  # more `run` flags, such as --transport-config
         self.clock = None  # a Clock of its own, else the suite's
 
     @property
@@ -152,7 +154,7 @@ class Host:
         log = self.log.open("ab")
         self.process = subprocess.Popen(
             [str(self.suite.host_bin), "--state", str(self.state), "run", "--peer-listen", self.peer_address,
-             "--bootstrap-listen", f"127.0.0.1:{self.bootstrap_port}"],
+             "--bootstrap-listen", f"127.0.0.1:{self.bootstrap_port}", *map(str, self.extra_args)],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=self.env, start_new_session=True)
         log.close()
         sock = self.state / "admin.sock"
@@ -253,10 +255,14 @@ class Host:
 
     # Agents, through the owner API and the adapter socket.
 
-    def agent(self, name, directory=True, calls=False):
+    def agent(self, name, directory=True, calls=False, ready=True):
         """Register agent NAME and connect a fixture adapter session for it."""
         status, agent = self.api("POST", "/v1/agents", {"name": name, "owner": self.name})
         check(status in (200, 201), f"{self.name}: register {name}: {status} {agent}")
+        return self.attach(agent, directory=directory, calls=calls, ready=ready)
+
+    def attach(self, agent, directory=True, calls=False, ready=True, protocol_version=None):
+        """Set up a fresh session and credential for an existing AGENT and connect a fixture adapter to it."""
         session_id = "session_" + os.urandom(16).hex()
         body = {"agent_id": agent["id"], "session_id": session_id, "integration": "fixture",
                 "expires_at": rfc3339(self.now() + timedelta(hours=2))}
@@ -265,9 +271,10 @@ class Host:
         if calls:
             body["calls"] = True
         status, setup = self.api("POST", "/v1/adapters/setup", body)
-        check(status == 201, f"{self.name}: adapter setup for {name}: {status} {setup}")
+        check(status == 201, f"{self.name}: adapter setup for {agent['name']}: {status} {setup}")
         adapter = Adapter(self, agent, session_id, setup["credential"])
-        adapter.connect()
+        adapter.setup = setup
+        adapter.connect(ready=ready, protocol_version=protocol_version)
         return adapter
 
 
@@ -285,18 +292,29 @@ class Adapter:
         self._stop = False
         self._thread = None
 
-    def connect(self):
-        status, body = self.call("POST", "/adapter/v1/connect", {
-            "adapter_id": self.adapter_id, "session_id": self.session_id, "instance_id": self.instance})
+    def connect(self, ready=True, protocol_version=None):
+        body = {"adapter_id": self.adapter_id, "session_id": self.session_id, "instance_id": self.instance}
+        if protocol_version is not None:
+            body["protocol_version"] = protocol_version
+        status, body = self.call("POST", "/adapter/v1/connect", body)
         check(status == 200, f"{self.host.name}: adapter connect {self.name}: {status} {body}")
-        # The fixture plays the model's `peerspan_ready` (live delivery contract, slice 1).
-        status, ready = self.post("/adapter/v1/ready", {"nonce": os.urandom(16).hex()})
-        check(status == 200, f"{self.host.name}: adapter ready {self.name}: {status} {ready}")
+        if ready:
+            self.ready()
         if self._thread is None:
             import threading
             self._thread = threading.Thread(target=self._renew, daemon=True)
             self._thread.start()
         return body
+
+    def ready(self, nonce=None):
+        """The fixture plays the model's `peerspan_ready` (live delivery contract, slice 1)."""
+        status, ready = self.post("/adapter/v1/ready", {"nonce": nonce or os.urandom(16).hex()})
+        check(status == 200, f"{self.host.name}: adapter ready {self.name}: {status} {ready}")
+        return ready
+
+    def stop(self):
+        """Stop renewing the lease, as an adapter process that exited would."""
+        self._stop = True
 
     def _renew(self):
         while not self._stop:
@@ -383,8 +401,58 @@ class Suite:
         self.work = Path(tempfile.mkdtemp(prefix=f"slim-{name}-"))
         self.clock = None
         self.hosts = []
+        self.processes = []  # other processes a suite started (helpers): stopped at exit
         self.results = []
         self.started = time.monotonic()
+        self._cleaned = False
+        # Stop every daemon, helper and ssh-agent on any exit: success, failure, an exception, Ctrl-C or a
+        # SIGTERM/SIGHUP from a CI timeout.
+        atexit.register(self.cleanup)
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, self._on_signal)
+
+    def _on_signal(self, number, _frame):
+        print(f"{self.name}: stopping on signal {number}", file=sys.stderr, flush=True)
+        self.cleanup()
+        os._exit(128 + number)
+
+    def spawn(self, argv, **kw):
+        """Start a helper process in its own session; cleanup stops it."""
+        p = subprocess.Popen(argv, start_new_session=True, **kw)
+        self.processes.append(p)
+        return p
+
+    def cleanup(self, remove=None):
+        """Stop every process this suite started, then every leftover process (such as an ssh-agent a host or
+        CLI started) whose command line names this suite's work directory. Idempotent."""
+        if self._cleaned:
+            return
+        self._cleaned = True
+        for h in self.hosts:
+            try:
+                h.stop(kill=True)
+            except Exception:  # noqa: BLE001 - keep stopping the rest
+                pass
+        for p in self.processes:
+            try:
+                if p.poll() is None:
+                    os.killpg(p.pid, signal.SIGKILL)
+                p.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        marker = str(self.work).encode()
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                if marker in (entry / "cmdline").read_bytes() or marker in (entry / "environ").read_bytes():
+                    os.kill(int(entry.name), signal.SIGKILL)
+            except OSError:
+                pass
+        if remove is None:  # an early exit: keep the logs if anything failed
+            remove = not self.args.keep and not any(o in ("FAIL", "XPASS") for o, _ in self.results)
+        if remove:
+            shutil.rmtree(self.work, ignore_errors=True)
 
     def use_clock(self):
         """Put every host and CLI of this suite on one shared debug test clock (DEC-OWN9, developer guide)."""
@@ -444,17 +512,15 @@ class Suite:
         return run
 
     def finish(self):
-        for h in self.hosts:
-            h.stop(kill=True)
         total = time.monotonic() - self.started
         failed = [n for o, n in self.results if o in ("FAIL", "XPASS")]
         counts = {o: sum(1 for x, _ in self.results if x == o) for o in ("PASS", "FAIL", "XFAIL", "XPASS", "SKIP")}
         print(f"{self.name}: {counts['PASS']} passed, {counts['FAIL']} failed, {counts['XFAIL']} expected failures, "
               f"{counts['XPASS']} unexpected passes, {counts['SKIP']} skipped in {total:.0f}s", flush=True)
-        if failed or self.args.keep:
+        keep = bool(failed) or self.args.keep
+        if keep:
             print(f"work directory kept: {self.work}", flush=True)
-        else:
-            shutil.rmtree(self.work, ignore_errors=True)
+        self.cleanup(remove=not keep)
         sys.exit(1 if failed else 0)
 
 
