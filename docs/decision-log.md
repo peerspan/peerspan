@@ -70,7 +70,7 @@ Contents:
 - **Question 2:** how to test long timers (7-day leases, 1-hour invites, 10-minute stages, idle stop)?
 - **Options:** (A) a test clock in debug builds only (an environment variable the release build ignores), so suites jump hours or days in seconds; (B) real time only.
 - **Chosen:** (A).
-- **Implemented in:** this decision's PR, the first three suites (`conformance/slim/join.py`, `policy.py`, `work.py`) and the parallel CI workflow `.github/workflows/conformance.yml`.
+- **Implemented in:** [PR #7](https://github.com/peerspan/peerspan/pull/7), the test clock of question 2 (DEC.impl16); this decision's PR, the first three suites (`conformance/slim/join.py`, `policy.py`, `work.py`) and the parallel CI workflow `.github/workflows/conformance.yml`.
 
 ### DEC-OWN8: move the Go implementation to its own repository (2026-10-28)
 
