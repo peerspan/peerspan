@@ -2959,8 +2959,8 @@ class Pairing:
     def drop_or_bind(self, name, net, serving=None):
         """Sign here, with pat's key, the next version of pat's policy in NET with no rule for NAME, plus a claim
         binding NAME to SERVING when given; submit it through p1 and let p2 and p4 store it where they are members.
-        Like crafted_v2, it is not an edit and copies `edits`, so no host's edits stop being reflected (nothing is
-        re-applied over it)."""
+        It is an edit by p1 with a new `edits` number (decentralized-spec.md 12.1; dispute D2): a coordinator-free
+        host refuses a content change that copies its own settled entry, as crafted_v2 did."""
         current = self.policy('p1', net)
         rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
         if serving:
@@ -2999,7 +2999,7 @@ class Pairing:
         (Claims: At creation; the daemon refuses POST /v1/capabilities without the claim policies), and a host
         without a person is not bound to the person, so its copy could never be a candidate. So `unsettled` is
         created on p1 (claimed in every network p1 is bound in), each claim is withdrawn by a policy signed here
-        with pat's key (as an owner could sign one by hand, not an edit, copying `edits`), then p4 creates the same
+        with pat's key (as an owner could sign one by hand, as an edit by p1: drop_or_bind), then p4 creates the same
         name (allowed: no stored rule binds it to another host) and its claim is withdrawn the same way. Copies
         created before claims, or whose claim could not be signed, are the cases owner decision 12 names; this is
         the same state."""

@@ -507,10 +507,32 @@ def _sign_action(host, route, ready, person):
     raise SetupFailure(f'{route} left unsigned slots: {ready}')
 
 
+def next_edit_seq(host, network_id, person):
+    """This host's next local edit number (decentralized-spec.md 12.1 "Edit records": "names this host's next local
+    edit number, chosen when the plan is made and checked for uniqueness when it is applied").
+
+    Today's hosts still hand it out through the reservation route of the old policy-edit contract; where that route
+    is gone (DEC-S16), it is one more than the highest number in this owner's edit list
+    (GET /v2/networks/{id}/policy-edits)."""
+    status, reserved = api(host, 'POST', f'/v2/networks/{network_id}/policy-edits', {'provider_id': person.raw})
+    if status == 200 and isinstance(reserved, dict) and 'seq' in reserved:
+        return reserved['seq']
+    status, listed = api(host, 'GET', f'/v2/networks/{network_id}/policy-edits')
+    if status != 200:
+        raise SetupFailure(f'policy edits: {status} {listed}')
+    return max([e['seq'] for e in listed.get('edits', [])] or [0]) + 1
+
+
 def policy_action(host, network_id, person, change):
-    """Sign and apply the next version of `person`'s policy with `change(body)` applied, through the ordinary
-    action route (wire formats 16.4, kind `policy`), signed by the original key. Not an edit: `edits` is copied.
-    This replaces the coordinator-era crafted `POST /v1/networks/{id}/policy`. Returns the action result."""
+    """Sign and apply the next version of `person`'s policy with `change(body)` applied, as an edit by `host`,
+    through the ordinary action route (wire formats 16.4, kind `policy`), signed by the original key. This replaces
+    the coordinator-era crafted `POST /v1/networks/{id}/policy`. Returns the action result.
+
+    It is an edit, with a new `edits` number for this host (dispute D2): decentralized-spec.md 12.1 has a host's
+    content-changing policy name this host's next local edit number, unique when applied, so copying the host's
+    already settled entry (the coordinator-era "not an edit" form) is refused. Other hosts' entries are kept."""
+    host_id = api(host, 'GET', '/v1/host')[1]['id']
+    seq = next_edit_seq(host, network_id, person)
     current = policy_statement(host, network_id, person.raw)
     # The version is the retained maximum plus one and the predecessors are every known head of the stream
     # (GET .../access-versions; runtime contract: "Versions use the retained maximum, not an active-only view").
@@ -529,6 +551,8 @@ def policy_action(host, network_id, person, change):
         predecessors = []
     change(body)
     body['version'] += 1
+    body['edits'] = sorted([e for e in body['edits'] if e['host'] != host_id] + [{'host': host_id, 'seq': seq}],
+                           key=lambda e: e['host'])
     payload = _policy_payload(host, network_id, person, body, predecessors)
     route = f'/v2/networks/{network_id}/actions'
     status, ready = api(host, 'POST', route, {'kind': 'policy', 'provider_id': person.raw, 'signature_format': 'sshsig',

@@ -845,7 +845,7 @@ class AgentPairing:
     def unclaim_dup(self):
         """`dup` on p1 and on p4 with neither copy claimed, so no policy binds the name and pat has it on two hosts
         (owner decision 12). Creation always claims, so each claim is withdrawn by a policy signed here with pat's key
-        (as an owner could sign by hand; not an edit, copying `edits`), as the slice 1 suite does."""
+        (as an owner could sign by hand, as an edit by p1: dec_network.policy_action), as the slice 1 suite does."""
         h = self.hosts
         for net in (self.team, self.other):
             self.drop_rule('dup', net)
