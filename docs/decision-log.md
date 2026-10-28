@@ -18,6 +18,7 @@ Contents:
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN9: shape of the slim conformance suites](#dec-own9-shape-of-the-slim-conformance-suites-2026-10-28) (2026-10-28)
   - [DEC-OWN8: move the Go implementation to its own repository](#dec-own8-move-the-go-implementation-to-its-own-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN7: publish the repository](#dec-own7-publish-the-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
@@ -58,6 +59,18 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-OWN9: shape of the slim conformance suites (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question 1:** what shape should the slim conformance suites of DEC-OWN6 take?
+- **Options:** the plan below; change it.
+- **Plan:** about 10 small black-box suites, one per area (1 join, 2 renewal, 3 policy, 4 sync, 5 delivery, 6 root, 7 work, 8 capabilities, 9 live delivery, 10 basics), written from the spec by a spec-only author, each driving 2–3 real Rust hosts through the public CLI/API with fixture agents, each under 2 minutes; CI builds the binaries once and runs the suites as parallel jobs; edge cases go to Rust tests that drive the binaries; old suites are deleted as each area is covered; PR #1 (wave 1 port) is closed.
+- **Chosen:** the plan.
+- **Question 2:** how to test long timers (7-day leases, 1-hour invites, 10-minute stages, idle stop)?
+- **Options:** (A) a test clock in debug builds only (an environment variable the release build ignores), so suites jump hours or days in seconds; (B) real time only.
+- **Chosen:** (A).
+- **Implemented in:** this decision's PR, the first three suites (`conformance/slim/join.py`, `policy.py`, `work.py`) and the parallel CI workflow `.github/workflows/conformance.yml`.
 
 ### DEC-OWN8: move the Go implementation to its own repository (2026-10-28)
 
