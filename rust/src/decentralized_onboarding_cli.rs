@@ -163,6 +163,7 @@ pub(crate) async fn create_join(
     Ok(v)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn join(
     socket: &Path,
     token: &Option<String>,
@@ -171,18 +172,27 @@ async fn join(
     person_key: &Option<PathBuf>,
     no_person: bool,
     trusted: bool,
+    untrusted: bool,
 ) -> Result<()> {
     ensure!(
         token.is_none() && descriptor.is_none() && !no_person,
         "join needs a private psi2 introduction before choosing --person-key; use --invite-stdin or --invite-file and explicit machine approval"
     );
-    ensure!(
-        !trusted,
-        "review a separate typed trust policy after linking"
-    );
     let token = input.read().await?;
     let v = create_join(&Local(socket), &token, person_key).await?;
-    let v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    let mut v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    let network = v["network_id"].as_str().unwrap_or_default().to_owned();
+    let linked = v["state"] == "linked";
+    crate::capability_cli::dec_trust_outcome(
+        &mut v,
+        socket,
+        &network,
+        person_key.as_deref(),
+        trusted,
+        untrusted,
+        linked,
+    )
+    .await;
     crate::decentralized_link_cli::output(v, true)
 }
 async fn invite(
@@ -195,9 +205,17 @@ async fn invite(
     host_only: bool,
 ) -> Result<()> {
     ensure!(
-        expires_at.is_none() && expires_in.is_none() && person_key.is_none() && !host_only,
-        "a contact introduction has a fixed five-minute window and grants no authority; use explicit machine approval"
+        person_key.is_none() && !host_only,
+        "an invite grants no authority; the joining machine is approved explicitly"
     );
+    // Spec 8.1: valid for 1 hour by default, at least 60 seconds and at most
+    // 24 hours (the daemon checks the bounds).
+    let expiry = match (expires_at, expires_in) {
+        (Some(_), Some(_)) => anyhow::bail!("--expires-at and --expires-in are mutually exclusive"),
+        (Some(at), None) => Some(at.clone()),
+        (None, Some(duration)) => Some(crate::integration::relative_expiry(duration)?),
+        (None, None) => None,
+    };
     let all = local.get("/v2/networks".into()).await?;
     let all = all
         .as_array()
@@ -217,7 +235,12 @@ async fn invite(
     let v = local
         .post(
             format!("/v2/networks/{}/invitations", encoded(id)),
-            json!({"member":member,"expected_person_public_key":"-"}),
+            match &expiry {
+                Some(at) => {
+                    json!({"member":member,"expected_person_public_key":"-","expires_at":at})
+                }
+                None => json!({"member":member,"expected_person_public_key":"-"}),
+            },
         )
         .await?;
     let intro = Invitation::read_token(
@@ -239,7 +262,7 @@ async fn invite(
         "the introduction changed the reviewed network/member pins"
     );
     eprintln!(
-        "This private introduction grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
+        "This private invite grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
     );
     println!("{}", serde_json::to_string_pretty(&v)?);
     Ok(())
@@ -267,10 +290,11 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
             person_key,
             no_person,
             trusted,
+            untrusted,
             ..
         } => {
             join(
-                &socket, token, None, invitation, person_key, *no_person, *trusted,
+                &socket, token, None, invitation, person_key, *no_person, *trusted, *untrusted,
             )
             .await?
         }
@@ -281,6 +305,7 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
             person_key,
             no_person,
             trusted,
+            untrusted,
             ..
         }) => {
             join(
@@ -291,6 +316,7 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
                 person_key,
                 *no_person,
                 *trusted,
+                *untrusted,
             )
             .await?
         }

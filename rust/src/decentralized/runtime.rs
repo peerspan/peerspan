@@ -525,7 +525,14 @@ fn networks(store: &Store, _time: &str) -> Result<Vec<u8>> {
     ))
 }
 fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
-    fields(input, "member expected_person_public_key")?;
+    // `expires_at` is optional (DEC-Q2): 60 to 86400 seconds after the
+    // decision time; the default is one hour.
+    let lifetime = input.get("expires_at");
+    if lifetime.is_some() {
+        fields(input, "member expected_person_public_key expires_at")?;
+    } else {
+        fields(input, "member expected_person_public_key")?;
+    }
     label(text(input, "member")?)?;
     let person = text(input, "expected_person_public_key")?;
     check(person == "-" || key(person))?;
@@ -553,9 +560,20 @@ fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
         .map_err(|_| Error::new("internal"))?
         .rendezvous
         .clone();
-    let end = (stamp(&actual)? + chrono::TimeDelta::seconds(300))
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    let end = match lifetime {
+        Some(value) => {
+            let end = value.as_str().ok_or_else(|| Error::new("invalid"))?;
+            let lasts = stamp(end)? - stamp(&actual)?;
+            check(
+                lasts >= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MIN)
+                    && lasts <= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MAX),
+            )?;
+            end.to_owned()
+        }
+        None => (stamp(&actual)? + chrono::TimeDelta::seconds(super::bootstrap::INVITE_DEFAULT))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+    };
     let (invite, token) = super::bootstrap::Invitation::create(
         &store.signing_key,
         &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers}),

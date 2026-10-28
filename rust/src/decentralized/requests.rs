@@ -774,7 +774,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     getrandom::fill(&mut nonce).map_err(|_| Error::new("internal"))?;
     let mut secret = [0u8; 16];
     getrandom::fill(&mut secret).map_err(|_| Error::new("internal"))?;
-    let deadline = (stamp(&now)? + chrono::TimeDelta::seconds(300))
+    let deadline = (stamp(&now)? + chrono::TimeDelta::seconds(super::bootstrap::REQUEST_WINDOW))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
     let host = store.identity().public_key;

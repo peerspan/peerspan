@@ -249,6 +249,7 @@ It then states the reach: `PRINCIPAL can use these operations with the credentia
 - **Signing.** A yes adds this host to `trusted_hosts`, and the policy is signed at once.
 - **Output.** They always output `trusted`. If the trust signing fails, the command still succeeds, with `trusted: false` and `trusted_error`.
 - **The person key.** On an untrusted machine they print that any host holding the person key can mark itself trusted.
+- **Coordinator-free networks** ([DEC.impl10](decision-log.md)). `network create` signs a yes at once with the creation key. A `join` is a request that is applied later ([spec 8.1](decentralized-spec.md#81-the-flow)): an interactive `join` waits until it is applied, then asks and signs; a `join` that returns a pending request signs nothing, so a yes gives `trusted: false` with a `trusted_error` naming `peerspan trust --network ID`.
 
 **Outputs.**
 - `share` prints `{policy, capability, principal, recipient, created}`, where `created` says whether the guided share created the capability. `recipient` (slice 3, [Sharing with an agent](#sharing-with-an-agent)) is null unless `--with` was an agent address.

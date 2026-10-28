@@ -289,6 +289,19 @@ impl PersonSigner {
             ))),
         }
     }
+    /// This machine's signer for the original key `key` (standard Base64):
+    /// the configured owner key file when it holds that key, else that
+    /// identity in ssh-agent. None when neither holds it.
+    pub fn local_original(key: &str) -> Option<Self> {
+        if let Some(generated) = generated_key_path()
+            && let Ok(text) = std::fs::read_to_string(&generated)
+            && let Ok(file) = parse_openssh_private_key(&text)
+            && STANDARD.encode(file.verifying_key().to_bytes()) == key
+        {
+            return Some(Self::File(file));
+        }
+        Self::agent_with(key).ok()
+    }
     /// The `ssh-agent` identity holding `key` (standard Base64).
     pub fn agent_with(key: &str) -> Result<Self, Error> {
         let key: [u8; 32] = crate::membership::canonical(key, 32)?
