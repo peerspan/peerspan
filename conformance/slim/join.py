@@ -12,7 +12,6 @@ from harness import (Suite, b64url_json, check, commit, create_network, finalize
                      parse_time, pull_until, rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked,
                      datetime, timedelta, timezone)
 
-KNOWN = "listed in PR #9; spec-only author does not fix product code"
 suite = Suite("join", __doc__)
 a, b, a2 = suite.host("alice"), suite.host("bob"), suite.host("alice2")
 # A joiner whose clock the suite moves (debug-build test clock, DEC-OWN9; developer guide).
@@ -66,7 +65,7 @@ def _():
     state["alice_key"] = a.home / ".config/peerspan/person_ed25519"
 
 
-@suite.case("create_gives_creator_device_grant", "spec 6 creator device grant, DEC-Q21; 20 item 16", known=KNOWN)
+@suite.case("create_gives_creator_device_grant", "spec 6 creator device grant, DEC-Q21; 20 item 16", known="DEC-Q21")
 def _():
     (net,) = need("net")
     provider = a.api("GET", f"/v2/networks/{net['id']}/provider")[1]
@@ -163,7 +162,7 @@ def _():
     state["bob_joined"] = True
 
 
-@suite.case("join_request_returns_without_code", "spec 8.1 step 4 (DEC-Q3); appendix 10.1; 20 item 29", known=KNOWN)
+@suite.case("join_request_returns_without_code", "spec 8.1 step 4 (DEC-Q3); appendix 10.1; 20 item 29", known="DEC-Q3")
 def _():
     secret, returned = need("return_secret", "returned")
     check(secret and len(base64.b64decode(secret)) == 16, "the invite payload carries no 16-byte return_secret_base64")
@@ -171,7 +170,7 @@ def _():
                     "join printed a psl2- code at once")
 
 
-@suite.case("single_offer_selected_without_prompt", "spec 8.4 (DEC-S5, DEC-Q5); 20 item 34", known=KNOWN)
+@suite.case("single_offer_selected_without_prompt", "spec 8.4 (DEC-S5, DEC-Q5); 20 item 34", known="DEC-S5/DEC-Q5")
 def _():
     (seen,) = need("bob_single_offer_state")
     check(seen != "needs_selection", "with exactly one owner offer the request still waited in needs_selection "
@@ -220,7 +219,7 @@ def _():
     check(not (a2.home / ".config/peerspan/person_ed25519").exists(), "linking generated an original key on alice2")
 
 
-@suite.case("owner_admin_link_folds_admin_stage", "spec 8.2 fold (DEC-S7, DEC-Q4); 20 item 35", known=KNOWN)
+@suite.case("owner_admin_link_folds_admin_stage", "spec 8.2 fold (DEC-S7, DEC-Q4); 20 item 35", known="DEC-S7/DEC-Q4")
 def _():
     view, folded = need("link_view", "folded")
     check(folded and view["administrator_offer_id"] == "-",
@@ -270,7 +269,7 @@ def _():
     state["clock_at"] = expires
 
 
-@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); 20 item 33; test clock", known=KNOWN)
+@suite.case("stage_inactivity_limit", "spec 8.5 (600 s per stage); 20 item 33; test clock", known="spec 8.5")
 def _():
     net, key, start = need("net", "carol_key", "clock_at")
     # The clock only moves forward, so the 600 s case comes first, on a fresh request.

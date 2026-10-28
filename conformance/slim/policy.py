@@ -12,7 +12,6 @@ import urllib.parse
 
 from harness import Suite, check, create_network, join_new_person, parse_time, ssh_key
 
-KNOWN = "listed in PR #9; spec-only author does not fix product code"
 suite = Suite("policy", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
 state = {}
@@ -131,7 +130,7 @@ def _():
     check(message_to_bert() == "accepted", "unblock did not restore access")
 
 
-@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6", known=KNOWN)
+@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6", known="DEC-S16/DEC-Q18")
 def _():
     before = bob_policy_version()
     results = []
