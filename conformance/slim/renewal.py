@@ -9,7 +9,7 @@ docs/decentralized-spec.md sections 4.4, 5, 7 and 16, and the wire appendix sect
 import threading
 import traceback
 
-from harness import (Clock, Suite, attention, check, create_network, join_new_person, members, parse_time, ssh_key,
+from harness import (Clock, Failure, Suite, attention, check, create_network, join_new_person, members, parse_time, ssh_key,
                      statements, timedelta, wait_for)
 
 DAY, HOUR = 86400, 3600
@@ -201,13 +201,22 @@ def expiry_world(w):
               "alice's host is not usable after bob's device grant ended")
         w.a.ok("allow", "everyone")  # a fresh policy, issued after the jump
 
+        last = []
+
         def control():
             sent = carol.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
-            if sent.ok and sent.json["state"] == "accepted":
+            state = sent.json.get("state") if isinstance(sent.json, dict) else None
+            error = sent.stderr.strip().splitlines()[-1] if sent.stderr.strip() else ""
+            last[:] = [f"send exit={sent.code} state={state} error={error}"]
+            if sent.ok and state == "accepted":
                 return True
-            carol.api("POST", f"/v2/networks/{w.net}/sync", {})
+            status, reply = carol.api("POST", f"/v2/networks/{w.net}/sync", {})
+            last.append(f"sync status={status} error={reply.get('error') if isinstance(reply, dict) else reply}")
             return False
-        wait_for(control, timeout=30, interval=1, message="carol's control message to alice to be accepted")
+        try:
+            wait_for(control, timeout=30, interval=1, message="carol's control message to alice to be accepted")
+        except Failure as error:
+            raise Failure(f"{error}; {'; '.join(last)}") from error
         w.b.start()
         view = w.b.api("GET", "/v2/networks")[1][0]
         check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
