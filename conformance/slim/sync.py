@@ -92,6 +92,8 @@ def _():
     b.stop()  # carol must learn it from alice, not from its author
     c.start()
     check(policy_version(c, bob) == version, "carol changed while offline")
+    sync(a)  # alice talks to stale carol first (high-water, below)
+    state["alice_after_stale"] = policy_version(a, bob)
     learns(c, bob, version + 1)
     body = sync(c)
     check([u["host_public_key"] for u in body["unavailable"]] == [b.public_key],
@@ -102,14 +104,8 @@ def _():
 
 @suite.case("stale_peer_cannot_lower_high_water", "spec 4.2 high-water, 10 merging; 20 item 47")
 def _():
-    bob, version = need("bob", "bob_version")
-    c.stop()  # carol keeps version N while bob moves on to N + 1
-    b.ok("deny", "everyone", "--person-key", state["bob_key"])
-    learns(a, bob, version + 1)
-    c.start()
-    sync(a)  # alice talks to stale carol first
-    check(policy_version(a, bob) == version + 1, "a stale peer's older policy replaced alice's newer one")
-    learns(c, bob, version + 1)
+    bob, version, seen = need("bob", "bob_version", "alice_after_stale")
+    check(seen == version, f"after syncing with a peer that still had version {version - 1}, alice has {seen}")
     heads = [p for p in a.api("GET", f"/v2/networks/{state['net']}/access-versions")[1]["policies"]
              if p["person_public_key"] == bob]
     check(len(heads) == 1 and len(heads[0]["head_ids"]) == 1, f"bob's policy stream has heads {heads}")
