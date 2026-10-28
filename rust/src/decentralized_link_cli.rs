@@ -203,13 +203,7 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    // `join` adds its trust answer (CLI output, not part of the daemon view).
-    let mut checked = v.clone();
-    if let Some(o) = checked.as_object_mut() {
-        o.remove("trusted");
-        o.remove("trusted_error");
-    }
-    view(&checked)?;
+    view(&v)?;
     println!("{}", serde_json::to_string_pretty(&v)?);
     if v["state"] != "linked" {
         bail!("linking is incomplete; follow the returned next step");
