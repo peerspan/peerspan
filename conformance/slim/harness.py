@@ -359,8 +359,13 @@ class Suite:
         self.hosts.append(h)
         return h.start() if start else h
 
-    def case(self, name, spec):
-        """Decorator: run the function now as one case."""
+    def case(self, name, spec, known=None):
+        """Decorator: run the function now as one case.
+
+        KNOWN names a product failure already reported (the PR that tracks it): the case still runs and prints
+        XFAIL instead of FAIL without failing the suite, and XPASS, which does fail it, once the product is
+        fixed, so the marker gets removed.
+        """
         def run(function):
             if self.args.only and name not in self.args.only:
                 return function
@@ -376,6 +381,11 @@ class Suite:
                 outcome, detail = "FAIL", f"{type(error).__name__}: {error}"
                 traceback.print_exc(file=sys.stderr)
             took = time.monotonic() - began
+            if known and outcome == "FAIL":
+                outcome = "XFAIL"
+                detail += f" (known product failure: {known})"
+            elif known and outcome == "PASS":
+                outcome, detail = "FAIL", f"XPASS: now passes; remove the known-failure marker ({known})"
             self.results.append((outcome, name))
             line = f"{outcome} {name} [{spec}] ({took:.1f}s)"
             if detail:
@@ -389,9 +399,9 @@ class Suite:
             h.stop(kill=True)
         total = time.monotonic() - self.started
         failed = [n for o, n in self.results if o == "FAIL"]
-        counts = {o: sum(1 for x, _ in self.results if x == o) for o in ("PASS", "FAIL", "SKIP")}
-        print(f"{self.name}: {counts['PASS']} passed, {counts['FAIL']} failed, {counts['SKIP']} skipped "
-              f"in {total:.0f}s", flush=True)
+        counts = {o: sum(1 for x, _ in self.results if x == o) for o in ("PASS", "FAIL", "XFAIL", "SKIP")}
+        print(f"{self.name}: {counts['PASS']} passed, {counts['FAIL']} failed, {counts['XFAIL']} known product "
+              f"failures, {counts['SKIP']} skipped in {total:.0f}s", flush=True)
         if failed or self.args.keep:
             print(f"work directory kept: {self.work}", flush=True)
         else:

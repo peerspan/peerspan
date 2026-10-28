@@ -8,9 +8,11 @@ docs/decentralized-spec.md sections 4.4, 5, 5.1 and 12, the wire appendix (secti
 import base64
 import json
 import threading
+import urllib.parse
 
 from harness import Suite, check, create_network, join_new_person, parse_time, ssh_key
 
+KNOWN = "listed in PR #9; spec-only author does not fix product code"
 suite = Suite("policy", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
 state = {}
@@ -89,7 +91,8 @@ def _():
     check(0 < life <= 86400, f"policy lives {life:.0f}s; a coordinator-free policy lasts at most 24 hours")
     check(message_to_bert("allowed") == "accepted", "message refused after allow")
     check(task_to_bert() == "accepted", "task refused after allow (tasks are on by default)")
-    status, body = b.api("GET", f"/v2/networks/{state['net']}/policy/{state['bob_public']}")
+    person = urllib.parse.quote(state["bob_public"], safe="")  # a Base64 key may hold "/" and "+"
+    status, body = b.api("GET", f"/v2/networks/{state['net']}/policy/{person}")
     check(status == 200, f"current policy statement: {status}")
     envelope = json.loads(base64.b64decode(body["statement_base64"]))
     payload = json.loads(base64.b64decode(envelope["payload_base64"]))
@@ -128,7 +131,7 @@ def _():
     check(message_to_bert() == "accepted", "unblock did not restore access")
 
 
-@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6")
+@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6", known=KNOWN)
 def _():
     before = bob_policy_version()
     results = []
