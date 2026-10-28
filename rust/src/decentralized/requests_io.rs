@@ -552,8 +552,13 @@ pub(crate) async fn approver_worker(
                 };
                 // Kept until the request ends, so a finalization whose frame
                 // was not yet retained or published is retried after a crash.
+                // Approved work on an approving host, and every unfinished
+                // request of this machine as requester: its stages arrive by
+                // mailbox and advance without `link resume` (spec 8.4, 9.5).
+                let requester = p.record.roles.iter().any(|r| r == "requester");
                 if p.record.terminal == "-"
-                    && p.record.owner_intent_id != "-"
+                    && (p.record.owner_intent_id != "-"
+                        || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
                     due.push(id);
@@ -572,9 +577,11 @@ pub(crate) async fn approver_worker(
             }
             let target = store.clone();
             let resume_id = id.clone();
-            let _ =
-                tokio::task::spawn_blocking(move || super::ceremony::resume(&target, &resume_id))
-                    .await;
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = super::ceremony::resume(&target, &resume_id);
+                super::requester::resume_approved(&target, &resume_id)
+            })
+            .await;
             let _ = publish(store.clone(), &id).await;
         }
     }
