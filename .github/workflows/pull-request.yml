@@ -13,8 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
-    name: Rust format, tests, Clippy and build
+  fmt:
+    name: Rust format
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+      - name: Rust format
+        run: cargo fmt --check --manifest-path rust/Cargo.toml
+
+  clippy:
+    name: Rust Clippy
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env:
@@ -25,13 +40,32 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
-      - name: Rust format
-        run: cargo fmt --check --manifest-path rust/Cargo.toml
-      - name: Existing Rust tests
-        run: cargo test --locked --manifest-path rust/Cargo.toml
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Rust Clippy
         run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
+  test:
+    name: Rust tests and build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Build shipped Rust binaries
         run: cargo build --locked --manifest-path rust/Cargo.toml --bins
+      - name: Existing Rust tests
+        run: cargo test --locked --manifest-path rust/Cargo.toml
