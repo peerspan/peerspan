@@ -856,7 +856,12 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         }
     }
     let rows = ids_in(&tx)?;
-    require(rows.len() < 4096, "quota_exceeded")?;
+    // Every pending row counts toward the 4096 total, invitation rows too;
+    // only join requests count toward the 8 active ones (DEC-Q32).
+    let total: i64 = tx
+        .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
+        .map_err(db)?;
+    require(total < 4096, "quota_exceeded")?;
     let active = rows
         .iter()
         .map(|id| load(&tx, id))
