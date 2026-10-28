@@ -375,11 +375,21 @@ pub(crate) fn waiting_items(
         {
             continue;
         }
+        // The owner reviews first (spec 8.3); the administrator admits
+        // after the owner offer and the requester's selection.
+        let command = if r.owner_offer_id != "-" && r.selection_id != "-" {
+            format!(
+                "peerspan link admit {id} --network {network} --owner-offer {} --selection {}",
+                r.owner_offer_id, r.selection_id
+            )
+        } else {
+            format!("peerspan link approve {id} --network {network}")
+        };
         out.push((
             "link_request_waiting".into(),
             network.into(),
             format!("join request {id} waits for approval on this host"),
-            format!("peerspan link admit {id} --network {network}"),
+            command,
         ));
     }
     Ok(out)
