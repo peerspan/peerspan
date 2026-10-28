@@ -1253,6 +1253,8 @@ fn failure(
     };
     let message = if error.code == "internal" {
         "internal error".to_owned()
+    } else if let Some(detail) = error.detail {
+        format!("{}: {detail}", error.code.replace('_', " "))
     } else {
         error.code.replace('_', " ")
     };

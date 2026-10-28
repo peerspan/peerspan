@@ -596,23 +596,53 @@ where
     } else {
         None
     };
-    let budget = receive_budget()
-        .clone()
-        .try_acquire_many_owned(max)
-        .map_err(|_| Error::new("quota_exceeded"))?;
-    let body = timeout(Duration::from_secs(10), async {
-        // One bounded allocation avoids collecting then copying a maximum-size
-        // response while both copies remain in the receive queue.
-        let mut bytes = Vec::with_capacity(max as usize);
+    // The process-wide receive budget is charged for buffered bytes only: a
+    // declared length up front, otherwise as the body grows. Reserving each
+    // request's maximum would let two overlapping mailbox reads exhaust it.
+    let declared = match response.headers().get(hyper::header::CONTENT_LENGTH) {
+        Some(value) => {
+            let length = value
+                .to_str()
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .ok_or_else(|| Error::new("recovery_required"))?;
+            if length > u64::from(max) {
+                return Err(Error::quota("response larger than its limit"));
+            }
+            length as usize
+        }
+        None => 0,
+    };
+    let charge = |permits: usize| {
+        receive_budget()
+            .clone()
+            .try_acquire_many_owned(permits as u32)
+            .map_err(|_| Error::quota("bootstrap receive buffer full"))
+    };
+    let mut budget = charge(declared)?;
+    let (body, budget) = timeout(Duration::from_secs(10), async move {
+        let mut bytes = Vec::with_capacity(declared);
         let mut incoming = response.into_body();
         while let Some(frame) = incoming.frame().await {
             let frame = frame.map_err(wire)?;
             if let Some(data) = frame.data_ref() {
-                require(data.len() <= max as usize - bytes.len(), "quota_exceeded")?;
+                let len = bytes.len();
+                if data.len() > max as usize - len {
+                    return Err(Error::quota("response larger than its limit"));
+                }
+                if data.len() > bytes.capacity() - len {
+                    // Grow by doubling, capped at the limit; the budget covers capacity.
+                    let target = (len + data.len()).max(len * 2).min(max as usize);
+                    bytes.reserve_exact(target - len);
+                    let extra = bytes.capacity().saturating_sub(budget.num_permits());
+                    if extra > 0 {
+                        budget.merge(charge(extra)?);
+                    }
+                }
                 bytes.extend_from_slice(data);
             }
         }
-        Ok::<_, Error>(bytes)
+        Ok::<_, Error>((bytes, budget))
     })
     .await
     .map_err(wire)??;

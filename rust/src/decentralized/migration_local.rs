@@ -25,6 +25,7 @@ pub(super) fn legacy(e: anyhow::Error) -> Error {
             required_ids: p.required_ids.iter().cloned().collect(),
             stage: None,
             retry_after: None,
+            detail: None,
         }
     } else if let Some(f) = e.downcast_ref::<crate::link_runtime::support::Failure>() {
         let code = match f.code.as_str() {
@@ -40,6 +41,7 @@ pub(super) fn legacy(e: anyhow::Error) -> Error {
             required_ids: f.details.required_ids.iter().cloned().collect(),
             stage: None,
             retry_after: None,
+            detail: None,
         }
     } else {
         Error::new("state_conflict")

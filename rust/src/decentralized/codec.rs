@@ -19,6 +19,8 @@ pub struct Error {
     pub required_ids: BTreeSet<String>,
     pub(crate) stage: Option<&'static str>,
     pub(crate) retry_after: Option<u64>,
+    /// Names the exceeded bound in the error message (no secrets).
+    pub(crate) detail: Option<&'static str>,
 }
 impl Error {
     pub fn new(code: &'static str) -> Self {
@@ -27,6 +29,7 @@ impl Error {
             required_ids: BTreeSet::new(),
             stage: None,
             retry_after: None,
+            detail: None,
         }
     }
     pub fn missing(id: &str) -> Self {
@@ -35,6 +38,14 @@ impl Error {
             required_ids: BTreeSet::from([id.into()]),
             stage: None,
             retry_after: None,
+            detail: None,
+        }
+    }
+    /// A quota_exceeded error that names the bound it hit.
+    pub fn quota(detail: &'static str) -> Self {
+        Self {
+            detail: Some(detail),
+            ..Self::new("quota_exceeded")
         }
     }
     pub fn response(&self) -> Value {
