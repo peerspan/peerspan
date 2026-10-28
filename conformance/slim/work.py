@@ -128,7 +128,10 @@ def _():
     check(claimed["task"]["task_id"] == parent, f"bert claimed {claimed['task']['task_id']}")
     status, _ = bert.post(f"/adapter/v1/tasks/{parent}/accept")
     check(status == 200, f"accept: {status}")
-    # bob's owner forwards the running task to carol's agent (carol authorizes the originator, alice).
+    # bob's owner forwards the running task to carol's agent (carol authorizes the originator, alice). A bounded
+    # sync first exchanges signed contacts with the other members (spec 10), so bob can dial carol.
+    for host in (b, c):
+        host.api("POST", f"/v2/networks/{state['network']}/sync", {})
     child = b.ok("task", "submit", "--peer", c.id, "--agent", cleo.id, "--input", "part", "--parent-sender", a.id,
                  "--parent-task", parent)
     check(child["parent"] == {"sender_host_id": a.id, "task_id": parent}, f"child parent {child.get('parent')}")

@@ -246,7 +246,7 @@ class Host:
 
     # Agents, through the owner API and the adapter socket.
 
-    def agent(self, name, directory=True):
+    def agent(self, name, directory=True, calls=False):
         """Register agent NAME and connect a fixture adapter session for it."""
         status, agent = self.api("POST", "/v1/agents", {"name": name, "owner": self.name})
         check(status in (200, 201), f"{self.name}: register {name}: {status} {agent}")
@@ -255,6 +255,8 @@ class Host:
                 "expires_at": in_future(hours=2)}
         if directory:
             body["directory"] = True
+        if calls:
+            body["calls"] = True
         status, setup = self.api("POST", "/v1/adapters/setup", body)
         check(status == 201, f"{self.name}: adapter setup for {name}: {status} {setup}")
         adapter = Adapter(self, agent, session_id, setup["credential"])
