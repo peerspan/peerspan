@@ -3,6 +3,10 @@
 use super::*;
 use tokio::sync::watch;
 
+/// Set when deliveries are queued, so they go out at once rather than on the
+/// next 2-second pass.
+pub(super) static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
 #[derive(Clone)]
 struct Delivery {
     id: String,
@@ -269,23 +273,12 @@ pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool
     let mut inflight = std::collections::BTreeSet::new();
     let mut syncing = false;
     loop {
-        tokio::select! {
+        let pass = tokio::select! {
             _=shutdown.changed()=>break,
-            _=pending.tick()=>{
-                let capacity=4usize.saturating_sub(inflight.len());
-                if capacity>0 {
-                    let owner=store.clone();let excluded=inflight.clone();
-                    if let Ok(Ok(rows))=tokio::task::spawn_blocking(move||due(&owner,&excluded,capacity)).await {
-                        for row in rows {
-                            let id=row.id.clone();inflight.insert(id.clone());
-                            let owner=store.clone();let row=Arc::new(row);
-                            active.spawn(async move{deliver(owner,row).await;Some(id)});
-                        }
-                    }
-                }
-            },
-            _=&mut anti,if !syncing=>{syncing=true;let owner=store.clone();active.spawn(async move{reconcile(owner).await;None});},
-            Some(result)=active.join_next(),if !active.is_empty()=>match result {
+            _=pending.tick()=>true,
+            _=WAKE.notified()=>true,
+            _=&mut anti,if !syncing=>{syncing=true;let owner=store.clone();active.spawn(async move{reconcile(owner).await;None});false},
+            Some(result)=active.join_next(),if !active.is_empty()=>{match result {
                 Ok(Some(id))=>{inflight.remove(&id);},
                 Ok(None)=>{syncing=false;anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));},
                 Err(_)=>{
@@ -293,7 +286,28 @@ pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool
                     inflight.clear();syncing=false;
                     anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));
                 }
-            },
+            };false},
+        };
+        if pass {
+            let capacity = 4usize.saturating_sub(inflight.len());
+            if capacity > 0 {
+                let owner = store.clone();
+                let excluded = inflight.clone();
+                if let Ok(Ok(rows)) =
+                    tokio::task::spawn_blocking(move || due(&owner, &excluded, capacity)).await
+                {
+                    for row in rows {
+                        let id = row.id.clone();
+                        inflight.insert(id.clone());
+                        let owner = store.clone();
+                        let row = Arc::new(row);
+                        active.spawn(async move {
+                            deliver(owner, row).await;
+                            Some(id)
+                        });
+                    }
+                }
+            }
         }
     }
     active.abort_all();

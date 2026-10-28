@@ -1160,8 +1160,12 @@ impl Snapshot {
             connection,
             &deliveries.iter().map(|(_, _, r)| r).collect::<Vec<_>>(),
         )?;
+        let queued = !deliveries.is_empty();
         for (delivery, target, record) in deliveries {
             connection.execute("INSERT INTO dec_outbox(delivery_id,network_id,context_id,target_key,record) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![delivery,network,context,target,record.to_string()]).map_err(db)?;
+        }
+        if queued {
+            super::peer::wake_delivery();
         }
         Ok(())
     }

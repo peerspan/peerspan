@@ -24,6 +24,11 @@ use std::{
 };
 
 pub(crate) const REPAIR_ALPN: &[u8] = b"peerspan-state-repair/1";
+/// Wakes the publication worker after new deliveries are queued; it reads them
+/// once the queuing transaction commits, as they share the store's connection.
+pub(crate) fn wake_delivery() {
+    delivery::WAKE.notify_one();
+}
 pub async fn state_worker(store: Arc<Store>, shutdown: tokio::sync::watch::Receiver<bool>) {
     tokio::join!(
         delivery::worker(store.clone(), shutdown.clone()),
