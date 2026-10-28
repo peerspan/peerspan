@@ -220,6 +220,7 @@ pub(crate) fn status_network(
                 }
             }
             edit_attention.extend(super::renewal::attention(&s, &p, network)?);
+            edit_attention.extend(super::invite_return::waiting_items(c, network)?);
             view
         }
         Err(e)
