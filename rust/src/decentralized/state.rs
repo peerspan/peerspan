@@ -457,7 +457,9 @@ impl Projection {
     ) -> Result<Self> {
         check(key(person) && key(host))?;
         let source = Catalog::read(d, catalog)?;
-        let expected = [
+        // A creation since DEC-Q21 also carries the creator device grant.
+        let creator_device = source.statements.values().any(|s| s.kind == "device_lease");
+        let mut expected = vec![
             "admin_lease",
             "binding_lease",
             "host_lease",
@@ -465,6 +467,9 @@ impl Projection {
             "policy",
             "root_state",
         ];
+        if creator_device {
+            expected.push("device_lease");
+        }
         check(source.proofs.len() == expected.len() && source.statements.len() == expected.len())?;
         let mut kinds = BTreeMap::new();
         for statement in source.statements.values() {
@@ -512,6 +517,14 @@ impl Projection {
             parents.get("subject_person") == Some(&admission.id)
                 && parents.get("subject_host") == Some(&membership.id),
         )?;
+        if creator_device {
+            check(Self::creator_device_shape(
+                kinds["device_lease"],
+                &kinds,
+                person,
+                host,
+            ))?;
+        }
         for statement in source
             .statements
             .values()
@@ -545,6 +558,33 @@ impl Projection {
             result.active(id)?;
         }
         Ok(result)
+    }
+    /// The creator device grant (DEC-Q21): scopes 15, issued by the original
+    /// key with the genesis person, host and binding grants as parents.
+    fn creator_device_shape(
+        device: &Statement,
+        genesis: &BTreeMap<&str, &Statement>,
+        person: &str,
+        host: &str,
+    ) -> bool {
+        let Ok(parents) = device.parents() else {
+            return false;
+        };
+        let Ok(subject) = device.subject() else {
+            return false;
+        };
+        let admission = &genesis["person_lease"].id;
+        text(subject, "person_public_key").is_ok_and(|k| k == person)
+            && text(subject, "host_public_key").is_ok_and(|k| k == host)
+            && num(subject, "scopes").is_ok_and(|s| s == 15)
+            && device
+                .issuer()
+                .is_ok_and(|i| text(i, "kind").is_ok_and(|k| k == "person"))
+            && parents.get("issuer_person") == Some(admission)
+            && parents.get("subject_person") == Some(admission)
+            && parents.get("subject_host") == Some(&genesis["host_lease"].id)
+            && parents.get("subject_binding") == Some(&genesis["binding_lease"].id)
+            && parents.len() == 4
     }
     fn build_mode(
         d: &Descriptor,
@@ -1322,6 +1362,9 @@ impl Projection {
         // be live now; repair and complete consent cannot manufacture a past
         // admission or advance a head with an expired grant.
         self.time(s)?;
+        if s.kind == "device_lease" && text(&s.payload, "operation_id")? == "-" {
+            require(self.creator_device(s)?, "forbidden")?;
+        }
         if lease(&s.kind) && text(&s.payload, "operation_id")? != "-" {
             let op = text(&s.payload, "operation_id")?;
             if s.kind == "host_lease"
@@ -1413,6 +1456,50 @@ impl Projection {
     /// authorized replacement explicitly retained it. Such evidence preserves
     /// the old nominal signature, while current use still intersects every
     /// retaining path. Merely appearing in a complete ceremony is insufficient.
+    /// A device grant with `operation_id` `-` is valid only as the creator
+    /// device grant (DEC-Q21): issued by the original key at genesis, with
+    /// the genesis person, host and binding grants as its parents.
+    fn creator_device(&self, s: &Statement) -> Result<bool> {
+        let root = self.catalog.get(text(&s.payload, "root_state_id")?)?;
+        if root.kind != "root_state"
+            || root.sequence()? != 0
+            || !ids(&root.payload, "predecessors", "ds_")?.is_empty()
+        {
+            return Ok(false);
+        }
+        let mut genesis = BTreeMap::new();
+        for id in s.parents()?.into_values() {
+            let parent = self.catalog.get(&id)?;
+            if text(&parent.payload, "operation_id")? != "-"
+                || parent.sequence()? != 1
+                || text(&parent.payload, "root_state_id")? != root.id
+                || parent.issued_at()? != root.issued_at()?
+            {
+                return Ok(false);
+            }
+            genesis.insert(parent.kind.as_str(), parent);
+        }
+        let (Some(person), Some(host), Some(binding)) = (
+            genesis.get("person_lease"),
+            genesis.get("host_lease"),
+            genesis.get("binding_lease"),
+        ) else {
+            return Ok(false);
+        };
+        Ok(s.issued_at()? == root.issued_at()?
+            && text(person.issuer()?, "kind")? == "root"
+            && text(host.issuer()?, "kind")? == "root"
+            && Self::creator_device_shape(
+                s,
+                &BTreeMap::from([
+                    ("person_lease", *person),
+                    ("host_lease", *host),
+                    ("binding_lease", *binding),
+                ]),
+                text(s.subject()?, "person_public_key")?,
+                text(s.subject()?, "host_public_key")?,
+            ))
+    }
     fn portable_issuance(&self, child: &Statement) -> Result<bool> {
         // A later root endorsement cannot retroactively supply a child missing
         // from an earlier narrowing ancestor's exact signed kept set.
@@ -1534,7 +1621,10 @@ impl Projection {
             }
             self.original_issuance_at(parent, at, seen)?;
         }
-        if statement.kind == "device_lease" {
+        if statement.kind == "device_lease"
+            && !(text(&statement.payload, "operation_id")? == "-"
+                && self.creator_device(statement)?)
+        {
             let operation = text(&statement.payload, "operation_id")?;
             let activation = self
                 .complete_operations
@@ -1566,7 +1656,10 @@ impl Projection {
     }
     fn issuer_available(&self, dependent: &Statement, parent: &str) -> Result<bool> {
         if let Some((person, host)) = &self.local_genesis
-            && matches!(dependent.kind.as_str(), "binding_lease" | "policy")
+            && matches!(
+                dependent.kind.as_str(),
+                "binding_lease" | "policy" | "device_lease"
+            )
             && text(dependent.issuer()?, "kind")? == "person"
             && text(dependent.issuer()?, "person_public_key")? == person
             && (dependent.kind != "binding_lease"

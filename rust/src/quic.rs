@@ -685,7 +685,8 @@ async fn request_on(
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
     let transport = transport(&store)?;
-    let mut paths = paths(&store, &transport, peer).await?;
+    let (learned, mut paths) = routes(&store, &transport, peer).await?;
+    let peer = learned.as_ref().unwrap_or(peer);
     if direct_only {
         paths.relays.clear();
         if paths.direct.is_none() {
@@ -788,7 +789,8 @@ pub(crate) async fn download(
 ) -> anyhow::Result<Download> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
     let transport = transport(&store)?;
-    let paths = paths(&store, &transport, peer).await?;
+    let (learned, paths) = routes(&store, &transport, peer).await?;
+    let peer = learned.as_ref().unwrap_or(peer);
     let deadline = tokio::time::Instant::now() + REQUEST_BOUND;
     let reused = transport.cached(&peer.id, &key, &paths.all()).is_some();
     let connection = transport
@@ -895,6 +897,76 @@ impl Paths {
             .chain(self.relays.iter().map(|(_, a)| *a))
             .collect()
     }
+}
+/// The peer's paths. A member of a coordinator-free network whose signed
+/// contact this host has not learned yet (typically both just joined) has no
+/// dial address: this host then syncs the networks it shares with the member,
+/// which exchanges contacts with the members it can reach, and resolves the
+/// address again (decentralized-spec sections 9 and 10). The returned peer
+/// replaces the given one when an address was learned.
+async fn routes(
+    store: &Arc<Store>,
+    transport: &Transport,
+    peer: &Peer,
+) -> anyhow::Result<(Option<Peer>, Paths)> {
+    let error = match paths(store, transport, peer).await {
+        Ok(paths) => return Ok((None, paths)),
+        Err(error) => error,
+    };
+    if !peer.address.is_empty() {
+        return Err(error);
+    }
+    let Some(learned) = learn_contact(store.clone(), peer.clone()).await else {
+        return Err(error);
+    };
+    let paths = paths(store, transport, &learned).await?;
+    Ok((Some(learned), paths))
+}
+/// Minimum spacing of contact-learning syncs per network, so a member that
+/// publishes no address does not turn every send into a sync.
+const CONTACT_SYNC_SPACING: Duration = Duration::from_secs(5);
+static CONTACT_SYNCS: std::sync::LazyLock<Mutex<HashMap<String, std::time::Instant>>> =
+    std::sync::LazyLock::new(Default::default);
+/// Boxed because sync reaches it again through `request`, which would make
+/// the future's type recursive.
+fn learn_contact(
+    store: Arc<Store>,
+    peer: Peer,
+) -> Pin<Box<dyn std::future::Future<Output = Option<Peer>> + Send>> {
+    Box::pin(async move {
+        let id = peer.id.clone();
+        let networks = blocking(store.clone(), move |s| {
+            let c = s.connection()?;
+            let mut networks = Vec::new();
+            for (network, _) in s.product_members_of(&c, &id)? {
+                if crate::decentralized::product::is_decentralized(&c, &network)? {
+                    networks.push(network);
+                }
+            }
+            Ok(networks)
+        })
+        .await
+        .ok()?;
+        for network in networks {
+            let due = CONTACT_SYNCS.lock().is_ok_and(|mut last| {
+                let now = std::time::Instant::now();
+                last.retain(|_, at| now.duration_since(*at) < CONTACT_SYNC_SPACING);
+                if last.contains_key(&network) {
+                    return false;
+                }
+                last.insert(network.clone(), now);
+                true
+            });
+            if due {
+                let _ = crate::decentralized::peer::sync(store.clone(), &network).await;
+            }
+        }
+        let id = peer.id.clone();
+        let found = blocking(store.clone(), move |s| s.dial_target(&id))
+            .await
+            .ok()?;
+        (found.public_key == peer.public_key && !found.address.is_empty()).then_some(found)
+    })
 }
 async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow::Result<Paths> {
     let direct = if peer.address.is_empty() {

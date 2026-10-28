@@ -66,7 +66,7 @@ def _():
     state["alice_key"] = a.home / ".config/peerspan/person_ed25519"
 
 
-@suite.case("create_gives_creator_device_grant", "spec 6 creator device grant, DEC-Q21; 20 item 16", known="DEC-Q21")
+@suite.case("create_gives_creator_device_grant", "spec 6 creator device grant, DEC-Q21; 20 item 16")
 def _():
     (net,) = need("net")
     provider = a.api("GET", f"/v2/networks/{net['id']}/provider")[1]
