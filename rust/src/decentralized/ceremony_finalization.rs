@@ -33,6 +33,7 @@ struct Base {
     projection: Projection,
     now: String,
     seed: Option<[u8; 32]>,
+    folded: Option<Statement>,
 }
 impl Base {
     fn prefix(&self) -> CeremonyPrefix<'_> {
@@ -46,6 +47,7 @@ impl Base {
             administrator: self.administrator.as_ref(),
             now: &self.now,
             staging: self.offer.staging.as_ref(),
+            folded_host: self.folded.as_ref(),
         }
     }
 }
@@ -71,7 +73,11 @@ fn base(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<Base> 
     let selection = selected.packet.clone();
     let selection_raw = selected.bytes.clone();
     super::state::check_requester_selection(&p.packet()?, &offer.owner, &selection, &descriptor)?;
-    let administrator = if p.record.administrator_offer_id != "-" {
+    // A folded admin stage uses no administrator packet (spec 8.2).
+    let folded = folded(i, &descriptor)?;
+    let administrator = if folded.is_some() {
+        None
+    } else if p.record.administrator_offer_id != "-" {
         Some(
             evidence
                 .packets
@@ -122,6 +128,7 @@ fn base(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<Base> 
         administrator: administrator.as_ref(),
         now: &now,
         staging: offer.staging.as_ref(),
+        folded_host: folded.as_ref(),
     };
     let admissions = Projection::prepare_administrator(prefix)?;
     let projection = Projection::owner_preparation(prefix)?;
@@ -202,6 +209,7 @@ fn base(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<Base> 
         projection,
         now,
         seed,
+        folded,
     })
 }
 fn generation(b: &Base, kind: &str, p: &Pending) -> Result<(u64, Vec<String>)> {
@@ -771,7 +779,13 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
             if !i.record.approved
                 || p.record.owner_packet_base64 == "-"
                 || p.record.selection_id == "-"
-                || (p.record.mode != "renew" && p.record.administrator_offer_id == "-")
+                || (p.record.mode != "renew"
+                    && p.record.administrator_offer_id == "-"
+                    && !i
+                        .record
+                        .templates
+                        .iter()
+                        .any(|t| t.object_type == "host_lease"))
             {
                 return Ok(());
             }
@@ -890,6 +904,50 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
         }
     }
 }
+/// A folded host grant (spec 8.2): this request's new host grant, signed by
+/// the owner's provider, named by the review.
+fn folded_template(p: &Pending, i: &Intent, d: &Descriptor, r: &Value) -> Result<()> {
+    let Some(index) = i
+        .record
+        .templates
+        .iter()
+        .position(|t| t.object_type == "host_lease")
+    else {
+        return Ok(());
+    };
+    check(index == 1 && p.record.mode != "renew")?;
+    let Some(FixedObject::Statement(s)) = &i.objects(d)?[index] else {
+        return Err(Error::new("state_conflict"));
+    };
+    let s = s.typed();
+    check(
+        s.kind == "host_lease"
+            && s.id == field(r, "host_lease_id")?
+            && text(&s.payload, "operation_id")? == p.id
+            && text(&s.payload, "not_after")? == i.record.not_after
+            && text(s.subject()?, "host_public_key")? == i.record.host_public_key
+            && text(s.issuer()?, "person_public_key")? == i.record.person_public_key
+            && s.signer("issuer")?.public_key == i.record.provider.signer_public_key
+            && s.signer("issuer")?.format == i.record.provider.signature_format,
+    )
+}
+/// The signed folded host grant of this owner intent, if it folds.
+fn folded(i: &Intent, d: &Descriptor) -> Result<Option<Statement>> {
+    let Some(index) = i
+        .record
+        .templates
+        .iter()
+        .position(|t| t.object_type == "host_lease")
+    else {
+        return Ok(None);
+    };
+    let object = i
+        .objects(d)?
+        .remove(index)
+        .ok_or_else(|| Error::new("state_conflict"))?;
+    require(object.pending()?.is_empty(), "signer_unavailable")?;
+    Ok(Some(Statement::read(d, object.bytes())?))
+}
 /// Validate shared private rows without requiring current signing authority.
 /// Live signing rechecks the complete current prefix separately.
 pub(super) fn validate_templates(
@@ -906,10 +964,12 @@ pub(super) fn validate_templates(
                 .templates
                 .iter()
                 .skip(1)
-                .all(|t| t.template_base64 == "-"),
+                .all(|t| t.template_base64 == "-" || t.object_type == "host_lease"),
         )?;
+        folded_template(p, i, d, &r)?;
         return Ok(());
     }
+    folded_template(p, i, d, &r)?;
     check(field(&r, "stage")? == "owner_finalization" && i.record.approved)?;
     for (index, t) in i.record.templates.iter().enumerate().skip(1) {
         if !matches!(t.object_type.as_str(), "binding_lease" | "device_lease") {

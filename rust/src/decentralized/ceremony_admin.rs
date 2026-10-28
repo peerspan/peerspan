@@ -927,6 +927,7 @@ fn complete_packet(store: &Store, i: &mut Intent, p: &mut Pending, b: &Base) -> 
             administrator: Some(&a),
             now: &b.now,
             staging: b.offer.staging.as_ref(),
+            folded_host: None,
         })?;
         p.record.administrator_offer_id = a.id;
         p.record.administrator_packet_base64 = encode(raw);
@@ -1074,6 +1075,7 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
                 administrator: Some(&admin),
                 now: &b2.now,
                 staging: b2.offer.staging.as_ref(),
+                folded_host: None,
             })?;
             super::requester::retain_catalog(&tx, store, &mut p, &prepared.catalog, &b2.now)?;
             retain_packet(&tx, store, &mut p, "administrator", &raw, &b2.now)?;

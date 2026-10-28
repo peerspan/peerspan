@@ -72,6 +72,12 @@ fn context(c: &Connection, store: &Store, p: &Pending) -> Result<Context> {
         .catalog
         .as_ref()
         .ok_or_else(|| Error::new("proof_required"))?;
+    let folded = crate::decentralized::state::folded_host(
+        catalog,
+        &request,
+        administrator.as_ref(),
+        &finalization,
+    )?;
     let prepared = Projection::prepare_finalization(
         CeremonyPrefix {
             descriptor: &offer.descriptor,
@@ -83,6 +89,7 @@ fn context(c: &Connection, store: &Store, p: &Pending) -> Result<Context> {
             administrator: administrator.as_ref(),
             now: &now,
             staging: offer.staging.as_ref(),
+            folded_host: folded.as_ref(),
         },
         &finalization,
     )?;
