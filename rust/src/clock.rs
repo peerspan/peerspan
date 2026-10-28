@@ -38,6 +38,20 @@ pub fn instant() -> Instant {
     }
 }
 
+/// Waits until `deadline` on this clock. Debug builds recheck at least every
+/// 250 ms, so a running wait follows a change to the offset file.
+pub async fn sleep_until(deadline: DateTime<Utc>) {
+    loop {
+        let left = (deadline - now()).to_std().unwrap_or_default();
+        if left.is_zero() {
+            return;
+        }
+        #[cfg(debug_assertions)]
+        let left = left.min(std::time::Duration::from_millis(250));
+        tokio::time::sleep(left).await;
+    }
+}
+
 #[cfg(not(debug_assertions))]
 fn offset() -> TimeDelta {
     TimeDelta::zero()

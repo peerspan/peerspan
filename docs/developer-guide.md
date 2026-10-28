@@ -52,7 +52,7 @@ Debug builds let a suite move the host's clock forward or back, so a test of a 7
 
 A duration is an optional `+` or `-` followed by one or more `<digits><unit>` groups, with unit `s`, `m`, `h` or `d`: `+3d`, `-2h`, `90s`, `1d12h`. Surrounding whitespace in the file is ignored. An invalid value makes the process panic.
 
-Set the same variables on every process in a test (daemons, CLI invocations and `peerspan-helper`): the CLI computes expiry times, and hosts compare each other's signed times. Leases, renewal, invite, request and join-stage windows, policy and group leases, call deadlines and capability idle stop all follow the shifted clock; a periodic worker notices a jump on its next pass (lease renewal every 10 seconds, calls and idle stop every 250 ms). TLS certificate validity, discovery ping freshness and transport retry timing keep the real time.
+Set the same variables on every process in a test (daemons, CLI invocations and `peerspan-helper`): the CLI computes expiry times, and hosts compare each other's signed times. Leases, renewal, invite, request and join-stage windows, policy and group leases, call deadlines and capability idle stop all follow the shifted clock; a periodic worker notices a jump on its next pass (lease renewal every 10 seconds, call deadlines, including a running call's, and idle stop every 250 ms). TLS certificate validity, discovery ping freshness and transport retry timing keep the real time.
 
 ```sh
 export PEERSPAN_TEST_CLOCK_OFFSET_FILE=/tmp/peerspan-clock
