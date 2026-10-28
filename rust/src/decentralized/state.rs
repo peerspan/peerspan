@@ -1781,17 +1781,43 @@ impl Projection {
                 .is_some_and(|p| p.admitted.contains(&g.id))
             || self.creator_device(g)?
             || self.activated.get(op).is_some_and(|a| {
-                a.manifest.get("device_lease_id").and_then(Value::as_str) == Some(g.id.as_str())
+                let name = if g.kind == "binding_lease" {
+                    "binding_lease_id"
+                } else {
+                    "device_lease_id"
+                };
+                a.manifest.get(name).and_then(Value::as_str) == Some(g.id.as_str())
                     && self.activation_stage_authority(a, g).is_ok()
             })
-            || Self::device_renewal(g)? && self.issuance_conditions(g, st).is_ok() && {
-                let signer = vec![
-                    "device".to_string(),
-                    text(g.issuer()?, "person_public_key")?.to_string(),
-                    g.signer("issuer")?.public_key.clone(),
-                ];
-                self.historical_signer(&signer, g.issued_at()?, st)
-                    .is_ok_and(|scopes| scopes & 4 == 4)
+            // A binding signed by the person's original key, which always
+            // holds that power for its own person.
+            || g.kind == "binding_lease"
+                && text(g.issuer()?, "kind")? == "person"
+                && text(g.issuer()?, "person_public_key")?
+                    == text(g.subject()?, "person_public_key")?
+            || {
+                let renewal = Self::device_renewal(g)?;
+                let device_signed = text(g.issuer()?, "kind")? == "device";
+                // A device-signed binding (a renewal with scope 2 or 4, a
+                // first issue with scope 2) or a device renewal (scope 4).
+                let need = match (g.kind.as_str(), renewal) {
+                    ("binding_lease", true) => 6,
+                    ("binding_lease", false) => 2,
+                    (_, true) => 4,
+                    _ => 0,
+                };
+                device_signed
+                    && need != 0
+                    && (!renewal || self.issuance_conditions(g, st).is_ok())
+                    && {
+                        let signer = vec![
+                            "device".to_string(),
+                            text(g.issuer()?, "person_public_key")?.to_string(),
+                            g.signer("issuer")?.public_key.clone(),
+                        ];
+                        self.historical_signer(&signer, g.issued_at()?, st)
+                            .is_ok_and(|scopes| scopes & need != 0 && (need != 4 || scopes & 4 == 4))
+                    }
             })
     }
     /// What a deadline-only renewal needed when it was signed: each renewed
@@ -1809,9 +1835,9 @@ impl Projection {
                     && stamp(s.issued_at()?)? < stamp(text(&old.payload, "not_after")?)?,
                 "authority_expired",
             )?;
-            // The renewed device grant was itself validly issued: renewal
-            // never creates a device that no join approved.
-            if s.kind == "device_lease" {
+            // The renewed grant was itself validly issued: renewal never
+            // creates a device or binding that nobody approved.
+            if matches!(s.kind.as_str(), "device_lease" | "binding_lease") {
                 require(self.validly_issued(old, st)?, "forbidden")?;
             }
         }
