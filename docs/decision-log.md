@@ -74,6 +74,9 @@ Contents:
 - **Question 4:** old commits contain two test-machine IP addresses, the retired coordinator's hostname, one old author email, and a personal hostname and account label in live-run records. Remove them from the current files only, or also rewrite history to scrub them from every commit?
 - **Options:** current files only; rewrite history.
 - **Chosen:** rewrite history, just before publishing. Every commit hash changes.
+- **Question 5:** GitHub keeps every pull request's commits reachable through `refs/pull/N/head`, which the repository owner cannot delete, so rewriting this repository's history would not remove the strings from it. How should the rewritten history be published?
+- **Options:** (A) push the rewritten history to a new repository `peerspan/peerspan` and make that public, keeping `peerspan-internal` private and archiving it after development moves over (the public repository has no pull request or issue threads); (B) rename this repository and make it public as is, leaving the strings in old commits; (C) rename, rewrite, and ask GitHub Support to purge the cached pull request refs before going public.
+- **Chosen:** (A). This supersedes the rename in the decision above. Until development moves to `peerspan/peerspan`, the same deterministic rewrite is re-run on new `main` commits here and pushed there.
 
 ### DEC-OWN5: keep Rust, remove the Go implementation (2026-10-28)
 
