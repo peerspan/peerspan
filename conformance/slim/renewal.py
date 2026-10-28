@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Slim suite 2, renewal: grant lifetimes, automatic renewal, retention, warnings and expiry.
 
-Three independent networks run side by side, each with its own debug test clock, so each renewal window gets
-the full time the spec allows (hosts check every 60 seconds, spec 7.1) without the suite taking three times as
+Four independent networks run side by side, each with its own debug test clock, so each renewal window gets
+the full time the spec allows (hosts check every 60 seconds, spec 7.1) without the suite taking four times as
 long. In each, alice creates the network (her host holds the root seed) and bob joins. Written from
 docs/decentralized-spec.md sections 4.4, 5, 7 and 16, and the wire appendix sections 4 and 5.
 """
@@ -95,7 +95,7 @@ def policy_world(w):
 
 
 def root_world(w):
-    """Root-signed grants renew 4 days early and keep their children; the countdown; expiry."""
+    """Root-signed grants renew 4 days early and keep their children; the countdown."""
     def renews():
         w.clock.set(2 * DAY + 23 * HOUR)  # 4 days and 1 hour left
         w.a.api("POST", f"/v2/networks/{w.net}/sync", {})
@@ -134,19 +134,6 @@ def root_world(w):
         check(texts and "root unreachable: network stops in 3 days" in texts[0],
               f"with the root offline and 2 days 22 hours left, bob's status shows {sorted(items)}")
     w.step("root_offline_countdown", countdown)
-
-    def expiry():
-        if w.a.process is None:
-            w.a.start()
-        ada = w.a.agent("ada")
-        w.a.ok("allow", "everyone")
-        end = parse_time(w.newest("device_lease", person_public_key=w.bob_person)["not_after"])
-        w.clock.set(w.clock.offset + int((end - w.now()).total_seconds()) + 60)
-        view = w.b.api("GET", "/v2/networks")[1][0]
-        check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
-        sent = w.b.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "after expiry")
-        check(not sent.ok or sent.json["state"] != "accepted", "a host with expired grants had a message accepted")
-    w.step("expiry_stops_access", expiry)
 
 
 def device_world(w):
@@ -195,9 +182,44 @@ def device_world(w):
     w.step("creator_device_renews_itself", creator)
 
 
+def expiry_world(w):
+    """Bob's host stays offline past the end of his device grant, while alice's host renews its own grants and
+    carol joins fresh, so the receiving host and its policy stay valid; carol's message to alice is the control."""
+    def expiry():
+        bob_end = parse_time(w.newest("device_lease", person_public_key=w.bob_person)["not_after"])
+        alice_start = w.start[w.a.public_key]
+        w.b.stop()  # bob's host cannot renew anything of his own from here on
+        w.clock.set(5 * DAY + 1 * HOUR)  # inside alice's 4-day (root-signed) and 2-day (device-signed) thresholds
+        wait_for(lambda: all(members(w.a, w.net)[w.a.public_key][k] != alice_start[k]
+                             for k in ("host_lease_id", "device_lease_id", "binding_lease_id")),
+                 timeout=WINDOW, interval=1, message="alice's host to renew its own grants")
+        carol = suite.host(f"carol-{w.tag}", clock=w.clock)
+        join_new_person(w.a, carol, "carol", ssh_key(carol.root, "carol"), w.net)
+        ada = w.a.agent("ada")
+        w.clock.set(w.clock.offset + int((bob_end - w.now()).total_seconds()) + 60)
+        check(w.a.api("GET", "/v2/networks")[1][0]["authority"]["state"] == "usable",
+              "alice's host is not usable after bob's device grant ended")
+        w.a.ok("allow", "everyone")  # a fresh policy, issued after the jump
+
+        def control():
+            sent = carol.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
+            if sent.ok and sent.json["state"] == "accepted":
+                return True
+            carol.api("POST", f"/v2/networks/{w.net}/sync", {})
+            return False
+        wait_for(control, timeout=30, interval=1, message="carol's control message to alice to be accepted")
+        w.b.start()
+        view = w.b.api("GET", "/v2/networks")[1][0]
+        check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
+        w.b.api("POST", f"/v2/networks/{w.net}/sync", {})
+        sent = w.b.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "after expiry")
+        check(not sent.ok or sent.json["state"] != "accepted", "a host with expired grants had a message accepted")
+    w.step("expiry_stops_access", expiry)
+
+
 @suite.case("setup_and_lifetimes", "spec 4.4, 6, 8; appendix 4.3, 5")
 def _():
-    for tag in ("policy", "root", "device"):
+    for tag in ("policy", "root", "device", "expiry"):
         worlds[tag] = World(tag)
     in_parallel([lambda w=w: w.step("setup", w.setup) for w in worlds.values()])
     for w in worlds.values():
@@ -213,7 +235,7 @@ def _():
             check(0 < life <= limit, f"a {kind} lasts {life:.0f}s, over {limit}s")
     # The timed steps of the three networks run now, side by side.
     in_parallel([lambda: policy_world(worlds["policy"]), lambda: root_world(worlds["root"]),
-                 lambda: device_world(worlds["device"])])
+                 lambda: device_world(worlds["device"]), lambda: expiry_world(worlds["expiry"])])
 
 
 CASES = [
@@ -231,7 +253,8 @@ CASES = [
      "DEC-Q27: no automatic renewal"),
     ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
      None),
-    ("root", "expiry_stops_access", "spec 4.4, 5 (accepted work), 16", None),
+    ("expiry", "expiry_stops_access", "spec 4.4, 5 (accepted work), 7.1, 16",
+     "DEC-S11/DEC-Q12, DEC-Q27: no automatic renewal keeps the receiving host usable"),
 ]
 for _world, _name, _spec, _known in CASES:
     suite.case(_name, _spec, known=_known)(lambda world=_world, name=_name: outcome(world, name))

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Slim suite 8, capabilities: sources, create and share, calls from the CLI, per-call approval, sharing with
-one agent, agent tools, bounds, a remote MCP server, and idle stop.
+one agent, agent tools, bounds, a remote MCP server, the built-in gh source, and idle stop.
 
 alice serves capabilities from her agent's fixture MCP server (conformance/fixtures/mcp/server.py) and from a
-local fake remote MCP server (conformance/fixtures/remote/remote.py); bob calls them. Every host and CLI runs on
+local fake remote MCP server (conformance/fixtures/remote/remote.py), and from a fake GitHub CLI
+(conformance/fixtures/gh/gh.py) as the built-in gh source; bob calls them. Every host and CLI runs on
 one shared debug test clock. Written from docs/capabilities-contract.md (slices 1 to 3) on a coordinator-free
 network (docs/decentralized-spec.md).
 """
+import hashlib
 import json
 import os
 import sys
@@ -195,6 +197,59 @@ def _():
           f"{raw.stderr.strip()[-200:]}")
     check(any(e.get("name") == "echo" or "over http" in json.dumps(e) for e in site.executions),
           f"the fake remote server saw no execution: {site.executions[-2:]}")
+
+
+def gh_log():
+    path = suite.work / "gh" / "log.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+@suite.case("gh_builtin_source", "capabilities: Resource bounds and the gh source (slice 3): Discovering gh, "
+                                 "Running a built-in source, gh operations, Executing a gh call")
+def _():
+    need("shared")
+    root = suite.work / "gh"
+    (root / "bin").mkdir(parents=True)
+    token = "gho_" + os.urandom(16).hex()
+    (root / "control.json").write_text(json.dumps({
+        "accounts": [{"login": "alice-gh", "active": True, "token": token}],
+        "users": {token: {"login": "alice-gh", "scopes": "repo, read:org"}}}))
+    gh = root / "bin" / "gh"  # the fake gh: a shebang, ROOT, then the fixture
+    gh.write_text(f"#!{sys.executable} -I\nROOT = {str(root)!r}\n" + (FIXTURES / "gh" / "gh.py").read_text())
+    gh.chmod(0o755)
+    path = f"{root / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+    refreshed = a.cli("sources", "refresh", "--builtin", env={"PATH": path}, timeout=90)
+    check(refreshed.ok, f"sources refresh --builtin: exit {refreshed.code} {refreshed.stderr.strip()[-300:]}")
+    listing = a.api("GET", "/v1/sources")[1]
+    found = {srv["name"]: srv for srv in listing.get("builtin") or []}
+    check("gh" in found, f"no builtin gh source after refresh: {sorted(found)}")
+    srv = found["gh"]
+    check(srv["command"] == str(gh) and srv["account"] == "alice-gh" and srv["shareable"] is True,
+          f"builtin gh: command {srv['command']}, account {srv['account']}, shareable {srv['shareable']} "
+          f"{srv.get('reason')}")
+    check(token not in refreshed.stdout + refreshed.stderr + json.dumps(listing), "the gh token was shown")
+    check({t["name"] for t in srv["tools"]} >= {"repo_view", "issue_list", "issue_create"}, f"gh tools {srv['tools']}")
+    a.ok("capability", "create", "hub", "--from", "builtin/gh", "--operations", "repo_view")
+    a.ok("share", "hub", "--with", "bob", "--yes")
+    b.api("POST", f"/v2/networks/{state['net']}/sync", {})
+    runs = len([e for e in gh_log() if e.get("event") == "start" and e["argv"][:2] == ["repo", "view"]])
+    code, record, raw = call(b, "alice/hub", "repo_view", "--repo", "acme/api")
+    check(code == 0 and "repository" in json.dumps(record["result"]),
+          f"repo_view call: exit {code} {raw.stderr.strip()[-200:]}")
+    started = [e for e in gh_log() if e.get("event") == "start" and e["argv"][:2] == ["repo", "view"]]
+    check(len(started) == runs + 1, f"gh ran repo view {len(started) - runs} times, want once")
+    argv = started[-1]["argv"]
+    check(argv[:3] == ["repo", "view", "acme/api"] and argv[3].startswith("--json=nameWithOwner,"), f"gh argv {argv}")
+    env = started[-1]["env"]
+    check(env.get("GH_HOST") == "github.com" and env.get("GH_PROMPT_DISABLED") == "1"
+          and env.get("GH_TOKEN") == "sha256:" + hashlib.sha256(token.encode()).hexdigest(),
+          f"gh environment keys {sorted(env)}, captured token passed: {env.get('GH_TOKEN', '')[:7]}")
+    code, record, raw = call(b, "alice/hub", "repo_view", "--repo", "not a repo")
+    check(code != 0, "a call with an invalid repo succeeded")
+    check(len([e for e in gh_log() if e.get("event") == "start" and e["argv"][:2] == ["repo", "view"]]) == runs + 1,
+          "gh ran for a call with invalid arguments")
 
 
 def alive(pid):
