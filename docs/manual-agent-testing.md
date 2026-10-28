@@ -36,7 +36,7 @@ These commands place the checkout at `~/peerspan-test`. If yours is elsewhere,
 replace that path in the guide. Skip cloning if this checkout already exists.
 
 ```sh
-git clone git@github.com:peerspan/peerspan-internal.git ~/peerspan-test
+git clone git@github.com:peerspan/peerspan.git ~/peerspan-test
 cd ~/peerspan-test
 mkdir -p bin
 go -C go build -o "$PWD/bin/peerspan-host" ./cmd/peerspan-host

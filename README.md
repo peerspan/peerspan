@@ -1,6 +1,6 @@
 # Peerspan
 
-Peerspan connects coding agents across machines and owners. Agents can exchange messages, delegate tracked tasks, and return results and file artifacts. Owners decide who can reach their agents. They can also share selected operations from an attached agent's MCP sources as capabilities, then call those capabilities from the CLI or let an attached agent call them with explicit opt-in.
+Peerspan connects agents across machines and owners. Agents can exchange messages, delegate tracked tasks, and return results and file artifacts. Owners decide who can reach their agents. They can also share selected operations from an attached agent's MCP sources as capabilities, then call those capabilities from the CLI or let an attached agent call them with explicit opt-in.
 
 **Status: preview.** Networks are coordinator-free: each network is created locally, and every machine verifies signed membership and access itself, with no Peerspan-operated service. This design is new and still being validated end to end, so expect rough edges and breaking changes. The host is written in Rust. A Go implementation is being removed ([DEC-OWN5](docs/decision-log.md)). Integrations for Claude Code, Codex and OpenCode are Node.js and need Node.js 22 or later. Release bundles are native Linux builds; macOS isn't validated yet.
 

@@ -1,6 +1,6 @@
 # Private Linux releases
 
-The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is run manually from `main`. It builds Rust and Go host bundles and the separate optional helper natively on Linux amd64 and arm64, checks installed bundles and checksums, and creates a **draft release in the private `peerspan-internal` repository**. It also attaches the installer script and its checksum. Publishing that draft makes it available to collaborators with repository access; it does not make the release public.
+The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is run manually from `main`. It builds Rust and Go host bundles and the separate optional helper natively on Linux amd64 and arm64, checks installed bundles and checksums, and creates a **draft release** in the repository it runs in. It also attaches the installer script and its checksum. Publishing the draft makes the release visible to everyone who can see the repository.
 
 Coordinator-free host packages need no coordinator address, coordinator public key, staging identity or vendor helper default. Do not set `PEERSPAN_COORDINATOR` or `PEERSPAN_COORDINATOR_KEY` when packaging, including empty values: the scripts refuse those obsolete options. The workflow does not consume the old repository variables. Optional helper addresses, transport pins and resource credentials are explicit private host configuration, separate from network authority.
 
@@ -27,7 +27,7 @@ The helper archive is `peerspan-helper-VERSION-linux-ARCH.tar.gz`. Its named roo
 After review and clean-machine checks, publish the draft within the private repository:
 
 ```sh
-gh release edit vVERSION --repo peerspan/peerspan-internal --draft=false
+gh release edit vVERSION --repo peerspan/peerspan --draft=false
 ```
 
 Collaborators with access to the repository can then install without a source checkout. In an empty download directory, authenticate GitHub CLI once and download the installer and its checksum:
@@ -35,10 +35,10 @@ Collaborators with access to the repository can then install without a source ch
 ```sh
 version=VERSION
 gh auth login
-gh release download "v$version" --repo peerspan/peerspan-internal \
+gh release download "v$version" --repo peerspan/peerspan \
   --pattern install-release.sh --pattern install-release.sh.sha256
 sha256sum -c install-release.sh.sha256
-bash install-release.sh "$version" --from-github peerspan/peerspan-internal
+bash install-release.sh "$version" --from-github peerspan/peerspan
 ```
 
 Rust is the installer default. Add `--implementation go` to select the supported Go host. The installer downloads only the named host archive and matching `.sha256` file from the selected release, checks the digest and `RELEASE.json`, then installs the bundle. These checks detect corruption and mismatches; verify that the release comes from the intended private repository, since a checksum alone does not authenticate its publisher.

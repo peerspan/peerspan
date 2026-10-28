@@ -20,10 +20,10 @@ Once a release is published, you can install without a source checkout. Authenti
 
 ```sh
 version=VERSION
-gh release download "v$version" --repo peerspan/peerspan-internal \
+gh release download "v$version" --repo peerspan/peerspan \
   --pattern install-release.sh --pattern install-release.sh.sha256
 sha256sum -c install-release.sh.sha256
-bash install-release.sh "$version" --from-github peerspan/peerspan-internal
+bash install-release.sh "$version" --from-github peerspan/peerspan
 ```
 
 The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available for offline installs.
