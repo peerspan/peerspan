@@ -109,7 +109,7 @@ def _():
               f"{method} {path}: id lists {details}")
 
 
-@suite.case("link_request_waiting", "spec 8.1 step 5, 16 (attention order)", known="DEC-Q3")
+@suite.case("link_request_waiting", "spec 8.1 step 5, 16 (attention order)")
 def _():
     (net,) = need("net")
     c = suite.host("carol")

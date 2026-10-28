@@ -247,14 +247,20 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
 }
 /// The inviter's side: read each live invite's return mailboxes and record
 /// the requests found there.
+type Target = (String, String);
+static BACKOFF: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::BTreeMap<Target, std::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
 pub(crate) async fn receive(store: Arc<Store>) {
     let capture = store.clone();
     let Ok(Ok(list)) = tokio::task::spawn_blocking(move || waiting(&capture)).await else {
         return;
     };
-    // Rotate the starting invite each pass and stop reading an endpoint for
-    // this pass once it rate-limits (one GET per second, burst 4), so every
-    // live invite is read in turn.
+    // Rotate the starting invite each pass and read each endpoint at most
+    // once per pass (passes are 2 seconds apart), so every live invite is
+    // read in turn while at least half of an endpoint's one-GET-per-second
+    // allowance stays free for the requests' own mailboxes. An endpoint that
+    // rate-limits is left alone for 10 seconds.
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let mut list = list;
     if !list.is_empty() {
@@ -273,9 +279,16 @@ pub(crate) async fn receive(store: Arc<Store>) {
                 endpoint["address"].to_string(),
                 endpoint["public_key"].to_string(),
             );
-            if limited.contains(&target) {
+            if limited.contains(&target)
+                || BACKOFF
+                    .lock()
+                    .ok()
+                    .and_then(|b| b.get(&target).copied())
+                    .is_some_and(|until| std::time::Instant::now() < until)
+            {
                 continue;
             }
+            limited.insert(target.clone());
             let body = match bootstrap_io::exchange(
                 store.clone(),
                 &endpoint,
@@ -289,8 +302,14 @@ pub(crate) async fn receive(store: Arc<Store>) {
             {
                 Ok(body) => body,
                 Err(e) => {
-                    if e.code == "rate_limited" {
-                        limited.insert(target);
+                    if e.code == "rate_limited"
+                        && let Ok(mut b) = BACKOFF.lock()
+                    {
+                        b.retain(|_, until| std::time::Instant::now() < *until);
+                        b.insert(
+                            target,
+                            std::time::Instant::now() + std::time::Duration::from_secs(10),
+                        );
                     }
                     continue;
                 }
@@ -337,9 +356,9 @@ pub(crate) async fn receive(store: Arc<Store>) {
         }
     }
 }
-/// Reads the return mailboxes of live invites every second.
+/// Reads the return mailboxes of live invites every 2 seconds.
 pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
     tick.tick().await;
     loop {
         tokio::select! {_ = shutdown.changed()=>break,_=tick.tick()=>{}}
