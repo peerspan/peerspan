@@ -7,10 +7,11 @@ docs/decentralized-spec.md sections 4.4, 5, 5.1 and 12, the wire appendix (secti
 """
 import base64
 import json
+import subprocess
 import threading
 import urllib.parse
 
-from harness import Suite, check, create_network, join_new_person, parse_time, ssh_key
+from harness import Suite, check, create_network, datetime, join_new_person, parse_time, rfc3339, ssh_key, timedelta, timezone
 
 suite = Suite("policy", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -154,16 +155,53 @@ def _():
     check(status in (404, 405), f"the removed reservation route answered {status}")
 
 
-@suite.case("capability_claim_commits_nothing", "spec 12.2; appendix 16.4 policy-claims")
+def sshsig(key, message):
+    """An SSHSIG signature (namespace peerspan-person-v1, spec 4.1) by KEY over MESSAGE, as Base64."""
+    signed = subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "peerspan-person-v1"],
+                            input=message, capture_output=True, check=True).stdout.decode()
+    return "".join(line for line in signed.splitlines() if not line.startswith("-----"))
+
+
+@suite.case("capability_claim_commits_nothing", "spec 12.2; appendix 5, 16.4; capabilities contract Claims",
+            known="spec 12.2: a valid claim is refused 409 edit_conflict, not a spec error code")
 def _():
+    net = state["net"]
     before = bob_policy_version()
-    status, body = b.api("POST", f"/v2/networks/{state['net']}/policy-claims", {
-        "capability": "fixture-claim", "provider_id": "auto", "signature_format": "auto", "payload_base64": "-",
-        "approve": False})
-    check(status != 404, "no policy-claims route")
-    if status == 200:
-        check(body["committed"] is False, f"a policy claim committed: {body}")
-    check(bob_policy_version() == before, "preparing a capability claim changed the policy")
+    person = state["bob_public"]
+    status, current = b.api("GET", f"/v2/networks/{net}/policy/{urllib.parse.quote(person, safe='')}")
+    check(status == 200, f"current policy: {status} {current}")
+    payload = json.loads(base64.b64decode(json.loads(base64.b64decode(current["statement_base64"]))["payload_base64"]))
+    body = json.loads(base64.b64decode(payload["body_base64"]))
+    edits = b.api("GET", f"/v2/networks/{net}/policy-edits")[1]["edits"]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    until = now + timedelta(hours=24)
+    # The successor of the current head (12.1), with one claim: a capability rule for this host with no principals
+    # and the creation defaults (capabilities contract, Claims), and this host's next edit number.
+    body.update(version=body["version"] + 1, issued_at=rfc3339(now), valid_until=rfc3339(until),
+                capability_rules=body["capability_rules"] + [{
+                    "host": b.id, "capability": "fixture-claim", "principals": [], "max_input_bytes": 65536,
+                    "allow_disconnected": False, "max_calls_per_hour": 100}],
+                edits=sorted([e for e in body["edits"] if e["host"] != b.id] +
+                             [{"host": b.id, "seq": max([e["seq"] for e in edits] + [0]) + 1}],
+                             key=lambda e: e["host"]))
+    payload.update(sequence=payload["sequence"] + 1, predecessors=[current["statement_id"]], resolves=[],
+                   issued_at=rfc3339(now), not_before=rfc3339(now), not_after=rfc3339(until),
+                   body_base64=base64.b64encode(json.dumps(body, separators=(",", ":")).encode()).decode())
+    status, claim = b.api("POST", f"/v2/networks/{net}/policy-claims", {
+        "capability": "fixture-claim", "provider_id": person, "signature_format": "sshsig",
+        "payload_base64": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode(),
+        "approve": True})
+    check(status == 200, f"preparing a valid claim: {status} {claim}")
+    while claim["signing_requests"]:
+        signatures = [{"slot_id": r["slot_id"], "role": r["role"],
+                       "signature": sshsig(state["bob_key"], base64.b64decode(r["message_base64"]))}
+                      for r in claim["signing_requests"]]
+        status, claim = b.api("POST", f"/v2/networks/{net}/policy-claims/{claim['action_id']}/signed",
+                              {"intent_id": claim["signing_requests"][0]["intent_id"], "signatures": signatures})
+        check(status == 200, f"signing the claim: {status} {claim}")
+    check(claim["committed"] is False and claim["statement_base64"] not in (None, "-"),
+          f"a signed claim: committed {claim.get('committed')}")
+    check(bob_policy_version() == before, "a prepared capability claim changed the current policy")
 
 
 @suite.case("ban_revoked_host_loses_access", "spec 5.1 host_revoke; 20 item 61 (ban)")
