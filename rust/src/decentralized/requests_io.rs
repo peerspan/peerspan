@@ -548,9 +548,10 @@ pub(crate) async fn approver_worker(
                 let Ok(p) = requests::load(&c, &id) else {
                     continue;
                 };
+                // Kept until the request ends, so a finalization whose frame
+                // was not yet retained or published is retried after a crash.
                 if p.record.terminal == "-"
                     && p.record.owner_intent_id != "-"
-                    && p.record.owner_finalization_id == "-"
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
                     due.push(id);
