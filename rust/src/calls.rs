@@ -1655,9 +1655,6 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
         Err(_) => return (Some("failed"), Some("server_exited"), None, None, None),
     };
     let deadline = crate::membership::time(&r.deadline).unwrap_or_else(|_| crate::clock::now());
-    let wait = (deadline - crate::clock::now())
-        .to_std()
-        .unwrap_or(Duration::ZERO);
     tokio::select! {
         reply = rx => match reply {
             Ok(Reply::Result(result, text)) => {
@@ -1687,7 +1684,7 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
             live.client.cancel(rid, "cancel_requested").await;
             (None, None, None, None, None)
         }
-        _ = tokio::time::sleep(wait) => {
+        _ = crate::clock::sleep_until(deadline) => {
             live.client.forget(rid);
             live.client.cancel(rid, "deadline").await;
             (Some("uncertain"), Some("deadline"), None, None, None)
