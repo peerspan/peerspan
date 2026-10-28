@@ -616,7 +616,7 @@ fn ids_in(c: &Connection) -> Result<Vec<String>> {
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(db)
 }
-fn cleanup(c: &Connection, now: &str) -> Result<()> {
+pub(crate) fn cleanup(c: &Connection, now: &str) -> Result<()> {
     super::invite_return::cleanup(c, now)?;
     for id in ids_in(c)? {
         let mut p = load(c, &id)?;

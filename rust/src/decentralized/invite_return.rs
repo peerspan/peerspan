@@ -212,6 +212,8 @@ fn import(store: &Store, invite: &Invitation, code: &PairingToken) -> Result<boo
             && (invite.expected_person_public_key == "-"
                 || person == invite.expected_person_public_key),
     )?;
+    // Expired requests release their active slots first.
+    requests::cleanup(&tx, &controls::local_decision_time()?)?;
     let active: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM dec_pending WHERE request_id GLOB 'link_*' AND json_extract(record,'$.terminal') IN ('-','migration_prepared')",
