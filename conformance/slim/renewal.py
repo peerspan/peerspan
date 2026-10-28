@@ -218,7 +218,7 @@ def _():
 
 CASES = [
     ("policy", "policy_renewed_at_8_hours", "spec 7.1 thresholds (DEC-Q24); 20 item 18",
-     "DEC-S8/DEC-Q24: no automatic renewal"),
+     None),
     ("root", "root_renews_root_signed_grants_4_days_early", "spec 7.1, 7.3 (DEC-Q12); 20 item 18",
      "DEC-S11/DEC-Q12: no automatic renewal"),
     ("root", "renewal_keeps_children", "spec 7.2 retention (DEC-S10); 20 item 23",
@@ -226,11 +226,11 @@ CASES = [
     ("device", "binding_renewed_by_device_issuer_only", "spec 7.1 (DEC-Q10, DEC-Q28); 20 item 21",
      "DEC-Q10/DEC-Q28: no automatic renewal"),
     ("device", "sole_device_warns_signer_unavailable", "spec 7.1 warnings, DEC-Q8; 20 item 24",
-     "spec 7.1, 16: status fails 409 after the clock moves"),
+     None),
     ("device", "creator_device_renews_itself", "spec 6, 7.1 (DEC-Q21, DEC-Q27, DEC-Q30); 20 item 17",
      "DEC-Q27: no automatic renewal"),
     ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
-     "DEC-Q12, spec 16: status fails 409 after the clock moves"),
+     None),
     ("root", "expiry_stops_access", "spec 4.4, 5 (accepted work), 16", None),
 ]
 for _world, _name, _spec, _known in CASES:
