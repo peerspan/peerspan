@@ -5,6 +5,7 @@ bans that a stale peer cannot erase, and the repair route.
 alice creates a network, bob and carol join. Written from docs/decentralized-spec.md sections 4.2, 5.1 and
 10, and the wire appendix sections 15 and 16.7.
 """
+import json
 import os
 import subprocess
 
@@ -43,10 +44,12 @@ def learns(host, person, version, timeout=30):
     wait_for(done, timeout=timeout, interval=1, message=f"{host.name} to learn policy version {version}")
 
 
-def probe(state_dir, host, path, alpn):
-    args = [str(suite.probe_bin), "--address", host.peer_address, "--alpn", alpn, "--path", path]
+def probe(state_dir, host, path, alpn, method="GET", body=None):
+    args = [str(suite.probe_bin), "--address", host.peer_address, "--alpn", alpn, "--path", path, "--method", method]
     args += ["--state", str(state_dir)] if state_dir else ["--seed-hex", os.urandom(32).hex()]
-    p = subprocess.run(args, capture_output=True, timeout=30)
+    if body is not None:
+        args.append("--body-stdin")
+    p = subprocess.run(args, input=(body or "").encode(), capture_output=True, timeout=30)
     return p.returncode, p.stdout.decode(errors="replace"), p.stderr.decode(errors="replace")
 
 
@@ -123,18 +126,31 @@ def _():
     check('"objects"' not in out, "an unknown key read the member catalog route")
 
 
-@suite.case("ban_survives_stale_catalog", "spec 5.1, 10 merging; 20 item 47")
+@suite.case("ban_survives_stale_catalog", "spec 5.1, 10 merging; appendix 15; 20 item 47")
 def _():
+    net = state["net"]
+    stale = c.api("GET", f"/v2/networks/{net}/catalog")[1]["catalog"]  # carol's catalog before the ban
+    check(any(o["kind"] == "host_lease" for o in stale["objects"]), "carol's catalog holds no host grants")
     c.stop()  # carol does not hear of the ban directly
-    a.ok("network", "revoke", "--network", state["net"], "--host", b.id, "--approve")
-    check(b.public_key not in members(a, state["net"]), "alice still lists the revoked host")
+    a.ok("network", "revoke", "--network", net, "--host", b.id, "--approve")
+    check(b.public_key not in members(a, net), "alice still lists the revoked host")
     c.start()
-    wait_for(lambda: b.public_key not in members(c, state["net"]) or (sync(c) and False), timeout=30, interval=1,
+    wait_for(lambda: b.public_key not in members(c, net) or (sync(c) and False), timeout=30, interval=1,
              message="carol to learn bob's revocation")
-    sync(b)  # bob, still holding the old catalog, pushes it around
+    # Replay the pre-ban catalog through hosts that are still authorized, on the member catalog route: carol's key
+    # posts it to alice, and alice's key posts it to carol. Each must merge it (200) and keep the ban.
+    body = json.dumps({"catalog": stale})
+    for sender, receiver in ((c, a), (a, c)):
+        code, out, err = probe(sender.state, receiver, f"/peer/v2/networks/{net}/catalog", "peerspan-peer/1",
+                               method="POST", body=body)
+        check(code == 0 and '"objects"' in out,
+              f"{receiver.name} refused {sender.name}'s replayed catalog: exit {code} {err.strip()[-200:]}")
+        check(b.public_key not in members(receiver, net),
+              f"{sender.name}'s pre-ban catalog brought the revoked host back on {receiver.name}")
     sync(c)
-    check(b.public_key not in members(c, state["net"]), "a stale catalog brought the revoked host back")
-    check(b.public_key not in members(a, state["net"]), "a stale catalog brought the revoked host back on alice")
+    sync(a)
+    for host in (a, c):
+        check(b.public_key not in members(host, net), f"after syncing, {host.name} lists the revoked host again")
 
 
 suite.finish()
