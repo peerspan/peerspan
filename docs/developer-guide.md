@@ -55,6 +55,10 @@ export PEERSPAN_TEST_CLOCK_OFFSET_FILE=/tmp/peerspan-clock
 echo +4d > /tmp/peerspan-clock.new && mv /tmp/peerspan-clock.new /tmp/peerspan-clock
 ```
 
+## Timing log (debug builds only)
+
+With `PEERSPAN_TIMING=1`, a debug build prints one `timing #N KIND WHAT MS` line on standard error for each CLI request to the daemon (`cli`) and each whole command (`total`), each request the daemon serves on the local or peer API (`serve`) and each it sends to a peer (`peer`), and the daemon's costly steps (`step`: snapshot loads and reuses, projection builds, catalog reads and reuses, and waits of more than 5 ms for the store lock). `#N` numbers the served request a line belongs to; `#0` is work outside one, such as background sync. Set it on the daemon and the CLI. Release builds ignore it.
+
 ## Explore a subsystem
 
 - [Manual agent testing](manual-agent-testing.md) covers explicit sessions, routes, and local fixtures.

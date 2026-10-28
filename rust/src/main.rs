@@ -44,6 +44,20 @@ use tokio::{
 };
 
 static PROGRAM: OnceLock<&'static str> = OnceLock::new();
+/// When this process started, for the debug timing log.
+static STARTED: OnceLock<std::time::Instant> = OnceLock::new();
+
+/// The debug timing log's line for the whole command.
+fn log_total() {
+    if let Some(began) = STARTED.get() {
+        let args: Vec<String> = env::args()
+            .skip(1)
+            .filter(|a| !a.starts_with('/'))
+            .take(4)
+            .collect();
+        peerspan_host::timing::log("total", &args.join(" "), *began);
+    }
+}
 
 /// The base name this binary was invoked as, `peerspan` or `peerspan-host`;
 /// help and hints name it.
@@ -53,6 +67,7 @@ pub(crate) fn program() -> &'static str {
 
 #[tokio::main]
 async fn main() {
+    STARTED.get_or_init(std::time::Instant::now);
     // The hidden built-in source server, started by the daemon.
     let raw: Vec<String> = env::args_os()
         .map(|a| a.to_string_lossy().into_owned())
@@ -78,7 +93,9 @@ async fn main() {
         .try_get_matches()
         .and_then(|matches| Cli::from_arg_matches(&matches))
         .unwrap_or_else(|e| e.exit());
-    if let Err(error) = run(cli).await {
+    let outcome = run(cli).await;
+    log_total();
+    if let Err(error) = outcome {
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }
@@ -374,6 +391,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
 }
 fn exit(code: i32) -> ! {
     use std::io::Write;
+    log_total();
     let _ = std::io::stdout().flush();
     std::process::exit(code)
 }
@@ -1246,6 +1264,22 @@ pub(crate) async fn delete(socket: &Path, path: String) -> anyhow::Result<Value>
 }
 
 async fn call(
+    socket: PathBuf,
+    method: Method,
+    path: String,
+    body: Option<Value>,
+) -> anyhow::Result<Value> {
+    if !peerspan_host::timing::enabled() {
+        return call_inner(socket, method, path, body).await;
+    }
+    let began = std::time::Instant::now();
+    let what = format!("{method} {path}");
+    let out = call_inner(socket, method, path, body).await;
+    peerspan_host::timing::log("cli", &what, began);
+    out
+}
+
+async fn call_inner(
     socket: PathBuf,
     method: Method,
     path: String,

@@ -480,7 +480,12 @@ pub(crate) async fn request(
     path: &str,
     body: &[u8],
 ) -> anyhow::Result<(u16, Vec<u8>)> {
-    request_on(store, peer, method, path, body, false).await
+    let began = std::time::Instant::now();
+    let out = request_on(store, peer, method, path, body, false).await;
+    if crate::timing::enabled() {
+        crate::timing::log("peer", &format!("{method} {path}"), began);
+    }
+    out
 }
 /// `request` on the peer's direct path only, never through a relay.
 pub(crate) async fn request_direct(

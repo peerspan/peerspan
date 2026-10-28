@@ -11,6 +11,9 @@ pub struct Proof {
     pub kind: String,
     pub body: Vec<u8>,
 }
+/// Catalogs recently read, by the descriptor, the migration flag and the
+/// exact bytes.
+static READ: super::memo::Memo<Catalog> = super::memo::Memo::new();
 #[derive(Clone, Debug)]
 pub struct Catalog {
     pub context_id: String,
@@ -23,10 +26,26 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn read(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
-        Self::read_inner(descriptor, bytes, true)
+        Self::read_cached(descriptor, bytes, true)
     }
     pub(crate) fn read_prepared(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
-        Self::read_inner(descriptor, bytes, false)
+        Self::read_cached(descriptor, bytes, false)
+    }
+    /// Reading is a pure function of the descriptor and the exact bytes, and
+    /// one command reads the same catalog many times, so identical inputs
+    /// reuse the catalog read last time.
+    fn read_cached(descriptor: &Descriptor, bytes: &[u8], allow_migration: bool) -> Result<Self> {
+        let began = std::time::Instant::now();
+        let encoded = serde_json::to_vec(descriptor).map_err(|_| Error::new("internal"))?;
+        let key = super::memo::key([encoded.as_slice(), &[u8::from(allow_migration)], bytes]);
+        if let Some(hit) = READ.get(&key) {
+            crate::timing::log("step", "catalog reuse", began);
+            return Ok(hit);
+        }
+        let catalog = Self::read_inner(descriptor, bytes, allow_migration)?;
+        crate::timing::log("step", "catalog read", began);
+        READ.put(key, &catalog, bytes.len());
+        Ok(catalog)
     }
     fn read_inner(descriptor: &Descriptor, bytes: &[u8], allow_migration: bool) -> Result<Self> {
         let value = parse(bytes, MAX_CATALOG)?;

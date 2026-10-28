@@ -203,6 +203,8 @@ pub struct Stream {
     pub maximum: u64,
     pub at_maximum: BTreeSet<String>,
 }
+/// Projections recently built by `Projection::build`, by all of its inputs.
+static BUILT: super::memo::Memo<Projection> = super::memo::Memo::new();
 #[derive(Default)]
 struct Preparation {
     migration: Option<(String, String)>,
@@ -366,14 +368,35 @@ impl Projection {
         now: &str,
         operation: &str,
     ) -> Result<Self> {
-        Self::build_mode(
+        // A projection is a pure function of these inputs. One command
+        // rebuilds the same one many times (each read, each recheck of a
+        // candidate inside its final transaction), so an identical set of
+        // inputs reuses the projection built last time.
+        let (descriptor, prior) = (
+            serde_json::to_vec(d).map_err(|_| Error::new("internal"))?,
+            serde_json::to_vec(prior_value).map_err(|_| Error::new("internal"))?,
+        );
+        let key = super::memo::key([
+            descriptor.as_slice(),
+            &prior,
+            candidate.map_or(b"-".as_slice(), |_| b"+"),
+            candidate.unwrap_or_default(),
+            now.as_bytes(),
+            operation.as_bytes(),
+        ]);
+        if let Some(hit) = BUILT.get(&key) {
+            return Ok(hit);
+        }
+        let projection = Self::build_mode(
             d,
             prior_value,
             candidate,
             now,
             operation,
             Preparation::default(),
-        )
+        )?;
+        BUILT.put(key, &projection, projection.catalog.bytes.len());
+        Ok(projection)
     }
     /// Verify additional exact proof bytes against an already trusted snapshot.
     /// Only the proof carrier changes: no admission, operation, restriction,
@@ -587,6 +610,21 @@ impl Projection {
             && parents.len() == 4
     }
     fn build_mode(
+        d: &Descriptor,
+        prior_value: &Value,
+        candidate: Option<&[u8]>,
+        now: &str,
+        operation: &str,
+        preparation: Preparation,
+    ) -> Result<Self> {
+        let began = std::time::Instant::now();
+        let out = Self::build_mode_inner(d, prior_value, candidate, now, operation, preparation);
+        if crate::timing::enabled() {
+            crate::timing::log("step", &format!("project {operation}"), began);
+        }
+        out
+    }
+    fn build_mode_inner(
         d: &Descriptor,
         prior_value: &Value,
         candidate: Option<&[u8]>,

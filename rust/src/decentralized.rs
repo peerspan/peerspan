@@ -17,6 +17,7 @@ mod edits;
 pub(crate) mod history;
 mod intents;
 pub mod mailbox;
+mod memo;
 mod migration;
 mod migration_ack;
 mod migration_adopt;

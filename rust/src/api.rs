@@ -55,15 +55,20 @@ pub fn router(store: Arc<Store>) -> Router {
             history,
             crate::decentralized::history::gate,
         ))
+        .layer(axum::middleware::from_fn(crate::timing::layer))
 }
 
 pub(crate) async fn blocking<T: Send + 'static>(
     store: Arc<Store>,
     f: impl FnOnce(&Store) -> Result<T, Error> + Send + 'static,
 ) -> Result<T, Error> {
-    tokio::task::spawn_blocking(move || f(&store))
-        .await
-        .map_err(|e| Error::Internal(e.into()))?
+    let request = crate::timing::current();
+    tokio::task::spawn_blocking(move || {
+        let _request = crate::timing::within(request);
+        f(&store)
+    })
+    .await
+    .map_err(|e| Error::Internal(e.into()))?
 }
 
 pub(crate) fn decode<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -> Result<T, Error> {
