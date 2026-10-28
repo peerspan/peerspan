@@ -112,7 +112,13 @@ def run_cli(host, *args, input=b'', tty=False, timeout=STEP_TIMEOUT, env=None):
 
 def cli_json(host, *args, input=b'', tty=False, expect=None, timeout=STEP_TIMEOUT):
     started = time.monotonic()
-    code, out, err = run_cli(host, *args, input=input, tty=tty, timeout=timeout)
+    for attempt in range(3):
+        code, out, err = run_cli(host, *args, input=input, tty=tty, timeout=timeout)
+        if b'local host daemon request timed out' not in err or attempt == 2:
+            break
+        # The Rust CLI gave up on its own daemon request (bug B5). Link stages and actions are retried with the
+        # same bytes (spec 8.7), so the fixture repeats the command; the NOTE keeps the evidence.
+        print(f'NOTE dec_network: `{" ".join(args[:2])}` hit the CLI\'s daemon request deadline; repeating', flush=True)
     if time.monotonic() - started > SLOW_STEP:
         print(f'NOTE dec_network: `{" ".join(args[:2])}` took {time.monotonic() - started:.0f} s', flush=True)
     if expect is not None and (code == 0) != expect:
