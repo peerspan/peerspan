@@ -228,7 +228,7 @@ CASES = [
     ("device", "sole_device_warns_signer_unavailable", "spec 7.1 warnings, DEC-Q8; 20 item 24",
      "spec 7.1, 16: status fails 409 after the clock moves"),
     ("device", "creator_device_renews_itself", "spec 6, 7.1 (DEC-Q21, DEC-Q27, DEC-Q30); 20 item 17",
-     "DEC-Q21/DEC-Q27"),
+     "DEC-Q27: no automatic renewal"),
     ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
      "DEC-Q12, spec 16: status fails 409 after the clock moves"),
     ("root", "expiry_stops_access", "spec 4.4, 5 (accepted work), 16", None),
