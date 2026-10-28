@@ -18,6 +18,8 @@ Contents:
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
+  - [DEC-OWN6: slim the conformance tests](#dec-own6-slim-the-conformance-tests-2026-10-28) (2026-10-28)
   - [DEC-OWN4: delete the coordinator-only conformance suites](#dec-own4-delete-the-coordinator-only-conformance-suites-2026-10-27) (2026-10-27)
   - [DEC-Q: answers to the open questions of the first draft](#dec-q-answers-to-the-open-questions-of-the-first-draft-2026-10-27) (2026-10-27)
   - [DEC-S: simplifying the coordinator-free design](#dec-s-simplifying-the-coordinator-free-design-2026-10-27) (2026-10-27)
@@ -54,6 +56,25 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-OWN5: keep Rust, remove the Go implementation (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Decision:** Peerspan keeps one implementation, Rust, and removes Go (`go/`, including the retired coordinator `peerspan-coord`).
+- **Question:** in what order? Go has two components with no Rust equivalent: `peerspan-helper` (the optional mailbox and relay helper of the coordinator-free spec) and `peerspan-peer-probe` (a test tool used by conformance suites).
+- **Options:** (A) port, then delete: port the helper and the probe to Rust, switch CI and release packaging to Rust only, then delete `go/` in one PR; (B) delete Go now and switch CI and packaging to Rust, leaving the helper and probe missing until they are ported.
+- **Chosen:** (A).
+- **Consequence:** from this decision on, bug fixes and conformance runs target Rust only (Rust CLI with Rust daemon). Go/Rust pairing requirements in AGENTS.md and the contracts no longer apply and are removed with `go/`.
+
+### DEC-OWN6: slim the conformance tests (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question 1:** with one implementation, what should conformance testing look like?
+- **Options:** (A) one small black-box suite per spec area (joining, renewal, policy, messaging, tasks, capabilities, delegation, live delivery and the rest), written from the spec, with detailed edge cases moved to Rust integration tests, and the linking-era suites, frozen evidence files and pairing machinery deleted; (B) keep today's suites but trim them: delete pairing machinery, linking-era suites and evidence files, and drop duplicate cases; (C) drop the Python conformance suites and keep all testing in `rust/tests`.
+- **Chosen:** (A).
+- **Question 2:** keep the rule that tests are written from the spec by a separate author who never reads the implementation?
+- **Options:** keep it; drop it and let the implementer write the tests.
+- **Chosen:** keep it. With one implementation, the spec-only author is the main check that the code matches the spec. A spec-only author may write Rust integration tests that drive the built binaries through their public interfaces, without reading the implementation source.
 
 ### DEC-OWN4: delete the coordinator-only conformance suites (2026-10-27)
 
