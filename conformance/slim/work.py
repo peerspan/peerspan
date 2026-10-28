@@ -137,6 +137,15 @@ def _():
     check(link1["index"] == 1 and link1["issuer_host_id"] == b.id and link1["audience_host_id"] == c.id
           and link1["depth"] == 0 and link1["originator_agent_id"] == ada.id, f"link 1 {link1}")
     check(child["request"]["origin"]["agent_id"] == bert.id, f"forward origin {child['request'].get('origin')}")
+    # An uncertain submission is retried automatically (task contract, milestone 5 schedule); wait for acceptance.
+    child_id = child["request"]["task_id"]
+    try:
+        wait_for(lambda: b.ok("task", "inspect", "--peer", c.id, child_id)["submit_state"] == "accepted",
+                 timeout=45, interval=1, message="carol's host to accept the forwarded task")
+    except AssertionError:
+        last = b.ok("task", "inspect", "--peer", c.id, child_id)
+        raise AssertionError(f"forwarded task never accepted: submit_state {last['submit_state']}, "
+                             f"error {last['error']}, attempts {last['attempts']}") from None
     got = cleo.next_task()
     task = got["task"]
     check(task["task_id"] == child["request"]["task_id"] and len(task.get("delegation", [])) == 2,
