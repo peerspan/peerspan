@@ -1019,6 +1019,7 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     // even with its commit stored; other requests only before commit.
     require(
         p.record.terminal == "migration_prepared"
+            || p.record.migration_proposal_id != "-" && p.record.terminal == "expired"
             || p.record.commit_packet_base64 == "-"
                 && !matches!(p.record.terminal.as_str(), "applied" | "migration_adopted"),
         "operation_conflict",
