@@ -131,7 +131,7 @@ def _():
     check(message_to_bert() == "accepted", "unblock did not restore access")
 
 
-@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6", known="DEC-S16/DEC-Q18")
+@suite.case("edit_version_check_and_retry", "spec 12.1 (DEC-S16, DEC-Q18); appendix 16.6")
 def _():
     before = bob_policy_version()
     results = []
@@ -162,8 +162,7 @@ def sshsig(key, message):
     return "".join(line for line in signed.splitlines() if not line.startswith("-----"))
 
 
-@suite.case("capability_claim_commits_nothing", "spec 12.2; appendix 5, 16.4; capabilities contract Claims",
-            known="spec 12.2: a valid claim is refused 409 edit_conflict, not a spec error code")
+@suite.case("capability_claim_commits_nothing", "spec 12.2; appendix 5, 16.4; capabilities contract Claims")
 def _():
     net = state["net"]
     before = bob_policy_version()

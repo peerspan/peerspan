@@ -406,7 +406,9 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
         )
     });
     p.record.carrier_endpoints.dedup();
-    require(p.record.carrier_endpoints.len() <= 8, "quota_exceeded")?;
+    if p.record.carrier_endpoints.len() > 8 {
+        return Err(Error::quota("more than 8 carrier endpoints"));
+    }
     let mut inserted = 0;
     for frame in all.values() {
         inserted+=tx.execute("INSERT INTO dec_frames(request_id,role,writer_key,frame_id,record) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id,role,writer_key,frame_id) DO NOTHING",rusqlite::params![id,frame.role,frame.writer_host_public_key,frame.frame_id,json!({"frame_base64":encode(&frame.body)}).to_string()]).map_err(|_|Error::new("internal"))?;

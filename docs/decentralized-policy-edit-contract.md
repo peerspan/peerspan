@@ -106,32 +106,34 @@ calculation and exact DEC proof checks. Discarded: fake legacy signature fields,
 re-signing an envelope as a legacy policy, or a parallel edit table whose
 reservation/withdrawal state could diverge on cross-language reopen.
 
-## 2. Owner-local edit reservation
+## 2. Owner-local edit plan
 
 DEC never returns a manufactured legacy policy from the old edit projection.
-Use these v2 routes, retaining old routes only for old history/migration:
+Use these v2 routes, retaining old routes only for old history/migration.
+Edit reservations are removed (DEC-S16, spec 12.1); `POST
+/v2/networks/{id}/policy-edits` no longer exists.
 
-`POST /v2/networks/{id}/policy-edits` takes exactly `{provider_id}`. Resolve auto
-only through the actual selection; an explicit original/device has the runtime
-provider rules. Validate current scope1, exact own person/host binding, root,
-known restrictions/forks and decision clock. An external matching original key
-needs no daemon key import for this unsigned reservation. No signature, policy
-publication, selected-provider change or permission mutation occurs.
+`POST /v2/networks/{id}/policy-edits/plan` takes exactly `{provider_id}`.
+Resolve auto only through the actual selection; an explicit original/device has
+the runtime provider rules. Validate current scope1, exact own person/host
+binding, root, known restrictions/forks and decision clock. It writes nothing:
+no record, signature, policy publication, selected-provider change or
+permission mutation.
 
-The exact200 response is:
+The exact 200 response is:
 
 ```text
-{context_id,person_public_key,policy,version,seq,created_at,expires_at}
+{context_id,person_public_key,policy,version,seq,created_at}
 ```
 
 Policy is POLICY_REFERENCE or `"-"` as above. Version is the retained numeric
-maximum (0 only for a truly empty stream); preserve all incomparable heads
-separately and refuse a fork/missing required head. Refuse version_exhausted at
-maxu64 and local counter exhaustion before inserting a reservation. Seq is the
-new checked local edit counter. Created_at is guarded decision time;
-expires_at is created_at+the existing10-minute reservation lapse. Insert the
-strict reserved record and clock atomically. Start/signed/body/ref fields are
-not caller supplied. A read cannot reserve another number.
+maximum (0 only for a truly empty stream); refuse a fork/missing required head
+and version_exhausted at max u64. Seq is this host's next local edit number,
+the largest recorded number plus 1. Created_at is the guarded decision time.
+When the edit (or a capability claim) is checked, its number must still be the
+next one and it must follow the current head (version plus 1); otherwise it
+fails with `state_conflict` and the CLI reloads and starts again. The edit's
+record is written as `settled` when the edit is applied ([DEC.impl28](decision-log.md)).
 
 `GET /v2/networks/{id}/policy-edits` is a read-only owner edit summary exactly
 `{context_id,person_public_key,edits:[{seq,state,signed_version,dropped}]}`,

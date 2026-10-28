@@ -263,13 +263,13 @@ pub(crate) async fn reserve(
 ) -> anyhow::Result<Reservation> {
     let v = local
         .post(
-            format!("/v2/networks/{}/policy-edits", encoded(network)),
+            format!("/v2/networks/{}/policy-edits/plan", encoded(network)),
             json!({"provider_id":provider.id}),
         )
         .await?;
     shape(
         &v,
-        "context_id person_public_key policy version seq created_at expires_at",
+        "context_id person_public_key policy version seq created_at",
     )?;
     ensure!(
         v["person_public_key"] == provider.person,

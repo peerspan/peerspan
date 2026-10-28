@@ -126,6 +126,7 @@ fn legacy_error(error: anyhow::Error) -> Error {
             required_ids: path.required_ids.iter().cloned().collect(),
             stage: None,
             retry_after: None,
+            detail: None,
         }
     } else {
         Error::new("invalid")
