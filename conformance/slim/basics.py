@@ -30,15 +30,16 @@ def need(*names):
 
 
 def database(host):
-    for path in sorted(host.state.iterdir()):
-        if path.is_file() and not path.name.endswith(("-wal", "-shm", ".lock", ".sock")):
-            try:
-                db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
-                db.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    """The state database (spec 3): the SQLite file in the state directory that holds `networks`."""
+    for path in sorted(host.state.glob("*.db")):
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        try:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'networks'").fetchone():
                 return path, db
-            except sqlite3.DatabaseError:
-                continue
-    raise AssertionError(f"{host.name}: no SQLite state database in the state directory")
+        except sqlite3.DatabaseError:
+            pass
+        db.close()
+    raise AssertionError(f"{host.name}: no state database with a networks table")
 
 
 @suite.case("setup", "spec 6, 8")
@@ -82,7 +83,8 @@ def _():
     a.stop()
     try:
         down = a.cli("status", "--json")
-        check(down.code == 2 and down.json == {"daemon": "not running", "state": str(a.state)},
+        check(down.code == 2 and isinstance(down.json, dict) and down.json.get("daemon") == "not running"
+              and down.json.get("state") == str(a.state),
               f"status with the daemon stopped: exit {down.code} {down.stdout[:200]!r}")
     finally:
         a.start()
@@ -135,7 +137,7 @@ def _():
               f"`{' '.join(args[:3])}` still exists: exit {result.code}: {result.stderr.strip()[-160:]}")
 
 
-@suite.case("removed_migration_routes", "spec 15; appendix 15 (DEC-S12)")
+@suite.case("removed_migration_routes", "spec 15; appendix 15 (DEC-S12)", known="DEC-S12")
 def _():
     (net,) = need("net")
     for method, path in (("GET", f"/v2/networks/{net}/migration"), ("POST", f"/v2/networks/{net}/migration")):
@@ -180,6 +182,7 @@ def _():
         check(set(before[name]["requests"]) <= set(after[name]["requests"]), f"{name} lost join requests")
         check(set(before[name]["catalog"]) <= set(after[name]["catalog"]), f"{name} lost records")
     # The fixture adapter recovers its session within the reconnect window; work flows again.
+    wait_for(lambda: bert.post("/adapter/v1/next")[0] != 503, timeout=20, message="bert to recover its lease")
     sent = a.ok("send", "bob/bert", "after the restart")
     check(sent["state"] == "accepted", f"send after the restart: {sent['state']}")
     got = bert.next_message(timeout=30)

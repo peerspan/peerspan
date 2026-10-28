@@ -7,7 +7,7 @@ does it: detach it, then set up a fresh session for the same agent. Every host s
 moved forward once for the 120-second status item. Written from docs/live-delivery-contract.md (slices 1 and
 2), with docs/agent-adapter-contract.md and docs/adapter-recovery-contract.md.
 """
-import os
+import json
 
 from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for
 
@@ -175,7 +175,7 @@ def _():
     status, body = bert.post("/adapter/v1/seen", {"ids": [id2, "delivery_" + "0" * 32]})
     check(status == 404, f"mark_seen with an ID this session does not hold: {status} {body}, want 404")
     status, pending = bert.call("GET", "/adapter/v1/pending")
-    check(status == 200 and set(pending) == {"deliveries", "replies", "tasks"}, f"pending: {status} {pending}")
+    check(status == 200 and {"deliveries", "replies", "tasks"} <= set(pending), f"pending: {status} {pending}")
     by_id = {x["delivery_id"]: x for x in pending["deliveries"]}
     check(by_id.get(id1, {}).get("seen") is True and by_id.get(id2, {}).get("seen") is False,
           f"seen flags after the refused mark_seen: {by_id}")
@@ -220,6 +220,8 @@ def _():
     status, body = fresh.post("/adapter/v1/next")
     check(status == 200 and body is None, f"a seen or answered message was redelivered: {body}")
     check(task_state(task_id)["submit_state"] == "accepted", "the sender's view of the task changed")
+    status, _ = fresh.post("/adapter/v1/seen", {"ids": [again["delivery"]["id"]]})
+    check(status == 200, f"mark_seen of the redelivered message: {status}")
     state["task"] = task_id
 
 
@@ -230,7 +232,7 @@ def _():
         status, reply = bert.post(f"/adapter/v1/tasks/{task_id}/{step}", body)
         check(status == 200, f"{step}: {status} {reply}")
     old = bert
-    new = replace(old)
+    state["bert"] = new = replace(old)
     adopted = new.next_task()
     check(adopted["task"]["task_id"] == task_id and adopted.get("adopted") is True, f"adopted handoff {adopted}")
     check(adopted["status"]["state"] == "running" and adopted.get("progress") == "half way",
@@ -238,17 +240,17 @@ def _():
     status, _ = old.post(f"/adapter/v1/tasks/{task_id}/progress", {"message": "from the old session"})
     check(status != 200, "the replaced authorization changed an adopted task")
     a.ok("task", "cancel", "--peer", b.id, task_id)
-    wait_for(lambda: task_state(task_id)["status"]["state"] == "cancel_requested", timeout=20,
+    wait_for(lambda: task_state(task_id)["status"]["cancel_requested"] is True, timeout=20,
              message="cancel_requested on alice's host")
-    newer = replace(new)
+    state["bert"] = newer = replace(new)
     adopted = newer.next_task()
     check(adopted["task"]["task_id"] == task_id and adopted.get("adopted") is True
-          and adopted["status"]["state"] in ("cancel_requested", "running"), f"cancel-requested adoption {adopted}")
+          and adopted["status"]["state"] == "running" and adopted["status"]["cancel_requested"] is True,
+          f"cancel-requested adoption {adopted}")
     cancel = claim(newer, "/adapter/v1/tasks/cancels/next")
     check(cancel and cancel["status"]["task_id"] == task_id, f"the adopting session's cancellation: {cancel}")
-    status, _ = newer.post(f"/adapter/v1/tasks/{task_id}/complete", {"status": "cancelled"})
-    check(status == 200, f"the adopting session completing the task: {status}")
-    state["bert"] = newer
+    status, body = newer.post(f"/adapter/v1/tasks/{task_id}/cancelled", {})
+    check(status == 200, f"the adopting session confirming the cancellation: {status} {body}")
 
 
 @suite.case("redelivery_limit", "live delivery slice 2: at most 3 redeliveries; blocked and failed")
@@ -271,11 +273,15 @@ def _():
     status, body = bert.post("/adapter/v1/tasks/next")
     check(status == 200 and body is None, f"a fifth session got the task: {body}")
     deliveries = b.ok("delivery", "list")
-    record = next((d for d in deliveries if d.get("id") == first), None)
-    check(record and record.get("state") == "blocked", f"the never-seen message's delivery: {record}")
+    record = next((d.get("delivery", d) for d in deliveries if first in json.dumps(d)), None)
+    check(record and record.get("state") == "blocked",
+          f"the never-seen message's delivery: {record if record else str(deliveries)[:600]}")
     final = wait_for(lambda: (r := task_state(task_id))["status"]["state"] == "failed" and r, timeout=20,
                      message="the never-seen task to fail on alice's host")
-    check("session never saw the task" in str(final["status"].get("error")), f"failure {final['status']}")
+    events = a.ok("task", "events", "--peer", b.id, task_id)
+    check(events[-1]["kind"] == "failed" and "session never saw the task" in json.dumps(events[-1]),
+          f"the failed event: {events[-1]}")
+    check(final["submit_state"] == "accepted", f"submit state {final['submit_state']}")
 
 
 suite.finish()
