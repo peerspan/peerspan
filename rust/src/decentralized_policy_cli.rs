@@ -324,9 +324,6 @@ pub(crate) async fn reserve(
         decision_time: text(&v, "created_at")?.into(),
     })
 }
-fn unsigned(policy: &PolicyBody) -> anyhow::Result<Value> {
-    Ok(serde_json::to_value(policy)?)
-}
 pub(crate) async fn reapply(
     local: &Local<'_>,
     network: &str,
@@ -489,7 +486,7 @@ pub(crate) async fn submit(
         return Err(StaleEdit.into());
     }
     let payload = serde_json::to_vec(
-        &json!({"root_state_id":plan["network"]["root_state_id"],"operation_id":"-","sequence":policy.version,"predecessors":predecessors,"resolves":[],"issuer":{"kind":issuer,"person_public_key":provider.person},"parents":parents,"issued_at":policy.issued_at,"not_before":policy.issued_at,"not_after":policy.valid_until,"body_base64":STANDARD.encode(serde_json::to_vec(&unsigned(policy)?)?)}),
+        &json!({"root_state_id":plan["network"]["root_state_id"],"operation_id":"-","sequence":policy.version,"predecessors":predecessors,"resolves":[],"issuer":{"kind":issuer,"person_public_key":provider.person},"parents":parents,"issued_at":policy.issued_at,"not_before":policy.issued_at,"not_after":policy.valid_until,"body_base64":STANDARD.encode(serde_json::to_vec(policy)?)}),
     )?;
     submit_payload(
         local,

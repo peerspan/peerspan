@@ -558,6 +558,7 @@ async fn trust(
         }
         if add {
             content.trusted_hosts.push(host.clone());
+            content.trusted_hosts.sort();
         } else {
             content.trusted_hosts.retain(|h| *h != host);
         }
@@ -639,6 +640,7 @@ pub async fn dec_trust_outcome(
                 return Ok(false);
             }
             content.trusted_hosts.push(host.clone());
+            content.trusted_hosts.sort();
             Ok(true)
         })
         .await
@@ -687,6 +689,7 @@ async fn trust_after_join(
             return Ok(false);
         }
         content.trusted_hosts.push(host.clone());
+        content.trusted_hosts.sort();
         Ok(true)
     })
     .await?;
