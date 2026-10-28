@@ -128,7 +128,7 @@ def _():
     raise Skip("needs a legacy network, which only the retired coordinator can create")
 
 
-@suite.case("removed_commands", "spec 15: network migrate and network resolve-root are removed", known="DEC-S12")
+@suite.case("removed_commands", "spec 15: network migrate and network resolve-root are removed")
 def _():
     (net,) = need("net")
     for args in (["network", "migrate", "status", "--network", net], ["network", "resolve-root", net]):
@@ -137,7 +137,7 @@ def _():
               f"`{' '.join(args[:3])}` still exists: exit {result.code}: {result.stderr.strip()[-160:]}")
 
 
-@suite.case("removed_migration_routes", "spec 15; appendix 15 (DEC-S12)", known="DEC-S12")
+@suite.case("removed_migration_routes", "spec 15; appendix 15 (DEC-S12)")
 def _():
     (net,) = need("net")
     for method, path in (("GET", f"/v2/networks/{net}/migration"), ("POST", f"/v2/networks/{net}/migration")):
