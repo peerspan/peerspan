@@ -179,7 +179,8 @@ class Introduction(NativeLink):
                 context == envelope["context_id"] == self.network["context_id"] and payload["member"] == self.member,
                 "native introduction changed network/context/member pins")
         parsed = lambda v: datetime.fromisoformat(v.replace("Z", "+00:00"))
-        require((parsed(payload["expires_at"])-parsed(payload["issued_at"])).total_seconds() == 300 and
+        # Spec 8.1 and DEC-Q2: an invite lasts 60 s to 24 h (1 h by default from the CLI), not 300 s.
+        require(60 <= (parsed(payload["expires_at"])-parsed(payload["issued_at"])).total_seconds() <= 86400 and
                 parsed(payload["issued_at"]) <= datetime.now(timezone.utc)+timedelta(seconds=30) and
                 datetime.now(timezone.utc) < parsed(payload["expires_at"]), "native introduction time interval differs")
         message = lines("peerspan-decentralized-contact-invitation-v1", context, envelope["inviter_host_public_key"], sha(payload_bytes))
