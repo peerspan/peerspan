@@ -25,7 +25,24 @@ def _():
     allow = b.ok("allow", "alice", "--delegate", "--person-key", keys["bob"])
     check(set(allow["actions"]) == {"message.append", "task.submit", "task.delegate"}, f"allow --delegate: {allow}")
     state["alice_person"] = allow["principal"].split(":", 1)[1]
-    c.ok("allow", "alice", "--person-key", keys["carol"])
+    carol_allow = c.ok("allow", "alice", "--person-key", keys["carol"])
+    # Policy publication is asynchronous (spec 10). Raw task submissions cite
+    # locally verified policies, so establish that prerequisite on every host.
+    policies = {}
+    for owner, allowed in ((b, allow), (c, carol_allow)):
+        status, network = owner.api("GET", f"/v2/networks/{net['id']}")
+        check(status == 200, f"{owner.name}: network: {status} {network}")
+        policies[network["person_public_key"]] = allowed["policy"]["version"]
+    for host in (a, b, c):
+        def ready():
+            status, body = host.api("POST", f"/v2/networks/{net['id']}/sync", {}, timeout=40)
+            check(status == 200, f"{host.name}: sync: {status} {body}")
+            status, body = host.api("GET", f"/v2/networks/{net['id']}/access-versions")
+            check(status == 200, f"{host.name}: access-versions: {status} {body}")
+            return all(any(p["person_public_key"] == person and p["version"] >= version
+                           for p in body["policies"]) for person, version in policies.items())
+
+        wait_for(ready, timeout=30, interval=1, message=f"{host.name} to learn the setup access policies")
 
 
 def need(*names):
