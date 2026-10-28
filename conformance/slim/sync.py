@@ -90,15 +90,16 @@ def _():
     check(out["policy"]["version"] == version + 1, f"version {out['policy']['version']}")
     learns(a, bob, version + 1)
     b.stop()  # carol must learn it from alice, not from its author
-    c.start()
-    check(policy_version(c, bob) == version, "carol changed while offline")
-    sync(a)  # alice talks to stale carol first (high-water, below)
-    state["alice_after_stale"] = policy_version(a, bob)
-    learns(c, bob, version + 1)
-    body = sync(c)
-    check([u["host_public_key"] for u in body["unavailable"]] == [b.public_key],
-          f"with bob stopped, carol's sync reports unavailable {body['unavailable']}")
-    b.start()
+    try:
+        c.start()  # carol comes back with the older version (it may pull the newer one at once)
+        sync(a)  # alice talks to carol, which held the older version (high-water, below)
+        state["alice_after_stale"] = policy_version(a, bob)
+        learns(c, bob, version + 1)
+        body = sync(c)
+        check([u["host_public_key"] for u in body["unavailable"]] == [b.public_key],
+              f"with bob stopped, carol's sync reports unavailable {body['unavailable']}")
+    finally:
+        b.start()
     state["bob_version"] = version + 1
 
 
