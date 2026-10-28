@@ -46,14 +46,25 @@ jobs:
           if-no-files-found: error
 
   suite:
-    name: ${{ matrix.suite }}
+    name: ${{ matrix.name }}
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, renewal, policy, sync, work, capabilities]
+        # capabilities runs as two parallel jobs so each stays under 2 minutes: capabilities-sources takes the
+        # remote MCP server and gh cases after its own setup.
+        include:
+          - {name: join, suite: join, args: ''}
+          - {name: renewal, suite: renewal, args: ''}
+          - {name: policy, suite: policy, args: ''}
+          - {name: sync, suite: sync, args: ''}
+          - {name: work, suite: work, args: ''}
+          - {name: capabilities, suite: capabilities, args: '--skip remote_mcp_server --skip gh_builtin_source'}
+          - name: capabilities-sources
+            suite: capabilities
+            args: '--only setup_and_source_snapshot --only remote_mcp_server --only gh_builtin_source'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,8 +76,8 @@ jobs:
         with:
           name: conformance-binaries
           path: bin
-      - name: Run ${{ matrix.suite }}
+      - name: Run ${{ matrix.name }}
         run: |
           set -euo pipefail
           chmod +x bin/*
-          python3 conformance/slim/${{ matrix.suite }}.py --bin bin
+          python3 conformance/slim/${{ matrix.suite }}.py --bin bin ${{ matrix.args }}

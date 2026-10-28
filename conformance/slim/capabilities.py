@@ -207,9 +207,9 @@ def gh_log():
 
 
 @suite.case("gh_builtin_source", "capabilities: Resource bounds and the gh source (slice 3): Discovering gh, "
-                                 "Running a built-in source, gh operations, Executing a gh call")
+                                 "Running a built-in source, gh operations, Executing a gh call; Sharing (guided)")
 def _():
-    need("shared")
+    need("net")
     root = suite.work / "gh"
     (root / "bin").mkdir(parents=True)
     token = "gho_" + os.urandom(16).hex()
@@ -231,8 +231,10 @@ def _():
           f"{srv.get('reason')}")
     check(token not in refreshed.stdout + refreshed.stderr + json.dumps(listing), "the gh token was shown")
     check({t["name"] for t in srv["tools"]} >= {"repo_view", "issue_list", "issue_create"}, f"gh tools {srv['tools']}")
-    a.ok("capability", "create", "hub", "--from", "builtin/gh", "--operations", "repo_view")
-    a.ok("share", "hub", "--with", "bob", "--yes")
+    # The guided share creates and shares in one step (Sharing).
+    shared = a.ok("share", "--with", "bob", "--from", "builtin/gh", "--operations", "repo_view", "--name", "hub",
+                  "--yes")
+    check(shared["principal"].startswith("person:"), f"guided share {shared}")
     b.api("POST", f"/v2/networks/{state['net']}/sync", {})
     runs = len([e for e in gh_log() if e.get("event") == "start" and e["argv"][:2] == ["repo", "view"]])
     code, record, raw = call(b, "alice/hub", "repo_view", "--repo", "acme/api")

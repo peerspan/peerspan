@@ -370,6 +370,7 @@ class Suite:
         parser.add_argument("--bin", type=Path, default=None,
                             help="directory holding peerspan-host (default: rust/target/debug)")
         parser.add_argument("--only", action="append", default=[], help="run only these cases")
+        parser.add_argument("--skip", action="append", default=[], help="do not run these cases")
         parser.add_argument("--keep", action="store_true", help="keep the temporary directory")
         self.args = parser.parse_args()
         repo = Path(__file__).resolve().parents[2]
@@ -415,7 +416,7 @@ class Suite:
         marker is removed once the product is fixed.
         """
         def run(function):
-            if self.args.only and name not in self.args.only:
+            if (self.args.only and name not in self.args.only) or name in self.args.skip:
                 return function
             began = time.monotonic()
             try:
