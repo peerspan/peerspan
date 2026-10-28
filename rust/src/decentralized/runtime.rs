@@ -207,17 +207,43 @@ pub(crate) fn status_network(
                         }
                         _ => return Err(e),
                     };
+                    // A root split freezes changes (spec 13.2).
+                    let split = e.code == "state_conflict"
+                        && p.streams
+                            .get(&vec!["root".to_string()])
+                            .is_some_and(|r| r.heads.len() > 1);
                     edit_attention.push((
                         kind.into(),
                         network.into(),
-                        format!(
-                            "own policy path is unavailable: {}; required_ids {}",
-                            e.code,
-                            e.required_ids.iter().cloned().collect::<Vec<_>>().join(",")
-                        ),
+                        if split {
+                            "root split: changes are frozen; create a new network and run network reinvite".to_owned()
+                        } else {
+                            format!(
+                                "own policy path is unavailable: {}; required_ids {}",
+                                e.code,
+                                e.required_ids.iter().cloned().collect::<Vec<_>>().join(",")
+                            )
+                        },
                         format!("peerspan access renew --network {network}"),
                     ));
                 }
+            }
+            // A root split freezes changes even while existing grants still
+            // work (spec 13.2); status always explains it.
+            if p.streams
+                .get(&vec!["root".to_string()])
+                .is_some_and(|r| r.heads.len() > 1)
+                && !edit_attention
+                    .iter()
+                    .any(|i| i.0 == "network_state_conflict")
+            {
+                edit_attention.push((
+                    "network_state_conflict".into(),
+                    network.into(),
+                    "root split: changes are frozen; create a new network and run network reinvite"
+                        .into(),
+                    "peerspan network create NAME".into(),
+                ));
             }
             edit_attention.extend(super::renewal::attention(&s, &p, network)?);
             edit_attention.extend(super::invite_return::waiting_items(c, network)?);
@@ -414,7 +440,7 @@ fn read_network_context(
                 let floors=if stream.at_maximum.is_empty() && s.context.origin=="migration" {vec![s.context.origin_proof_id.clone()]} else {Vec::new()};
                 Ok(json!({"stream_kind":kind,"subject":subject,"subject2":subject2,"head_ids":stream.heads,"version":stream.maximum,"statement_ids":stream.at_maximum,"floor_proof_ids":floors}))
             }).collect::<Result<Vec<_>>>()?;
-            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams})
+            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams,"restriction_ids":p.restrictions})
         }
         _ => return Err(Error::new("not_found")),
     };

@@ -98,14 +98,17 @@ fn head(plan: &Value, kind: &str, subject: &str) -> anyhow::Result<String> {
     );
     Ok(heads[0].as_str().context("invalid native head")?.into())
 }
-async fn planning(
+pub(crate) async fn planning(
     local: &Local<'_>,
     network: &str,
 ) -> anyhow::Result<(Value, Descriptor, Catalog)> {
     let plan = local
         .get(format!("/v2/networks/{}/planning", encoded(network)))
         .await?;
-    shape(&plan, "network decision_time catalog streams")?;
+    shape(
+        &plan,
+        "network decision_time catalog streams restriction_ids",
+    )?;
     let d = descriptor(&plan["network"])?;
     ensure!(d.network_id == network, "native network mismatch");
     let catalog = Catalog::read(&d, &serde_json::to_vec(&plan["catalog"])?)?;

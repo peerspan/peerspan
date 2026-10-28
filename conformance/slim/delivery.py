@@ -536,7 +536,7 @@ def _():
     check(not any(added.values()), f"changing helpers added records: {added}")
 
 
-@suite.case("publish_contacts_true_refused", "spec 9.8 (DEC-Q20); appendix 17; 20 item 46", known="DEC-Q20")
+@suite.case("publish_contacts_true_refused", "spec 9.8 (DEC-Q20); appendix 17; 20 item 46")
 def _():
     g = suite.host("gail", start=False)
     transport(g, [helper], publish=True)

@@ -293,7 +293,11 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
         command,
         Command::Join { .. }
             | Command::Invite { .. }
-            | Command::Network(NetworkCommand::Join { .. } | NetworkCommand::Invite { .. })
+            | Command::Network(
+                NetworkCommand::Join { .. }
+                    | NetworkCommand::Invite { .. }
+                    | NetworkCommand::Reinvite(_)
+            )
     ) {
         return Ok(false);
     }
@@ -365,7 +369,225 @@ pub(crate) async fn run(command: &Command, state: Option<&Path>) -> Result<bool>
             )
             .await?
         }
+        Command::Network(NetworkCommand::Reinvite(a)) => {
+            reinvite(&local, &a.old, &a.new, &a.expires_at, &a.expires_in).await?
+        }
         _ => unreachable!(),
     }
     Ok(true)
+}
+fn text<'a>(v: &'a Value, name: &str) -> Result<&'a str> {
+    v[name]
+        .as_str()
+        .with_context(|| format!("invalid daemon response field {name}"))
+}
+/// Every host a coordinator-free catalog names in a host grant (also inside
+/// an activation), with its latest label and the person of its latest
+/// binding, minus revoked hosts and removed persons. `catalog` is
+/// `{"parsed":[{kind,payload}]}` from the parsed catalog's statements.
+fn stored_members(catalog: &Value) -> Result<Vec<(String, String, String)>> {
+    let objects = catalog["parsed"].as_array().context("invalid catalog")?;
+    let mut hosts = std::collections::BTreeMap::<String, (u64, String)>::new();
+    let mut bindings = std::collections::BTreeMap::<String, (u64, String)>::new();
+    let mut revoked = std::collections::BTreeSet::new();
+    let mut removed = std::collections::BTreeSet::new();
+    for object in objects {
+        let (kind, p) = (object["kind"].clone(), object["payload"].clone());
+        let body = json!({ "kind": kind });
+        let sequence = p["sequence"].as_u64().unwrap_or(0);
+        let subject = &p["subject"];
+        match body["kind"].as_str().unwrap_or_default() {
+            "host_lease" => {
+                let host = subject["host_public_key"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_owned();
+                let label = subject["member"].as_str().unwrap_or("member").to_owned();
+                if hosts.get(&host).is_none_or(|(s, _)| *s < sequence) {
+                    hosts.insert(host, (sequence, label));
+                }
+            }
+            "binding_lease" => {
+                let host = subject["host_public_key"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_owned();
+                let person = subject["person_public_key"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_owned();
+                if bindings.get(&host).is_none_or(|(s, _)| *s < sequence) {
+                    bindings.insert(host, (sequence, person));
+                }
+            }
+            "host_revoke" => {
+                revoked.insert(
+                    p["target"]["host_public_key"]
+                        .as_str()
+                        .unwrap_or("-")
+                        .to_owned(),
+                );
+            }
+            "person_remove" => {
+                removed.insert(
+                    p["target"]["person_public_key"]
+                        .as_str()
+                        .unwrap_or("-")
+                        .to_owned(),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(hosts
+        .into_iter()
+        .filter(|(host, _)| !revoked.contains(host))
+        .map(|(host, (_, label))| {
+            let person = bindings
+                .get(&host)
+                .map(|(_, p)| p.clone())
+                .unwrap_or_else(|| "-".into());
+            (host, label, person)
+        })
+        .filter(|(_, _, person)| !removed.contains(person))
+        .collect())
+}
+/// `network reinvite OLD NEW` (spec 14.2, DEC-Q16): one invite into NEW for
+/// each member machine of OLD, through the ordinary invitation route.
+async fn reinvite(
+    local: &Local<'_>,
+    old: &str,
+    new: &str,
+    expires_at: &Option<String>,
+    expires_in: &Option<String>,
+) -> Result<()> {
+    let all = local.get("/v2/networks".into()).await?;
+    let all = all.as_array().context("invalid networks")?;
+    let find = |name: &str| {
+        all.iter()
+            .find(|n| n["id"] == name || n["name"] == name)
+            .cloned()
+    };
+    let target =
+        find(new).context("NEW must be a coordinator-free network this host belongs to")?;
+    let target_id = text(&target, "id")?.to_owned();
+    ensure!(
+        target["mode"] == "decentralized" && target["root_state_id"] != "-",
+        "NEW must be a current coordinator-free network"
+    );
+    let own = text(&target, "host_public_key")?.to_owned();
+    // OLD: a coordinator-free network frozen by a root split, or a legacy
+    // network kept as history.
+    let (old_id, members) = if let Some(n) = find(old) {
+        let id = text(&n, "id")?.to_owned();
+        ensure!(id != target_id, "OLD and NEW are the same network");
+        ensure!(
+            n["root_state_id"] == "-",
+            "OLD is a current network; reinvite moves members only from a legacy or root-split network"
+        );
+        // The stored records, not the live member view: hosts whose grants
+        // have lapsed or whose path is unavailable in the split still count
+        // (spec 14.2). Revoked hosts and removed persons are skipped.
+        // The parsed catalog also yields grants carried inside activations
+        // (members admitted through a join).
+        let (plan, _, catalog) = crate::decentralized_policy_cli::planning(local, &id).await?;
+        // Only bans this host admitted count; an inert one in the catalog
+        // removes nobody.
+        let admitted: std::collections::BTreeSet<&str> = plan["restriction_ids"]
+            .as_array()
+            .context("invalid planning restrictions")?
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        let objects: Vec<Value> = catalog
+            .statements
+            .values()
+            .filter(|st| {
+                !matches!(st.kind.as_str(), "host_revoke" | "person_remove")
+                    || admitted.contains(st.id.as_str())
+            })
+            .map(|st| json!({"kind": st.kind, "payload": Value::Object(st.payload.clone())}))
+            .collect();
+        (id, stored_members(&json!({"parsed": objects}))?)
+    } else {
+        let v = local
+            .get(format!("/v1/networks/{}/members", encoded(old)))
+            .await
+            .context("OLD is neither a legacy network nor a root-split network known here")?;
+        let members = v.as_array().cloned().unwrap_or_default();
+        // Legacy members name their person by ID; the stored person records
+        // give the person key to pin (spec 14.2).
+        let persons = local
+            .get(format!("/v1/networks/{}/persons", encoded(old)))
+            .await
+            .ok()
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        let key_of = |id: &str| {
+            persons
+                .iter()
+                .find(|p| p["person_id"] == id)
+                .and_then(|p| p["person_public_key"].as_str())
+                .unwrap_or("-")
+                .to_owned()
+        };
+        (
+            old.to_owned(),
+            members
+                .into_iter()
+                .filter(|m| m["revoked"] != true)
+                .map(|m| {
+                    Ok((
+                        text(&m, "public_key")
+                            .or_else(|_| text(&m, "host_public_key"))?
+                            .to_owned(),
+                        m["member"].as_str().unwrap_or("member").to_owned(),
+                        m["person_id"]
+                            .as_str()
+                            .map(key_of)
+                            .unwrap_or_else(|| "-".into()),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
+        )
+    };
+    let expiry = match (expires_at, expires_in) {
+        (Some(at), _) => at.clone(),
+        (None, Some(duration)) => {
+            // Each invite needs at least 60 seconds left when the daemon
+            // makes it; allow for the whole sequential batch.
+            let at = crate::integration::relative_expiry(duration)?;
+            let floor = peerspan_host::clock::now()
+                + chrono::TimeDelta::seconds(70 + 2 * members.len() as i64);
+            if chrono::DateTime::parse_from_rfc3339(&at)?.with_timezone(&chrono::Utc) < floor {
+                floor.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+            } else {
+                at
+            }
+        }
+        // 24 hours by default (spec 14.2), a little under so the daemon's
+        // later decision time keeps it within the 24-hour maximum.
+        (None, None) => (peerspan_host::clock::now() + chrono::TimeDelta::seconds(86_340))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+    };
+    let mut out = Vec::new();
+    for (host, member, person) in members {
+        if host == own {
+            continue;
+        }
+        let raw = STANDARD.decode(&host).context("invalid member host key")?;
+        let host_id = format!("host_{}", hex::encode(Sha256::digest(&raw)));
+        let v = local
+            .post(
+                format!("/v2/networks/{}/invitations", encoded(&target_id)),
+                json!({"member":member,"expected_person_public_key":person,"expires_at":expiry}),
+            )
+            .await?;
+        out.push(json!({"member":member,"host_id":host_id,"person_public_key":person,
+            "invitation_id":v["invitation_id"],"invitation":v["invitation"],"expires_at":v["expires_at"]}));
+    }
+    let _ = old_id;
+    println!("{}", serde_json::to_string_pretty(&Value::Array(out))?);
+    Ok(())
 }

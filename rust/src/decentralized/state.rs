@@ -1416,7 +1416,7 @@ impl Projection {
                         .values()
                         .any(|m| m.proposal.id == op && m.prepared.statements.contains_key(id)))
             {
-                self.root_coverage(s)?;
+                self.root_coverage_single(s)?;
                 self.known_restrictions(s)?;
                 return Ok(());
             }
@@ -1452,7 +1452,7 @@ impl Projection {
             // complete source/root/all-host transition, not a current signer.
             return Ok(());
         }
-        self.root_coverage(s)?;
+        self.root_coverage_single(s)?;
         let issuer = s.issuer()?;
         if text(issuer, "kind")? != "root" {
             for (role, parent) in s.parents()? {
@@ -2027,9 +2027,39 @@ impl Projection {
         }
         Ok(false)
     }
-    fn root_coverage(&self, s: &Statement) -> Result<()> {
+    /// Coverage for admitting a statement: new grants always need the single
+    /// current root, so none is admitted during a root split (spec 13.2),
+    /// even through catalog exchange; bans still are.
+    fn root_coverage_single(&self, s: &Statement) -> Result<()> {
+        // Bans are still learned and applied in a split (spec 13.2).
+        if restriction(&s.kind) {
+            return self.root_coverage(s);
+        }
         let root = self.head(&["root".into()])?;
         let original = text(&s.payload, "root_state_id")?;
+        self.cover(&root.id, original, &s.id, &mut BTreeSet::new())
+            .map(|_| ())
+    }
+    fn root_coverage(&self, s: &Statement) -> Result<()> {
+        let original = text(&s.payload, "root_state_id")?;
+        // In a root split (spec 13.2) existing grants keep working until
+        // they expire: a grant counts when the head of a branch it was
+        // issued or kept under still covers it. New grants and root actions
+        // stay frozen, since they need the single current root.
+        if !self.origin_conflicted
+            && let Some(roots) = self.streams.get(&vec!["root".to_string()])
+            && roots.heads.len() > 1
+        {
+            let mut last = Error::new("forbidden");
+            for head in &roots.heads {
+                match self.cover(head, original, &s.id, &mut BTreeSet::new()) {
+                    Ok(_) => return Ok(()),
+                    Err(e) => last = e,
+                }
+            }
+            return Err(last);
+        }
+        let root = self.head(&["root".into()])?;
         self.cover(&root.id, original, &s.id, &mut BTreeSet::new())
             .map(|_| ())
     }

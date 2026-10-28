@@ -218,7 +218,7 @@ def _():
     state["split_items"] = items
 
 
-@suite.case("split_status_detail", "spec 13.2: status explains the split", known="spec 13.2 status detail")
+@suite.case("split_status_detail", "spec 13.2: status explains the split")
 def _():
     (items,) = need("split_items")
     conflict = [d for k, d in items if k == "network_state_conflict"]
@@ -226,8 +226,7 @@ def _():
           f"network_state_conflict details in a root split: {conflict}")
 
 
-@suite.case("split_keeps_existing_grants", "spec 13.2: existing grants keep working until they expire",
-            known="spec 13.2 existing grants")
+@suite.case("split_keeps_existing_grants", "spec 13.2: existing grants keep working until they expire")
 def _():
     _, bert = need("split", "bert")
     sent = a.ok("send", "bob/bert", "during the split")
@@ -262,7 +261,7 @@ def _():
           f"network resolve-root still exists: exit {result.code}: {result.stderr.strip()[-200:]}")
 
 
-@suite.case("reinvite_from_split_network", "spec 14.2 (DEC-Q16); 20 item 58", known="DEC-Q16")
+@suite.case("reinvite_from_split_network", "spec 14.2 (DEC-Q16); 20 item 58")
 def _():
     net, _ = need("net", "split")
     old_catalog = b.api("GET", f"/v2/networks/{net}/catalog")[1]
