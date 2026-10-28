@@ -403,7 +403,12 @@ impl Activation {
                 }
             }
         } else {
-            check(text(&request.payload, "mode")? == "renew")?;
+            // A renewal reuses P/H; a folded admin stage (spec 8.2, DEC-Q4)
+            // of an existing person carries its host grant in the catalog.
+            check(
+                text(&request.payload, "mode")? == "renew"
+                    || text(&owner.payload, "person_lease_id")? != "-",
+            )?;
         }
         check(ident(&person_id, "ds_") && ident(&host_id, "ds_"))?;
         let binding = value_field(&finalization.payload, "binding_lease")?;

@@ -28,6 +28,7 @@ pub async fn state_worker(store: Arc<Store>, shutdown: tokio::sync::watch::Recei
     tokio::join!(
         delivery::worker(store.clone(), shutdown.clone()),
         super::renewal::worker(store.clone(), shutdown.clone()),
+        super::requests_io::approver_worker(store.clone(), shutdown.clone()),
         crate::quic::helper_worker(store, shutdown)
     );
 }

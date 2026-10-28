@@ -235,7 +235,7 @@ def _():
     check(not (a2.home / ".config/peerspan/person_ed25519").exists(), "linking generated an original key on alice2")
 
 
-@suite.case("owner_admin_link_folds_admin_stage", "spec 8.2 fold (DEC-S7, DEC-Q4); 20 item 35", known="DEC-S7/DEC-Q4")
+@suite.case("owner_admin_link_folds_admin_stage", "spec 8.2 fold (DEC-S7, DEC-Q4); 20 item 35")
 def _():
     view, folded = need("link_view", "folded")
     check(folded and view["administrator_offer_id"] == "-",

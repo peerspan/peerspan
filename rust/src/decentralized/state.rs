@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[path = "stages.rs"]
 mod stages;
 pub(crate) use stages::{
-    CeremonyPrefix, PreparedAdmissions, PreparedFinalization,
+    CeremonyPrefix, PreparedAdmissions, PreparedFinalization, folded_host,
     packet_agrees as check_requester_selection,
 };
 
@@ -1335,7 +1335,7 @@ impl Projection {
         }
         Ok(false)
     }
-    fn head(&self, key: &[String]) -> Result<&Statement> {
+    pub(crate) fn head(&self, key: &[String]) -> Result<&Statement> {
         require(key != ["root"] || !self.origin_conflicted, "state_conflict")?;
         let stream = self
             .streams
@@ -2889,11 +2889,33 @@ impl Projection {
         }
         if !a.packets.contains_key("administrator") {
             // Reuse independently authorized current P/H, including portable
-            // earlier completed operations. This ceremony cannot mint them.
-            check(
-                text(&p.payload, "operation_id")? != a.request_id
-                    && text(&h.payload, "operation_id")? != a.request_id,
-            )?;
+            // earlier completed operations. Only a folded admin stage (spec
+            // 8.2) mints the host grant, through the owner's admin path.
+            check(text(&p.payload, "operation_id")? != a.request_id)?;
+            if text(&h.payload, "operation_id")? == a.request_id {
+                check(
+                    text(&request.payload, "mode")? != "renew"
+                        && text(&owner.payload, "person_lease_id")? != "-",
+                )?;
+                self.grant_packet_issuer(h, finalization)?;
+                let issuers: BTreeMap<String, String> = h
+                    .parents()?
+                    .into_iter()
+                    .filter(|(role, _)| role.starts_with("issuer_"))
+                    .collect();
+                let admin = issuers
+                    .get("issuer_admin")
+                    .ok_or_else(|| Error::new("invalid"))?;
+                check(self.catalog.get(admin)?.kind == "admin_lease")?;
+                let mut expected: BTreeSet<String> =
+                    ids(&owner.payload, "issuer_lease_ids", "ds_")?
+                        .into_iter()
+                        .collect();
+                expected.insert(admin.clone());
+                check(issuers.into_values().collect::<BTreeSet<_>>() == expected)?;
+            } else {
+                check(text(&request.payload, "mode")? == "renew")?;
+            }
         }
         let renewed = text(&request.payload, "renewed_device_lease_id")?;
         if text(&request.payload, "mode")? == "renew" {
@@ -2989,7 +3011,7 @@ impl Projection {
         }
         Ok(())
     }
-    fn grant_packet_issuer(
+    pub(crate) fn grant_packet_issuer(
         &self,
         grant: &Statement,
         packet: &super::transcript::Packet,
@@ -3097,6 +3119,26 @@ impl Projection {
             self.packet_authority(&activation.packets["owner"], 4, false, dependent)?;
             if let Some(administrator) = activation.packets.get("administrator") {
                 self.packet_authority(administrator, 8, true, dependent)?;
+            } else {
+                let host = self
+                    .catalog
+                    .get(text(&activation.manifest, "host_lease_id")?)?;
+                if text(&host.payload, "operation_id")? == activation.request_id {
+                    // A folded admin stage: the owner's path with its admin grant.
+                    let issuers = host
+                        .parents()?
+                        .into_iter()
+                        .filter(|(role, _)| role.starts_with("issuer_"))
+                        .map(|(_, id)| id)
+                        .collect();
+                    self.packet_authority_with(
+                        &activation.packets["owner_finalization"],
+                        8,
+                        true,
+                        dependent,
+                        issuers,
+                    )?;
+                }
             }
             Ok(())
         }
@@ -3225,10 +3267,24 @@ impl Projection {
         administrator: bool,
         dependent: &Statement,
     ) -> Result<()> {
+        self.packet_authority_with(packet, required, administrator, dependent, Vec::new())
+    }
+    /// EXPLICIT names the issuer grants to check instead of the packet's own
+    /// list (a folded host grant adds the owner's admin grant to it).
+    pub(crate) fn packet_authority_with(
+        &self,
+        packet: &super::transcript::Packet,
+        required: u64,
+        administrator: bool,
+        dependent: &Statement,
+        explicit: Vec<String>,
+    ) -> Result<()> {
         let person = text(&packet.object, "person_public_key")?;
         let issuer = text(&packet.object, "issuer_id")?;
         let signer = text(&packet.object, "signer_public_key")?;
-        let references = if packet.payload.contains_key("issuer_lease_ids") {
+        let references = if !explicit.is_empty() {
+            explicit
+        } else if packet.payload.contains_key("issuer_lease_ids") {
             let references = ids(&packet.payload, "issuer_lease_ids", "ds_")?;
             if references.is_empty() && person != "-" {
                 // The only empty original-person offer is the precise pending

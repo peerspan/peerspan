@@ -116,6 +116,8 @@ struct OwnerTerms {
     member: String,
     person_lease: String,
     issuer_ids: Vec<String>,
+    /// The unsigned host grant of a folded admin stage (spec 8.2).
+    folded_host: Option<Vec<u8>>,
 }
 #[allow(clippy::too_many_arguments)]
 fn terms(
@@ -162,6 +164,7 @@ fn terms(
             |r| r.get(0),
         )
         .map_err(db)?;
+    let mut folded_host = None;
     let (descriptor, public, private, seed, catalog, member, person_lease, issuer_ids, root) =
         if text(r, "migration_proposal_id")? != "-" {
             let plan = super::migration_link::owner_plan(
@@ -238,6 +241,35 @@ fn terms(
                 ids.push(resolved.provider.lease_id.clone())
             }
             ids.sort();
+            // Fold (spec 8.2, DEC-S7, DEC-Q4): an owner whose path also has
+            // the admin role signs the new host grant under this approval.
+            if pending.record.mode != "renew"
+                && num(object(&public)?, "scopes")? & 8 == 8
+                && let Ok(admin) = p.head(&["admin".into(), person.into()])
+                && p.active(&admin.id).is_ok()
+            {
+                let mut parents = std::collections::BTreeMap::from([
+                    ("issuer_person", person_lease.clone()),
+                    ("issuer_admin", admin.id.clone()),
+                ]);
+                if resolved.provider.kind == "device" {
+                    parents.insert("issuer_device", resolved.provider.lease_id.clone());
+                }
+                let stream = p
+                    .streams
+                    .get(&vec!["host".into(), pending.record.host_public_key.clone()]);
+                require(stream.is_none_or(|s| s.heads.len() <= 1), "state_conflict")?;
+                let sequence = stream
+                    .map_or(0, |s| s.maximum)
+                    .checked_add(1)
+                    .ok_or_else(|| Error::new("version_exhausted"))?;
+                let payload = json!({"root_state_id":p.root_state_id()?,"operation_id":pending.id,"sequence":sequence,"predecessors":stream.map(|s|s.heads.clone()).unwrap_or_default(),"resolves":[],"retained_statement_ids":[],"subject":{"person_public_key":"-","host_public_key":pending.record.host_public_key,"device_public_key":"-","member":member,"scopes":0},"issuer":{"kind":if resolved.provider.kind=="device" {"device"} else {"person"},"person_public_key":person},"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":time,"not_before":time,"not_after":not_after});
+                let raw = bytes(
+                    &json!({"format":1,"kind":"host_lease","context_id":snapshot.descriptor.context_id(),"payload_base64":encode(&bytes(&payload)?),"signatures":[{"role":"issuer","public_key":resolved.provider.signer_public_key,"format":resolved.provider.signature_format,"signature":"-"}]}),
+                )?;
+                super::template::FixedStatement::read(&snapshot.descriptor, &raw)?;
+                folded_host = Some(raw);
+            }
             (
                 snapshot.descriptor,
                 public,
@@ -301,7 +333,13 @@ fn terms(
         stamp(&time)? < stamp(&pending.deadline)? && time.as_str() < not_after,
         "expired",
     )?;
-    let review = json!({"stage":"owner","network_id":network,"context_id":descriptor.context_id(),"person_id":crate::persons::person_id_of(person).map_err(|_|Error::new("invalid"))?,"person_public_key":person,"host_public_key":pending.record.host_public_key,"device_public_key":pending.record.device_public_key,"root_state_id":root,"provider":public,"owner_offer_id":"-","selection_id":"-","administrator_offer_id":"-","person_lease_id":person_lease,"host_lease_id":"-","binding_lease_id":"-","device_lease_id":"-","scopes":scopes,"not_after":not_after,"authority_warning":"Profile scopes are finite. Administration bit8 also requires an active administrator role; this review does not grant access or commit the machine."});
+    let folded_id = match &folded_host {
+        Some(raw) => super::template::FixedStatement::read(&descriptor, raw)?
+            .statement_id()
+            .to_owned(),
+        None => "-".into(),
+    };
+    let review = json!({"stage":"owner","network_id":network,"context_id":descriptor.context_id(),"person_id":crate::persons::person_id_of(person).map_err(|_|Error::new("invalid"))?,"person_public_key":person,"host_public_key":pending.record.host_public_key,"device_public_key":pending.record.device_public_key,"root_state_id":root,"provider":public,"owner_offer_id":"-","selection_id":"-","administrator_offer_id":"-","person_lease_id":person_lease,"host_lease_id":folded_id,"binding_lease_id":"-","device_lease_id":"-","scopes":scopes,"not_after":not_after,"authority_warning":"Profile scopes are finite. Administration bit8 also requires an active administrator role; this review does not grant access or commit the machine."});
     let mut t = OwnerTerms {
         descriptor,
         review,
@@ -312,6 +350,7 @@ fn terms(
         member,
         person_lease,
         issuer_ids,
+        folded_host,
     };
     t.review["owner_offer_id"] = Value::from(Packet::read_template(&offer(pending, &t)?)?.id);
     Ok(t)
@@ -361,6 +400,14 @@ pub(super) fn owner_intent(c: &Connection, p: &Pending) -> Result<Intent> {
                 "device_lease",
                 "owner_finalization_packet",
             ]
+            || kinds
+                == [
+                    "owner_offer_packet",
+                    "host_lease",
+                    "binding_lease",
+                    "device_lease",
+                    "owner_finalization_packet",
+                ]
             || kinds
                 == [
                     "owner_offer_packet",
@@ -454,6 +501,9 @@ fn initial_templates(
     offer: &[u8],
 ) -> Result<Vec<intents::Template>> {
     let mut kinds = vec![("owner_offer_packet", encode(offer))];
+    if let Some(host) = &t.folded_host {
+        kinds.push(("host_lease", encode(host)));
+    }
     let reuse = if p.record.mode == "renew" && t.catalog.is_some() {
         let snapshot = Snapshot::load(c, &t.descriptor.network_id, &store.identity().public_key)?;
         let projection = snapshot.project(&t.time)?;
@@ -896,9 +946,11 @@ pub(crate) fn signed(store: &Store, request: &str, input: &Obj) -> Result<Vec<u8
             fields(o, "slot_id role signature")?;
             let slot = num(o, "slot_id")?;
             let role = text(o, "role")?;
-            check(role == "authority" && i.record.provider.kind == "original")?;
+            let folded =
+                slot == 2 && role == "issuer" && i.record.templates[1].object_type == "host_lease";
+            check((role == "authority" || folded) && i.record.provider.kind == "original")?;
             check(
-                slot == 1
+                (slot == 1 || folded)
                     && previous
                         .as_ref()
                         .is_none_or(|old: &(u64, String)| old < &(slot, role.into())),
@@ -918,7 +970,7 @@ pub(crate) fn signed(store: &Store, request: &str, input: &Obj) -> Result<Vec<u8
             }
             let object = i
                 .objects(&t.descriptor)?
-                .remove(0)
+                .remove(slot as usize - 1)
                 .ok_or_else(|| Error::new("invalid"))?;
             object.fill(&t.descriptor, role, text(o, "signature")?)?;
             add(&mut i, slot, role, text(o, "signature")?)?;
@@ -974,29 +1026,41 @@ pub(super) fn resume_offer(store: &Store, request: &str) -> Result<()> {
                 return Ok(());
             }
             let t = revalidate(&c, store, &p, &i)?;
-            let first = i
-                .objects(&t.descriptor)?
-                .remove(0)
+            let objects = i.objects(&t.descriptor)?;
+            let first = objects[0]
+                .as_ref()
                 .ok_or_else(|| Error::new("state_conflict"))?;
-            let slots = first.pending()?;
+            let mut slots: Vec<_> = first.pending()?.into_iter().map(|s| (1, s)).collect();
+            // A folded host grant is signed under the same approval.
+            if i.record.templates[1].object_type == "host_lease" {
+                let host = objects[1]
+                    .as_ref()
+                    .ok_or_else(|| Error::new("state_conflict"))?;
+                slots.extend(host.pending()?.into_iter().map(|s| (2, s)));
+            }
             (t, slots)
         };
         let (t, slots) = prepared;
         let mut generated = Vec::new();
-        for slot in slots {
+        for (index, slot) in slots {
+            let issuer = index == 2 && slot.role == "issuer";
             let message = b64(&slot.message_base64, 4096)?;
             if slot.role == "host"
                 && slot.public_key == store.identity().public_key
                 && slot.signature_format == "ed25519"
             {
                 generated.push((
+                    index,
                     slot.role,
                     encode(&store.signing_key.sign(&message).to_bytes()),
                 ));
-            } else if slot.role == "authority" && slot.public_key == t.provider.signer_public_key {
+            } else if (slot.role == "authority" || issuer)
+                && slot.public_key == t.provider.signer_public_key
+            {
                 if slot.signature_format == "ed25519" {
                     let seed = t.seed.ok_or_else(|| Error::new("signer_unavailable"))?;
                     generated.push((
+                        index,
                         slot.role,
                         encode(&SigningKey::from_bytes(&seed).sign(&message).to_bytes()),
                     ));
@@ -1008,6 +1072,7 @@ pub(super) fn resume_offer(store: &Store, request: &str) -> Result<()> {
                         let message =
                             std::str::from_utf8(&message).map_err(|_| Error::new("invalid"))?;
                         generated.push((
+                            index,
                             slot.role,
                             signer
                                 .sign(&message.split('\n').collect::<Vec<_>>())
@@ -1025,13 +1090,13 @@ pub(super) fn resume_offer(store: &Store, request: &str) -> Result<()> {
         let mut i = owner_intent(&tx, &p)?;
         let t = revalidate(&tx, store, &p, &i)?;
         let barrier = if !generated.is_empty() {
-            for (role, signature) in generated {
+            for (slot, role, signature) in generated {
                 let object = i
                     .objects(&t.descriptor)?
-                    .remove(0)
+                    .remove(slot as usize - 1)
                     .ok_or_else(|| Error::new("state_conflict"))?;
                 object.fill(&t.descriptor, &role, &signature)?;
-                add(&mut i, 1, &role, &signature)?;
+                add(&mut i, slot, &role, &signature)?;
             }
             let first = i
                 .objects(&t.descriptor)?

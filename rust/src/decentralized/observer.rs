@@ -434,9 +434,24 @@ fn advance_prefix(
             ("selection_id", selection.packet.id.as_str()),
         ],
     )?;
-    if administrator.is_none() && p.record.mode != "renew" {
-        return Ok(());
-    }
+    // A folded admin stage (spec 8.2, DEC-S7, DEC-Q4): the owner's
+    // finalization names no administrator packet.
+    let folded_finalization = if administrator.is_none() && p.record.mode != "renew" {
+        let folded = evidence.matching(
+            "owner_finalization",
+            &p.record.owner_finalization_id,
+            &[
+                ("selection_id", selection.packet.id.as_str()),
+                ("administrator_offer_id", "-"),
+            ],
+        )?;
+        if folded.is_none() {
+            return Ok(());
+        }
+        folded
+    } else {
+        None
+    };
     let Some(catalog) = &offer.catalog else {
         return Err(Error::missing(text(
             &administrator
@@ -465,6 +480,10 @@ fn advance_prefix(
         Value::from("-")
     };
     let request = p.packet()?;
+    let folded = match folded_finalization {
+        Some(f) => state::folded_host(catalog, &request, None, &f.packet)?,
+        None => None,
+    };
     let prefix = CeremonyPrefix {
         descriptor: &offer.descriptor,
         prior: &prior,
@@ -475,6 +494,7 @@ fn advance_prefix(
         administrator: administrator.map(|a| &a.packet),
         now,
         staging: offer.staging.as_ref(),
+        folded_host: folded.as_ref(),
     };
     let admissions = Projection::prepare_administrator(prefix)?;
     if let Some(administrator) = administrator {

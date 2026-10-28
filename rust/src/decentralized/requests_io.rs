@@ -519,3 +519,60 @@ pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
         Err(error.unwrap_or_else(|| Error::new("recovery_required")))
     }
 }
+/// Approved owner work proceeds without `link resume` on the approving host
+/// (spec 8.2 preapproval and fold, 8.7): every 2 seconds, an approving host
+/// reads the mailboxes of its approved, unfinished requests, signs the stages
+/// its approval already covers, and publishes them.
+pub(crate) async fn approver_worker(
+    store: Arc<Store>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+    tick.tick().await;
+    loop {
+        tokio::select! {_ = shutdown.changed()=>break,_=tick.tick()=>{}}
+        let capture = store.clone();
+        let ids = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
+            let c = capture.connection().map_err(|_| Error::new("internal"))?;
+            let now = controls::local_decision_time()?;
+            let mut q = c
+                .prepare("SELECT request_id FROM dec_pending ORDER BY request_id")
+                .map_err(|_| Error::new("internal"))?;
+            let ids = q
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(|_| Error::new("internal"))?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| Error::new("internal"))?;
+            let mut due = Vec::new();
+            for id in ids {
+                let Ok(p) = requests::load(&c, &id) else {
+                    continue;
+                };
+                if p.record.terminal == "-"
+                    && p.record.owner_intent_id != "-"
+                    && p.record.owner_finalization_id == "-"
+                    && stamp(&now)? < stamp(&p.deadline)?
+                {
+                    due.push(id);
+                }
+            }
+            Ok(due)
+        })
+        .await;
+        let Ok(Ok(ids)) = ids else { continue };
+        for id in ids.into_iter().take(8) {
+            if *shutdown.borrow() {
+                return;
+            }
+            if poll(store.clone(), &id).await.is_err() {
+                continue;
+            }
+            let target = store.clone();
+            let resume_id = id.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || super::ceremony::resume(&target, &resume_id))
+                    .await;
+            let _ = publish(store.clone(), &id).await;
+        }
+    }
+}

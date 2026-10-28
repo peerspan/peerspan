@@ -277,6 +277,36 @@ impl Pending {
     pub fn packet(&self) -> Result<Packet> {
         Packet::read(&b64(&self.record.request_packet_base64, 8 << 10)?)
     }
+    /// Whether the owner can fold the admin stage into owner finalization
+    /// (spec 8.2): an existing person whose current grants include an admin
+    /// grant, outside renew mode. Only the request's display state uses it.
+    fn folds(&self, d: Option<&Descriptor>) -> bool {
+        let r = &self.record;
+        let (Some(d), false) = (d, r.mode == "renew" || r.catalog_base64 == "-") else {
+            return false;
+        };
+        let Ok(owner) = b64(&r.owner_packet_base64, MAX_OBJECT).and_then(|raw| Packet::read(&raw))
+        else {
+            return false;
+        };
+        let (Ok(person), Ok(lease)) = (
+            text(&owner.object, "person_public_key"),
+            text(&owner.payload, "person_lease_id"),
+        ) else {
+            return false;
+        };
+        lease != "-"
+            && b64(&r.catalog_base64, MAX_CATALOG)
+                .and_then(|raw| super::catalog::Catalog::read(d, &raw))
+                .is_ok_and(|catalog| {
+                    catalog.statements.values().any(|s| {
+                        s.kind == "admin_lease"
+                            && s.subject().is_ok_and(|v| {
+                                text(v, "person_public_key").is_ok_and(|k| k == person)
+                            })
+                    })
+                })
+    }
     pub fn view(&self, now: &str) -> Result<Value> {
         let r = &self.record;
         let request = self.packet()?;
@@ -317,7 +347,7 @@ impl Pending {
                 } else if r.selection_packet_base64 == "-" {
                     "needs_selection"
                 } else if r.owner_finalization_packet_base64 == "-" {
-                    if r.administrator_packet_base64 == "-" {
+                    if r.administrator_packet_base64 == "-" && !self.folds(d.as_ref()) {
                         "needs_administrator"
                     } else {
                         "needs_owner_finalization"
