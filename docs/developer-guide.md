@@ -31,14 +31,10 @@ cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI also runs the coordinator-free [native introduction suite](../conformance/decentralized_native_introduction.py) with the Rust host and the Rust peer probe:
+CI also runs the [slim conformance suites](../conformance/slim/) (one small black-box suite per area, written from the spec; DEC-OWN6, DEC-OWN9) against the Rust host and peer probe, in parallel. To run one locally after building the binaries, put `peerspan-host` and `peerspan-peer-probe` in one directory and run, for example:
 
 ```sh
-python3 conformance/decentralized_native_introduction.py \
-  --host rust/target/debug/peerspan-host \
-  --probe rust/target/debug/peerspan-peer-probe \
-  --source "$(git rev-parse HEAD)" --work-dir /tmp/peerspan-dec-cases \
-  --results /tmp/peerspan-dec-results.json
+python3 conformance/slim/join.py --bin DIR
 ```
 
 Many older [conformance suites](../conformance/) still take a `--go` binary and, for enrollment, the retired `peerspan-coord` coordinator; Rust-only conformance replaces them. Until then, run them with binaries built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) where a check requires them. Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
