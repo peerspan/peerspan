@@ -88,17 +88,19 @@ pub enum Command {
         #[arg(long)]
         untrusted: bool,
     },
-    /// Produce a private five-minute contact introduction; grants no membership
+    /// Print a private invite code (psi2-) for a new member; it lasts 1 hour
+    /// by default and grants no membership by itself
     Invite {
+        /// The new member's label
         #[arg(value_name = "LABEL")]
         label: String,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
-        /// Unsupported expiration override; introductions last five minutes
-        #[arg(long, value_name = "TIME", hide = true)]
+        /// When the invite expires (RFC 3339), 60 seconds to 24 hours ahead
+        #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
         expires_at: Option<String>,
-        /// Unsupported lifetime override; introductions last five minutes
-        #[arg(long, value_name = "DURATION", hide = true)]
+        /// How long the invite lasts, 60 seconds to 24 hours (for example 2h); default 1h
+        #[arg(long, value_name = "DURATION")]
         expires_in: Option<String>,
         /// Unsupported introduction signer override; use explicit machine approval
         #[arg(long, value_name = "PATH", hide = true)]
@@ -833,17 +835,19 @@ pub enum NetworkCommand {
         #[arg(long)]
         untrusted: bool,
     },
-    /// Produce a private five-minute contact introduction; grants no membership
+    /// Print a private invite code (psi2-) for a new member; it lasts 1 hour
+    /// by default and grants no membership by itself
     Invite {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
+        /// The new member's label
         #[arg(long)]
         member: String,
-        /// Unsupported expiration override; introductions last five minutes
-        #[arg(long, value_name = "TIME", hide = true)]
+        /// When the invite expires (RFC 3339), 60 seconds to 24 hours ahead
+        #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
         expires_at: Option<String>,
-        /// Unsupported lifetime override; introductions last five minutes
-        #[arg(long, value_name = "DURATION", hide = true)]
+        /// How long the invite lasts, 60 seconds to 24 hours (for example 2h); default 1h
+        #[arg(long, value_name = "DURATION")]
         expires_in: Option<String>,
         /// Unsupported host-only introduction
         #[arg(long, hide = true)]

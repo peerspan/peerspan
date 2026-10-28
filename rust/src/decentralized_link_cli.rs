@@ -684,7 +684,7 @@ pub(crate) async fn guide(socket: &Path, mut v: Value, interactive: bool) -> Res
                 let preview = local.post(route.clone(), body).await?;
                 describe(&preview["review"])?;
                 if !confirm(if commit {
-                    "Commit this exact machine link? (y/N)"
+                    "Commit this exact machine link? [y/N]"
                 } else {
                     "Select this exact owner offer? (y/N)"
                 })
