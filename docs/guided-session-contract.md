@@ -785,7 +785,8 @@ neither this API nor a JSON decision proves a physical human click.
 
 Apply section3's context validation and exact project review binding. An
 unknown project returns404. A wrong context/project review returns409
-`review_changed`; malformed IDs/context return400 `invalid_request`. A new
+`review_changed`; malformed IDs/context return400 `invalid`, using the existing
+[host error contract](host-service-contract.md#api-and-commands). A new
 review for a correctly bound but ineligible project returns409 `flow_conflict`.
 A new adapter review requires that project to be the latest
 attempt for its native context, currently `attached`, with unchanged agent
