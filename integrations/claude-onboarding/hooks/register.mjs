@@ -546,7 +546,7 @@ async function enableTasks($, active, epoch) {
   } catch { taskFailure($, active, attempt); }
 }
 function taskFailure($, active, attempt) {
-  if (runtime !== active || active.tasks !== attempt) return;
+  if (!taskGuard(active, attempt)) return;
   stopTasks(active, 'blocked');
   $.ui.invalidate('ui.render');
 }
