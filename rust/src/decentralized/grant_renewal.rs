@@ -242,22 +242,30 @@ impl Signer_ {
                 .is_some_and(|key| store.renewal_signer(key).is_ok())
     }
 }
-/// Original keys have a reserved first turn: private key availability is not
-/// advertised. Devices follow in host-key order and still start before expiry.
-fn owner_order(p: &Projection, person: &str, scope: u64, except: Option<&str>) -> Vec<String> {
-    std::iter::once(person.to_owned())
-        .chain(ranked(p, person, scope, except))
-        .collect()
+/// A selected original key takes the first local turn. Remote original-key
+/// availability is not advertised, so device hosts rank known devices without
+/// inventing an unavailable signer; concurrent plain renewals are resolved.
+fn owner_order(
+    p: &Projection,
+    person: &str,
+    scope: u64,
+    except: Option<&str>,
+    original: bool,
+) -> Vec<String> {
+    let devices = ranked(p, person, scope, except);
+    if original {
+        std::iter::once(person.to_owned()).chain(devices).collect()
+    } else {
+        devices
+    }
 }
-fn admin_order(p: &Projection) -> Vec<String> {
-    let mut originals = Vec::new();
+fn admin_order(p: &Projection, original: Option<&str>) -> Vec<String> {
     let mut devices = Vec::new();
     for stream in p.streams.values().filter(|s| s.key[0] == "admin") {
         if p.current_statement(&stream.key).is_err() {
             continue;
         }
         let person = &stream.key[1];
-        originals.push(person.clone());
         for public in ranked(p, person, 8, None) {
             let key = vec!["device".into(), person.clone(), public.clone()];
             if let Ok((head, _)) = p.current_statement(&key)
@@ -268,10 +276,12 @@ fn admin_order(p: &Projection) -> Vec<String> {
             }
         }
     }
-    originals.sort();
     devices.sort();
-    originals.extend(devices.into_iter().map(|(_, key)| key));
-    originals
+    original
+        .into_iter()
+        .map(str::to_owned)
+        .chain(devices.into_iter().map(|(_, key)| key))
+        .collect()
 }
 /// Parent grants and their effective deadline for an admin-signed renewal.
 fn admin_cap(
@@ -364,7 +374,18 @@ fn plans(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Vec<Plan>> {
                     DEVICE_THRESHOLD
                 };
                 if (forked || end - now <= chrono::TimeDelta::seconds(threshold) && cap > end)
-                    && (forked || turn(now, end, threshold, &admin_order(p), public))
+                    && (forked
+                        || turn(
+                            now,
+                            end,
+                            threshold,
+                            &admin_order(
+                                p,
+                                matches!(&signer, Signer_::Original { .. })
+                                    .then_some(public.as_str()),
+                            ),
+                            public,
+                        ))
                 {
                     out.push(Plan {
                         stream: stream.key.clone(),
@@ -412,6 +433,7 @@ fn plans(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Vec<Plan>> {
                 } else {
                     None
                 },
+                matches!(&signer, Signer_::Original { .. }),
             )
         };
         if forked || turn(now, end, DEVICE_THRESHOLD, &order, public) {

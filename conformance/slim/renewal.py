@@ -345,8 +345,11 @@ def root_world(w):
         check(now == {k: v["host_lease_id"] for k, v in w.start.items()}, "renewed before 4 days were left")
         w.clock.set(3 * DAY + 1 * HOUR)  # 3 days and 23 hours left
         wait_for(lambda: all(m["host_lease_id"] != w.start[k]["host_lease_id"]
-                             for k, m in members(w.a, w.net).items()), timeout=WINDOW, interval=1,
-                 message="the root host to renew both host grants with 4 days left")
+                             for k, m in members(w.a, w.net).items())
+                 and (w.newest("admin_lease") or {}).get("sequence", 0) >= 2
+                 and (w.newest("person_lease", person_public_key=w.bob_person) or {}).get("sequence", 0) >= 2,
+                 timeout=WINDOW, interval=1,
+                 message="the root host to renew admin, person and both host grants with 4 days left")
         admin = w.newest("admin_lease")
         check(admin and admin["sequence"] >= 2 and w.left(admin["not_after"]) > 6 * DAY, "the admin grant was not renewed")
         check(w.newest("person_lease", person_public_key=w.bob_person)["sequence"] >= 2,
