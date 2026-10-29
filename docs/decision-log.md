@@ -2271,3 +2271,16 @@ Discarded: a schema28 duplicate approval journal, importing/copying originals,
 signing in the daemon, widening to15/admin8, device/root fallback and approval
 as membership/access/commit/readiness. Section16 and independent verification
 precede code. All installed/actual-terminal/model and final main gates stay open.
+
+
+### GU.impl16a — Synchronize an existing delayed-progress test
+
+Selected: the separate contract-only test author will make the existing
+late-progress navigation fixture wait for the old effect to enter its delayed
+response before navigating and advancing virtual time. The case repeatedly
+hit its five-second timeout locally and in PR53 CI while also passing unchanged;
+its asynchronous response construction can outlive a virtual-clock settle.
+Preserve the late completion, newer confirmation and privacy assertions and
+all212 cases. No production/native behavior change is inferred from this fixture
+failure. Discarded: timeout inflation, deleting assertions, repeated CI reruns
+until green, and modifying product behavior to satisfy a scheduling assumption.

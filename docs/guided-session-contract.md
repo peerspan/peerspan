@@ -2894,8 +2894,12 @@ tests. Keep each suite under2 minutes; no new implementer tests.
 4. Existing advanced original signing/administrator/finalization/commit completes
    the same exact approved intent. Guided lookup after later finalization,
    local application and restart keeps its original public review/digest and
-   historical approval, without invoking signing or granting access. Native212
-   remain unchanged; all16 slim suites/Rust gates run on the final head.
+   historical approval, without invoking signing or granting access. Preserve all212 native cases and their assertions. A repeated existing
+   delayed-progress fixture timeout may be corrected only by explicitly waiting
+   for the old effect to enter its delayed-response interval before navigation,
+   then proving the same late completion cannot replace the newer confirmation.
+   Do not increase its timeout or retry until green. All16 slim suites/Rust
+   gates run on the final head.
 
 Selected: reuse the durable ordinary owner intent, exact context-bound public
 review and one atomic approval transaction for the new-original path. Discarded:
