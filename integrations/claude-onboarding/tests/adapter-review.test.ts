@@ -94,7 +94,7 @@ async function transport(child: any) {
 
 function fixture(on: On) {
   const clock = mock.clock(on, { now: NOW })
-  const w = { clock, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
+  const w = { clock, started: false, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
     surfaces: ['terminal'], parent: null as any, child: null as any, sequence: 20,
     calls: [] as any[], trace: [] as any[], httpCalls: [] as any[], outside: [] as string[], tools: [] as any[],
     forbidden: [] as string[], prompts: [] as any[], materials: [] as any[], inFlight: 0, maxInFlight: 0,
@@ -126,7 +126,7 @@ function fixture(on: On) {
     w.child = { ...w.child, connection: value }
     return { status: 200, ok: true, headers: {}, text: JSON.stringify(value) }
   }
-  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.start', ($, e) => { w.started = true; return { cwd: e.cwd } })
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => { w.trace.push({ kind: 'root', value: w.root }); return { value: w.root } })
@@ -191,7 +191,7 @@ async function enter($: Engine, w: World): Promise<Pane> {
       placement: 'inline', scroll: { offset: 0, bodyRows: 30 }, view: {} } })
 }
 async function open($: Engine, w: World, adapter = true) {
-  await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
+  if (!w.started) await $.session.start({ cwd: '/different-shell-cwd', surface: w.surface as any, isInteractive: true })
   const ui = await enter($, w)
   await press(ui, 'Connect this project')
   if (adapter) await press(ui, 'Review adapter connection')
@@ -303,12 +303,13 @@ test('retained adapter review shows complete reversible terms, fixed lifetime an
   for (const value of [quote(ROOT), quote(agent.name), quote(agent.owner), ...agent.capabilities.map(quote),
     w.child.review.expires_at, w.child.review.credential_expires_at, 'Conversation: current conversation']) expect(shown).toContain(value)
   for (const meaning of [/credential/i, /existing.*session/i, /receiv[\s\S]*authorized/i, /repl[\s\S]*authorized/i,
-    /tasks/i, /artifacts/i, /(?:existing|already) authorized work/i, /no new agent|new agents?:\s*none/i,
-    /no new.*session|new sessions?:\s*none/i, /no.*(?:membership|access grant)|(?:membership|access grant).*none/i,
+    /tasks/i, /artifacts/i, /(?:existing|already) authorized work/i, /no new agent|new agents?(?: or sessions?)?:\s*none/i,
+    /no new.*session|new sessions?:\s*none|new agents? or sessions?:\s*none/i,
+    /no.*(?:membership|access grant)|(?:membership|access grant).*none/i,
     /directory.*none|no directory/i, /outbound.*none|no outbound/i,
     /capability.*none|no capability/i, /file.*none|no automatic sharing[\s\S]*files/i,
-    /conversation.*none|no automatic sharing[\s\S]*conversation/i, /ordinary.*permissions/i,
-    /nonrenew|not renewable|renewable:\s*false/i]) expect(shown).toMatch(meaning)
+    /conversation.*none|no automatic sharing[\s\S]*conversation/i, /ordinary.*permissions|local harness permissions.*govern/i,
+    /nonrenew|not renewable|renewable:\s*false|renewal:\s*none/i]) expect(shown).toMatch(meaning)
   for (const value of [w.parent.flow_id, w.parent.review_id, w.child.flow_id, w.child.review_id,
     w.child.review.adapter_id, agent.id, w.child.review.session_id]) expect(shown).not.toContain(value)
   expect(shown).not.toMatch(/[\u202a-\u202e\u200b]/)
@@ -636,7 +637,7 @@ test('an established runtime survives Back and pane Close but explicit Stop forg
 
 test('session end root change terminal loss and changed parent child scope or host stop renewal', { timeoutMs: 15_000 }, async ($, on) => {
   const w = fixture(on); const parent = await parentFlow(); const child = await adapterFlow(parent, { state: 'authorized' })
-  for (const mode of ['session-end', 'root-event', 'root-without-event', 'conversation', 'terminal-loss', 'parent', 'child', 'scope', 'host', 'revocation']) {
+  for (const mode of ['root-event', 'root-without-event', 'conversation', 'terminal-loss', 'parent', 'child', 'scope', 'host', 'revocation', 'session-end']) {
     w.parent = clone(parent); w.child = clone(child); w.root = ROOT; w.native = NATIVE; w.surfaces = ['terminal']; w.surface = 'terminal'
     const ui = await open($, w); await press(ui, 'Connect adapter')
     const before = w.httpCalls.length
