@@ -316,7 +316,7 @@ impl Store {
         let p = Proposal {
             context: request.context,
             network_id: request.network_id,
-            member: request.member,
+            member: request.member.trim().into(),
             expected_person_public_key: request.expected_person_public_key,
         };
         validate_proposal(&p)?;
