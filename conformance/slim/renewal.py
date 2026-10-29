@@ -340,16 +340,23 @@ def external_root_world(w):
 
 
 def policy_world(w):
-    """A 24-hour policy renews with 8 hours left."""
-    def renews():
+    """The policy threshold and original-key checks share one clock and one renewal window."""
+    def before_threshold():
         version = w.policy_version()
         w.clock.set(15 * HOUR + 30 * 60)  # 8.5 hours left: not yet
         w.b.api("POST", f"/v2/networks/{w.net}/sync", {})
         check(w.policy_version() == version, "the policy was renewed before 8 hours were left")
-        w.clock.set(16 * HOUR + 10 * 60)  # 7 h 50 min left
+        return version
+    w.step("policy_before_threshold", before_threshold)
+    w.clock.set(16 * HOUR + 10 * 60)  # 7 h 50 min left for both checks
+
+    def renews():
+        if "policy_before_threshold" in w.errors:
+            raise w.errors["policy_before_threshold"]
+        version = w.results["policy_before_threshold"]
         wait_for(lambda: w.policy_version() > version, timeout=WINDOW, interval=1,
                  message="bob's host to renew his 24-hour policy with 8 hours left")
-    w.step("policy_renewed_at_8_hours", renews)
+    in_parallel([lambda: w.step("policy_renewed_at_8_hours", renews), lambda: original_world(w)])
 
 
 def root_world(w):
@@ -360,17 +367,25 @@ def root_world(w):
         now = {k: v["host_lease_id"] for k, v in members(w.a, w.net).items()}
         check(now == {k: v["host_lease_id"] for k, v in w.start.items()}, "renewed before 4 days were left")
         w.clock.set(3 * DAY + 1 * HOUR)  # 3 days and 23 hours left
-        wait_for(lambda: all(m["host_lease_id"] != w.start[k]["host_lease_id"]
-                             for k, m in members(w.a, w.net).items())
-                 and (w.newest("admin_lease") or {}).get("sequence", 0) >= 2
-                 and (w.newest("person_lease", person_public_key=w.bob_person) or {}).get("sequence", 0) >= 2,
-                 timeout=WINDOW, interval=1,
-                 message="the root host to renew admin, person and both host grants with 4 days left")
-        admin = w.newest("admin_lease")
-        check(admin and admin["sequence"] >= 2 and w.left(admin["not_after"]) > 6 * DAY, "the admin grant was not renewed")
-        check(w.newest("person_lease", person_public_key=w.bob_person)["sequence"] >= 2,
-              "bob's person grant was not renewed")
+        # Root timing/retention and SSH-root proof checks need the same moment. Finish both before taking it offline.
+        external = threading.Thread(target=external_root_world, args=(w,))
+        external.start()
+        try:
+            wait_for(lambda: all(m["host_lease_id"] != w.start[k]["host_lease_id"]
+                                 for k, m in members(w.a, w.net).items())
+                     and (w.newest("admin_lease") or {}).get("sequence", 0) >= 2
+                     and (w.newest("person_lease", person_public_key=w.bob_person) or {}).get("sequence", 0) >= 2,
+                     timeout=WINDOW, interval=1,
+                     message="the root host to renew admin, person and both host grants with 4 days left")
+            admin = w.newest("admin_lease")
+            check(admin and admin["sequence"] >= 2 and w.left(admin["not_after"]) > 6 * DAY, "the admin grant was not renewed")
+            check(w.newest("person_lease", person_public_key=w.bob_person)["sequence"] >= 2,
+                  "bob's person grant was not renewed")
+        finally:
+            external.join()
     w.step("root_renews_root_signed_grants_4_days_early", renews)
+    if "external_root_agent_renews_root_signed_grants" not in w.results and "external_root_agent_renews_root_signed_grants" not in w.errors:
+        external_root_world(w)  # still exercise the independent proof case if the early-threshold assertion failed
 
     def keeps():
         renewed = w.newest("person_lease", person_public_key=w.bob_person)
@@ -521,12 +536,12 @@ def expiry_world(w):
 
 @suite.case("setup_and_lifetimes", "spec 4.4, 6, 8; appendix 4.3, 5")
 def _():
-    for tag in ("policy", "root", "device", "expiry"):
+    worlds["policy"] = OriginalWorld("policy")
+    worlds["root"] = ExternalRootWorld("root")
+    for tag in ("device", "expiry"):
         worlds[tag] = World(tag)
     worlds["delegated"] = DelegatedWorld("delegated")
     worlds["original-admin"] = OriginalAdminWorld("original-admin")
-    worlds["original"] = OriginalWorld("original")
-    worlds["external"] = ExternalRootWorld("external")
     in_parallel([lambda w=w: w.step("setup", w.setup) for w in worlds.values()])
     w = worlds["root"]
     for member in members(w.a, w.net).values():
@@ -538,8 +553,7 @@ def _():
             check(0 < life <= limit, f"a {kind} lasts {life:.0f}s, over {limit}s")
     # Every independent timed window gets its full bound; one fixture failure does not suppress the others.
     work = (("policy", policy_world), ("root", root_world), ("device", device_world), ("expiry", expiry_world),
-            ("delegated", delegated_world), ("original-admin", delegated_world),
-            ("original", original_world), ("external", external_root_world))
+            ("delegated", delegated_world), ("original-admin", delegated_world))
     in_parallel([lambda w=worlds[tag], f=function: f(w) for tag, function in work if "setup" not in worlds[tag].errors])
     for w in worlds.values():
         if "setup" in w.errors:
@@ -567,9 +581,9 @@ CASES = [
      None),
     ("original-admin", "original_admin_renews_person_host_and_group_without_root", "spec 7.1, 7.2; 20 items 18, 21, 22",
      None),
-    ("original", "original_key_agent_renews_binding_device_and_policy", "spec 7.1; 20 items 18, 21, 27",
+    ("policy", "original_key_agent_renews_binding_device_and_policy", "spec 7.1; 20 items 18, 21, 27",
      None),
-    ("external", "external_root_agent_renews_root_signed_grants", "spec 7.3; 20 item 25",
+    ("root", "external_root_agent_renews_root_signed_grants", "spec 7.3; 20 item 25",
      None),
 ]
 for _world, _name, _spec, _known in CASES:

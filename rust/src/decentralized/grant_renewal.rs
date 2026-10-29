@@ -234,12 +234,19 @@ impl Signer_ {
             Self::Original { .. } => None,
         }
     }
-    fn available(&self, store: &Store) -> bool {
-        self.seed().is_some()
-            || b64(self.public(), 32)
+    /// SSH availability belongs to the signer, not to each grant. Consult it
+    /// only outside the Store lock, and keep seed-backed keys independent of
+    /// a missing SSH identity with the same public key.
+    fn available(&self, store: &Store, ssh: &mut BTreeMap<String, bool>) -> bool {
+        if self.seed().is_some() {
+            return true;
+        }
+        *ssh.entry(self.public().to_owned()).or_insert_with(|| {
+            b64(self.public(), 32)
                 .ok()
                 .and_then(|key| key.try_into().ok())
                 .is_some_and(|key| store.renewal_signer(key).is_ok())
+        })
     }
 }
 /// A selected original key takes the first local turn. Remote original-key
@@ -698,27 +705,43 @@ pub(crate) fn due(store: &Store, network: &str) -> Result<bool> {
         let p = s.project(&controls::local_decision_time()?)?;
         plans(&c, &s, &p)?
     };
-    Ok(plans.iter().any(|plan| plan.signer.available(store)))
+    let mut ssh = BTreeMap::new();
+    Ok(plans
+        .iter()
+        .any(|plan| plan.signer.available(store, &mut ssh)))
 }
 /// Renew every due grant this host can sign, root renewals first, then the
 /// device renewals they make possible. A renewal the verifier refuses is
 /// skipped until the next pass.
 pub(crate) fn renew(store: &Store, network: &str) -> Result<()> {
     let mut failed = BTreeSet::new();
+    let mut ssh = BTreeMap::new();
     for _ in 0..256 {
-        let next = {
+        let options = {
             let c = store.connection().map_err(|_| Error::new("internal"))?;
             let s = Snapshot::load(&c, network, &store.identity().public_key)?;
             let p = s.project(&controls::local_decision_time()?)?;
-            plans(&c, &s, &p)?.into_iter().find(|plan| {
-                !failed.contains(&(plan.stream.clone(), plan.signer.public().to_owned()))
-            })
+            plans(&c, &s, &p)?
         };
+        // Unavailable external roots must not consume the bounded write budget
+        // once per stream and starve a usable admin or owner signer.
+        let next = options.into_iter().find(|plan| {
+            !failed.contains(&(plan.stream.clone(), plan.signer.public().to_owned()))
+                && plan.signer.available(store, &mut ssh)
+        });
         let Some(plan) = next else {
             return Ok(());
         };
-        if !matches!(apply(store, network, &plan), Ok(true)) {
-            failed.insert((plan.stream, plan.signer.public().to_owned()));
+        match apply(store, network, &plan) {
+            Ok(true) => {}
+            Err(error) if error.code == "signer_unavailable" && plan.signer.seed().is_none() => {
+                // The agent can lose/refuse the key after a successful probe.
+                // Suppress all of that SSH signer's plans until the next pass.
+                ssh.insert(plan.signer.public().to_owned(), false);
+            }
+            _ => {
+                failed.insert((plan.stream, plan.signer.public().to_owned()));
+            }
         }
     }
     Ok(())
