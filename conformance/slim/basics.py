@@ -183,7 +183,7 @@ def _():
     check(got["request"]["content"] == "after the restart", f"bert got {got['request']}")
 
 
-@suite.case("schema_25_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5; 20 item 59")
+@suite.case("schema_26_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9; 20 item 59")
 def _():
     path, db = database(a)
     try:
@@ -195,9 +195,9 @@ def _():
         db.close()
     want = {"dec_contexts", "dec_objects", "dec_admissions", "dec_restrictions", "dec_activations", "dec_heads",
             "dec_highwater", "dec_signers", "dec_clock", "dec_intents", "dec_pending", "dec_frames", "dec_operations",
-            "dec_outbox", "dec_contacts", "dec_helpers", "dec_migrations", "onboarding_project_flows", "onboarding_adapter_flows"}
+            "dec_outbox", "dec_contacts", "dec_helpers", "dec_migrations", "onboarding_project_flows", "onboarding_adapter_flows", "onboarding_invitation_flows"}
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 25, f"{path.name}: schema version {version}, want 25")
+    check(version == 26, f"{path.name}: schema version {version}, want 26")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 
@@ -214,7 +214,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 26")
+    db.execute("PRAGMA user_version = 27")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -223,10 +223,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 26 database")
+    check(code not in (None, 0), "a daemon opened a schema 27 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 26, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 27, "the refused database was changed")
     finally:
         db.close()
 
