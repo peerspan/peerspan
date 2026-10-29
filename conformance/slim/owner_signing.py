@@ -8,7 +8,10 @@ No protocol/authority DB fabrication, production imports or new API. Database
 reads verify retained proof and pure history. Observable signature/submission
 counts do not claim to count internal generated-key signing calls. Missing/
 pruned/corrupt evidence and the narrow final-read/POST interval remain source/
-fault limits. A lost response can mean committed signature; no automatic retry
+fault limits. Fresh signing past the15min approved-review window is not forced:
+an unoffered stage already expires after10min, and resume cannot extend it.
+The client-window distinction remains source coverage; real expired historical
+replay is checked. A lost response can mean committed signature; no automatic retry
 or cancellation of dispatched key use is claimed. No native/model/installed
 or two-physical-machine acceptance is inferred. Existing suites stay unchanged.
 """
@@ -428,7 +431,8 @@ def command(h, flow, approved, *, proxy=None, agent=None, data=None, env=None, s
     # Never dump raw stdout/stderr, templates, signatures, key/agent diagnostics.
     for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_SIGNING_MARKER", b"PRIVATE_AGENT_COMMENT", b"token_", b"psi2-", b"psl2-",
                    str(generated_path(h)).encode(), str(environment["SSH_AUTH_SOCK"]).encode(),
-                   str((proxy.state if proxy else h.state) / "admin.sock").encode()):
+                   str((proxy.state if proxy else h.state) / "admin.sock").encode(),
+                   str(environment.get("XDG_CONFIG_HOME", h.home / ".config")).encode()):
         check(marker not in result.stdout + result.stderr, "bounded signing output leaked private key/code/path/provider material")
     answer = Result(argv, result.returncode, result.stdout.decode(errors="replace"), result.stderr.decode(errors="replace"))
     if answer.ok:
@@ -534,7 +538,8 @@ def _():
     refused, _, f2, a2 = approved_fixture("unsafe")
     target = install_key(refused); original = target.read_bytes()
     with AgentProxy("u", [source()["key"]]) as agent, HostProxy(refused, "up") as proxy:
-        for fault in ("insecure", "malformed", "oversized", "symlink", "directory", "fifo", "private-directory", "ancestor-writable", "parent-symlink", "relative", "traversal"):
+        for fault in ("insecure", "malformed", "oversized", "symlink", "directory", "fifo", "private-directory", "ancestor-writable",
+                      "parent-symlink", "relative", "traversal", "redundant-slash", "dot-component"):
             target.unlink(); environment = {}
             if fault == "symlink":
                 target.symlink_to(source()["key"])
@@ -556,6 +561,10 @@ def _():
                 environment["XDG_CONFIG_HOME"] = ".config"
             if fault == "traversal":
                 environment["XDG_CONFIG_HOME"] = str(refused.home / "child" / ".." / ".config")
+            if fault == "redundant-slash":
+                environment["XDG_CONFIG_HOME"] = str(refused.home) + "/.config//"
+            if fault == "dot-component":
+                environment["XDG_CONFIG_HOME"] = str(refused.home) + "/./.config"
             before, home = settled(refused), private_files(refused.home)
             count = len(agent.messages); submitted = len(proxy.submissions)
             result = command(refused, f2, a2, proxy=proxy, agent=agent, env=environment)
@@ -736,10 +745,6 @@ def _():
                             "migration_proposal_id": "-", "contact_invitation": issued["invitation"], "helpers": []})
     check(status == 200 and ordinary["request_id"] == rid, "ordinary pairing retrieval did not reuse exact guided request")
     reply = ordinary["display_code"]
-    # Its approved15min window may elapse; keep the real request active with an
-    # explicit ordinary resume before the existing10min inactivity boundary.
-    advance_to(h, h.now() + timedelta(minutes=8)); h.cli("link", "resume", rid, timeout=10)
-    advance_to(h, parse_time(approved["owner"]["review"]["expires_at"]) + timedelta(seconds=1))
     with HostProxy(h, "vp") as proxy:
         command(h, flow, approved, proxy=proxy); check_submission(proxy, approved)
         view = verify_offer(h, flow, approved); key.unlink()
