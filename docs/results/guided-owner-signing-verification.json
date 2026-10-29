@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-29",
+  "kind": "independent contract-derived bounded local original owner-offer signing verification",
+  "merged_base": "e548e3b72118657c2736660868a0a98a9518e309",
+  "contract_commit": "3dbf810dc89bfdb0c47c580b14f1b158f4d31b28",
+  "production_source_commit": "a4de0b27528743e43c728ec5e3a3467470511f73",
+  "independent_test_commits": ["7dd12df", "9538f65"],
+  "integrated_test_commits": ["bbeb947", "8af738d"],
+  "binary_sha256": "e25b09fcbeb6a348ffac924f43f6f9b41e6b90c716068ec642fae7211e9ca723",
+  "native_runtime": "Claude Code 2.1.303; updates disabled; no inference",
+  "local_results": {
+    "owner_signing": {"passed": 6, "failed": 0, "seconds": 68, "full_ceremony_seconds": 32.4},
+    "owner_onboarding": {"passed": 6, "failed": 0, "seconds": 58, "source_unchanged": true},
+    "join_onboarding": {"passed": 14, "failed": 0, "seconds": 52, "source_unchanged": true},
+    "native": {"passed": 232, "failed": 0, "seconds": 36.01, "source_unchanged": true},
+    "rust": {"passed": 155, "failed": 0, "ignored": 2},
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "native_strict_validation": "pass"
+  },
+  "coverage": [
+    "Real generated original and exact real SSH-agent identity among multiple keys; independent ssh-keygen verification of retained original SSHSIG, one original authority slot1 submission",
+    "Non-creating pinned no-follow generated-key reads; wrong, absent, insecure, symlink, traversal, redundant-slash/dot, oversized and nonregular destinations refuse as specified without fallback or key writes",
+    "Strict64KiB private stdin decision/context/typed-reference/duplicate/extra input boundaries, absent daemon and pre-key eligibility refusals; no provider/path/signing-material diagnostics",
+    "Authentic owner-local response faults for review/digest/pins/effects and ordinary intent/provider/root/role/slot/format/key/message/profile/packet/descriptor/lifetime refuse without signing or submission",
+    "Genuine-agent identity/sign dispatch gates observe parent detachment before key use and cancellation/expiry during key use; post-key guard sends no signature after changed eligibility",
+    "A proxy drops exactly one committed signature response; no automatic retry, then exact completed-offer replay reads public evidence without agent lookup/signature or another submission",
+    "Real same-intent administrator admission, original finalization and requester commit; exact keyless completed-offer replay remains pure after detachment, expiry and restart"
+  ],
+  "fixture_correction": {
+    "initial_result": "5/6 pass; full ceremony's invalid delayed fresh-sign stimulus stopped before signing",
+    "reason": "An ordinary resume does not record a stage or extend spec8's ten-minute inactivity boundary. Waiting beyond the approved fifteen-minute review window cannot truthfully leave an unoffered request eligible.",
+    "decision": "GU.impl18a preserves protocol expiry, signs the real ceremony while eligible and retains actual expired-history replay. No fabricated authority rows, weaker assertion, product change or retry-until-green.",
+    "corrected_full_runs": 1
+  },
+  "limits": [
+    "CLI-only slice: no native signing control or actual terminal signing acceptance",
+    "Public recorded evidence is global original-signature evidence, not frontend attribution, completed admission, requester consent, agent access or connection readiness",
+    "Generated internal signing-call counts, unreachable fresh-signing past the approved review window, missing/pruned/corrupt evidence and narrow final-read/POST boundaries retain explicit source/fault coverage limits",
+    "Local key use, context changes and submission are not one atomic transaction; an already-dispatched signature cannot be retracted",
+    "Intermediate live-transport checks assert immutable reviews/key files and zero signing/agent work; whole-database purity is checked only after independently settled transport or terminal history",
+    "Existing installed/physical two-machine/distinct-person, real model receipt, actual terminal creation/progress/outcome reopen and schema23-to27 full-state upgrade/recovery gates remain open",
+    "Prior automatic-review-rejected terminal actions and unchanged quota-refused model probes were not retried",
+    "Final-head all17 CI suites and fresh bot review are recorded in PR55 and tracking PR35"
+  ]
+}
