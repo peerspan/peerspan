@@ -113,7 +113,7 @@ function fixture(on: On) {
     transports: {} as Record<string, any>, requestTransports: [] as any[], inFlight: 0, maxInFlight: 0,
     tasks: [] as any[], cancellations: [] as any[], taskStatuses: {} as Record<string, any>,
     taskBodies: {} as Record<string, string>,
-    register: async (_e: any): Promise<void> => undefined,
+    register: async (_e: any): Promise<any> => undefined,
     messages: [] as any[], held: {} as Record<string, any>, seen: new Set<string>(), replies: {} as Record<string, any>,
     run: async (_kind: string, _payload: any, _e: any): Promise<any> => undefined,
     fetch: async (_e: any): Promise<any> => undefined,
@@ -197,7 +197,10 @@ function fixture(on: On) {
   on('session.surface', () => ({ value: w.surface }))
   on('session.surfaces', () => { w.trace.push({ kind: 'surfaces' }); return { value: w.surfaces } })
   on('command.register', () => ({ value: undefined }))
-  on('tool.register', async ($, e) => { w.tools.push(e); await w.register(e); return { value: undefined } })
+  on('tool.register', async ($, e) => {
+    w.tools.push(e)
+    return (await w.register(e))?.fixtureDeny ? { deny: RAW } : { value: undefined }
+  })
   on('command.run', () => ({ text: 'unhandled fixture command' }))
   on('tool.call', () => ({ deny: 'unregistered fixture tool' }))
   on('process.run', async ($, e) => {
@@ -963,5 +966,48 @@ test('late registration from an ended conversation cannot populate or duplicate 
   expect(resultOf(await call($, ACCEPT, { task_id: id('task', 1) })).state).toBe('running')
   await taskStats(ui, { submitted: 0, observed: 1, changes: 1, cancellations: 0 })
   expect(await text(ui)).toContain('Incoming delivery: verified (messages)')
+  privacy(w, await text(ui))
+})
+
+
+test('explicit registration Retry repeats only a failed tool and shares its pending retry while retaining successful tools', async ($, on) => {
+  const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
+  let attempted = 0, failed = '', failOnce = true
+  const successful = new Set<string>()
+  w.register = async e => {
+    if (!e.name.startsWith('task_')) return
+    attempted++
+    if (!failed && attempted === 3) failed = e.name
+    if (e.name === failed) {
+      if (failOnce) { failOnce = false; return { fixtureDeny: true } }
+      await w.clock.sleep(1000)
+    }
+    successful.add(e.name)
+  }
+  await enableTasks(w, ui)
+  expect(failed, 'the fixture refused one registration after earlier successful registrations').not.toBe('')
+  expect(successful.size >= 2, 'earlier registrations succeeded').toBe(true)
+  expect(await text(ui)).not.toContain('Incoming tasks: enabled')
+  expect(await text(ui)).toContain('Incoming delivery: verified (messages)')
+  expect(taskClaims(w)).toEqual([]); expect(cancelClaims(w)).toEqual([])
+  const successfulBeforeRetry = [...successful]
+  const registrations = (name: string) => w.tools.filter(tool => tool.name === name).length
+  expect(registrations(failed)).toBe(1)
+  await enableTasks(w, ui, 'Retry incoming tasks')
+  expect(registrations(failed), 'explicit Retry retries the refused registration').toBe(2)
+  expect(taskClaims(w)).toEqual([]); expect(cancelClaims(w)).toEqual([])
+  for (const name of successfulBeforeRetry) expect(registrations(name), name + ': earlier successful registration is retained').toBe(1)
+  await press(ui, 'Stop incoming tasks'); await enableTasks(w, ui)
+  expect(registrations(failed), 'restart shares the still-pending retry instead of registering twice').toBe(2)
+  await w.clock.advance(1000)
+  for (const name of ['task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled']) {
+    expect(registrations(name), name + ': only the failed entry is repeated').toBe(name === failed ? 2 : 1)
+  }
+  expect(await text(ui)).toContain('Incoming tasks: enabled')
+  expect(taskClaims(w).length).toBe(1); expect(cancelClaims(w).length).toBe(1)
+  expect(w.prompts.length).toBe(1); expect(readyCalls(w).length).toBe(1)
+  w.taskStatuses[id('task', 1)] = taskStatus(w, 1)
+  expect(resultOf(await call($, ACCEPT, { task_id: id('task', 1) })).state).toBe('running')
+  await taskStats(ui, { submitted: 0, observed: 1, changes: 1, cancellations: 0 })
   privacy(w, await text(ui))
 })
