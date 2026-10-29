@@ -366,6 +366,11 @@ export function register(on, configured = {}) {
     clearCheck();
     return next(e);
   });
+  on('classic.CwdChanged', async ($, e, next) => {
+    clearProject();
+    $.ui.invalidate('ui.render');
+    return next(e);
+  });
   on('session.end', async ($, e, next) => {
     clearSession();
     return next(e);
