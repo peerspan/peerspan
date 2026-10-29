@@ -1,15 +1,14 @@
-//! Automatic renewal of 7-day grants (spec 7.1, 7.2, 7.3; DEC-S10, DEC-S11,
-//! DEC-Q6 to DEC-Q12, DEC-Q22, DEC-Q27, DEC-Q28). The root host renews admin,
-//! person and host grants; a host's selected device renews its person's
-//! bindings and other devices, and the creator device renews itself while it
-//! is the creator's only current device. Each renewal is a deadline-only
-//! statement with `operation_id` `-`, approved by the approval that created
-//! the grant, signed with the daemon's own key and applied like any other
-//! fresh statement; the ordinary outbox delivers it.
+//! Automatic grant renewal (spec 7.1 to 7.3). The root renews network
+//! authority, admins renew person/host grants and groups, and the selected
+//! original key or device renews its person's bindings and devices. Renewals
+//! reuse the original approval and ordinary statement admission and outbox.
+//! External SSH signers run outside the database lock, followed by an exact
+//! current-authority recheck before publication.
 use super::{
     actions,
     codec::*,
     controls,
+    provider::Resolved,
     state::Projection,
     statement::{lease, signature_message},
     storage::Snapshot,
@@ -25,6 +24,8 @@ use std::collections::{BTreeMap, BTreeSet};
 const SEVEN_DAYS: i64 = 604_800;
 const DEVICE_THRESHOLD: i64 = super::renewal::SEVEN_DAY_THRESHOLD;
 const ROOT_THRESHOLD: i64 = 345_600;
+const DAY: i64 = 86_400;
+const GROUP_THRESHOLD: i64 = super::renewal::DAY_THRESHOLD;
 
 fn db(_: rusqlite::Error) -> Error {
     Error::new("internal")
@@ -33,9 +34,16 @@ fn format(t: chrono::DateTime<chrono::Utc>) -> String {
     t.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum Signer_ {
-    Root([u8; 32]),
+    Root {
+        seed: Option<[u8; 32]>,
+        public: String,
+    },
+    Original {
+        public: String,
+        scopes: u64,
+    },
     Device {
         seed: [u8; 32],
         public: String,
@@ -44,7 +52,7 @@ enum Signer_ {
         scopes: u64,
     },
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct Plan {
     stream: Vec<String>,
     signer: Signer_,
@@ -104,7 +112,9 @@ fn own_device(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Option<Sig
         public: selected.device_key.clone(),
         lease: head.id.clone(),
         person: selected.person_key.clone(),
-        scopes: num(head.subject()?, "scopes")?,
+        scopes: own.iter().try_fold(15, |scopes, head| {
+            Ok::<_, Error>(scopes & p.effective_scopes(&head.id)?)
+        })?,
     }))
 }
 /// The heads a renewal replaces (one current head, or a fork of identical
@@ -124,10 +134,10 @@ fn heads<'a>(
     }
     Some((heads, end?))
 }
-/// The current head's own deadline, if the stream has one current head.
+/// The current head's effective deadline, if the stream has one current head.
 fn current(p: &Projection, stream: &[String]) -> Option<(String, chrono::DateTime<chrono::Utc>)> {
-    let (head, _) = p.current_statement(stream).ok()?;
-    let end = stamp(text(&head.payload, "not_after").ok()?).ok()?;
+    let (head, end) = p.current_statement(stream).ok()?;
+    let end = stamp(&end).ok()?;
     Some((head.id.clone(), end))
 }
 /// The parents' deadline cap of a device-signed renewal: the person, host
@@ -164,7 +174,7 @@ fn ranked(p: &Projection, person: &str, scope: u64, except: Option<&str>) -> Vec
         .filter_map(|s| {
             let (head, _) = p.current_statement(&s.key).ok()?;
             let subject = head.subject().ok()?;
-            if num(subject, "scopes").ok()? & scope == 0 {
+            if p.effective_scopes(&head.id).ok()? & scope == 0 {
                 return None;
             }
             Some((
@@ -191,56 +201,217 @@ fn turn(
         + chrono::TimeDelta::seconds(i * threshold / (k + 1));
     now >= start
 }
+/// Selected person signer. An unavailable device never falls back to the
+/// original key; original-key availability is checked outside the Store lock.
+fn own(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Option<Signer_>> {
+    let Some(selected) = &s.selection else {
+        return Ok(None);
+    };
+    if selected.kind == "device" {
+        return own_device(c, s, p);
+    }
+    let Ok(provider) = Resolved::resolve(c, s, p, "auto", "auto", "person_lease") else {
+        return Ok(None);
+    };
+    let public = provider.public(p, &s.network.own_identity.host_public_key, false)?;
+    Ok(Some(Signer_::Original {
+        public: selected.person_key.clone(),
+        scopes: num(object(&public)?, "scopes")?,
+    }))
+}
+impl Signer_ {
+    fn public(&self) -> &str {
+        match self {
+            Self::Root { public, .. }
+            | Self::Original { public, .. }
+            | Self::Device { public, .. } => public,
+        }
+    }
+    fn seed(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Root { seed, .. } => *seed,
+            Self::Device { seed, .. } => Some(*seed),
+            Self::Original { .. } => None,
+        }
+    }
+    /// SSH availability belongs to the signer, not to each grant. Consult it
+    /// only outside the Store lock, and keep seed-backed keys independent of
+    /// a missing SSH identity with the same public key.
+    fn available(&self, store: &Store, ssh: &mut BTreeMap<String, bool>) -> bool {
+        if self.seed().is_some() {
+            return true;
+        }
+        *ssh.entry(self.public().to_owned()).or_insert_with(|| {
+            b64(self.public(), 32)
+                .ok()
+                .and_then(|key| key.try_into().ok())
+                .is_some_and(|key| store.renewal_signer(key).is_ok())
+        })
+    }
+}
+/// A selected original key takes the first local turn. Remote original-key
+/// availability is not advertised, so device hosts rank known devices without
+/// inventing an unavailable signer; concurrent plain renewals are resolved.
+fn owner_order(
+    p: &Projection,
+    person: &str,
+    scope: u64,
+    except: Option<&str>,
+    original: bool,
+) -> Vec<String> {
+    let devices = ranked(p, person, scope, except);
+    if original {
+        std::iter::once(person.to_owned()).chain(devices).collect()
+    } else {
+        devices
+    }
+}
+fn admin_order(p: &Projection, original: Option<&str>) -> Vec<String> {
+    let mut devices = Vec::new();
+    for stream in p.streams.values().filter(|s| s.key[0] == "admin") {
+        if p.current_statement(&stream.key).is_err() {
+            continue;
+        }
+        let person = &stream.key[1];
+        for public in ranked(p, person, 8, None) {
+            let key = vec!["device".into(), person.clone(), public.clone()];
+            if let Ok((head, _)) = p.current_statement(&key)
+                && let Ok(subject) = head.subject()
+                && let Ok(host) = text(subject, "host_public_key")
+            {
+                devices.push((host.to_owned(), public));
+            }
+        }
+    }
+    devices.sort();
+    original
+        .into_iter()
+        .map(str::to_owned)
+        .chain(devices.into_iter().map(|(_, key)| key))
+        .collect()
+}
+/// Parent grants and their effective deadline for an admin-signed renewal.
+fn admin_cap(
+    p: &Projection,
+    signer: &Signer_,
+) -> Option<(BTreeMap<String, String>, chrono::DateTime<chrono::Utc>)> {
+    let (person, device) = match signer {
+        Signer_::Original { public, scopes } if scopes & 8 == 8 => (public, None),
+        Signer_::Device {
+            person,
+            lease,
+            scopes,
+            ..
+        } if scopes & 8 == 8 => (person, Some(lease)),
+        _ => return None,
+    };
+    let (person_id, person_end) = current(p, &["person".into(), person.clone()])?;
+    let (admin_id, admin_end) = current(p, &["admin".into(), person.clone()])?;
+    let mut parents = BTreeMap::from([
+        ("issuer_person".into(), person_id),
+        ("issuer_admin".into(), admin_id),
+    ]);
+    let mut cap = person_end.min(admin_end);
+    if let Some(device) = device {
+        let statement = p.catalog.get(device).ok()?;
+        let (_, end) = current(p, &statement.stream().ok()??)?;
+        if p.effective_scopes(device).ok()? & 8 == 0 {
+            return None;
+        }
+        parents.insert("issuer_device".into(), device.clone());
+        cap = cap.min(end);
+    }
+    Some((parents, cap))
+}
 /// Grants this host may renew now, root renewals first.
 fn plans(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Vec<Plan>> {
     let now = stamp(&p.decision_time)?;
     let mut out = Vec::new();
-    if let Some(seed) = root_seed(c, &s.descriptor.network_id, p)? {
-        for kind in ["admin", "person", "host"] {
-            for stream in p.streams.values().filter(|st| st.key[0] == kind) {
-                let Some((found, end)) = heads(p, &stream.key) else {
-                    continue;
-                };
-                if found.len() > 1 || end - now <= chrono::TimeDelta::seconds(ROOT_THRESHOLD) {
-                    out.push(Plan {
-                        stream: stream.key.clone(),
-                        signer: Signer_::Root(seed),
-                    });
-                }
-            }
+    let root = p.catalog.get(p.root_state_id()?)?;
+    let root_signer = Signer_::Root {
+        seed: root_seed(c, &s.descriptor.network_id, p)?,
+        public: text(&root.payload, "root_public_key")?.into(),
+    };
+    for stream in p
+        .streams
+        .values()
+        .filter(|st| matches!(st.key[0].as_str(), "admin" | "person" | "host" | "group"))
+    {
+        let Some((found, end)) = heads(p, &stream.key) else {
+            continue;
+        };
+        let threshold = if stream.key[0] == "group" {
+            GROUP_THRESHOLD
+        } else if text(found[0].issuer()?, "kind")? == "root" {
+            ROOT_THRESHOLD
+        } else {
+            DEVICE_THRESHOLD
+        };
+        if found.len() > 1 || end - now <= chrono::TimeDelta::seconds(threshold) {
+            out.push(Plan {
+                stream: stream.key.clone(),
+                signer: root_signer.clone(),
+            });
         }
     }
-    let Some(device) = own_device(c, s, p)? else {
+    let Some(signer) = own(c, s, p)? else {
         return Ok(out);
     };
-    let Signer_::Device {
-        public,
-        person,
-        scopes,
-        ..
-    } = &device
-    else {
-        return Ok(out);
+    let (person, public, scopes) = match &signer {
+        Signer_::Original { public, scopes } => (public, public, *scopes),
+        Signer_::Device {
+            person,
+            public,
+            scopes,
+            ..
+        } => (person, public, *scopes),
+        _ => return Ok(out),
     };
     for stream in p.streams.values() {
         let kind = stream.key[0].as_str();
+        let Some((found, end)) = heads(p, &stream.key) else {
+            continue;
+        };
+        let forked = found.len() > 1;
+        if matches!(kind, "person" | "host" | "group") && scopes & 8 == 8 {
+            if let Some((_, cap)) = admin_cap(p, &signer) {
+                let threshold = if kind == "group" {
+                    GROUP_THRESHOLD
+                } else {
+                    DEVICE_THRESHOLD
+                };
+                if (forked || end - now <= chrono::TimeDelta::seconds(threshold) && cap > end)
+                    && (forked
+                        || turn(
+                            now,
+                            end,
+                            threshold,
+                            &admin_order(
+                                p,
+                                matches!(&signer, Signer_::Original { .. })
+                                    .then_some(public.as_str()),
+                            ),
+                            public,
+                        ))
+                {
+                    out.push(Plan {
+                        stream: stream.key.clone(),
+                        signer: signer.clone(),
+                    });
+                }
+            }
+            continue;
+        }
         let (host, scope) = match kind {
             "binding" if scopes & 6 != 0 => (stream.key[1].clone(), 6),
             "device" if stream.key[1] == *person && scopes & 4 == 4 => {
-                let Some((found, _)) = heads(p, &stream.key) else {
-                    continue;
-                };
                 (text(found[0].subject()?, "host_public_key")?.to_owned(), 4)
             }
             _ => continue,
         };
-        let Some((found, end)) = heads(p, &stream.key) else {
-            continue;
-        };
         if text(found[0].subject()?, "person_public_key")? != person {
             continue;
         }
-        let forked = found.len() > 1;
         let lease = format!("{kind}_lease");
         let Some((_, cap)) = device_cap(p, &lease, person, &host) else {
             continue;
@@ -248,9 +419,8 @@ fn plans(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Vec<Plan>> {
         if !forked && (end - now > chrono::TimeDelta::seconds(DEVICE_THRESHOLD) || cap <= end) {
             continue;
         }
-        let order = if kind == "device" && stream.key[2] == *public {
-            // The creator device renews itself only while it is the
-            // creator's only current device; the verifier checks the rest.
+        let own_device = matches!(&signer, Signer_::Device { .. });
+        let order = if kind == "device" && stream.key[2] == *public && own_device {
             let creator = p.catalog.statements.values().any(|d| {
                 d.stream().ok().flatten().as_ref() == Some(&stream.key)
                     && d.sequence().ok() == Some(1)
@@ -260,16 +430,23 @@ fn plans(c: &Connection, s: &Snapshot, p: &Projection) -> Result<Vec<Plan>> {
                 continue;
             }
             vec![public.clone()]
-        } else if kind == "device" {
-            ranked(p, person, scope, Some(&stream.key[2]))
         } else {
-            ranked(p, person, scope, None)
+            owner_order(
+                p,
+                person,
+                scope,
+                if kind == "device" {
+                    Some(stream.key[2].as_str())
+                } else {
+                    None
+                },
+                matches!(&signer, Signer_::Original { .. }),
+            )
         };
-        // A fork of identical renewals is resolved at once (spec 7.1).
         if forked || turn(now, end, DEVICE_THRESHOLD, &order, public) {
             out.push(Plan {
                 stream: stream.key.clone(),
-                signer: device.clone(),
+                signer: signer.clone(),
             });
         }
     }
@@ -362,47 +539,68 @@ fn draft(p: &Projection, plan: &Plan) -> Result<Option<(String, Vec<u8>, String)
     let head = found[0];
     let forked = found.len() > 1;
     let kind = head.kind.clone();
-    let subject = head.subject()?.clone();
+    let subject = if kind == "group" {
+        None
+    } else {
+        Some(head.subject()?.clone())
+    };
     let heads: Vec<String> = stream.heads.iter().cloned().collect();
     let resolves: Vec<String> = if heads.len() > 1 {
         heads.clone()
     } else {
         Vec::new()
     };
-    let mut end = now + chrono::TimeDelta::seconds(SEVEN_DAYS);
-    let (issuer, parents, key, public) = match &plan.signer {
-        Signer_::Root(seed) => {
-            let key = SigningKey::from_bytes(seed);
-            let public = encode(key.verifying_key().as_bytes());
-            (
-                json!({"kind":"root","person_public_key":"-"}),
-                BTreeMap::new(),
-                key,
-                public,
-            )
-        }
-        Signer_::Device {
-            seed,
-            public,
-            lease,
-            person,
-            ..
-        } => {
-            let host = text(&subject, "host_public_key")?;
-            let Some((mut parents, cap)) = device_cap(p, &kind, person, host) else {
-                return Ok(None);
-            };
+    let mut end = now + chrono::TimeDelta::seconds(if kind == "group" { DAY } else { SEVEN_DAYS });
+    let (issuer, parents) = match &plan.signer {
+        Signer_::Root { .. } => (
+            json!({"kind":"root","person_public_key":"-"}),
+            BTreeMap::new(),
+        ),
+        Signer_::Original { public: person, .. } | Signer_::Device { person, .. } => {
+            let device = matches!(&plan.signer, Signer_::Device { .. });
+            let (mut parents, cap) =
+                if matches!(kind.as_str(), "person_lease" | "host_lease" | "group") {
+                    let Some(value) = admin_cap(p, &plan.signer) else {
+                        return Ok(None);
+                    };
+                    value
+                } else {
+                    let host = text(
+                        subject.as_ref().ok_or_else(|| Error::new("invalid"))?,
+                        "host_public_key",
+                    )?;
+                    let Some(value) = device_cap(p, &kind, person, host) else {
+                        return Ok(None);
+                    };
+                    value
+                };
             end = end.min(cap);
-            if kind == "binding_lease" {
-                parents.insert("issuer_device".into(), lease.clone());
-            } else if let Some(kept) = head.parents()?.get("issuer_device") {
+            if kind == "binding_lease" && device {
+                if let Signer_::Device { lease, .. } = &plan.signer {
+                    parents.insert("issuer_device".into(), lease.clone());
+                }
+            } else if kind == "device_lease"
+                && let Some(kept) = head.parents()?.get("issuer_device")
+            {
                 parents.insert("issuer_device".into(), kept.clone());
+                if !device {
+                    let Some((_, cap)) = current(
+                        p,
+                        &p.catalog
+                            .get(kept)?
+                            .stream()?
+                            .ok_or_else(|| Error::new("invalid"))?,
+                    ) else {
+                        return Ok(None);
+                    };
+                    end = end
+                        .min(cap)
+                        .min(stamp(text(&p.catalog.get(kept)?.payload, "not_after")?)?);
+                }
             }
             (
-                json!({"kind":"device","person_public_key":person}),
+                json!({"kind":if device {"device"} else {"person"},"person_public_key":person}),
                 parents,
-                SigningKey::from_bytes(seed),
-                public.clone(),
             )
         }
     };
@@ -416,29 +614,80 @@ fn draft(p: &Projection, plan: &Plan) -> Result<Option<(String, Vec<u8>, String)
         return Ok(None);
     }
     let time = format(now);
-    let payload = json!({"root_state_id":p.root_state_id()?,"operation_id":"-","sequence":stream.maximum.checked_add(1).ok_or_else(||Error::new("version_exhausted"))?,"predecessors":heads,"resolves":resolves,"retained_statement_ids":retained(p,&plan.stream,&stream.heads)?,"subject":subject,"issuer":issuer,"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":time,"not_before":time,"not_after":format(end)});
+    let sequence = stream
+        .maximum
+        .checked_add(1)
+        .ok_or_else(|| Error::new("version_exhausted"))?;
+    let mut payload = json!({"root_state_id":p.root_state_id()?,"operation_id":"-","sequence":sequence,"predecessors":heads,"resolves":resolves,"issuer":issuer,"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":time,"not_before":time,"not_after":format(end)});
+    if let Some(subject) = subject {
+        payload["subject"] = serde_json::Value::Object(subject);
+        payload["retained_statement_ids"] = json!(retained(p, &plan.stream, &stream.heads)?);
+    } else {
+        let raw = b64(text(&head.payload, "body_base64")?, MAX_PAYLOAD)?;
+        let mut body = parse(&raw, MAX_PAYLOAD)?;
+        body["version"] = json!(sequence);
+        body["defined_at"] = json!(time);
+        payload["body_base64"] = json!(encode(&actions::bytes(&body)?));
+    }
     let payload = serde_json::to_vec(&payload).map_err(|_| Error::new("internal"))?;
     let context = p.descriptor.context_id();
     let id = super::statement::statement_id(&kind, &context, &payload);
-    let signature = encode(
-        &key.sign(&signature_message(&id, "issuer", &public))
-            .to_bytes(),
-    );
     let body = serde_json::to_vec(
-        &json!({"format":1,"kind":kind,"context_id":context,"payload_base64":encode(&payload),"signatures":[{"role":"issuer","public_key":public,"format":"ed25519","signature":signature}]}),
-    )
-    .map_err(|_| Error::new("internal"))?;
+        &json!({"format":1,"kind":kind,"context_id":context,"payload_base64":encode(&payload),"signatures":[{"role":"issuer","public_key":plan.signer.public(),"format":if plan.signer.seed().is_some() {"ed25519"} else {"sshsig"},"signature":"-"}]}),
+    ).map_err(|_| Error::new("internal"))?;
     Ok(Some((kind, body, id)))
 }
-/// Sign and apply one renewal in its own transaction.
+/// Sign outside the database lock, then recheck the exact plan and draft in the
+/// writer transaction before admission. An SSH agent never runs under a lock.
 fn apply(store: &Store, network: &str, plan: &Plan) -> Result<bool> {
+    let unsigned = {
+        let c = store.connection().map_err(|_| Error::new("internal"))?;
+        let s = Snapshot::load(&c, network, &store.identity().public_key)?;
+        let p = s.project(&controls::local_decision_time()?)?;
+        require(plans(&c, &s, &p)?.contains(plan), "review_required")?;
+        draft(&p, plan)?
+    };
+    let Some((kind, template, id)) = unsigned else {
+        return Ok(false);
+    };
+    let message = signature_message(&id, "issuer", plan.signer.public());
+    let signature = if let Some(seed) = plan.signer.seed() {
+        encode(&SigningKey::from_bytes(&seed).sign(&message).to_bytes())
+    } else {
+        let key = b64(plan.signer.public(), 32)?
+            .try_into()
+            .map_err(|_| Error::new("invalid"))?;
+        let signer = store
+            .renewal_signer(key)
+            .map_err(|_| Error::new("signer_unavailable"))?;
+        let message = std::str::from_utf8(&message).map_err(|_| Error::new("invalid"))?;
+        signer
+            .sign(&message.split('\n').collect::<Vec<_>>())
+            .map_err(|_| Error::new("signer_unavailable"))?
+    };
+    let mut body = parse(&template, MAX_OBJECT)?;
+    body["signatures"][0]["signature"] = json!(signature);
+    let body = actions::bytes(&body)?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let mut tx = c.transaction().map_err(db)?;
     let s = Snapshot::load(&tx, network, &store.identity().public_key)?;
     let p = s.project(&controls::local_decision_time()?)?;
-    let Some((kind, body, id)) = draft(&p, plan)? else {
-        return Ok(false);
-    };
+    require(plans(&tx, &s, &p)?.contains(plan), "review_required")?;
+    // Keep the original decision time while rechecking current authority: a
+    // second ticking between capture and signing must not change signed bytes.
+    let mut fixed = p.clone();
+    let original = parse(
+        &b64(
+            text(object(&parse(&template, MAX_OBJECT)?)?, "payload_base64")?,
+            MAX_PAYLOAD,
+        )?,
+        MAX_PAYLOAD,
+    )?;
+    fixed.decision_time = text(object(&original)?, "issued_at")?.into();
+    require(
+        draft(&fixed, plan)?.is_some_and(|(k, raw, i)| k == kind && raw == template && i == id),
+        "review_required",
+    )?;
     let catalog = actions::candidate(&p, &kind, &body)?;
     let applied = s.apply_catalog(&mut tx, &catalog, &p.decision_time, "fresh")?;
     require(applied.admitted.contains(&id), "forbidden")?;
@@ -450,30 +699,49 @@ fn apply(store: &Store, network: &str, plan: &Plan) -> Result<bool> {
 }
 /// Whether any grant is due for renewal by this host now.
 pub(crate) fn due(store: &Store, network: &str) -> Result<bool> {
-    let c = store.connection().map_err(|_| Error::new("internal"))?;
-    let s = Snapshot::load(&c, network, &store.identity().public_key)?;
-    let p = s.project(&controls::local_decision_time()?)?;
-    Ok(!plans(&c, &s, &p)?.is_empty())
+    let plans = {
+        let c = store.connection().map_err(|_| Error::new("internal"))?;
+        let s = Snapshot::load(&c, network, &store.identity().public_key)?;
+        let p = s.project(&controls::local_decision_time()?)?;
+        plans(&c, &s, &p)?
+    };
+    let mut ssh = BTreeMap::new();
+    Ok(plans
+        .iter()
+        .any(|plan| plan.signer.available(store, &mut ssh)))
 }
 /// Renew every due grant this host can sign, root renewals first, then the
 /// device renewals they make possible. A renewal the verifier refuses is
 /// skipped until the next pass.
 pub(crate) fn renew(store: &Store, network: &str) -> Result<()> {
     let mut failed = BTreeSet::new();
+    let mut ssh = BTreeMap::new();
     for _ in 0..256 {
-        let next = {
+        let options = {
             let c = store.connection().map_err(|_| Error::new("internal"))?;
             let s = Snapshot::load(&c, network, &store.identity().public_key)?;
             let p = s.project(&controls::local_decision_time()?)?;
             plans(&c, &s, &p)?
-                .into_iter()
-                .find(|plan| !failed.contains(&plan.stream))
         };
+        // Unavailable external roots must not consume the bounded write budget
+        // once per stream and starve a usable admin or owner signer.
+        let next = options.into_iter().find(|plan| {
+            !failed.contains(&(plan.stream.clone(), plan.signer.public().to_owned()))
+                && plan.signer.available(store, &mut ssh)
+        });
         let Some(plan) = next else {
             return Ok(());
         };
-        if !matches!(apply(store, network, &plan), Ok(true)) {
-            failed.insert(plan.stream);
+        match apply(store, network, &plan) {
+            Ok(true) => {}
+            Err(error) if error.code == "signer_unavailable" && plan.signer.seed().is_none() => {
+                // The agent can lose/refuse the key after a successful probe.
+                // Suppress all of that SSH signer's plans until the next pass.
+                ssh.insert(plan.signer.public().to_owned(), false);
+            }
+            _ => {
+                failed.insert((plan.stream, plan.signer.public().to_owned()));
+            }
         }
     }
     Ok(())

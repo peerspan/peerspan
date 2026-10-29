@@ -752,11 +752,12 @@ fn exact_parents(kind: &str, p: &Obj) -> Result<()> {
     if ik != "root" {
         expected.push("issuer_person");
         // A deadline-only device renewal keeps the target's issuer_device
-        // parent, if any; its device signer need not be that parent (DEC-Q7,
-        // DEC-Q31).
-        if ik == "device"
-            && (!(kind == "device_lease" && renewal_candidate(kind, p)?)
-                || parents(p)?.contains_key("issuer_device"))
+        // parent, if any, including when the original person key renews it;
+        // its device signer need not be that parent (DEC-Q7, DEC-Q31).
+        if (ik == "device" && !(kind == "device_lease" && renewal_candidate(kind, p)?))
+            || kind == "device_lease"
+                && renewal_candidate(kind, p)?
+                && parents(p)?.contains_key("issuer_device")
         {
             expected.push("issuer_device");
         }

@@ -1,1 +1,19 @@
-{"name":"@peerspan/opencode","version":"0.1.0","private":true,"type":"module","engines":{"node":">=22"},"scripts":{"test":"node --test"},"dependencies":{"@opencode-ai/plugin":"1.18.31"}}
+{
+  "name": "@peerspan/opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.31"
+  },
+  "overrides": {
+    "zod": "4.6.7",
+    "toml": "5.0.1"
+  }
+}

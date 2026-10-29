@@ -6,6 +6,7 @@ Written from docs/decentralized-spec.md sections 6 and 8 and the wire appendix
 """
 import base64
 import hashlib
+import json
 import math
 import time
 
@@ -241,6 +242,64 @@ def _():
     check(folded and view["administrator_offer_id"] == "-",
           "alice (root and admin) linking her own machine still needed a separate administrator stage "
           f"(administrator_offer_id {view['administrator_offer_id'][:12]}...)")
+
+
+@suite.case("root_seed_owner_without_admin_folds_admin_stage", "spec 8.2 (DEC-Q4); appendix 9.3, 16.8; 20 item 35")
+def _():
+    net = create_network(a, "root-only-fold", "alice")
+    network, person = net["id"], net["person_public_key"]
+    selected = a.api("GET", f"/v2/networks/{network}/provider")[1]
+    a.ok("network", "remove-admin", "--network", network, "--person", "alice", "--signer", "network_root",
+         "--revoke-admitted", "--approve")
+    # The selected owner device still has scope 8, but its person no longer has an admin grant.
+    denied = a.cli("network", "group", "set", "--network", network, "--group", "no-admin", "--person", "alice", "--approve")
+    check(not denied.ok, "the owner still has administrator authority after withdrawing its admin grant")
+    machine = suite.host("root-only-machine")
+    request = machine.cli("link", "--network", network, "--expect-person", person, timeout=90).json
+    check(request and request.get("display_code"), "root-only link printed no request code")
+    rid = request["request_id"]
+    a.ok_incomplete("link", "approve", "--network", network, "--person", person,
+                    "--expect-host-key", request["host_public_key"], "--expect-device-key", request["device_public_key"],
+                    "--signer", "network_root", "--code-stdin", "--approve", input=request["display_code"] + "\n")
+    view = pull_until(machine, rid, "owner_offer_id")
+    if view["state"] == "needs_selection":
+        select(machine, view)
+    view = pull_until(machine, rid, "owner_finalization_id", timeout=40)
+    check(view["administrator_offer_id"] == "-",
+          "a root-seed owner without an admin grant still needed a separate administrator approval")
+    commit(machine, view)
+    wait_linked(machine, a, rid)
+    after = a.api("GET", f"/v2/networks/{network}/provider")[1]
+    identity = ("kind", "person_public_key", "host_public_key", "device_public_key", "lease_id")
+    check(all(after[k] == selected[k] for k in identity),
+          f"explicit root approval changed the owner's selected provider: {selected} -> {after}")
+    members_view = a.api("GET", f"/v2/networks/{network}/members")[1]["members"]
+    check(any(m["host_public_key"] == machine.public_key and m["person_public_key"] == person for m in members_view),
+          "the folded root-only link did not bind the new machine to its owner")
+    catalog = machine.api("GET", f"/v2/networks/{network}/catalog")[1]["catalog"]["objects"]
+    objects = [(item["kind"], json.loads(base64.b64decode(item["body_base64"]))) for item in catalog]
+    activation = next(obj for kind, obj in objects if kind == "activation" and obj["request"]["request_id"] == rid)
+    check(activation["administrator"] == "-", "the folded root-seed activation carries an administrator packet")
+    for role in ("owner", "owner_finalization"):
+        check(activation[role]["signer_public_key"] == selected["device_public_key"]
+              and activation[role]["person_public_key"] == person,
+              f"the {role} packet was not signed through the selected owner device")
+    finalization = json.loads(base64.b64decode(activation["owner_finalization"]["payload_base64"]))
+    commit_body = json.loads(base64.b64decode(activation["commit"]["payload_base64"]))
+    manifest = json.loads(base64.b64decode(commit_body["manifest_base64"]))
+    records = {}
+    for kind, envelope in objects:
+        if kind not in ("person_lease", "host_lease"):
+            continue
+        digest = hashlib.sha256(base64.b64decode(envelope["payload_base64"])).hexdigest()
+        message = "\n".join(("peerspan-decentralized-statement-v1", kind, envelope["context_id"], digest))
+        records["ds_" + hashlib.sha256(message.encode()).hexdigest()] = envelope
+    for field in ("person_lease_id", "host_lease_id"):
+        check(finalization[field] in records and manifest[field] == finalization[field],
+              f"the folded {field} is missing from the public commit catalog or not pinned by the manifest")
+    host_grant = json.loads(base64.b64decode(records[finalization["host_lease_id"]]["payload_base64"]))
+    check(host_grant["issuer"]["kind"] == "root" and host_grant["operation_id"] == rid,
+          "the folded host grant did not use the approved local root for this exact request")
 
 
 @suite.case("refuse_bad_codes", "spec 8.1, 8.5; appendix 10, 16.1")

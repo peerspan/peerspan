@@ -1,55 +1,43 @@
-# Path to production connectivity
+# Path to a coordinator-free preview
 
-Status: working sequence, agreed 2026-10-05. The decisions behind it are recorded in the `mesh-new` system design under "Enrollment and reachability decisions". Each milestone is a working slice in both host daemons with shared conformance, following the [host contract](host-service-contract.md) and the [known-host messaging contract](peer-messaging-contract.md).
+Status: the coordinator-free product and authority closeout are implemented; release qualification is in progress. This roadmap replaces the earlier coordinator deployment sequence. The current network contract is the [coordinator-free spec](decentralized-spec.md) and its [wire appendix](decentralized-wire-formats.md).
 
-The known-host messaging slice stores authenticated messages on hosts. It requires owners to exchange host keys and literal addresses by hand. It needs a direct TCP path, and only hosts are authenticated. This roadmap removes those limits in dependency order.
+## Current implementation
 
-| # | Milestone | Depends on | Removes |
-| --- | --- | --- | --- |
-| 0 | Automatic peer certificate renewal | — | Restart needed every 30 days. Done. |
-| 1 | Signed enrollment and coordination ([contract](coordination-contract.md)) | — | Manual key and address exchange. Grants no longer require `--allow-disconnected` while coordination is connected. Implemented. |
-| 2a | Signed membership revocation, leaving, and root rotation | 1 | Membership cannot be withdrawn except by coordinator omission, and the root key cannot be replaced. Implemented: `network revoke`, `network revoke-invite`, `network leave`, and `network rotate-root`. |
-| 2b | Person identity: multiple administrators and owner-managed access ([proposal](person-identity-proposal.md)) | 2a | One administrator key, and access configured per host, naming individual host IDs. Implemented: SSH-key persons with one-command join (slice 1), delegated administrators and groups (slice 2), owner-signed access policy (slice 3). Direct policy propagation among an owner's hosts followed as 2c. |
-| 3 | QUIC peer transport, then encrypted relays ([proposal](quic-relay-proposal.md)) | 1 | Hosts behind NAT or firewalls cannot be reached. Implemented: QUIC transport (3a) and relays in `peerspan-coord` (3b). |
-| 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. Implemented: STUN candidates and signed path discovery below QUIC; NATs that allocate a port per destination on both sides stay on the relay. |
-| 5 | Automatic retry of uncertain sends, owner and agent alike | — | Senders recover `unknown` outcomes by hand. Implemented. |
-| 6 | Task delegation, agent origin, and delegation chains ([proposal](delegation-proposal.md)) | 2b | Requests are authenticated only as hosts, so a receiver cannot tell which agent originated a request or verify that delegated authority narrowed at each hop. Implemented: agent origin (slice 1), [single-hop tasks](task-contract.md) (slice 2), [artifacts](artifact-contract.md) (slice 3), [delegation chains](delegation-chain-contract.md) (slice 4), and live acceptance (slice 5: [three Claude Code sessions over a two-link chain](results/delegation-live.json)). |
-| 2c | Direct policy propagation among an owner's hosts (deferred from 2b; [contract](coordination-contract.md#direct-propagation)) | 2b | A coordinator can delay a newer policy until it expires. Implemented: owners' hosts push and sync policy to each other directly. |
-| 7 | Launch readiness: administration simplicity, status and onboarding ([proposal](launch-proposal.md), [contract](launch-contract.md)) | — | Too much administration surface for a first user. Implemented: CLI shape and status (slice 1); service installer, default coordinator, and coordinator limits (slice 2); team onboarding, generated person keys, `*` rules, and self access (slice 3); agent directory and `person/agent` addressing (slice 4); coordinator change notifications and acceptance from installed bundles (slice 5: [scripted solo, pair, and team runs](results/launch-acceptance.json) and [three Claude Code sessions](results/launch-live.json)). Operating the hosted coordinator moves to milestone 8. |
-| 8 | Hosted coordinator: operations and coordinator moves ([proposal](hosted-coordinator-proposal.md)) | 7 | Every network is pinned to one coordinator address and key for life, and the hosted coordinator has no backups, health checks, or metrics. In progress: operations (slice 1), successors (slice 2), moves and repair (slice 3), and packaging, the install script, and the Hetzner runbook (slice 4) are implemented ([contract](hosted-coordinator-contract.md)); a staging instance runs at `coord.example.com:443` on a DigitalOcean droplet, replicating to DigitalOcean Spaces with SSE-C, and passed acceptance before the Peerspan rename ([scripted](results/launch-acceptance-staging.json), [live](results/launch-live-staging.json)). On 2026-10-16 staging was cut over to the renamed `peerspan-coord`, and the staging hosts were enrolled in networks again under the `peerspan-*` signatures; the acceptance results above predate that cutover. The production instance, its restore drill, and acceptance against it remain. |
-| 9 | Reliable delivery into live sessions ([proposal](live-delivery-proposal.md), [contract](live-delivery-contract.md)) | 7 | Claude Code drops channel events silently when it has not registered Peerspan as a channel, while Peerspan reports the agent connected; work a session never saw, and tasks of a replaced session, are lost or hang. Implemented: readiness and diagnostics (slice 1), and seen tracking, redelivery, adoption, and pending work (slice 2). |
-| 10 | Shared capabilities: remote tools and resources ([proposal](remote-tools-proposal.md), [credentials](tool-credentials.md), [contract](capabilities-contract.md)) | 2b, 6 | Nothing but agents can be shared, and policy cannot name a tool, so using something on another host means asking its agent. Slice 1 is implemented: MCP sources, capabilities, sharing with review and confirmation, discovery, owner calls with recovery, and raw sources between a person's trusted machines, passing [conformance](../conformance/capabilities.py) in all four Go/Rust pairings. Slice 2 is implemented: [agent capability tools](capabilities-contract.md#agent-tools-slice-2) (`list_capabilities`, `call_capability`, `call_status`, and `call_cancel` in the shared adapter, opted into per agent at `attach`), passing [conformance](../conformance/capability_agents.py) in all four Go/Rust pairings and live acceptance with [Claude Code, Codex, and OpenCode](results/capabilities-live.json). |
+| Area | Implemented behavior | Contract and checks |
+| --- | --- | --- |
+| Network lifecycle | Local creation, invitations with automatic request return, machine linking, automatic approved-stage progress and explicit final consent. | Spec sections 6 and 8; slim join suite. |
+| Authority | Signed grants and restrictions, owner-controlled access, scope narrowing, automatic renewal and retention, root rotation and reinvitation after a root split. | Spec sections 4, 5, 7, 12–14; slim policy, renewal and root suites. |
+| Transport | Direct QUIC, signed contacts, catalog sync and repair, optional rendezvous mailboxes and encrypted relay helpers. | Spec sections 9 and 10; slim delivery and sync suites. |
+| Agent work | Durable messages and replies, tracked tasks, artifacts, bounded delegation chains, session readiness, pending work and recovery. | [Task](task-contract.md), [delegation](delegation-chain-contract.md) and [live delivery](live-delivery-contract.md) contracts; slim work and live suites. |
+| Shared capabilities | Owner and opted-in agent calls, selected MCP operations, per-call approval, agent recipients, resource bounds, remote MCP/OAuth and the built-in gh source. | [Capabilities contract](capabilities-contract.md); slim capabilities suite. |
+| Host and integrations | Rust daemon/CLI, guided setup and diagnostics, Claude Code, Codex and OpenCode adapters. | [Host contract](host-service-contract.md), [quick start](quick-start.md); slim basics and installed-bundle checks. |
 
-The order agreed on 2026-10-07 (milestone 6, then 2c, then 7) is complete, and so is the parallel track for delivery into live sessions (milestone 9; see the [integration investigation](agent-integration-investigation.md)). Of these milestones, only the production half of 8 remains. Remote tools and resources became milestone 10, whose first two slices, owner calls and agent capability tools, are implemented; conversations beyond messages and replies, which the system design still requires, are not yet a milestone here; the owner accepted the [conversations proposal](conversations-proposal.md) on 2026-10-25, and implementation follows.
+Rust is the host implementation packaged here. The Go implementation is maintained separately at [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) (DEC-OWN5 and DEC-OWN8). Native Linux amd64 and arm64 bundles are the preview targets; macOS and Windows have not completed equivalent validation.
 
-## 1. Signed enrollment and coordination
+The coordinator product and in-place migration are retired (DEC-OWN2 and DEC-OWN3). Existing old networks remain read-only history; membership is moved by creating a new network and inviting its members again. Hosted-coordinator operations and Go/Rust pairing matrices are historical milestones, not remaining launch gates.
 
-A network creator's host holds a network root key. Invites are one-time keys signed by the root, and a joining host signs its own key with the invite key. A separate Go `peerspan-coord` service stores these chains, enforces invite single use, records advertised addresses, and serves each member a network map. Hosts verify every chain themselves before treating a member as known. They persist the verified map so that they keep working, within grant rules, when coordination is unavailable.
+## Preview closeout
 
-Coordination becomes the definition of "connected" for grants. A grant without `allow_disconnected` is usable only while the requester is a member of a network that this host synced recently.
+Automatic renewal through delegated administrators without the root seed, original-key and external-root SSH-agent renewal, and explicit combined owner/root approval are implemented in [PR #34](https://github.com/peerspan/peerspan/pull/34), with independent contract-derived renewal and join cases. The normative behavior is in spec sections 7.1, 7.3 and 8.2. The preview still needs the installed and live qualification below.
 
-## 2. Membership, administration, and owner-managed access
+Each network still needs its root authority available often enough to renew administrator grants. Ordinary work uses locally verified grants until their deadlines or a known restriction stops it. Automatic renewal does not revive expired authority.
 
-Agreed on 2026-10-06; the [access model](access-model.md) explains the roles. The network administrator controls membership only. Access stays with each agent's owner. Central management comes from owner-signed policy, not from administrator authority.
+## Release qualification
 
-- **2a:**
-  - The root key signs revocations of a host or of an unused invite, and a member signs its own departure.
-  - Revocations are sticky: hosts persist them and keep enforcing them, even if a coordinator later omits them or serves an older map.
-  - The root key can sign a successor root, so the root can be rotated.
-- **2b:** a person identity, meaning a member key separate from host keys. Administrator keys build on it to allow multiple administrators. Owners build on it to manage access centrally: grants name members or groups, and owner-signed policy is distributed to all of an owner's hosts. It is proposed for review before it is built, because person identity also settles the open question of what a person is in the system design.
+Complete these checks at one recorded source revision before publishing the preview:
 
-## 3. QUIC peer transport, then encrypted relays
+1. Run the Rust checks and all ten slim conformance suites. Record actual failures and fixes; suite success is evidence for the exercised cases.
+2. Build native Linux amd64 and arm64 host/helper bundles with checksums and matching, clean-source RELEASE.json metadata. Run installed-bundle and packaging checks.
+3. Install the candidate on clean Linux machines. Follow the quick start for one person linking a second machine and for two owners joining separately; record prompts, next steps and installation or recovery failures.
+4. Run useful work in real agent sessions on separate machines: message/reply, a tracked task with input and result artifacts, progress/cancellation, a bounded shared capability, and withdrawal of access to new work. Check model-produced output separately from adapter readiness.
+5. Exercise direct participant connectivity with helpers disabled and restrictive-network connectivity through an independently configured helper. Record topology, direct/relay observations, helper replacement, daemon restart, and offline catch-up within valid authority.
+6. Publish the verified preview artifacts and installer, with their source revision, tested platforms, actual acceptance evidence and remaining limits.
 
-Agreed 2026-10-06: the peer transport moves to QUIC before relays are built, the relay runs inside `peerspan-coord`, and only network members may use it. A relay forwards end-to-end-encrypted peer QUIC packets addressed by host ID, so it cannot read traffic or impersonate either side. The [QUIC and relay proposal](quic-relay-proposal.md) covers the design and the decisions still to settle.
+The [release procedure](releasing.md) defines package review and publication. The [manual acceptance guide](manual-agent-testing.md) defines the real-session evidence to record. Older results under docs/results remain historical and do not qualify a new source revision.
 
-## 4. Direct-path discovery and NAT traversal
+## Following product work
 
-This adds STUN-observed public UDP mappings as candidate addresses, and signed path probes that both peers send at once, coordinated through the relay. A validated direct endpoint takes over a peer's traffic inside the combined socket, below QUIC, because QUIC cannot change a server's address. Relays remain the guaranteed path. See the [proposal](quic-relay-proposal.md).
-
-## 5. Automatic retry of uncertain sends
-
-The daemon retries every `unknown` outbound request with backoff, using the same request ID, until it is accepted, rejected, or past its deadline. This covers owner CLI sends and agent-initiated sends alike, replacing the adapter contract's earlier rule that agent sends are never retransmitted automatically (agreed 2026-10-06). Receivers deduplicate by request ID, so a retry creates no second message and consumes no extra send budget. Senders and agents still see the request ID and its final state.
-
-## 6. Per-agent identity and delegation provenance
-
-Task delegation and remote tools create chains: Alice's agent delegates to Bob's agent, which calls a tool on Carol's host. Carol's host must verify three things: the chain originates with Alice's agent, each hop only narrowed what is allowed, and no link has been revoked or has expired. The likely shape has two parts. A host signs an assertion of which local agent or session originated a request; that is only as strong as the host, while isolated runtimes give real per-agent separation. Each hop then signs a delegation that narrows scope, and the final receiver checks the whole chain against each owner's policy. Capability-token designs such as macaroons and biscuits are the reference reading. This milestone builds on 2b's person identity and is sequenced with the first collaboration operation, task delegation. It will be proposed for review before it is built.
+- [Conversations](conversations-proposal.md) is accepted and awaits implementation: persistent conversation identity, explicit participants and bounded context for agents and people.
+- [Isolated runtime tasks](https://github.com/peerspan/peerspan/pull/2) remain a separate proposed track. Existing task delegation uses agents already running on another host.
+- Broader agent/platform support and onboarding improvements follow observed preview friction. Claims about new adapters or platforms require their own live validation.

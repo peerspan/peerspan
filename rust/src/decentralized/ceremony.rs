@@ -16,6 +16,8 @@ use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+pub(super) const ROOT_FOLD_WARNING: &str = "This approval also uses network_root on this host to admit the reviewed host. Profile scopes are finite; this review does not grant access or commit the machine.";
+
 pub(super) fn db(_: rusqlite::Error) -> Error {
     Error::new("internal")
 }
@@ -119,6 +121,7 @@ struct OwnerTerms {
     issuer_ids: Vec<String>,
     /// The unsigned host grant of a folded admin stage (spec 8.2).
     folded_host: Option<Vec<u8>>,
+    folded_root_seed: Option<[u8; 32]>,
 }
 #[allow(clippy::too_many_arguments)]
 fn terms(
@@ -166,6 +169,7 @@ fn terms(
         )
         .map_err(db)?;
     let mut folded_host = None;
+    let mut folded_root_seed = None;
     let (descriptor, public, private, seed, catalog, member, person_lease, issuer_ids, root) =
         if text(r, "migration_proposal_id")? != "-" {
             // In-place migration is removed (DEC-OWN3).
@@ -174,7 +178,25 @@ fn terms(
             let snapshot = Snapshot::load(c, network, &store.identity().public_key)?;
             let p = snapshot.project(&time)?;
             time = p.decision_time.clone();
-            let resolved = Resolved::resolve(c, &snapshot, &p, provider, format, "device_lease")?;
+            let root_fold = provider == "network_root";
+            let resolved = Resolved::resolve(
+                c,
+                &snapshot,
+                &p,
+                if root_fold { "auto" } else { provider },
+                if root_fold { "auto" } else { format },
+                "device_lease",
+            )?;
+            let root_provider = if root_fold {
+                require(pending.record.mode != "renew", "forbidden")?;
+                require(format != "sshsig", "signer_unavailable")?;
+                let root =
+                    Resolved::resolve(c, &snapshot, &p, "network_root", "ed25519", "host_lease")?;
+                folded_root_seed = root.seed;
+                Some(root.provider)
+            } else {
+                None
+            };
             require(
                 resolved.provider.kind != "root"
                     && text(&resolved.actor, "person_public_key")? == person,
@@ -218,17 +240,26 @@ fn terms(
             // Fold (spec 8.2, DEC-S7, DEC-Q4): an owner whose path also has
             // the admin role signs the new host grant under this approval.
             if pending.record.mode != "renew"
-                && num(object(&public)?, "scopes")? & 8 == 8
-                && let Ok(admin) = p.head(&["admin".into(), person.into()])
-                && p.active(&admin.id).is_ok()
+                && (root_fold
+                    || num(object(&public)?, "scopes")? & 8 == 8
+                        && p.head(&["admin".into(), person.into()])
+                            .is_ok_and(|admin| p.active(&admin.id).is_ok()))
             {
-                let mut parents = std::collections::BTreeMap::from([
-                    ("issuer_person", person_lease.clone()),
-                    ("issuer_admin", admin.id.clone()),
-                ]);
-                if resolved.provider.kind == "device" {
-                    parents.insert("issuer_device", resolved.provider.lease_id.clone());
+                let mut parents = std::collections::BTreeMap::new();
+                if !root_fold {
+                    let admin = p.head(&["admin".into(), person.into()])?;
+                    parents.insert("issuer_person", person_lease.clone());
+                    parents.insert("issuer_admin", admin.id.clone());
+                    if resolved.provider.kind == "device" {
+                        parents.insert("issuer_device", resolved.provider.lease_id.clone());
+                    }
                 }
+                let issuer = if root_fold {
+                    json!({"kind":"root","person_public_key":"-"})
+                } else {
+                    json!({"kind":if resolved.provider.kind=="device" {"device"} else {"person"},"person_public_key":person})
+                };
+                let host_provider = root_provider.as_ref().unwrap_or(&resolved.provider);
                 let stream = p
                     .streams
                     .get(&vec!["host".into(), pending.record.host_public_key.clone()]);
@@ -237,9 +268,9 @@ fn terms(
                     .map_or(0, |s| s.maximum)
                     .checked_add(1)
                     .ok_or_else(|| Error::new("version_exhausted"))?;
-                let payload = json!({"root_state_id":p.root_state_id()?,"operation_id":pending.id,"sequence":sequence,"predecessors":stream.map(|s|s.heads.clone()).unwrap_or_default(),"resolves":[],"retained_statement_ids":[],"subject":{"person_public_key":"-","host_public_key":pending.record.host_public_key,"device_public_key":"-","member":member,"scopes":0},"issuer":{"kind":if resolved.provider.kind=="device" {"device"} else {"person"},"person_public_key":person},"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":time,"not_before":time,"not_after":not_after});
+                let payload = json!({"root_state_id":p.root_state_id()?,"operation_id":pending.id,"sequence":sequence,"predecessors":stream.map(|s|s.heads.clone()).unwrap_or_default(),"resolves":[],"retained_statement_ids":[],"subject":{"person_public_key":"-","host_public_key":pending.record.host_public_key,"device_public_key":"-","member":member,"scopes":0},"issuer":issuer,"parents":parents.into_iter().map(|(role,id)|json!({"role":role,"id":id})).collect::<Vec<_>>(),"issued_at":time,"not_before":time,"not_after":not_after});
                 let raw = bytes(
-                    &json!({"format":1,"kind":"host_lease","context_id":snapshot.descriptor.context_id(),"payload_base64":encode(&bytes(&payload)?),"signatures":[{"role":"issuer","public_key":resolved.provider.signer_public_key,"format":resolved.provider.signature_format,"signature":"-"}]}),
+                    &json!({"format":1,"kind":"host_lease","context_id":snapshot.descriptor.context_id(),"payload_base64":encode(&bytes(&payload)?),"signatures":[{"role":"issuer","public_key":host_provider.signer_public_key,"format":host_provider.signature_format,"signature":"-"}]}),
                 )?;
                 super::template::FixedStatement::read(&snapshot.descriptor, &raw)?;
                 folded_host = Some(raw);
@@ -313,7 +344,10 @@ fn terms(
             .to_owned(),
         None => "-".into(),
     };
-    let review = json!({"stage":"owner","network_id":network,"context_id":descriptor.context_id(),"person_id":crate::persons::person_id_of(person).map_err(|_|Error::new("invalid"))?,"person_public_key":person,"host_public_key":pending.record.host_public_key,"device_public_key":pending.record.device_public_key,"root_state_id":root,"provider":public,"owner_offer_id":"-","selection_id":"-","administrator_offer_id":"-","person_lease_id":person_lease,"host_lease_id":folded_id,"binding_lease_id":"-","device_lease_id":"-","scopes":scopes,"not_after":not_after,"authority_warning":"Profile scopes are finite. Administration bit8 also requires an active administrator role; this review does not grant access or commit the machine."});
+    let mut review = json!({"stage":"owner","network_id":network,"context_id":descriptor.context_id(),"person_id":crate::persons::person_id_of(person).map_err(|_|Error::new("invalid"))?,"person_public_key":person,"host_public_key":pending.record.host_public_key,"device_public_key":pending.record.device_public_key,"root_state_id":root,"provider":public,"owner_offer_id":"-","selection_id":"-","administrator_offer_id":"-","person_lease_id":person_lease,"host_lease_id":folded_id,"binding_lease_id":"-","device_lease_id":"-","scopes":scopes,"not_after":not_after,"authority_warning":"Profile scopes are finite. Administration bit8 also requires an active administrator role; this review does not grant access or commit the machine."});
+    if folded_root_seed.is_some() {
+        review["authority_warning"] = json!(ROOT_FOLD_WARNING);
+    }
     let mut t = OwnerTerms {
         descriptor,
         review,
@@ -325,6 +359,7 @@ fn terms(
         person_lease,
         issuer_ids,
         folded_host,
+        folded_root_seed,
     };
     t.review["owner_offer_id"] = Value::from(Packet::read_template(&offer(pending, &t)?)?.id);
     Ok(t)
@@ -622,14 +657,28 @@ fn revalidate(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<
     } else {
         &r.provider.signer_public_key
     };
+    let objects = i.objects(&descriptor(p)?)?;
+    let root_fold = objects.iter().flatten().any(|o| match o {
+        FixedObject::Statement(s) => {
+            s.typed().kind == "host_lease"
+                && s.typed()
+                    .issuer()
+                    .is_ok_and(|issuer| text(issuer, "kind").is_ok_and(|kind| kind == "root"))
+        }
+        _ => false,
+    });
     let terms = terms(
         c,
         store,
         p,
         &i.network_id,
         &r.person_public_key,
-        provider,
-        &r.provider.signature_format,
+        if root_fold { "network_root" } else { provider },
+        if root_fold {
+            "ed25519"
+        } else {
+            &r.provider.signature_format
+        },
         r.scopes,
         &r.not_after,
     )?;
@@ -662,6 +711,28 @@ fn revalidate(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<
         .first()
         .and_then(Option::as_ref)
         .ok_or_else(|| Error::new("state_conflict"))?;
+    if let Some(expected) = &terms.folded_host {
+        let saved = objects
+            .get(1)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| Error::new("state_conflict"))?;
+        let FixedObject::Statement(saved) = saved else {
+            return Err(Error::new("state_conflict"));
+        };
+        let expected = super::template::FixedStatement::read(&terms.descriptor, expected)?;
+        let mut saved_payload = saved.typed().payload.clone();
+        let mut expected_payload = expected.typed().payload.clone();
+        for payload in [&mut saved_payload, &mut expected_payload] {
+            payload.remove("issued_at");
+            payload.remove("not_before");
+        }
+        require(
+            saved_payload == expected_payload
+                && saved.typed().signer("issuer")?.public_key
+                    == expected.typed().signer("issuer")?.public_key,
+            "review_required",
+        )?;
+    }
     let actual = Packet::read_template(first.bytes())?;
     let expected = Packet::read_template(&offer(p, &terms)?)?;
     check(
@@ -1041,6 +1112,17 @@ pub(super) fn resume_offer(store: &Store, request: &str) -> Result<()> {
                     slot.role,
                     encode(&store.signing_key.sign(&message).to_bytes()),
                 ));
+            } else if issuer && t.folded_root_seed.is_some() {
+                let seed = t
+                    .folded_root_seed
+                    .ok_or_else(|| Error::new("signer_unavailable"))?;
+                let key = SigningKey::from_bytes(&seed);
+                require(
+                    slot.signature_format == "ed25519"
+                        && slot.public_key == encode(key.verifying_key().as_bytes()),
+                    "state_conflict",
+                )?;
+                generated.push((index, slot.role, encode(&key.sign(&message).to_bytes())));
             } else if (slot.role == "authority" || issuer)
                 && slot.public_key == t.provider.signer_public_key
             {

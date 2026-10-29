@@ -1425,10 +1425,16 @@ impl Projection {
                 if ids(&s.payload, "predecessors", "ds_")?.is_empty() {
                     self.creator_device(s)?
                 } else {
-                    renewal
+                    Self::deadline_renewal(s)?
                 },
                 "forbidden",
             )?;
+        }
+        if matches!(s.kind.as_str(), "device_lease" | "binding_lease")
+            && Self::deadline_renewal(s)?
+            && text(s.issuer()?, "kind")? == "person"
+        {
+            self.issuance_conditions(s)?;
         }
         if renewal {
             self.renewal_signer(s)?;
@@ -1780,10 +1786,19 @@ impl Projection {
         }
         let first = heads.first().ok_or_else(|| Error::new("proof_required"))?;
         for other in &heads {
-            require(
-                other.kind == first.kind && other.subject()? == first.subject()?,
-                "state_conflict",
-            )?;
+            let same = if first.kind == "group" && other.kind == "group" {
+                let content = |s: &Statement| -> Result<Value> {
+                    let raw = b64(text(&s.payload, "body_base64")?, MAX_PAYLOAD)?;
+                    let mut body = object(&parse(&raw, MAX_PAYLOAD)?)?.clone();
+                    body.remove("version");
+                    body.remove("defined_at");
+                    Ok(Value::Object(body))
+                };
+                content(other)? == content(first)?
+            } else {
+                other.kind == first.kind && other.subject()? == first.subject()?
+            };
+            require(same, "state_conflict")?;
         }
         Ok(heads)
     }
@@ -2554,6 +2569,9 @@ impl Projection {
         }
         Ok(power)
     }
+    pub(crate) fn effective_scopes(&self, id: &str) -> Result<u64> {
+        Ok(self.active_inner(id, &mut BTreeSet::new(), true)?.scopes)
+    }
     pub fn active(&self, id: &str) -> Result<()> {
         self.active_inner(id, &mut BTreeSet::new(), true)
             .map(|_| ())
@@ -3309,29 +3327,37 @@ impl Projection {
         if !a.packets.contains_key("administrator") {
             // Reuse independently authorized current P/H, including portable
             // earlier completed operations. Only a folded admin stage (spec
-            // 8.2) mints the host grant, through the owner's admin path.
+            // 8.2) mints the host grant, through the owner's admin path or root.
             check(text(&p.payload, "operation_id")? != a.request_id)?;
             if text(&h.payload, "operation_id")? == a.request_id {
                 check(
                     text(&request.payload, "mode")? != "renew"
                         && text(&owner.payload, "person_lease_id")? != "-",
                 )?;
-                self.grant_packet_issuer(h, finalization)?;
-                let issuers: BTreeMap<String, String> = h
-                    .parents()?
-                    .into_iter()
-                    .filter(|(role, _)| role.starts_with("issuer_"))
-                    .collect();
-                let admin = issuers
-                    .get("issuer_admin")
-                    .ok_or_else(|| Error::new("invalid"))?;
-                check(self.catalog.get(admin)?.kind == "admin_lease")?;
-                let mut expected: BTreeSet<String> =
-                    ids(&owner.payload, "issuer_lease_ids", "ds_")?
+                if text(h.issuer()?, "kind")? == "root" {
+                    check(
+                        h.parents()?.is_empty()
+                            && text(&h.payload, "root_state_id")?
+                                == text(&owner.payload, "root_state_id")?,
+                    )?;
+                } else {
+                    self.grant_packet_issuer(h, finalization)?;
+                    let issuers: BTreeMap<String, String> = h
+                        .parents()?
                         .into_iter()
+                        .filter(|(role, _)| role.starts_with("issuer_"))
                         .collect();
-                expected.insert(admin.clone());
-                check(issuers.into_values().collect::<BTreeSet<_>>() == expected)?;
+                    let admin = issuers
+                        .get("issuer_admin")
+                        .ok_or_else(|| Error::new("invalid"))?;
+                    check(self.catalog.get(admin)?.kind == "admin_lease")?;
+                    let mut expected: BTreeSet<String> =
+                        ids(&owner.payload, "issuer_lease_ids", "ds_")?
+                            .into_iter()
+                            .collect();
+                    expected.insert(admin.clone());
+                    check(issuers.into_values().collect::<BTreeSet<_>>() == expected)?;
+                }
             } else {
                 check(text(&request.payload, "mode")? == "renew")?;
             }
@@ -3543,6 +3569,13 @@ impl Projection {
                     .catalog
                     .get(text(&activation.manifest, "host_lease_id")?)?;
                 if text(&host.payload, "operation_id")? == activation.request_id {
+                    // A root-seed fold has independently signed the exact host
+                    // grant. Owner authority is checked above, and the host
+                    // parent carries its root signature and retention path.
+                    if text(host.issuer()?, "kind")? == "root" {
+                        self.root_coverage(host)?;
+                        return Ok(());
+                    }
                     // A folded admin stage: the owner's path with its admin grant.
                     let issuers = host
                         .parents()?
@@ -4114,7 +4147,10 @@ impl Projection {
                 power.deadline.ok_or_else(|| Error::new("invalid"))?,
             )
         } else {
-            let mut deadline = member.not_after.clone();
+            // The original key's signature is capped by its person grant,
+            // not by unrelated host/binding grants on the machine holding it.
+            // Current local membership was still required above.
+            let (_, mut deadline) = self.current_statement(&["person".into(), person.into()])?;
             let mut scopes = 7;
             if let Ok(a) = self.head(&["admin".into(), person.into()])
                 && let Ok(power) = self.active_inner(&a.id, &mut BTreeSet::new(), true)

@@ -980,7 +980,11 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         } else {
             n["provider"].clone()
         };
-        if !pending && staged.is_none() && body["provider_id"] != "auto" {
+        if !pending
+            && staged.is_none()
+            && body["provider_id"] != "auto"
+            && body["provider_id"] != "network_root"
+        {
             let p=local.post(format!("/v2/networks/{}/provider",encoded(text(&n,"id")?)),json!({"provider_id":body["provider_id"],"person_public_key":person,"host_public_key":n["host_public_key"],"approve":false})).await?;
             provider = p["provider"].clone();
         }

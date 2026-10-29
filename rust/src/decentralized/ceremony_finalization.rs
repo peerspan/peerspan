@@ -374,6 +374,12 @@ fn review(b: &Base, p: &Pending, binding: &Statement, device: &Statement) -> Res
     ] {
         r[field] = Value::from(id.clone());
     }
+    if b.folded.as_ref().is_some_and(|host| {
+        host.issuer()
+            .is_ok_and(|issuer| text(issuer, "kind").is_ok_and(|kind| kind == "root"))
+    }) {
+        r["authority_warning"] = json!(ROOT_FOLD_WARNING);
+    }
     Ok(r)
 }
 fn materialize(c: &Connection, store: &Store, b: &Base, p: &Pending, i: &mut Intent) -> Result<()> {
@@ -907,9 +913,16 @@ fn folded_template(p: &Pending, i: &Intent, d: &Descriptor, r: &Value) -> Result
             && text(&s.payload, "operation_id")? == p.id
             && text(&s.payload, "not_after")? == i.record.not_after
             && text(s.subject()?, "host_public_key")? == i.record.host_public_key
-            && text(s.issuer()?, "person_public_key")? == i.record.person_public_key
-            && s.signer("issuer")?.public_key == i.record.provider.signer_public_key
-            && s.signer("issuer")?.format == i.record.provider.signature_format,
+            && if text(s.issuer()?, "kind")? == "root" {
+                text(s.issuer()?, "person_public_key")? == "-"
+                    && s.parents()?.is_empty()
+                    && s.signer("issuer")?.format == "ed25519"
+                    && field(r, "authority_warning")?.contains("also uses network_root")
+            } else {
+                text(s.issuer()?, "person_public_key")? == i.record.person_public_key
+                    && s.signer("issuer")?.public_key == i.record.provider.signer_public_key
+                    && s.signer("issuer")?.format == i.record.provider.signature_format
+            },
     )
 }
 /// The signed folded host grant of this owner intent, if it folds.
