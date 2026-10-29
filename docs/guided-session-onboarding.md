@@ -136,8 +136,9 @@ GU-01b/GU-03a adds the [native Claude entry](../integrations/claude-onboarding/R
 explicit local delivery check. Native callbacks are the chosen direction for
 human reviews; their exact immutable terms and owner-local mutation contract
 remain next work. This entry creates no project attachment or authority. Native
-runtime fixtures do not replace the outstanding live reload/model check, whose
-first inference attempt hit the account's weekly usage limit.
+runtime fixtures do not replace the outstanding live model check, whose first
+inference attempt hit the account's weekly usage limit. Native pane opening,
+close, reload and reopening worked in one running Claude 2.1.303 process.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
