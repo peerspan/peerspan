@@ -2357,3 +2357,19 @@ delay, all old/new-code privacy and no-decision assertions and default5000ms
 timeout. This establishes the intended pending old response; no native product
 change. Discarded: timeout inflation, removing assertions, forcing product work
 after navigation and rerunning unchanged until green.
+
+### GU.impl19 — Explicit native original owner-offer signing
+
+Selected: one human Sign original owner offer action after exact approved owner
+consent, reusing section18's bounded private-stdin CLI. Fresh parent/host/join/
+review/request/time checks precede one literal45s command; strict returned public
+evidence stays separate from completed offer/admission/access/readiness. Pure
+Check never invokes sign, including uncertain partial-signature recovery. Request
+expiry bounds new key use; the approved review's old15min window is historical.
+Leave/navigation clears volatile callback authority without promising retraction.
+
+Discarded: combined approval/key use, frontend key inventory/selection, hidden
+sign-as-read recovery, broad link/resume/finalization automation, new API/schema/
+persistence, automatic retries and historical evidence as current permissions.
+Section19 pins independent native cases and original232/all17 CI preservation;
+terminal/installed/physical/model/schema23-to27 recovery acceptance stays open.
