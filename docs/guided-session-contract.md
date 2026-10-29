@@ -196,6 +196,10 @@ Label adapter evidence separately from this plugin's conversation check. Render
 names as bounded plain text with terminal controls and bidirectional overrides
 removed. Keep routine presentation free of internal IDs, private paths and
 known invitation/token formats. Do not echo raw CLI output or diagnostics.
+These formats include `psi2-`, `psl2-`, `peerspan-invite-v1.`,
+`peerspan-member-invite-v1.`, `peerspan-person-invite-v1.`, `token_` and
+`instance_`. Remove terminal/bidirectional controls before detecting these
+formats, so decoration cannot hide a token prefix from redaction.
 On subprocess failure, malformed JSON, unsupported version or invalid shape,
 show an unavailable observation; never turn it into an empty successful host.
 Unknown extra fields are not presented. Refresh failure invalidates any previous
