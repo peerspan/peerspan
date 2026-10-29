@@ -2,8 +2,9 @@
 
 Feature-branch preview for [tracking PR #35](https://github.com/peerspan/peerspan/pull/35).
 Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
-read-only host view and an explicit local conversation check. Project
-attachment, invitations and permission reviews remain later slices.
+host view, an explicit local conversation check and a native human review for
+local project attachment metadata. Adapter setup, invitations and sharing
+permissions remain later slices.
 
 ## Try the entry
 
@@ -27,6 +28,32 @@ Neither setting is an argument to `/peerspan`.
 adapter evidence. It starts no daemon and changes no setup or permissions. A
 missing or incompatible host is shown as unavailable. The command returns a
 short read-only summary where no terminal pane is available.
+
+## Connect this project
+
+With the host running, press **Connect this project**. Peerspan looks up the
+current native project and conversation. An existing review or outcome resumes
+before a new choice is offered.
+
+Choose **Review new agent**, with an editable name and descriptive owner label,
+or explicitly choose an existing local agent. Review the full project, agent,
+metadata, expiry and effects in the pane, then use **Approve attachment** or
+**Decline attachment**. The buttons keep their exact host review references.
+Changing the project/conversation or review terms requires another review.
+Private flow payloads stay inside the native frontend and owner-local host.
+
+A successful approval says **Project: attachment recorded** and **Adapter
+connection is next**. This records a local agent/session association; adapter
+connection, network admission and sharing each need subsequent steps. The
+existing local model check below measures a separate delivery route.
+
+Close or **Back to Peerspan** leaves the durable review intact. Reopen the pane
+and Connect this project to look up its current outcome. Active-project Refresh
+is read-only. Expired, declined or invalidated flows offer **Review a
+replacement**, followed by a fresh explicit agent choice and review. Failed
+owner decisions show an unknown outcome; Refresh checks what committed and
+never repeats an approval automatically. Host restart invalidates metadata
+attachments under the existing host contract.
 
 ## Check this conversation
 
@@ -60,7 +87,7 @@ These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
 same running process; a headless command also read a real temporary daemon.
 The live inference probe was refused by the account's weekly usage limit.
-Real-model acknowledgment and the complete attachment/data path remain
+Real-model acknowledgment and the complete adapter/data path remain
 outstanding acceptance work.
 
 Contract, decisions and independent cases:
