@@ -2344,3 +2344,16 @@ client's review-expiry distinction remains a source-coverage limit where the
 ordinary stage rule prevents a truthful fresh-success fixture. Discarded:
 fabricating authority rows, changing protocol expiry, or relabeling a rewritten
 public review as the daemon's retained exact consent.
+
+### GU.impl18b — Establish the old invitation handoff before navigation
+
+Selected: the independent author synchronizes the existing late-old-reveal
+fixture on its old handoff having captured the authentic response and registered
+the original1000ms delay before Back and the new invitation. Final CI passed231
+of232 cases but timed out in this fixture: clock.settle alone can leave the old
+handoff undispatched, so the new reveal becomes the first delayed response while
+the test awaits it before advancing time. Preserve the first-response flag,
+delay, all old/new-code privacy and no-decision assertions and default5000ms
+timeout. This establishes the intended pending old response; no native product
+change. Discarded: timeout inflation, removing assertions, forcing product work
+after navigation and rerunning unchanged until green.
