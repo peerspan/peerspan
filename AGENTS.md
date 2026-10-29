@@ -57,6 +57,9 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `join_onboarding`: exact recipient public-key/publication consent, atomic
   ordinary join-request creation, replay/privacy and additive schema27 (section12).
 
+- `owner_onboarding`: exact new-original owner review, ordinary-intent atomic
+  approval, rollback/history and consent boundaries (guided session contract section16).
+
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
 Packaging changes require `conformance/installed_bundle.py` against a freshly packaged bundle (Python 3.12 or newer; the Draft Linux release workflow runs it) and `conformance/test_package_release.py`. Live runs with real models are separate manual checks.

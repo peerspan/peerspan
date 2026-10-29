@@ -21,6 +21,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+mod owner;
+pub use owner::{OwnerApproval, OwnerContext, decode_owner_input};
+
 pub(crate) const SCHEMA: &str = "
 CREATE TABLE onboarding_join_flows (
  flow_id TEXT PRIMARY KEY NOT NULL,
@@ -529,6 +532,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/onboarding/join-flows/{id}", get(inspect))
         .route("/v1/onboarding/join-flows/{id}/decision", post(decide))
         .route("/v1/onboarding/join-flows/{id}/progress", post(progress))
+        .merge(owner::routes())
 }
 async fn prepare(
     State(store): State<Arc<Store>>,

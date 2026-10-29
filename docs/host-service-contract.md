@@ -230,3 +230,13 @@ review/context/outcome and exact validated ordinary request in one read snapshot
 with guarded observation time and derived next participant/action. Native Check
 is explicit. No schema, key, signature, authority mutation, peer poll or resume;
 local application remains separate from current authority/access/readiness.
+
+
+[New-original owner consent](guided-session-contract.md#16-exact-new-original-owner-consent-backend)
+adds private owner-local `POST /v1/onboarding/join-flows/{id}/owner/{prepare,lookup,approve}`
+and `onboarding join owner prepare|lookup|approve --stdin`. Exact context-bound
+public terms reuse the ordinary unapproved owner intent and atomically record
+its approval, with a fixed profile7 and seven-day proposed lifetime. No new
+schema, code export, original-key handling or original signature collection.
+Recorded approval and later signature/finalization remain separate from admission,
+requester commit, agent access and readiness. Native controls follow separately.

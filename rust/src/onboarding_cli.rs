@@ -43,6 +43,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum JoinCommand {
+    /// Prepare or explicitly approve exact new-original owner terms
+    Owner {
+        #[command(subcommand)]
+        command: OwnerCommand,
+    },
     /// Explicitly create and save a new original when no local identity is available
     CreateIdentity {
         #[arg(long, required = true)]
@@ -72,6 +77,24 @@ pub enum JoinCommand {
     Inspect { flow_id: String },
     /// Approve request publication or decline the exact retained review
     Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum OwnerCommand {
+    /// Prepare fixed public owner terms without signing
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Read exact retained owner terms and global approval
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Approve the exact retained owner review without signing
+    Approve {
         #[arg(long, required = true)]
         stdin: bool,
     },
@@ -238,6 +261,9 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, Progress, decode_input};
     let local = Local(socket);
     let base = "/v1/onboarding/join-flows";
+    if let JoinCommand::Owner { command } = command {
+        return owner_command(command, socket).await;
+    }
     if let JoinCommand::Inspect { flow_id } = command {
         return local.get(format!("{base}/{}", encoded(flow_id))).await;
     }
@@ -249,7 +275,9 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         JoinCommand::Lookup { .. } | JoinCommand::Identities { .. } => "lookup",
         JoinCommand::Decide { .. } => "decision",
         JoinCommand::Progress { .. } => "progress",
-        JoinCommand::Inspect { .. } | JoinCommand::CreateIdentity { .. } => unreachable!(),
+        JoinCommand::Inspect { .. }
+        | JoinCommand::CreateIdentity { .. }
+        | JoinCommand::Owner { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid join review input");
     let mut bytes = Vec::new();
@@ -299,7 +327,9 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
                 .post(format!("{base}/{}/decision", encoded(&id)), value)
                 .await
         }
-        JoinCommand::Inspect { .. } | JoinCommand::CreateIdentity { .. } => unreachable!(),
+        JoinCommand::Inspect { .. }
+        | JoinCommand::CreateIdentity { .. }
+        | JoinCommand::Owner { .. } => unreachable!(),
     }
 }
 
@@ -489,4 +519,41 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
         serde_json::json!({"version":1,"adapter_id":credential.adapter_id,"session_id":credential.session_id,
         "token":credential.token,"instance_id":instance_id,"adapter_socket":adapter_socket}),
     )
+}
+
+async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
+    use peerspan_host::onboarding_join::{OwnerApproval, OwnerContext, decode_owner_input};
+    let operation = match command {
+        OwnerCommand::Prepare { .. } => "prepare",
+        OwnerCommand::Lookup { .. } => "lookup",
+        OwnerCommand::Approve { .. } => "approve",
+    };
+    let invalid = || anyhow::anyhow!("invalid owner review input");
+    let mut bytes = Vec::new();
+    io::stdin().lock().take(65537).read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= 65536, "owner review input exceeds 64 KiB");
+    let mut value: Value = decode_owner_input(&bytes, operation, true).map_err(|_| invalid())?;
+    let id = value
+        .as_object_mut()
+        .and_then(|v| v.remove("flow_id"))
+        .and_then(|id| id.as_str().map(str::to_owned))
+        .filter(|id| {
+            id.strip_prefix("flow_").is_some_and(|v| {
+                v.len() == 32
+                    && v.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        })
+        .ok_or_else(invalid)?;
+    if operation == "approve" {
+        let _: OwnerApproval = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+    } else {
+        let _: OwnerContext = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+    }
+    Local(socket)
+        .post(
+            format!("/v1/onboarding/join-flows/{id}/owner/{operation}"),
+            value,
+        )
+        .await
 }
