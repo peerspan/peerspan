@@ -1621,6 +1621,12 @@ black-box suites for underlying task/grant/adoption behavior.
    task receipt; do not repeat an unchanged unavailable inference probe. Actual
    task/model and installed two-machine acceptance remain tracking gates.
 
+The pinned public native test kit exposes keys for the current drawing and
+omits retained callback closures. Pressing an old key after redraw does not
+exercise the old enable callback. Record that displayed-proof binding by source
+review; actual stale-render callback refusal remains manual acceptance work,
+separate from the current-proof invalidation cases this kit can exercise.
+
 Selected: explicit assigned-task enable under a current native delivery proof,
 existing host lifecycle semantics, independent task failures and separate
 submission/model/update evidence. Discarded: enabling tasks on message ready,
