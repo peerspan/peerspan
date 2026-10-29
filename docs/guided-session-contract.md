@@ -2401,8 +2401,12 @@ host. Ordinary backend public-key selection still is not possession proof.
 **Review another join request** is explicit replacement, only for a non-review
 retained outcome, preserving the exact latest replace_flow_id. It starts an
 empty draft. Replacing publication does not cancel/revoke the earlier request;
-show that limit. New lookup/Refresh never reuses a retained code, prepares a flow,
-publishes a request, signs or creates a person key.
+show that limit. Refresh clears the private attempt synchronously, then reloads
+the public join view through lookup only if the exact host/context/attached
+parent remain unchanged and no newer navigation/action superseded its clear.
+It performs no inventory; live reviews return with empty private input and no
+Approve authority. New lookup/Refresh never reuses a retained code, prepares a
+flow, publishes a request, signs or creates a person key.
 
 Clear the private code, review-choice authority and pending callback authority
 on Refresh, Back, Close/Escape, session end/reload, invitation/review expiry,
