@@ -227,6 +227,7 @@ function fixture(on: On) {
     // mutations; a real process stdout cannot mutate its already-sent stdin.
     const sent = payload === undefined ? undefined : clone(payload)
     w.calls.push({ ...e, kind, payload: sent, expectedContext: w.parent ? clone(context(w.parent)) : undefined,
+      expectedProjectFlow: w.parent?.flow_id, expectedAdapterFlow: w.child?.flow_id,
       expectedFlow: w.joining?.flow_id, expectedJoinReview: w.joining?.review_id,
       expectedOwnerReview: w.ownerValue?.review_id }); w.trace.push({ kind, payload: sent })
     const value = await w.run(kind, payload, e)
@@ -690,8 +691,17 @@ function ownerPrivacy(w: World, shown = '', runtime = false, executable = 'peers
   for (const command of w.calls) {
     expect(command.init?.timeoutMs).toBe(5000)
     expect(command.argv.slice(0, 1 + (state ? 2 : 0))).toEqual([executable, ...(state ? ['--state', state] : [])])
-    for (const value of [ROOT, NATIVE, TOKEN, SOCKET, ...w.codes, w.joining?.flow_id, w.joining?.review_id,
-      w.ownerValue?.review_id, w.ownerValue?.review.intent_id].filter(Boolean)) expect(command.argv).not.toContain(value)
+    for (const value of [ROOT, NATIVE, TOKEN, SOCKET, ...w.codes]) expect(command.argv).not.toContain(value)
+    // Existing inspect commands take their exact public reference in argv.
+    // New owner operations carry every reference only in private stdin.
+    const inspection = ({ 'project.inspect': command.expectedProjectFlow, 'join.inspect': command.expectedFlow,
+      'adapter.inspect': command.expectedAdapterFlow } as Record<string, string | undefined>)[command.kind]
+    if (inspection) expect(command.argv).toEqual([executable, ...(state ? ['--state', state] : []),
+      'onboarding', command.kind.split('.')[0], 'inspect', inspection])
+    const referenceFreeArgs = inspection ? command.argv.slice(0, -1) : command.argv
+    for (const value of [w.joining?.flow_id, w.joining?.review_id, w.ownerValue?.review_id, w.ownerValue?.review.intent_id].filter(Boolean)) {
+      expect(referenceFreeArgs).not.toContain(value)
+    }
     expect(command.kind).not.toMatch(/identit|create-identity|sign|resume|selection|admi|commit/)
   }
   for (const command of ownerCalls(w)) {
