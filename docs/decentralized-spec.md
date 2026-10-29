@@ -1004,7 +1004,7 @@ options are in the decision log. No question is open.
 | Q11 | Ranked turns spaced across the window, sync before signing, automatic resolution of forks between identical plain renewals. | DEC-Q11 |
 | Q12 | The root renews root-signed grants 4 days early; the countdown shows at N ≤ 3, with N to the latest admin or root-signed person/host deadline. | DEC-Q12 |
 | Q13 | `--retain` and `--retain-none` removed; `admin_withdraw` keeps every eligible grant by default. | DEC-Q13 |
-| Q14 | Migration fields stay, always `-`; `dec_migrations` stays unused; schema 24 may clean up later. | DEC-Q14 |
+| Q14 | Migration fields stay, always `-`; `dec_migrations` stays unused; a later schema may clean up. | DEC-Q14 |
 | Q15 | The legacy status entry keeps its shape; guidance names `network reinvite`. | DEC-Q15 |
 | Q16 | `network reinvite`: one invite per machine, a CLI loop with no new route, the stored `network_members` cache, 24-hour default expiry. | DEC-Q16 |
 | Q17 | A plan needs review only when a record it replaces or depends on is no longer current or its deadline passed; such a plan becomes terminal; unapplied terminal plans are removed after 24 h; plan `expires_at` is `-` except for link stages. | DEC-Q17 |
