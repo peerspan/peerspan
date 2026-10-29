@@ -2415,3 +2415,14 @@ an inspection assertion at that missing-prefix setup; shared dependents must
 report setup failure rather than recreate the same project name. Discarded:
 calling admissions preview/import, fetching from the inspection route, invented
 authority rows and accepting an unverified/missing selected prefix.
+
+### GU.impl20c — Redact rejected admission arguments at the parser boundary
+
+Selected: keep typed Clap parsing and its normal help/exit behavior, but emit a
+fixed error for failed invocations containing the literal onboarding admission
+command path. Clap's default unknown-argument diagnostic echoed a rejected
+positional request ID before the private stdin handler ran. Inspecting argv here
+selects only the error redaction policy; it never accepts arguments, routes a
+command or performs IO. All admission values still require strict private stdin.
+Discarded: accepting a positional ID, removing the no-echo conformance assertion,
+filtering selected secret prefixes, and changing unrelated command diagnostics.
