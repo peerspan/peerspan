@@ -962,10 +962,10 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
     ownerExpired, ownerCanSign, ownerSignExpired };
-  const activeDeadline = deadline && stage !== 'expired' ? deadline : ownerDeadline && !ownerExpired ? ownerDeadline
+  const activeDeadline = deadline && stage !== 'expired' ? Date.parse(deadline) : ownerDeadline && !ownerExpired ? Date.parse(ownerDeadline)
     : signingDeadline && !ownerSignExpired ? signingDeadline : null;
-  if (activeDeadline) {
-    joiningExpiry = $.clock.after(Date.parse(activeDeadline) - now, () => {
+  if (activeDeadline !== null) {
+    joiningExpiry = $.clock.after(activeDeadline - now, () => {
       if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
         joining = ownerDeadline || signingDeadline
           ? { ...joining, ownerExpired: !!ownerDeadline, ownerCanSign: false, ownerSignExpired: !!signingDeadline, busy: false }
