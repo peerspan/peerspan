@@ -3522,6 +3522,11 @@ all252 native case assertions, owner_signing6/owner6/join14 and155 Rust/2ignored
 
 Run all18 final-head CI suites, Rust gates, native252 and unchanged applicable
 host onboarding suites, record source/binary/evidence/limits and fresh bot review.
+GU.impl20a permits the independent author to isolate the existing owner_signing
+daemon constructors from the CLI's generated original using the documented
+absent --person-key-file option. Preserve all six bodies/count/proof/privacy/
+history assertions and normal CLI key reads; approved background signing must
+not race a fixture claiming exactly one CLI-generated original submission.
 Carry existing manual/installed/two-machine/distinct-person/model/schema23-to27
 acceptance gates; do not retry rejected terminal actions or unchanged quota probes.
 
