@@ -283,7 +283,7 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-All162 independent native cases include20 inviter and14 recipient cases,
+All184 independent native cases include20 inviter,14 recipient and22 joining cases,
 preserving the original128 project/adapter/message/task checks. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
@@ -331,3 +331,13 @@ Contract, decisions and independent cases:
 Claude references: [mod reload](https://code.claude.com/docs/en/plugins/mods/overview),
 [native controls](https://code.claude.com/docs/en/plugins/mods/interface) and
 [background prompt submission](https://code.claude.com/docs/en/plugins/mods/api).
+
+
+The [existing-identity joining smoke](../../docs/results/guided-native-join-smoke.json)
+used the actual pinned terminal with two temporary hosts and a pre-existing,
+independent recipient original key. Private paste, verified inventory, explicit
+choice/review/approval produced one pending request with unchanged key bytes and
+no participant/access approval. Close and parent re-entry succeeded; the final
+native outcome lookup after re-entry remains a manual gate after automatic
+approval review refused that terminal action. Source provenance, exact limits
+and separate independent recovery coverage are recorded in the artifact.
