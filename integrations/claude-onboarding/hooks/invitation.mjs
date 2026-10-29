@@ -126,6 +126,6 @@ export function reviewLines(v) {
     `Relays: ${hints(r.transport.relays)}`, `Helpers: ${hints(r.transport.helpers)}`,
     `Review expires: ${r.expires_at}`, `Invitation expires: ${r.invitation_expires_at}`,
     'Create one private contact invitation', 'Receive join requests', 'Membership grants: none', 'Agent access grants: none',
-    'Machine approval: none', 'File sharing: none', 'Conversation sharing: none', 'Capability calls: none',
+    'Machine approval: none', 'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
     'Peer reachability and model receipt: not verified'].join('\n');
 }
