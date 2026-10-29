@@ -784,15 +784,20 @@ test('Refresh Back Close and reopening discard confirmations without progress po
 
 test('late old progress cannot replace a newer requested outcome confirmation after navigation', async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run; let first = true
+  let signalOldDelayStarted!: () => void
+  const oldDelayStarted = new Promise<void>(resolve => { signalOldDelayStarted = resolve })
   w.run = async (kind, payload, e) => {
     if (kind === 'join.progress') {
       const value = await progressResponse(w, first ? 'linked' : 'cancelled')
-      if (first) { first = false; await w.clock.sleep(1000) }
+      if (first) { first = false; const delay = w.clock.sleep(1000); signalOldDelayStarted(); await delay }
       return value
     }
     return normal(kind, payload, e)
   }
-  const pending = press(ui, 'Check join progress'); void pending.catch(() => undefined); await w.clock.settle()
+  const pending = press(ui, 'Check join progress'); void pending.catch(() => undefined)
+  // The response digest uses real async work. Synchronize after the virtual
+  // sleep is registered, before navigation or advancing that same test clock.
+  await oldDelayStarted; await w.clock.settle()
   await back(ui); w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested', n: 99 })
   await joinEntry(w, ui); await press(ui, 'Check join progress')
   expect(await visible(ui)).toContain('Join progress: cancelled')
