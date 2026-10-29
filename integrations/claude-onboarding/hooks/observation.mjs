@@ -14,13 +14,16 @@ function session(value) {
 }
 
 const PRIVATE = /(?:psi2-|psl2-|token_|instance_|peerspan-(?:(?:member|person)-)?invite-v1\.)[A-Za-z0-9_.-]*/g;
-function normalized(value) {
-  return value
-    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\|$)/g, '')
-    .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
+const OSC = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\|$)/g;
+const CSI = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g;
+const CONTROLS = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+function undecorated(value) { return value.replace(CSI, '').replace(CONTROLS, ''); }
+function normalized(value) { return undecorated(value.replace(OSC, '')); }
+export function privateValue(value) {
+  // Exact reviews quote raw strings, including terminal payloads hidden in a
+  // normal label. Inspect those payloads before normalization can remove them.
+  return [value, undecorated(value), normalized(value)].some(v => v.match(PRIVATE) !== null);
 }
-export function privateValue(value) { return normalized(value).match(PRIVATE) !== null; }
 export function safeName(value) { return normalized(value).replace(PRIVATE, '[private value]').slice(0, 80); }
 
 export function observation(text) {
