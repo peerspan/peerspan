@@ -1767,6 +1767,11 @@ membership. Logical current-state failures during view derivation give
 `invalidated`; internal/corrupt storage errors remain errors. Expired reviews
 return `review_expired` on a first decision. Declining also requires the exact
 current, unexpired pending review; there is no implicit owner mutation.
+Opposite terminal decisions and superseded undecided reviews return
+`flow_conflict`. Handoff of an unissued/declined/expired flow returns
+`flow_conflict`; an issued flow with changed current network/transport terms
+returns `review_changed`. Same-choice terminal retries return the retained view,
+including derived expired/invalidated state, without minting again.
 
 Advanced integration commands are `peerspan onboarding invitation lookup`,
 `prepare`, `decide`, `handoff`, each requiring `--stdin`, and
@@ -1814,6 +1819,12 @@ Keep suites under two minutes. No implementer-written unit tests.
    owner-only routing refusal on peer/bootstrap/scoped interfaces.
 6. Additive schema25→26, preserved records, reserved table/view/index/trigger,
    malformed-current and future27 refusal. Keep schema24/25 gates intact.
+
+Schema-only rollback fixtures may install a temporary aborting trigger on the
+flow decision update; do not fabricate or edit protocol/authority rows. Current
+public APIs cannot create an authentic legacy network: absent a retained
+historical fixture, legacy-mode refusal is source-reviewed rather than claimed
+as a passing black-box case.
 
 Selected: exact durable contact-only review, current own-host signing, fixed
 expiry, one atomic return-path publication intent, private explicit retrieval
