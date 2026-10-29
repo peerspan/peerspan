@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-29",
+  "kind": "independent contract-derived native exact owner consent verification",
+  "contract_commits": [
+    "4cfb36e",
+    "c785302",
+    "08bed9f"
+  ],
+  "merged_backend_base": "efe89da9676d97a8dc84ebc67eb5ef23e3d36f9d",
+  "production_source_commit": "32b1b6383ea7befdd52fbb4336faecba05efaee3",
+  "independent_new_test_source_commit": "4516e6c",
+  "independent_existing_fixture_correction_commit": "4b43b34",
+  "rust_source_unchanged_from_merged_backend": true,
+  "binary_sha256_observed_after_local_checks": "aaa3660bf3135ad01a21344a3b2d70079fb865348a65398260ee53a796f83eef",
+  "native_runtime": "Claude Code 2.1.303; updates disabled; no inference",
+  "local_results": {
+    "native": {
+      "passed": 232,
+      "failed": 0,
+      "seconds": 27.95,
+      "new_cases": 20,
+      "original_case_assertions_preserved": 212,
+      "runs_after_adapter_fixture_correction": 1
+    },
+    "original_native_baseline": {
+      "passed": 212,
+      "failed": 0,
+      "seconds": 25.97
+    },
+    "owner_onboarding": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 35,
+      "case_bodies_unchanged": true
+    },
+    "rust": {
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2
+    },
+    "all_bin_build": "pass",
+    "format": "pass",
+    "clippy": "pass",
+    "native_strict_validation": "pass",
+    "js_syntax_checks": "pass"
+  },
+  "coverage": [
+    "Owner-inert entry/publication/progress/Refresh; explicit lookup-first prepare/reentry with exact configured literal5s private stdin owner commands",
+    "Full reversible identity, fixed profile7, finite terms/effects review; five observed states, null recovery and historical approval without frontend attribution or current-power/readiness claims",
+    "Strict wrapper/review/LINK_VIEW/digest/context/network/member/host-hash/key/date/effect validation and private/decorated string corpora",
+    "One exact explicit approval after fresh parent/host/flow/owner/context/terminal/deadline checks; changed terms/state or expired review prevent dispatch",
+    "Pure unknown-response recovery without preparation/approval retry/signing, pending Leave/navigation/context/expiry/end and old-callback/timer authority",
+    "Established adapter/message/task/lease runtimes and durable inviter state preserved; no new original-key, signing, model tool, prompt or readiness work"
+  ],
+  "fixture_corrections": [
+    "Generated positive/race owner times rounded to canonical whole seconds before execution; malformed-time variants remain",
+    "Initial all20 new cases reached a common privacy helper that incorrectly rejected documented typed flow-ID arguments on existing inspect commands. Contract/fixture distinguish those exact existing args from strict stdin-only owner references; no behavioral assertion relaxed",
+    "Next full run passed all20 new cases and231/232 overall; an original Back cancellation fixture observed0 HTTP calls before assuming1. The independent author now explicitly awaits actual connect dispatch and original1000ms delay registration before Close/Back; all original count/no-renewal/privacy/late-response assertions and5s timeout remain. One corrected full232 run passes; no product changes or retry-until-green"
+  ],
+  "limits": [
+    "Native effects are mocked; no actual terminal owner-consent, physical/installed two-machine/distinct-person, model receipt or plugin reload acceptance claimed",
+    "Original signature collection requires the next bounded local-signing slice; no key inventory/use, signing, resume, selection, administrator approval or requester commit dispatched here",
+    "The public test kit dispatches current drawings; old rendered callback closures retain source/manual coverage only",
+    "Reload fixture retention assumes an attached parent; actual daemon restart still follows existing metadata-attachment recovery limits",
+    "Existing terminal progress/creation/outcome-reopen and schema23-to27 full-state upgrade/recovery gates stay open; no rejected terminal action or unchanged quota-refused inference retried",
+    "Final-head all16 CI suites and fresh bot review are recorded in PR54 and tracking PR35"
+  ]
+}

@@ -2306,8 +2306,8 @@ all16 suite gates; actual terminal/installed/model/upgrade recovery remains open
 ### GU.impl17a — Establish the pending connection in its cancellation fixture
 
 Selected: the independent test author will explicitly await the existing
-initial adapter connect HTTP dispatch/delay registration before pressing Back
-in its pending-connection cancellation case. Original212 passed in the first
+initial adapter connect HTTP dispatch/delay registration before pressing Close or Back
+in its shared pending-connection cancellation fixture. Original212 passed in the first
 full run; the next run passed all20 new owner cases but this old case observed
 zero HTTP calls where its fixture assumed one. The same scheduling failure has
 occurred in earlier slices. Preserve all original semantic assertions, delay
