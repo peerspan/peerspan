@@ -22,7 +22,7 @@ let adapterExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
-let registeredTaskTools = new Set();
+let registeredTaskTools = new Map();
 
 function clearCheck() {
   expiration?.cancel();
@@ -40,7 +40,7 @@ function clearSession() {
   lines = ['Host: unavailable'];
   clearCheck();
   registeredMessageTools = new Set();
-  registeredTaskTools = new Set();
+  registeredTaskTools = new Map();
 }
 
 async function identify($) {
@@ -534,10 +534,10 @@ async function enableTasks($, active, epoch) {
     const registry = registeredTaskTools;
     for (const spec of taskTools) {
       if (!registry.has(spec.name)) {
-        await $.tool.register(spec);
-        registry.add(spec.name);
-        if (!await taskCurrent($, active, attempt)) return;
+        registry.set(spec.name, $.tool.register(spec));
       }
+      await registry.get(spec.name);
+      if (!await taskCurrent($, active, attempt)) return;
     }
     if (!await taskCurrent($, active, attempt)) return;
     attempt.state = 'enabled';
@@ -938,7 +938,8 @@ export function register(on, configured = {}) {
           } }),
         ] : [
           Text({ children: ['Incoming tasks can start model turns using the normal allowance. They grant no new local tool or file permission.'] }),
-          Button({ key: 'task-enable', label: runtime.tasks ? 'Retry incoming tasks' : 'Enable incoming tasks',
+          Button({ key: 'task-enable', label: runtime.tasks?.state === 'blocked' && runtime.tasks.ready === runtime.messages
+            ? 'Retry incoming tasks' : 'Enable incoming tasks',
             onPress: () => enableTasks($, displayedRuntime, epoch) }),
         ] : []),
       ...(runtime ? [Button({ key: 'adapter-stop', label: 'Stop adapter', onPress: () => {
