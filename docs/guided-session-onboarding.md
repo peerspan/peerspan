@@ -240,7 +240,9 @@ shows the exact ordinary request's recorded state and next participant without
 advancing it. The [first owner consent backend](guided-session-contract.md#16-exact-new-original-owner-consent-backend)
 prepares fixed public profile7 terms for a new original and atomically approves
 the existing ordinary intent. It neither collects the original signature nor
-advances the request. Guided native review/signing, administrator admission,
+advances the request. The [native owner-consent review](guided-session-contract.md#17-native-exact-owner-consent)
+adds explicit Review/Approve/Leave and pure Check recovery for those fixed terms.
+Guided original signing, administrator admission,
 requester final consent and agent access remain subsequent slices.
 
 The observation suite isolates each automatic invitation return from previous

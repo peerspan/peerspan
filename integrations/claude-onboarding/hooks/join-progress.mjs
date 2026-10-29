@@ -35,13 +35,9 @@ async function hostFor(key) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(raw)));
   return 'host_' + Array.from(digest, b => b.toString(16).padStart(2, '0')).join('');
 }
-export async function progress(raw, flow, parent, host) {
-  const v = JSON.parse(raw), r = v?.request;
-  if (!exact(v, 'version host_id flow_id review_id context observed_at outcome request next_participant next_action') ||
-      v.version !== 1 || v.host_id !== host || !id(host, 'host') || flow.state !== 'requested' ||
-      v.flow_id !== flow.flow_id || v.review_id !== flow.review_id || !same(v.context, context(parent)) ||
-      !same(v.outcome, flow.outcome) || !time(v.observed_at) ||
-      !exact(r, 'request_id role mode state network_id context_id migration_proposal_id person_public_key host_public_key device_public_key created_at expires_at request_packet_id owner_offer_id selection_id administrator_offer_id owner_finalization_id manifest_id activation_id outcome_id selection_approved commit_approved completed attention next') ||
+// Shared public LINK_VIEW validation for observation and exact owner consent.
+export async function requestView(r, flow, host) {
+  if (!exact(r, 'request_id role mode state network_id context_id migration_proposal_id person_public_key host_public_key device_public_key created_at expires_at request_packet_id owner_offer_id selection_id administrator_offer_id owner_finalization_id manifest_id activation_id outcome_id selection_approved commit_approved completed attention next') ||
       r.request_id !== flow.outcome.request_id || r.role !== 'requester' || r.mode !== 'new' || r.migration_proposal_id !== '-' ||
       typeof r.state !== 'string' || !Object.hasOwn(next, r.state) || r.network_id !== flow.outcome.network_id || r.context_id !== flow.outcome.context_id ||
       r.person_public_key !== flow.outcome.person_public_key || !publicKey(r.host_public_key) || !publicKey(r.device_public_key) ||
@@ -53,8 +49,7 @@ export async function progress(raw, flow, parent, host) {
       typeof r.commit_approved !== 'boolean' || r.commit_approved && !r.selection_approved ||
       !Array.isArray(r.completed) || r.completed.length === 0 || r.completed.length > 7 || r.completed[0] !== 'request_created' ||
       !r.completed.every((s, i) => stages.includes(s) && (!i || stages.indexOf(r.completed[i - 1]) < stages.indexOf(s))) ||
-      !publicStrings(r.attention) || !publicStrings(r.next) ||
-      v.next_participant !== next[r.state][0] || v.next_action !== next[r.state][1]) throw new Error('Unavailable join progress');
+      !publicStrings(r.attention) || !publicStrings(r.next)) throw new Error('Unavailable ordinary join request');
   for (const [stage, field] of [['owner_offered', 'owner_offer_id'], ['owner_selected', 'selection_id'],
     ['administrator_offered', 'administrator_offer_id'], ['owner_finalized', 'owner_finalization_id']]) {
     if (r.completed.includes(stage) !== (r[field] !== '-')) throw new Error('Changed recorded join stages');
@@ -63,7 +58,17 @@ export async function progress(raw, flow, parent, host) {
       r.completed.includes('commit_persisted') && (!r.commit_approved || r.manifest_id === '-') ||
       r.completed.includes('locally_applied') !== (r.state === 'linked') ||
       r.state === 'linked' && (!r.completed.includes('commit_persisted') || r.activation_id === '-' || r.outcome_id === '-') ||
-      await hostFor(r.host_public_key) !== host) throw new Error('Changed join progress binding');
+      await hostFor(r.host_public_key) !== host) throw new Error('Changed join request binding');
+  return freeze(r);
+}
+export async function progress(raw, flow, parent, host) {
+  const v = JSON.parse(raw), r = v?.request;
+  if (!exact(v, 'version host_id flow_id review_id context observed_at outcome request next_participant next_action') ||
+      v.version !== 1 || v.host_id !== host || !id(host, 'host') || flow.state !== 'requested' ||
+      v.flow_id !== flow.flow_id || v.review_id !== flow.review_id || !same(v.context, context(parent)) ||
+      !same(v.outcome, flow.outcome) || !time(v.observed_at)) throw new Error('Unavailable join progress');
+  await requestView(r, flow, host);
+  if (v.next_participant !== next[r.state][0] || v.next_action !== next[r.state][1]) throw new Error('Changed join progress mapping');
   return freeze(v);
 }
 export function progressLines(v) {

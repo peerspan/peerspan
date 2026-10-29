@@ -239,4 +239,7 @@ public terms reuse the ordinary unapproved owner intent and atomically record
 its approval, with a fixed profile7 and seven-day proposed lifetime. No new
 schema, code export, original-key handling or original signature collection.
 Recorded approval and later signature/finalization remain separate from admission,
-requester commit, agent access and readiness. Native controls follow separately.
+requester commit, agent access and readiness.
+[Native exact consent](guided-session-contract.md#17-native-exact-owner-consent)
+uses the existing owner CLI with explicit Review/Approve/Leave and pure lookup
+recovery. It collects no original signature; local signing follows separately.
