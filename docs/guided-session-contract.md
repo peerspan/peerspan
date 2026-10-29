@@ -2003,7 +2003,8 @@ or context fails closed. Require exactly the request fields: duplicates at any
 nesting level, unknown fields, nulls, trailing JSON and a body over64KiB refuse
 without echoing private input. Preserve existing host error conventions:
 400 invalid input,404 unknown parent,409 review_changed for context/attachment,
-and the existing wire expired/not_yet_valid/quota errors. Errors contain no code,
+and the existing wire409 expired,403 not_yet_valid or409 quota_exceeded
+errors. New body/code byte-bound refusals use400 invalid. Errors contain no code,
 return secret or signed payload. The route exists only on owner administration;
 peer/bootstrap/scoped routers refuse it.
 
@@ -2021,7 +2022,8 @@ next_action:"choose_join_identity"}`. Review is exactly:
   never its value. The pin is canonical Base64 or `-`;
 - `contacts`: original verified order, at most4, each exactly
   `{sequence,issued_at,expires_at,quic_addresses,bootstrap_addresses,relays}`.
-  Sequence is a canonical decimal u64 STRING to preserve all bits through JS.
+  Sequence is a canonical decimal u64 STRING (0 through18446744073709551615)
+  to preserve all bits through JS.
   Times and all public hints/relay keys are exact verified terms. Host/context
   repeat the invitation signer/context and need not be duplicated here;
 - `helpers`: exact verified public `{address,public_key}` pairs;

@@ -129,3 +129,6 @@ export function reviewLines(v) {
     'Machine approval: none', 'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
     'Peer reachability and model receipt: not verified'].join('\n');
 }
+
+// Shared pure public-term validation; no private transport or native effects.
+export { key as publicKey, endpoint as publicEndpoint, label as publicLabel, freeze, canonical };
