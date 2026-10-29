@@ -54,5 +54,6 @@
     "The manual run is bound to the recorded source and build, not later changes.",
     "Public native tests cannot retain old synchronous callbacks; those guards remain source/manual evidence. Pane switching is tested via reachable Back navigation.",
     "Logical database purity was observed manually; private-file and network-I/O boundaries require the independent real-host cases."
-  ]
+  ],
+  "source_difference": "After the manual run,732d8e5 moves the single fresh host observation after parent inspection, immediately before sending private input. The original independent host-change-during-inspection stimulus is preserved, and all162 native cases pass. Rust production and normal preview terms are unchanged."
 }
