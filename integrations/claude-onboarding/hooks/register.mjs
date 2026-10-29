@@ -4,6 +4,8 @@ import { context as adapterContext, flow as parseAdapterFlow, lookup as parseAda
   transport as parseTransport, connection as parseConnection, reviewLines as adapterReviewLines } from './adapter.mjs';
 import { tools as messageTools, argumentsOf, typedId, content as messageContent, hello as messageHello,
   prompt as messagePrompt, handoff as parseHandoff, delivery as parseDelivery, seen as parseSeen, reply as parseReply } from './messages.mjs';
+import { tools as taskTools, handoff as parseTask, cancellation as parseCancellation, prompt as taskPrompt,
+  cancelPrompt, argumentsFor as taskArguments, result as taskResult, url as taskUrl } from './tasks.mjs';
 
 let options;
 let hostId = null;
@@ -20,6 +22,7 @@ let adapterExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
+let registeredTaskTools = new Set();
 
 function clearCheck() {
   expiration?.cancel();
@@ -37,6 +40,7 @@ function clearSession() {
   lines = ['Host: unavailable'];
   clearCheck();
   registeredMessageTools = new Set();
+  registeredTaskTools = new Set();
 }
 
 async function identify($) {
@@ -54,7 +58,7 @@ function summary() {
     : 'Check this conversation to verify local model delivery.';
   return [...lines, `This conversation: ${check.state}`, meaning,
     ...(runtime ? [runtime.phase === 'connected'
-      ? `Adapter: connected\n${messageSummary(runtime)}\nPeer exchange: not verified` : 'Adapter: connecting…']
+      ? `Adapter: connected\n${messageSummary(runtime)}${taskSummary(runtime)}\nPeer exchange: not verified` : 'Adapter: connecting…']
       : runtimeNotice ? [runtimeNotice] : [])].join('\n');
 }
 
@@ -307,6 +311,7 @@ function clearAdapter() {
   adapter = { stage: 'inactive', busy: false };
 }
 function stopRuntime(message) {
+  stopTasks(runtime);
   runtime?.messages?.deadline?.cancel();
   runtime?.messages?.poll?.cancel();
   runtime?.renewal?.cancel();
@@ -327,6 +332,7 @@ function messageFailure($, active, attempt, state = 'blocked') {
   attempt.deadline?.cancel();
   attempt.poll?.cancel();
   attempt.state = state;
+  stopTasks(active, 'blocked');
   $.ui.invalidate('ui.render');
 }
 async function messageCurrent($, active, attempt, ready = false) {
@@ -346,15 +352,16 @@ async function messageCurrent($, active, attempt, ready = false) {
   }
   return true;
 }
-async function messageRequest($, active, attempt, operation, body, id) {
-  if (!await messageCurrent($, active, attempt) || !await inspectMessageAuthorization($, active, attempt) ||
-      !await messageCurrent($, active, attempt)) throw new Error('Unavailable message context');
+async function messageRequest($, active, attempt, operation, body, id, guard = () => true) {
+  if (!await messageCurrent($, active, attempt) || !guard() || !await inspectMessageAuthorization($, active, attempt, guard) ||
+      !await messageCurrent($, active, attempt) || !guard()) throw new Error('Unavailable message context');
   let url;
   if (operation === 'ready') url = 'http://peerspan/adapter/v1/ready';
   else if (operation === 'next') url = 'http://peerspan/adapter/v1/next';
   else if (operation === 'seen') url = 'http://peerspan/adapter/v1/seen';
   else if (typedId(id, 'delivery') && operation === 'forwarded') url = `http://peerspan/adapter/v1/deliveries/${id}/forwarded`;
   else if (typedId(id, 'delivery') && operation === 'reply') url = `http://peerspan/adapter/v1/deliveries/${id}/reply`;
+  else if (operation.startsWith('task_')) url = taskUrl(operation, id);
   else throw new Error('Unavailable scoped message route');
   let deadline;
   try {
@@ -364,14 +371,14 @@ async function messageRequest($, active, attempt, operation, body, id) {
     const response = await Promise.race([$.http.fetch(url, { method: 'POST', socketPath: active.transport.adapter_socket,
       headers: { Authorization: `Bearer ${active.transport.token}`, 'X-Peerspan-Instance': active.transport.instance_id, 'Content-Type': 'application/json' },
       body: JSON.stringify(body) }), timeout]);
-    if (!await messageCurrent($, active, attempt) || response.status !== 200 || !response.ok) throw new Error('Unavailable scoped message');
+    if (!await messageCurrent($, active, attempt) || !guard() || response.status !== 200 || !response.ok) throw new Error('Unavailable scoped message');
     return JSON.parse(response.text);
   } finally { deadline?.cancel(); }
 }
-async function inspectMessageAuthorization($, active, attempt) {
+async function inspectMessageAuthorization($, active, attempt, guard = () => true) {
   try { return await runtimeInspect($, active); }
   catch {
-    if (runtime === active && active.messages === attempt) {
+    if (runtime === active && active.messages === attempt && guard()) {
       stopRuntime('Adapter: authorization unavailable. Reopen the project review to reconnect.');
       $.ui.invalidate('ui.render');
     }
@@ -494,6 +501,117 @@ async function messageWrite($, event, next, operation) {
     $.ui.invalidate('ui.render');
     return { result };
   } catch { return { deny: 'Message operation unavailable or outcome unknown. No automatic retry was made.' }; }
+  finally { attempt.writeBusy = false; }
+}
+function stopTasks(active, state = 'stopped') {
+  if (!active?.tasks) return;
+  active.tasks.poll?.cancel();
+  active.tasks.state = state;
+}
+function taskSummary(active) {
+  if (!active.tasks) return '';
+  const c = active.taskCounts;
+  return `\nIncoming tasks: ${active.tasks.state}\nTasks submitted: ${c.submitted.size}\nTasks observed: ${c.observed.size}\nTask changes confirmed: ${c.changes.size}\nCancellations submitted: ${c.cancellations.size}`;
+}
+const taskGuard = (active, attempt) => runtime === active && active.tasks === attempt &&
+  ['starting', 'enabled'].includes(attempt.state) && active.messages === attempt.ready && attempt.ready.state === 'ready';
+async function taskCurrent($, active, attempt) {
+  if (!taskGuard(active, attempt)) return false;
+  return await messageCurrent($, active, attempt.ready, true) && taskGuard(active, attempt);
+}
+async function enableTasks($, active, epoch) {
+  if (runtime !== active || epoch !== generation || active.phase !== 'connected' || active.messages?.state !== 'ready' ||
+      ['starting', 'enabled'].includes(active.tasks?.state)) return;
+  const attempt = { state: 'starting', ready: active.messages };
+  active.tasks = attempt;
+  active.taskCounts ??= { submitted: new Set(), observed: new Set(), changes: new Set(), cancellations: new Set() };
+  active.taskClaims ??= new Set();
+  active.cancelClaims ??= new Set();
+  $.ui.invalidate('ui.render');
+  try {
+    if (!await taskCurrent($, active, attempt) || !await inspectMessageAuthorization($, active, attempt.ready, () => taskGuard(active, attempt)) ||
+        !await taskCurrent($, active, attempt)) return;
+    const registry = registeredTaskTools;
+    for (const spec of taskTools) {
+      if (!registry.has(spec.name)) {
+        await $.tool.register(spec);
+        registry.add(spec.name);
+        if (!await taskCurrent($, active, attempt)) return;
+      }
+    }
+    if (!await taskCurrent($, active, attempt)) return;
+    attempt.state = 'enabled';
+    $.ui.invalidate('ui.render');
+    void pollTasks($, active, attempt);
+  } catch { taskFailure($, active, attempt); }
+}
+function taskFailure($, active, attempt) {
+  if (runtime !== active || active.tasks !== attempt) return;
+  stopTasks(active, 'blocked');
+  $.ui.invalidate('ui.render');
+}
+async function taskRequest($, active, attempt, operation, body, id) {
+  if (attempt.state !== 'enabled' || !await taskCurrent($, active, attempt)) throw new Error('Unavailable native task context');
+  return messageRequest($, active, attempt.ready, operation, body, id, () => taskGuard(active, attempt) && attempt.state === 'enabled');
+}
+async function submitTask($, active, attempt, text) {
+  if (!await taskCurrent($, active, attempt)) return false;
+  let deadline;
+  try {
+    const timeout = new Promise((_, reject) => {
+      deadline = $.clock.after(5000, () => reject(new Error('Unknown task submission outcome')));
+    });
+    const accepted = await Promise.race([$.prompt.submit({ text }), timeout]);
+    if (!await taskCurrent($, active, attempt)) return false;
+    if (accepted?.drop || typeof accepted?.text !== 'string') throw new Error('Unavailable task submission');
+    return true;
+  } finally { deadline?.cancel(); }
+}
+async function pollTasks($, active, attempt) {
+  if (attempt.busy || !taskGuard(active, attempt) || attempt.state !== 'enabled') return;
+  attempt.busy = true;
+  try {
+    const cancel = parseCancellation(await taskRequest($, active, attempt, 'task_cancel_next', {}), active);
+    if (!await taskCurrent($, active, attempt)) return;
+    if (cancel !== null) {
+      if (active.cancelClaims.has(cancel.delivery.id)) throw new Error('Duplicate cancellation handoff');
+      active.cancelClaims.add(cancel.delivery.id);
+      if (!await submitTask($, active, attempt, cancelPrompt(cancel))) return;
+      active.taskCounts.cancellations.add(cancel.delivery.id);
+      $.ui.invalidate('ui.render');
+    }
+    const raw = await taskRequest($, active, attempt, 'task_next', {});
+    const now = await $.clock.now();
+    if (!await taskCurrent($, active, attempt)) return;
+    const task = parseTask(raw, active, now);
+    if (task !== null) {
+      if (active.taskClaims.has(task.delivery.id)) throw new Error('Duplicate task handoff');
+      active.taskClaims.add(task.delivery.id);
+      if (!await submitTask($, active, attempt, taskPrompt(task))) return;
+      active.taskCounts.submitted.add(task.delivery.id);
+      $.ui.invalidate('ui.render');
+    }
+    if (await taskCurrent($, active, attempt)) attempt.poll = $.clock.after(1000, () => pollTasks($, active, attempt));
+  } catch { taskFailure($, active, attempt); }
+  finally { attempt.busy = false; }
+}
+async function taskWrite($, event, next, operation) {
+  const active = runtime, attempt = active?.tasks;
+  if (!active || !attempt || !modelOrigin(event, next) || attempt.state !== 'enabled' || attempt.writeBusy || !taskGuard(active, attempt)) {
+    return { deny: 'No available native task connection.' };
+  }
+  attempt.writeBusy = true;
+  try {
+    const { id, body } = taskArguments(event, operation, argumentsOf);
+    const value = await taskRequest($, active, attempt, `task_${operation}`, body, id);
+    const result = taskResult(value, active, id, operation, body);
+    if (!await taskCurrent($, active, attempt)) throw new Error('Changed task context');
+    const key = `${value.sender_host_id}/${id}`;
+    active.taskCounts.observed.add(key);
+    active.taskCounts.changes.add(`${key}/${value.last_event}`);
+    $.ui.invalidate('ui.render');
+    return { result };
+  } catch { return { deny: 'Task operation unavailable or outcome unknown. No automatic retry was made.' }; }
   finally { attempt.writeBusy = false; }
 }
 function adapterStart($, previous, epoch) {
@@ -796,6 +914,7 @@ export function register(on, configured = {}) {
     if (e.requestId !== 'peerspan' || e.surface !== 'terminal') return next(e);
     const epoch = generation;
     const displayedRuntime = runtime;
+    const displayedTasks = runtime?.tasks;
     const { Box, Text, Button, Input } = $.ui.resolve(e);
     return Box({ flexDirection: 'column', children: [
       Text({ children: [summary()] }),
@@ -809,6 +928,19 @@ export function register(on, configured = {}) {
         Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',
           onPress: () => enableMessages($, displayedRuntime, epoch) }),
       ] : []),
+      ...(runtime?.phase === 'connected' && runtime.messages?.state === 'ready' ?
+        ['starting', 'enabled'].includes(runtime.tasks?.state) ? [
+          Text({ children: ['Stopping incoming tasks pauses delivery and reporting; running tasks are not cancelled.'] }),
+          Button({ key: 'task-stop', label: 'Stop incoming tasks', onPress: () => {
+            if (runtime !== displayedRuntime || runtime.tasks !== displayedTasks || epoch !== generation) return;
+            stopTasks(runtime);
+            $.ui.invalidate('ui.render');
+          } }),
+        ] : [
+          Text({ children: ['Incoming tasks can start model turns using the normal allowance. They grant no new local tool or file permission.'] }),
+          Button({ key: 'task-enable', label: runtime.tasks ? 'Retry incoming tasks' : 'Enable incoming tasks',
+            onPress: () => enableTasks($, displayedRuntime, epoch) }),
+        ] : []),
       ...(runtime ? [Button({ key: 'adapter-stop', label: 'Stop adapter', onPress: () => {
         if (runtime !== displayedRuntime || epoch !== generation) return;
         stopRuntime('Adapter: stopped. The last accepted lease will expire; the credential is not revoked.');
@@ -839,6 +971,16 @@ export function register(on, configured = {}) {
     .catch(() => ({ deny: 'Message acknowledgment unavailable.' }));
   on('tool.call', { tool: 'mcp__peerspan__message_reply' }, ($, e, next) => messageWrite($, e, next, 'reply'))
     .catch(() => ({ deny: 'Message reply unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__task_accept' }, ($, e, next) => taskWrite($, e, next, 'accept'))
+    .catch(() => ({ deny: 'Task acceptance unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__task_reject' }, ($, e, next) => taskWrite($, e, next, 'reject'))
+    .catch(() => ({ deny: 'Task rejection unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__task_progress' }, ($, e, next) => taskWrite($, e, next, 'progress'))
+    .catch(() => ({ deny: 'Task progress unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__task_complete' }, ($, e, next) => taskWrite($, e, next, 'complete'))
+    .catch(() => ({ deny: 'Task completion unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__task_cancelled' }, ($, e, next) => taskWrite($, e, next, 'cancelled'))
+    .catch(() => ({ deny: 'Task cancellation unavailable.' }));
   on('ui.close', { id: 'peerspan' }, async ($, e, next) => {
     if (runtime?.phase === 'connecting') stopRuntime('Adapter: stopped before connection was confirmed.');
     generation++;
