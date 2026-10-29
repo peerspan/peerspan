@@ -11,7 +11,8 @@
     "native_conversation": true,
     "source_loaded_plugin": true,
     "installed_bundle": false,
-    "project_and_state_paths_contained_spaces": true,
+    "project_path_contained_spaces": true,
+    "state_path_contained_spaces": false,
     "adapter_socket_utf8_bytes": 55,
     "coordinator_used": false,
     "setup": "Exact project and adapter reviews were prepared and approved by the fixture through the owner CLI for the UUID used by the actual native conversation. This run tests message enable, not native approval controls."

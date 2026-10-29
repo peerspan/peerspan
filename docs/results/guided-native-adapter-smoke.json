@@ -11,7 +11,8 @@
   "fixture": {
     "native_claude_process": true,
     "temporary_single_host": true,
-    "project_and_state_paths_contained_spaces": true,
+    "project_path_contained_spaces": true,
+    "state_path_contained_spaces": false,
     "adapter_socket_utf8_bytes": 71,
     "coordinator_used": false,
     "physical_machines": 1,
