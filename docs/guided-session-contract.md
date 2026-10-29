@@ -2860,18 +2860,22 @@ incompatible proposal409 owner_review_unavailable. Invalid retained evidence
 fails closed. No route is exposed to scoped adapters, peers or bootstrap callers;
 alternate methods are405. Failed decisions expose no raw private diagnostics.
 
-An exact approved retry returns the recorded approved result read-only, including
+While the underlying ordinary request/intent remains retained, an exact approved
+retry returns the recorded approved result read-only, including
 after restart/detachment/expiry; it never re-signs, regenerates pairing material,
 recreates an intent or advances the link. Wrong context/digest still refuses.
-Lookup and response loss recovery remain pure. Historical review bytes/digest
+A pruned ordinary request returns409 request_unavailable and a missing/incompatible
+intent409 owner_review_unavailable; never recreate approval history. Lookup and
+response loss recovery remain pure. Historical review bytes/digest
 remain stable even after ordinary owner-finalization changes its mutable review.
 No original signature, admission, grant, commit, adapter or readiness is claimed
 by this backend's approved state. Installed/terminal/model acceptance stays open.
 
 ### Verification
 
-A separate contract-only author extends join_onboarding. Preserve original14 host
-case bodies, all212 native cases and155 Rust tests. No new implementer tests.
+A separate contract-only author adds the small owner_onboarding suite for this
+area. Preserve original14 join_onboarding bodies, all212 native cases and155 Rust
+tests. Keep each suite under2 minutes; no new implementer tests.
 
 1. Pure lookup before prepare; real pending new-person preparation, exact public
    review/digest/profile/deadline/effects, ordinary unapproved intent/templates
@@ -2890,7 +2894,7 @@ case bodies, all212 native cases and155 Rust tests. No new implementer tests.
    the same exact approved intent. Guided lookup after later finalization,
    local application and restart keeps its original public review/digest and
    historical approval, without invoking signing or granting access. Native212
-   remain unchanged; all15 slim suites/Rust gates run on the final head.
+   remain unchanged; all16 slim suites/Rust gates run on the final head.
 
 Selected: reuse the durable ordinary owner intent, exact context-bound public
 review and one atomic approval transaction for the new-original path. Discarded:
