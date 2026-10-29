@@ -2,9 +2,9 @@
 
 Status: feature-branch contract for [tracking PR #35](https://github.com/peerspan/peerspan/pull/35).
 The accepted experience and integration policy are in the
-[feature plan](guided-session-onboarding.md). Only the observation slice below
-is specified for implementation in the first small PR. Flow creation, reviews,
-the plugin and automatic continuation remain subsequent slices.
+[feature plan](guided-session-onboarding.md). Sections 1 and 2 specify the
+observation and native Claude entry slices. Flow creation, authority reviews,
+attachment and automatic protocol continuation remain subsequent slices.
 
 ## Normal experience
 
@@ -149,19 +149,153 @@ harness and temporary real hosts. Keep the suite under two minutes.
 8. A stopped/missing daemon makes the CLI fail without creating state or
    changing its files.
 
-## 2. Remaining flow contract
+## 2. Native Claude entry and delivery check (GU-01b / GU-03a)
+
+### Supported route
+
+Use Claude Code's native mod API for the existing-conversation frontend. The
+plugin is `integrations/claude-onboarding`, named `peerspan`. This slice targets
+Claude Code 2.1.303 or later in the terminal. Other surfaces remain unvalidated.
+An installed plugin loads through `/reload-plugins`; a local development plugin
+uses `--plugin-dir`. Loading it neither starts another conversation nor opts
+the existing session into channel mode.
+
+The official mod API provides commands, native controls and background prompt
+submission into the current conversation. Channel startup flags are not needed
+for this route. Disabled mods, organization policy, unavailable APIs or refused
+prompt submission remain blockers. Neither registration nor successful queuing
+establishes model receipt.
+
+### Read-only entry
+
+`/peerspan` opens one native pane with the current project's host observation
+and a **Check this conversation** control. It registers no invitation, access,
+approval or setup tools for the model. It creates no network, agent, attachment
+or credential. Loading the plugin alone neither reads the host nor submits a
+prompt. Refresh and explicit entry read the observation; there is no recurring
+poll or model timer merely because the plugin is installed.
+
+Trusted plugin options are `executable` (default `peerspan`) and `state`
+(default empty, retaining normal CLI state discovery). Read the host by running
+the literal argument array `[executable, ...stateFlags, 'onboarding']`, with
+`stateFlags` either empty or `['--state', state]`, without a shell and with a
+five-second timeout. Slash-command arguments cannot supply options or extra
+commands. Nonempty arguments return usage without running a process or probe.
+
+Display network names and counts of local agents, pending connection requests,
+live adapters and verified adapter channels from a valid version-1 snapshot.
+Label adapter evidence separately from this plugin's conversation check. Render
+names as bounded plain text with terminal controls and bidirectional overrides
+removed. Keep routine presentation free of internal IDs, private paths and
+known invitation/token formats. Do not echo raw CLI output or diagnostics.
+On subprocess failure, malformed JSON, unsupported version or invalid shape,
+show an unavailable observation; never turn it into an empty successful host.
+Unknown extra fields are not presented. Refresh failure invalidates any previous
+successful host view, independently of the conversation check.
+
+Where no native pane can be drawn, return a concise read-only summary through
+the command's text. Do not claim a human control exists or run a check there.
+
+### Explicit conversation check
+
+Only **Check this conversation** arms a check. It stores a fresh random
+128-bit `probe_id`, the native `$.session.id()`, and its start time in memory;
+it submits one fixed local check prompt through `$.prompt.submit({text})`
+without `asUser`. Its prompt contains only that public challenge and
+instructions to call `mcp__peerspan__delivery_acknowledge`; it includes no host
+snapshot, files, conversation history, pairing material or owner decision.
+
+Register `delivery_acknowledge` with exactly one required string argument,
+`probe_id`. The tool grants no authority and performs no host action. It marks
+the current check verified only when the supplied challenge matches, less than
+60 seconds have elapsed, the native conversation still matches, the call is on
+the main agent loop, and the engine is the native call's origin. Plugin-origin
+and subagent calls cannot verify a check. Duplicate, stale, unknown and expired
+acknowledgments are refused. The acknowledgment's result contains its state,
+not the challenge or any host observation.
+
+States are **unverified**, **waiting**, **verified**, **blocked** and
+**timed_out**. Queuing leaves the state waiting. A dropped/refused submission
+sets blocked; no acknowledgment within 60 seconds sets timed_out. Errors show
+controlled text rather than provider diagnostics. A second press while waiting
+does not queue another prompt. A later explicit check invalidates the previous
+challenge. Late results, timers or failures from an older check cannot change
+the newer one. Closing the pane, ending/changing the conversation or reloading
+the module clears the check and cancels its timers. These states are not
+persisted as authority or restored as verified after interruption.
+
+Verification means this conversation's main model returned the local challenge
+through the native tool path. It proves neither an attached Peerspan adapter nor
+remote reachability, peer message consumption or authorization. Keep those
+observations separate. The complete agent data path is later work.
+
+### Verification
+
+A separate author derives tests from this section using Claude's native
+`claude-code/testing` runtime, with filesystem/process/prompt effects stubbed at
+their public API boundary. Keep the test run under two minutes. These are
+runtime-protocol fixtures, not real-model acceptance.
+
+1. Register the one command and acknowledgment tool without process execution,
+   prompt submission or host mutation at plugin load.
+2. Entry and refresh run only the exact read-only CLI argv, including paths with
+   spaces, and bind the pane to the existing native conversation. Unknown
+   arguments run nothing. A headless entry returns a read-only summary.
+3. Valid empty and populated snapshots produce accurate, distinct counts and
+   safe names. Unknown fields, IDs, token-shaped labels and terminal controls
+   do not leak into routine presentation.
+4. Failed, timed-out, malformed or unsupported observations show unavailable,
+   including after a previous success. Raw stdout/stderr do not reach the UI.
+5. Only the explicit control submits one plugin-attributed local prompt. A
+   queued prompt remains waiting; a matching main-engine acknowledgment verifies
+   the same conversation without calling the host.
+6. Reject wrong, reused, expired, plugin-origin and subagent acknowledgments and
+   a changed native conversation. Starting a new check rejects the old challenge.
+7. Double press queues once. Refused/dropped/throwing submissions and timeout do
+   not become verified. Old asynchronous completions cannot overwrite a newer
+   result; close/end/reload cannot preserve verified state.
+8. Native plugin validation and tests run on the pinned supported Claude build
+   in CI without signing in or calling a model. Separately exercise reload and
+   delivery in a real existing conversation, recording the exact build and any
+   usage/policy blocker; fixture success does not satisfy that live gate.
+
+### Private human-review direction
+
+Later authority reviews use native controls whose callbacks hold the exact
+immutable review being shown. Approval is submitted directly from that trusted
+local frontend to the owner-local flow interface. The model sees only public
+progress, never private handoff text, signing inputs or an executable decision.
+The human control must survive neither changed terms nor changed conversation
+without a new review. This slice establishes no authority-review API or approval
+callback; their exact immutable review and retry contracts remain next work.
+
+### Rationale, alternatives and sources
+
+Selected: a native mod, with a bounded local challenge and explicit evidence,
+because it can preserve the current conversation and keep human controls
+separate from model tools. Discarded as the default: channel-only delivery that
+requires launch-time opt-in; lifecycle hooks that cannot wake an idle session;
+model polling loops as installation; and model-authored `approve: true` as
+evidence of an owner decision. Existing opted-in channel sessions remain
+supported by their current integration.
+
+Sources checked against the installed Claude Code 2.1.303:
+[mod loading and reload](https://code.claude.com/docs/en/plugins/mods/overview),
+[native controls](https://code.claude.com/docs/en/plugins/mods/interface),
+[commands and background prompt submission](https://code.claude.com/docs/en/plugins/mods/api),
+[runtime testing](https://code.claude.com/docs/en/plugins/mods/create), and
+[channel opt-in](https://code.claude.com/docs/en/channels).
+
+## 3. Remaining flow contract
 
 The earlier API discussion proposed `/v1/onboarding/flows`, immutable reviews
 and private decisions. Those mutation endpoints remain design proposals until
 their precise request bodies, retry rules and review transport are recorded.
 They are not implemented by the observation slice.
 
-The existing-session delivery path must also be settled and exercised before
-the frontend can claim success. A plugin reload alone does not opt a Claude
-session into channels. Evaluate a supported hook/inbox delivery path for the
-existing conversation; verify its actual behavior and limits before specifying
-it as the default. Preserve the original conversation and report unsupported
-paths honestly.
+Section 2 selects the native existing-session route. Its live verification and
+the attachment/data path must pass before the frontend can claim the complete
+connection is ready. Plugin reload alone does not verify incoming delivery.
 
 ## Implementation choices
 
