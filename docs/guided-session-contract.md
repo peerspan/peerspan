@@ -1293,6 +1293,11 @@ other typed IDs have32. Person fields are both null or a person ID and bounded
 UTF-8 label (at most191 bytes); redelivered is a boolean. The host remains the
 authority for grant, deadline, credential and handoff checks.
 
+Timestamp validation accepts RFC3339 numeric offsets as well as `Z`, including
+equivalent `+00:00` and nonzero offsets. Compare their represented instants;
+do not reject an authorized handoff because the host preserved its caller's
+deadline spelling. An elapsed offset deadline still blocks submission.
+
 Submit the message exactly once with a fixed wrapper identifying it as external
 peer content. Serialize content and sender labels reversibly as JSON, clearly
 separate host-supplied correlation from text claimed by the peer, and instruct
