@@ -83,6 +83,11 @@ pub enum JoinCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum OwnerCommand {
+    /// Explicitly sign only the exact approved original owner offer
+    Sign {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Prepare fixed public owner terms without signing
     Prepare {
         #[arg(long, required = true)]
@@ -522,11 +527,15 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
 }
 
 async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
+    if let OwnerCommand::Sign { .. } = command {
+        return crate::onboarding_owner_sign::from_stdin(socket).await;
+    }
     use peerspan_host::onboarding_join::{OwnerApproval, OwnerContext, decode_owner_input};
     let operation = match command {
         OwnerCommand::Prepare { .. } => "prepare",
         OwnerCommand::Lookup { .. } => "lookup",
         OwnerCommand::Approve { .. } => "approve",
+        OwnerCommand::Sign { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid owner review input");
     let mut bytes = Vec::new();

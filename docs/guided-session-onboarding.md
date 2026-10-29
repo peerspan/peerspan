@@ -242,8 +242,14 @@ prepares fixed public profile7 terms for a new original and atomically approves
 the existing ordinary intent. It neither collects the original signature nor
 advances the request. The [native owner-consent review](guided-session-contract.md#17-native-exact-owner-consent)
 adds explicit Review/Approve/Leave and pure Check recovery for those fixed terms.
-Guided original signing, administrator admission,
-requester final consent and agent access remain subsequent slices.
+The [bounded local signing command](guided-session-contract.md#18-bounded-local-original-owner-offer-signing)
+adds `onboarding join owner sign --stdin` for one original owner-offer signature
+under that exact approved review. It uses the existing private generated key or
+the exact SSH-agent identity and submits only the typed original authority slot.
+An exact completed-offer replay reads public evidence without key use. Recorded
+signature evidence establishes neither admission nor connection readiness.
+The native signing control, administrator admission, requester final consent
+and agent access remain subsequent slices.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.

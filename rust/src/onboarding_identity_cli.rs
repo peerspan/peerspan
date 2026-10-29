@@ -12,7 +12,7 @@ use std::{
     path::Path,
 };
 
-async fn parent(local: &Local<'_>, context: &AdapterContext) -> Result<(Value, String)> {
+pub(crate) async fn parent(local: &Local<'_>, context: &AdapterContext) -> Result<(Value, String)> {
     let flow = local
         .get(format!(
             "/v1/onboarding/project-flows/{}",

@@ -5,7 +5,7 @@ use peerspan_host::persons;
 use std::{
     ffi::CString,
     fs::{File, Permissions},
-    io::Write,
+    io::{Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::PermissionsExt},
@@ -26,9 +26,11 @@ fn opened(fd: libc::c_int) -> std::io::Result<File> {
     // SAFETY: a successful openat returns an owned descriptor.
     Ok(unsafe { File::from_raw_fd(fd) })
 }
-fn directory() -> Result<File> {
+fn directory(create: bool) -> Result<Option<File>> {
     use std::os::unix::fs::MetadataExt;
-    let path = persons::generated_key_path().ok_or_else(error)?;
+    let Some(path) = persons::generated_key_path() else {
+        return if create { Err(error()) } else { Ok(None) };
+    };
     ensure!(path.is_absolute(), "invalid local identity destination");
     let parent = path.parent().ok_or_else(error)?;
     // Inspect the lexical components before path normalization can hide '..'.
@@ -36,6 +38,13 @@ fn directory() -> Result<File> {
         !path.components().any(|c| matches!(c, Component::ParentDir)),
         "invalid local identity destination"
     );
+    if !create {
+        let normal: std::path::PathBuf = path.components().collect();
+        ensure!(
+            normal.as_os_str().as_bytes() == path.as_os_str().as_bytes(),
+            "invalid local identity destination"
+        );
+    }
     let mut dir = File::open("/")?;
     let components: Vec<_> = parent.components().collect();
     for (i, component) in components.iter().enumerate() {
@@ -55,6 +64,9 @@ fn directory() -> Result<File> {
         };
         let child = match open() {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if !create {
+                    return Ok(None);
+                }
                 // SAFETY: same pinned directory and single name as openat.
                 let result = unsafe { libc::mkdirat(dir.as_raw_fd(), part.as_ptr(), 0o700) };
                 if result < 0
@@ -82,7 +94,7 @@ fn directory() -> Result<File> {
         );
         dir = child;
     }
-    Ok(dir)
+    Ok(Some(dir))
 }
 struct Temporary<'a> {
     dir: &'a File,
@@ -115,7 +127,7 @@ impl Drop for Temporary<'_> {
     }
 }
 pub fn persist() -> Result<String> {
-    let dir = directory()?;
+    let dir = directory(true)?.ok_or_else(error)?;
     let destination = name(b"person_ed25519")?;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     // SAFETY: valid descriptor, name and writable stat buffer; do not follow a
@@ -173,4 +185,42 @@ pub fn persist() -> Result<String> {
     temporary.remove()?;
     dir.sync_all()?;
     Ok(STANDARD.encode(key.verifying_key().to_bytes()))
+}
+
+/// A bounded non-creating read through the same pinned private directories.
+/// Never reopen this key via a path after validating it.
+pub(crate) fn read_existing() -> Result<Option<ed25519_dalek::SigningKey>> {
+    use std::os::unix::fs::MetadataExt;
+    let Some(dir) = directory(false).map_err(|_| error())? else {
+        return Ok(None);
+    };
+    let leaf = name(b"person_ed25519")?;
+    // SAFETY: a pinned private directory and fixed leaf, with no symlink/FIFO wait.
+    let file = match opened(unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            leaf.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    }) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        result => result.map_err(|_| error())?,
+    };
+    let meta = file.metadata().map_err(|_| error())?;
+    // SAFETY: geteuid has no preconditions.
+    ensure!(
+        meta.is_file()
+            && meta.uid() == unsafe { libc::geteuid() }
+            && meta.mode() & 0o077 == 0
+            && meta.len() <= 65536,
+        "local original unavailable"
+    );
+    let mut raw = Vec::new();
+    file.take(65537)
+        .read_to_end(&mut raw)
+        .map_err(|_| error())?;
+    ensure!(raw.len() <= 65536, "local original unavailable");
+    let key = persons::parse_openssh_private_key(std::str::from_utf8(&raw).map_err(|_| error())?)
+        .map_err(|_| error())?;
+    Ok(Some(key))
 }

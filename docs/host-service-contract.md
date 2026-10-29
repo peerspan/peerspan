@@ -242,4 +242,14 @@ Recorded approval and later signature/finalization remain separate from admissio
 requester commit, agent access and readiness.
 [Native exact consent](guided-session-contract.md#17-native-exact-owner-consent)
 uses the existing owner CLI with explicit Review/Approve/Leave and pure lookup
-recovery. It collects no original signature; local signing follows separately.
+recovery. It collects no original signature.
+[Bounded local signing](guided-session-contract.md#18-bounded-local-original-owner-offer-signing)
+adds `onboarding join owner sign --stdin`: one exact approved owner-offer
+authority SSHSIG from the safe normal generated key or exact SSH-agent identity,
+submitted through the existing ordinary typed signature endpoint. It accepts
+only flow/context/join-review/owner-review references and the explicit
+`sign_original_owner_offer` decision. No key path or signing bytes are accepted.
+Fresh parent/host/request checks bound key use and one submission; no poll,
+automatic retry, later finalization, new route or schema. A public recorded result
+is signature evidence only. Exact completed-offer replay avoids key/agent IO,
+including historical detached/expired flows. Native signing follows separately.
