@@ -715,4 +715,153 @@ def _():
     check(private_files(h.state) == before and private_files(h.home) == home, "inventory initialized missing daemon/identity state")
 
 
+def create_original(h, parent, *, data=None, agent=None, fallback=False):
+    body = {"context": context(parent), "decision": "create_new_identity"}
+    environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
+    if fallback:
+        environment.pop("XDG_CONFIG_HOME", None)
+    result = subprocess.run([str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "create-identity", "--stdin"],
+                            input=compact(body) if data is None else data, env=environment, cwd=h.root, capture_output=True, timeout=20)
+    for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_CREATION_MARKER", b"token_", b"psi2-",
+                   str(Path(environment.get("XDG_CONFIG_HOME", str(h.home / ".config"))) / "peerspan" / "person_ed25519").encode()):
+        check(marker not in result.stdout + result.stderr, "creation output leaked private input/key/path/provider data")
+    value = None
+    if result.stdout.strip():
+        try:
+            value = json.loads(result.stdout)
+        except ValueError:
+            check(False, "creation stdout is not controlled JSON")
+    if result.returncode == 0:
+        check(isinstance(value, dict) and set(value) == {"version", "host_id", "context", "identity"} and value["version"] == 1
+              and value["host_id"] == h.id and value["context"] == context(parent), "exact public creation envelope/binding")
+        check(set(value["identity"]) == {"public_key", "sources"} and value["identity"]["sources"] == ["generated"]
+              and len(base64.b64decode(value["identity"]["public_key"], validate=True)) == 32, "exact saved public original/provenance")
+    return result.returncode, value
+
+
+def saved_original(path):
+    import stat
+    metadata = path.lstat()
+    check(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid() and metadata.st_mode & 0o777 == 0o600,
+          "saved original is not one owned regular0600 file")
+    check(path.parent.lstat().st_mode & 0o777 == 0o700 and path.parent.lstat().st_uid == os.getuid(), "normal identity directory is not owned private0700")
+    public_key = ssh_public_base64(path)
+    check(not path.with_suffix(".pub").exists(), "creation wrote a public sidecar")
+    # Ordinary unencrypted discovery must read it without agent/signing/key setup.
+    body = path.read_bytes()
+    check(body.startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----\n") and b"psi2-" not in body, "saved original format/private contents")
+    return public_key, metadata.st_ino, hashlib.sha256(body).hexdigest()
+
+
+@suite.case("new_original_fresh_private_durable_creation_inventory_and_home_fallback", "guided onboarding14 verification1")
+def _():
+    for index, fallback in enumerate((False, True)):
+        h, parent, _, _ = fixture("create-" + str(index))
+        config = h.home / ".config" if fallback else h.home / "missing config" / "nested"
+        h.extra_env["XDG_CONFIG_HOME"] = str(config)
+        check(not config.exists(), "fresh local configuration fixture unexpectedly exists")
+        before, state = records(h), private_files(h.state)
+        encoded = compact({"context": context(parent), "decision": "create_new_identity"})
+        maximum = encoded + b" " * (65536 - len(encoded))
+        code, value = create_original(h, parent, fallback=fallback, data=maximum if not fallback else None)
+        check(code == 0, "explicit fresh original creation failed")
+        normal = config / "peerspan" / "person_ed25519"
+        selected, inode, hashed = saved_original(normal)
+        check(value["identity"]["public_key"] == selected, "reply does not name the durably saved original")
+        expected = {"peerspan", "peerspan/person_ed25519"}
+        check(set(private_files(config)) == expected, "clean creation left a temporary/private duplicate store")
+        for directory in (config, normal.parent, *([config.parent] if not fallback else [])):
+            check(directory.stat().st_mode & 0o777 == 0o700, "new configuration directory has broad permissions")
+        status, inventory = identity_inventory(h, parent, fallback=fallback)
+        check(status == 0 and inventory["identities"] == [{"public_key": selected, "sources": ["generated"]}], "normal discovery did not recover the saved original")
+        check(create_original(h, parent, fallback=fallback)[0] != 0 and saved_original(normal) == (selected, inode, hashed), "repeat replaced/adopted the existing original")
+        check(records(h) == before and private_files(h.state) == state, "local creation wrote daemon/protocol/authority/adapter state or sent original key bytes")
+
+
+@suite.case("new_original_strict_consent_context_existing_sources_and_filesystem_refusals", "guided onboarding14 verification2")
+def _():
+    h, parent, _, _ = fixture("creation-refuse")
+    body = compact({"context": context(parent), "decision": "create_new_identity"})
+    malformed = [b"null", b"[]", b"{}", body + b"{}", body + b" " * (65537 - len(body)),
+                 compact({"context": context(parent), "decision": "approve"}),
+                 compact({"context": None, "decision": "create_new_identity"}),
+                 compact({"context": context(parent), "decision": "create_new_identity", "label": "PRIVATE_CREATION_MARKER"}),
+                 compact({"context": context(parent), "decision": "create_new_identity", "invitation": "psi2-PRIVATE_CREATION_MARKER"}),
+                 body.replace(b'"decision":', b'"decision":"create_new_identity","decision":'),
+                 body.replace(b'"integration":"claude-code"', b'"integration":"claude-code","integration":"claude-code"')]
+    before, home = records(h), private_files(h.home)
+    for data in malformed:
+        check(create_original(h, parent, data=data)[0] != 0, "malformed/duplicate/extra/oversized creation consent accepted")
+    for change in ({"project_flow_id": "flow_" + "1" * 32}, {"project_review_id": "review_" + "1" * 64}, {"native_session_id": "other-private-native"}):
+        check(create_original(h, parent, data=compact({"context": {**context(parent), **change}, "decision": "create_new_identity"}))[0] != 0, "creation accepted wrong exact parent/context")
+    check(records(h) == before and private_files(h.home) == home, "input/context refusal initialized an original")
+    key = ssh_key(suite.work, "creation-existing-original")
+    original = key.read_bytes()
+    for fault in ("malformed", "insecure-file", "dangling", "symlink-directory", "symlink-ancestor", "insecure-directory", "insecure-ancestor", "relative", "traversal"):
+        config = h.home / ("config-" + fault); h.extra_env["XDG_CONFIG_HOME"] = str(config)
+        if fault == "relative":
+            h.extra_env["XDG_CONFIG_HOME"] = "relative-config"
+        elif fault == "traversal":
+            h.extra_env["XDG_CONFIG_HOME"] = str(h.home / "unused" / ".." / "traversed")
+        elif fault in ("malformed", "insecure-file", "dangling"):
+            directory = config / "peerspan"; directory.mkdir(parents=True, mode=0o700)
+            normal = directory / "person_ed25519"
+            if fault == "dangling":
+                normal.symlink_to(h.home / "never-create-target")
+            else:
+                normal.write_bytes(b"PRIVATE_CREATION_MARKER malformed" if fault == "malformed" else original)
+                normal.chmod(0o644 if fault == "insecure-file" else 0o600)
+        elif fault in ("symlink-directory", "symlink-ancestor"):
+            target = h.home / ("target-" + fault); target.mkdir(mode=0o700)
+            if fault == "symlink-directory":
+                config.mkdir(mode=0o700); (config / "peerspan").symlink_to(target, target_is_directory=True)
+            else:
+                config.symlink_to(target, target_is_directory=True)
+                h.extra_env["XDG_CONFIG_HOME"] = str(config / "nested")
+        else:
+            directory = config / "peerspan"; directory.mkdir(parents=True, mode=0o700)
+            (directory if fault == "insecure-directory" else config).chmod(0o755 if fault == "insecure-directory" else 0o777)
+        old_files, old_records, old_root = private_files(h.home), records(h), private_files(h.root)
+        check(create_original(h, parent)[0] != 0, "creation repaired/followed/replaced an insecure or existing identity path")
+        check(private_files(h.home) == old_files and private_files(h.root) == old_root and records(h) == old_records,
+              "filesystem refusal changed existing bytes/modes/symlinks/targets or daemon state")
+    config = h.home / "agent-present"; h.extra_env["XDG_CONFIG_HOME"] = str(config)
+    agent = identity_agent(h); add_identity(h, agent, key)
+    before, home = records(h), private_files(h.home)
+    check(create_original(h, parent, agent=agent)[0] != 0, "available agent original silently created another person")
+    check(records(h) == before and private_files(h.home) == home, "nonzero inventory refusal wrote a new identity")
+    h.ok("session", "detach", parent["review"]["session_id"])
+    check(create_original(h, parent)[0] != 0, "detached parent created an original")
+    h.stop(); before, home = private_files(h.state), private_files(h.home)
+    check(create_original(h, parent)[0] != 0, "missing daemon creation succeeded")
+    check(private_files(h.state) == before and private_files(h.home) == home, "creation initialized daemon/state after refusal")
+
+
+@suite.case("new_original_concurrent_publish_temporary_ignored_and_parent_loss_preserves_key", "guided onboarding14 verification3")
+def _():
+    h, parent, _, _ = fixture("concurrent-create")
+    config = h.home / ".config"; private = config / "peerspan"; private.mkdir(parents=True, mode=0o700)
+    # A private abandoned file is not the active original. Its name is our own
+    # fixture name; no undocumented implementation temp prefix is assumed.
+    abandoned = private / "conformance-unpublished-temporary"; abandoned.write_bytes(b"partial private fixture"); abandoned.chmod(0o600)
+    temporary = (abandoned.stat().st_ino, hashlib.sha256(abandoned.read_bytes()).hexdigest())
+    check(identity_inventory(h, parent)[1]["identities"] == [], "inventory adopted a temporary partial original")
+    before, state = records(h), private_files(h.state)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: create_original(h, parent), range(2)))
+    check(sum(status == 0 for status, _ in results) == 1, "stable concurrent creation did not publish exactly one complete original")
+    normal = private / "person_ed25519"; saved = saved_original(normal)
+    successful = next(value for status, value in results if status == 0)
+    check(successful["identity"]["public_key"] == saved[0], "concurrent result did not identify the winning original")
+    check((abandoned.stat().st_ino, hashlib.sha256(abandoned.read_bytes()).hexdigest()) == temporary, "creation changed/adopted an abandoned private temporary file")
+    check(set(path.name for path in private.iterdir()) == {normal.name, abandoned.name}, "clean concurrent persistence left an additional active/temporary secret")
+    check(create_original(h, parent)[0] != 0 and saved_original(normal) == saved, "repeat overwrote or removed the winner")
+    check(identity_inventory(h, parent)[1]["identities"] == [{"public_key": saved[0], "sources": ["generated"]}], "read-only recovery lost the winner")
+    check(records(h) == before and private_files(h.state) == state, "concurrent local writes changed protocol/host state")
+    h.ok("session", "detach", parent["review"]["session_id"])
+    check(create_original(h, parent)[0] != 0 and saved_original(normal) == saved, "post-persistence parent loss erased or replaced the approved original")
+    # This proves the observed durable-key invariant after parent loss. The
+    # narrower link/fsync/postcheck crash interval remains source/fault evidence.
+
+
 suite.finish()
