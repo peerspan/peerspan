@@ -69,7 +69,7 @@ def host(name):
     transport = h.root / "transport.json"
     transport.write_bytes(compact({"format": 1, "advertise_bootstrap": [], "advertise_quic": [],
                                   "rendezvous": [], "relays": [], "publish_contacts": False}))
-    transport.chmod(0o600); h.extra_args = ["--transport-config", transport]
+    transport.chmod(0o600); h.extra_args = ["--transport-config", transport, "--person-key-file", h.root / "absent-daemon-person-key"]
     return h.start()
 
 
@@ -145,7 +145,7 @@ def progress_transport_host(name):
     config = h.root / "transport.json"
     config.write_bytes(compact({"format": 1, "advertise_bootstrap": [f"127.0.0.1:{h.bootstrap_port}"], "advertise_quic": [h.peer_address],
                                "rendezvous": [], "relays": [], "publish_contacts": False})); config.chmod(0o600)
-    h.extra_args = ["--transport-config", config]
+    h.extra_args = ["--transport-config", config, "--person-key-file", h.root / "absent-daemon-person-key"]
     return h.start()
 
 
