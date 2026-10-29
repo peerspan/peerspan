@@ -190,7 +190,7 @@ async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Resul
     if let InvitationCommand::Inspect { flow_id } = command {
         return local.get(format!("{base}/{}", encoded(flow_id))).await;
     }
-    let mut value = input().map_err(|_| anyhow::anyhow!("invalid invitation review input"))?;
+    let mut value = invitation_input(command)?;
     let invalid = |_| anyhow::anyhow!("invalid invitation review input");
     match command {
         InvitationCommand::Lookup { .. } => {
@@ -227,6 +227,33 @@ async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Resul
         }
         InvitationCommand::Inspect { .. } => unreachable!(),
     }
+}
+
+fn invitation_input(command: &InvitationCommand) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid invitation review input");
+    let mut bytes = Vec::new();
+    io::stdin().lock().take(65537).read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= 65536,
+        "invitation review input exceeds 64 KiB"
+    );
+    let fields = match command {
+        InvitationCommand::Lookup { .. } => "context",
+        InvitationCommand::Prepare { .. } => {
+            // This preliminary value chooses only the optional field set. The
+            // original bytes still cross the strict duplicate-key decoder.
+            let shape: Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            if shape.get("replace_flow_id").is_some() {
+                "context network_id member expected_person_public_key replace_flow_id"
+            } else {
+                "context network_id member expected_person_public_key"
+            }
+        }
+        InvitationCommand::Decide { .. } => "flow_id context review_id decision",
+        InvitationCommand::Handoff { .. } => "flow_id context review_id",
+        InvitationCommand::Inspect { .. } => return Err(invalid()),
+    };
+    peerspan_host::linking::decode_mutation(&bytes, fields).map_err(|_| invalid())
 }
 
 async fn adapter_command(command: &AdapterCommand, socket: &Path) -> Result<Value> {
