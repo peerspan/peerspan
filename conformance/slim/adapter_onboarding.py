@@ -767,6 +767,7 @@ def _():
           and any(row[2:5] == ("adapter_credentials", "adapter_id", "id") for row in foreign), "schema25 adapter foreign keys")
     legacy = clone_state(source, "legacy24")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        db.execute("DROP TABLE onboarding_invitation_flows")
         db.execute("DROP TABLE onboarding_adapter_flows")
         db.execute("PRAGMA user_version = 24")
     old = records(legacy)
@@ -777,8 +778,9 @@ def _():
           and get(legacy, "/v1/sessions/" + attached["review"]["session_id"])["state"] == "detached", "migration resurrected historical attachment")
     legacy.stop()
     migrated = records(legacy)
-    check(migrated["$version"] == (25,) and migrated[TABLE] == (), "migration did not add empty schema25 table")
-    check(without(migrated, "$schema", "$version", TABLE) == without(old, "$schema", "$version"),
+    check(migrated["$version"] == (26,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == (),
+          "migration did not add empty schema25/26 tables")
+    check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows") == without(old, "$schema", "$version"),
           "schema24 migration changed project/DEC/registry/history records")
     check(migrated["$schema"] == baseline["$schema"], "schema24 migration changed old table definitions")
     for kind, ddl in (("table", "CREATE TABLE onboarding_adapter_flows (marker TEXT)"),
@@ -787,6 +789,7 @@ def _():
                       ("trigger", "CREATE TRIGGER onboarding_adapter_flows AFTER INSERT ON sessions BEGIN SELECT 1; END")):
         collision = clone_state(source, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            db.execute("DROP TABLE onboarding_invitation_flows")
             db.execute("DROP TABLE onboarding_adapter_flows")
             db.execute("PRAGMA user_version = 24")
             db.execute(ddl)
@@ -818,9 +821,9 @@ def _():
             db.execute("DROP TABLE onboarding_adapter_flows")
             db.execute("CREATE TABLE onboarding_adapter_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future26")
+    future = clone_state(source, "future27")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 26")
+        db.execute("PRAGMA user_version = 27")
     refuse_start(future)
 
 
