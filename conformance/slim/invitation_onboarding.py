@@ -694,12 +694,17 @@ def compact(value):
 
 
 def state_snapshot(h):
-    # SQLite shared memory/read-lock/checkpoint pages are mutable live bookkeeping;
-    # compare all logical DB records plus names/modes and other private file bytes.
-    names = {str(p.relative_to(h.state)): p.lstat().st_mode for p in h.state.rglob("*")}
+    # Opening the auxiliary databases for logical reads can itself create WAL/SHM
+    # files. Their names and bytes are live SQLite bookkeeping, not durable state.
+    # Retain every logical table, durable DB name/mode and other private file.
+    logical = records(h)
+    def sqlite_bookkeeping(p):
+        return any(str(p).endswith(suffix) and Path(str(p)[:-len(suffix)]).is_file()
+                   for suffix in ("-wal", "-shm") if str(p)[:-len(suffix)].endswith(".db"))
+    names = {str(p.relative_to(h.state)): p.lstat().st_mode for p in h.state.rglob("*") if not sqlite_bookkeeping(p)}
     files = {str(p.relative_to(h.state)): hashlib.sha256(p.read_bytes()).hexdigest()
              for p in h.state.rglob("*") if p.is_file() and not any(str(p).endswith(x) for x in (".db", ".db-wal", ".db-shm"))}
-    return records(h), names, files
+    return logical, names, files
 
 
 class WireSigner:
