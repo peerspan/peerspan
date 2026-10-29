@@ -24,6 +24,7 @@ contracts; it does not promise shared conversations or PeerFS integration.
 
 ## Branch and review model
 
+- Tracking PR: [#35](https://github.com/peerspan/peerspan/pull/35).
 - Integration branch: `codex/guided-session-onboarding` in `peerspan/peerspan`.
 - Baseline: `2719d9978ddb86fba003675217fd04922de77a9f` from `main`.
 - One draft tracking PR compares that branch with `main` throughout development.

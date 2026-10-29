@@ -57,6 +57,7 @@ Contents:
   accepted scope, integration branch, small implementation slices, authority
   boundaries, merge gates and implementation recommendations with discarded
   options. This is a plan; implementation and validation remain pending.
+- **Tracking PR:** [#35](https://github.com/peerspan/peerspan/pull/35).
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
