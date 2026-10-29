@@ -2458,9 +2458,150 @@ protocol backend. Discarded: first-key defaults, arbitrary key-path imports,
 automatic original-key creation/copy, signing ownership on selection, private
 codes in chat/argv/storage, hidden request retries and publication as readiness.
 
-## 14. Remaining flow contract
+## 14. Explicit new original identity creation
 
-Teammate/device admission, explicit new original identity creation, remaining
+Section13 remains the existing-key path. This additive slice permits a new
+person with no available local original identity to explicitly create one,
+then separately choose its saved public key for section12. Creation is local
+identity persistence, not possession proof, membership, machine linking, request
+publication, access or readiness. Schema27 and all owner/peer APIs are unchanged.
+
+### Explicit local command
+
+`peerspan onboarding join create-identity --stdin` takes exactly
+`{context,decision:"create_new_identity"}`. Use strict duplicate/unknown-field
+rejection at every level, section12 context validation and the64KiB stdin bound.
+No private invitation, seed, passphrase, path, label or key argument is accepted.
+This owner-invoked command is the consent to generate and save a new original;
+there is no preview-time generation. It starts no daemon and initializes no host
+state. Recheck section13's exact attached parent and host before local inventory,
+again immediately before the write, and after persistence. Read-only inventory
+must report zero available identities. An existing generated entry (valid or
+invalid, including a dangling symlink) or an available Ed25519 SSH-agent identity
+refuses creation; never silently replace, adopt or return an existing original.
+Agent unavailability still means no available agent identities under section13.
+The command uses the same15-second native budget as inventory.
+
+On success return exactly `{version:1,host_id,context,identity}` where identity is
+exactly `{public_key,sources:["generated"]}` with the canonical saved Ed25519
+public key. No private bytes, signature, path, comment, timestamps, debug/provider
+output or new durable review appears. All failure output is a controlled private
+message, including filesystem/agent/owner failures. No original key bytes go to
+the daemon. Work that reads/generates/persists identity material runs off the async
+worker. The normal file remains consumable by existing original-key discovery.
+
+Persist to the normal generated path from section13 only. Require an absolute
+path without parent traversal. Walk/create directories without following any
+symlink; existing ancestors must be root/current-user owned and not writable by
+another user (root-owned sticky directories such as /tmp are permitted). The
+final peerspan directory must be current-user owned with no group/other bits;
+new directories use0700. Refuse an insecure existing directory; do not chmod
+existing files/directories or repair/import them. Never write a public sidecar.
+
+Write one valid unencrypted OpenSSH Ed25519 private key (no invitation or user
+comment) into a unique exclusive0600 temporary file in the pinned private
+directory. Sync the complete file, publish it atomically with a no-replacement
+hard link to person_ed25519, remove the temporary name, and sync the directory
+before reporting success. A concurrent creator cannot overwrite the winner.
+Never open/truncate/chmod/remove an existing destination, follow its symlink,
+expose a partial destination, or remove a published key on any later failure.
+Unsupported filesystem operations fail closed. An interrupted pre-publication
+write may leave a private temporary file; inventory ignores temporary names.
+It is not an active original and must never be adopted automatically. A crash
+between publication and temporary-name cleanup can leave two names for the same
+inode. Document owner cleanup of these reserved temporary files; no automated
+secret copying/cleanup/recovery protocol is introduced.
+
+Persistence and the daemon's project state are not one transaction. A parent
+change, timeout, lost response or navigation after dispatch can leave the approved
+key safely saved even if success is not observed. Never erase it to roll back UI
+navigation. Creation failure/uncertainty authorizes only read-only inventory on
+an explicit fresh attempt; no automatic retry or second key generation. Repeated
+creation with an existing destination refuses. Read-only discovery is recovery;
+there is no separate creation journal or duplicate active key store.
+
+### Native creation consent and selection
+
+Only an unpinned, verified, unexpired section13 chooser with an empty identity
+inventory offers **Create a new original identity**. Existing identities and
+pinned invitations never offer it; in particular a missing pinned key requires
+its original machine/device ceremony, not a fresh random key. Clicking this
+control opens an explicit review; it generates/writes/prepares/publishes nothing.
+Show the complete public invitation terms and limits plus these creation effects:
+one new original person on this computer, local private-key persistence, no
+copy/import/link to an existing person, and no join request, participant approval,
+agent permission, sharing or readiness. Explain that the saved original survives
+Back/Close and later request decline; it needs a private backup through ordinary
+host administration. The reviewed destination is this computer's normal original
+identity location, not an arbitrary imported path. The key itself does not exist
+at this review stage.
+
+**Create and save identity** is a separate human action. **Cancel identity
+creation** clears the attempt without writing. Recheck exact native context,
+terminal surface, attached parent, fresh zero inventory, host and invitation
+clock immediately before dispatch. Send only the exact context and creation
+decision by stdin. Reject double presses, old controls and late callbacks using
+the existing generation/attempt checks. Closing while already dispatched can
+still save the explicitly approved key; show this limit before approval.
+
+Validate the exact public creation reply and re-inventory the local key. Require
+the returned key with generated provenance, then show the ordinary chooser with
+**New original identity saved** and its exact public key. Do not automatically
+select it, prepare a join review, publish a request, sign or invoke a model.
+The human must separately press **Review identity KEY**, inspect section12's
+complete public-key/publication review, and **Approve join request**. Existing
+section13 choice/recovery and original publication consent remain unchanged.
+
+The invitation remains only in the joining attempt's private volatile memory.
+Creation review uses the invitation's fixed expiry. Expiry, Refresh, Back,
+Cancel, Close, reload, context/host/parent/surface loss and failed/uncertain
+creation drop private input and write-authority callbacks, never the saved key.
+An uncertain creation message explains that a key may have been saved and asks
+for a fresh read-only lookup/inventory; no retry button. Reopening starts normal
+join lookup and requires fresh private input before inventory. No model tool,
+chat content, scoped credential or inference is added.
+
+### Verification
+
+A separate contract-only author extends join_onboarding and adds focused native
+cases. Preserve the original8 host and184 native cases unchanged. New assertions
+must be derived from this section before reading production code.
+
+1. Fresh creation: valid durable0600 original in0700 private directory, exact
+   public-only reply, ordinary inventory/discovery agrees; no sidecar, daemon
+   secret, protocol request, authority/adapter state or signature. Missing nested
+   config directories are created safely; HOME fallback works.
+2. Wrong/missing/detached parent, missing daemon, nonzero inventory, existing
+   malformed/insecure/dangling-symlink destination, symlink/insecure directory,
+   relative/traversing config path and malformed/duplicate/extra/oversized input
+   refuse without replacing a key. Existing bytes/modes and symlink targets stay
+   unchanged. Native budget allows bounded SSH-agent inventory.
+3. Concurrent commands publish at most one complete original; repeat refuses and
+   read-only inventory recovers that public key. No partial final key or extra
+   active identity. Private temporary names are ignored. Parent change after
+   approved persistence never removes/replaces that original.
+4. Native empty-unpinned chooser offers review only; exact creation effects and
+   separate approval/cancel, no generation on entry/preview/review. Existing or
+   pinned identities cannot create. Saved-key reply plus inventory returns a
+   public chooser, never automatic prepare/decide. Explicit key choice and
+   ordinary publication consent still work independently.
+5. Exact argv/stdin/budgets and no secret/model/log/storage leakage. Changed
+   host/context/parent/inventory/clock/reply, duplicate press, failures/unknown
+   outcomes, navigation, expiry and late callbacks cannot reuse authority.
+   Creation uncertainty offers no automatic retry; later read-only inventory
+   recognizes the persisted key. No installed/physical-machine/model acceptance
+   gate is closed by mocked native effects.
+
+Selected: explicit consent before atomic local persistence, public-key selection
+and publication as later independent actions, and normal identity discovery for
+uncertain-write recovery. Discarded: hidden generation on paste, overwriting an
+existing original, generation for a pinned invitation, a second secret store,
+private-key copies for linking, request publication before durable key save,
+and filesystem rollback after a lost UI/daemon response.
+
+## 15. Remaining flow contract
+
+Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.

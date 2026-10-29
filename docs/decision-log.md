@@ -2220,3 +2220,21 @@ public selection as owner proof, silent pin filtering, stored raw codes, hidden
 participant/access approval and request publication as connection readiness.
 Section13 and independent verification precede code. No new owner confirmation
 is attributed and no full-feature acceptance gate is closed by this slice.
+
+
+## GU.impl14 — Explicit local original creation (2026-10-29)
+
+Selected under the accepted guided flow: an empty unpinned local identity chooser
+may review and explicitly approve creation of a new original on this computer.
+Persist the complete0600 key atomically without replacement before offering its
+public key for separate request consent. Normal inventory recovers uncertain
+writes; no new schema, owner API or secret journal. Use pinned directory handles,
+private temporary files and no-replacement hard links; unsupported filesystems
+refuse. Private orphan temporary names after crashes require owner cleanup.
+
+Discarded: hidden generation on invitation inspection, replacing an existing
+original/SSH-agent choice, creating against a person pin, copying an original
+for device linking, overwriting public sidecars, claiming filesystem/UI atomicity,
+and automatic publication/retry/deletion. Section14 and independent verification
+precede implementation. This is an implementation decision, not a new owner
+confirmation. The unfinished section13 actual-terminal reopen gate stays open.
