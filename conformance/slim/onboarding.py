@@ -296,6 +296,10 @@ def _():
     check(status == 200, "fixture could not refresh its existing adapter lease")
     check(adapter.call("GET", "/adapter/v1/session")[0] == 200, "scoped adapter fixture is not authorized")
     check(adapter.call("GET", "/v1/onboarding")[0] == 404, "credential-scoped adapter exposed onboarding")
+    # Bootstrap GET attempts share an actual-source bucket across keys and connections
+    # (public bootstrap contract). Isolate routing from the other hosts' mailbox polls.
+    bootstrap = suite.host("bootstrap-boundary")
+    observation(bootstrap)  # The endpoint exists on this host's owner interface.
     # Bootstrap accepts any possession-proving key, including this independent throwaway certificate.
     cert, key = suite.work / "bootstrap-cert.pem", suite.work / "bootstrap-key.pem"
     subprocess.run(["openssl", "req", "-x509", "-newkey", "ed25519", "-nodes", "-subj", "/CN=onboarding",
@@ -304,7 +308,7 @@ def _():
     context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
     context.load_cert_chain(str(cert), str(key))
     context.set_alpn_protocols(["peerspan-bootstrap/1"])
-    with socket.create_connection(("127.0.0.1", a.bootstrap_port), timeout=5) as raw:
+    with socket.create_connection(("127.0.0.1", bootstrap.bootstrap_port), timeout=5) as raw:
         with context.wrap_socket(raw, server_hostname="peerspan") as stream:
             check(stream.selected_alpn_protocol() == "peerspan-bootstrap/1", "bootstrap protocol not negotiated")
             stream.sendall(b"GET /v1/onboarding HTTP/1.1\r\nHost: peerspan\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
