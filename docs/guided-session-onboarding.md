@@ -1,8 +1,9 @@
 # Guided onboarding from an existing agent session
 
 Status: feature plan. The owner accepted the experience below on 2026-10-28.
-Implementation and validation are pending. This document does not describe an
-available command or a completed integration.
+Implementation is in progress on the isolated feature branch. The first slice
+provides a read-only observation API and diagnostic command. The interactive
+flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
 
@@ -116,6 +117,20 @@ The [flow contract](guided-session-contract.md) starts with GU-01a/GU-02a:
 a read-only owner-local onboarding snapshot. Mutation APIs, participant reviews
 and existing-session delivery remain later work; this foundation is not the
 complete four-step experience.
+
+### First slice: owner-local observation
+
+GU-01a/GU-02a implements `GET /v1/onboarding` and the advanced
+`peerspan onboarding` diagnostic command. The response combines current
+networks, agent/session connection evidence and retained public connection
+requests in one database snapshot. It performs no setup or approval and carries
+no pairing secrets. Existing status and adapter APIs retain their behavior.
+
+The independent slim suite covers the response, request privacy, read-only
+behavior, connection evidence, owner-only routing and unavailable-daemon
+behavior. This slice does not complete GU-01 or GU-02. The next slice must settle
+the supported existing-session delivery path and exact private review transport
+before adding orchestration or the frontend.
 
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |
