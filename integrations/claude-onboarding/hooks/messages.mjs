@@ -5,7 +5,7 @@ const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const fields = (v, required, optional = '') => object(v) && required.split(' ').every(k => Object.hasOwn(v, k)) &&
   Object.keys(v).every(k => (required + ' ' + optional).split(' ').includes(k));
 export const typedId = (v, kind, size = 32) => typeof v === 'string' && new RegExp(`^${kind}_[0-9a-f]{${size}}$`).test(v);
-const time = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v) && Number.isFinite(Date.parse(v));
+const time = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(v) && Number.isFinite(Date.parse(v));
 const host = v => typedId(v, 'host', 64);
 const person = v => typedId(v, 'person', 64);
 export const content = v => typeof v === 'string' && bytes(v) > 0 && bytes(v) <= 65536;
