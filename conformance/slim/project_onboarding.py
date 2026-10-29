@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact local project review, from guided-session-contract.md section 3.
+"""Exact local project review, from guided-session-contract.md sections 3 and 4.
 
 Real temporary hosts and public owner APIs establish every flow and attachment.
 Only offline storage-format fixtures edit SQLite: the additive legacy layout,
@@ -425,7 +425,86 @@ def _():
     check(records(a) == before, "post-restart consent replay changed durable state")
 
 
-@suite.case("cli_stdin_validation_and_unavailable_daemon", "guided onboarding 3 verification 7")
+@suite.case("private_context_lookup_is_exact_read_only_and_resumable", "guided onboarding 4 verification 7")
+def _():
+    body = proposal("lookup-private", native="native-lookup-private-marker")
+    context = {key: body[key] for key in ("project_root", "native_session_id", "integration")}
+
+    def lookup(expected):
+        before = records(a)
+        status, value = a.api("POST", BASE + "/lookup", context)
+        check(status == 200 and set(value) == {"version", "host_id", "context", "flow", "agents"}, "lookup response shape/status")
+        check(type(value["version"]) is int and value["version"] == 1 and value["host_id"] == a.id
+              and value["context"] == context, "lookup did not preserve the exact private host/context")
+        check(value["flow"] == expected and value["agents"] == get(a, "/v1/agents"), "lookup picked the wrong flow/agent list")
+        cli = a.cli("onboarding", "project", "lookup", "--stdin", input=json.dumps(context))
+        check(cli.ok and cli.json == value, "lookup CLI differs from its owner API")
+        check(records(a) == before, "context lookup changed consent, expiry, activity or logical records")
+        return value
+
+    lookup(None)
+    flow = prepared(a, body)
+    lookup(flow)
+    attached = decide(a, flow)
+    lookup(attached)
+    expired_body = proposal("lookup-expired")
+    expired = prepared(a, expired_body)
+    advance_to(parse_time(expired["review"]["expires_at"]))
+    context = {key: expired_body[key] for key in context}
+    expired_view = get(a, BASE + "/" + expired["flow_id"])
+    check(expired_view["state"] == "expired", "lookup expiry fixture is not expired")
+    lookup(expired_view)
+    fresh = prepared(a, {**expired_body, "replace_flow_id": expired["flow_id"]})
+    lookup(fresh)
+    check(get(a, BASE + "/" + expired["flow_id"])["review"] == expired["review"], "lookup replacement changed old terms")
+    invalid_body = proposal("lookup-invalidated")
+    invalid = prepared(a, invalid_body)
+    check(a.api("POST", "/v1/agents", {"name": invalid_body["agent"]["name"], "owner": "name collision"})[0] == 201,
+          "lookup invalidation fixture failed")
+    context = {key: invalid_body[key] for key in context}
+    invalid_view = get(a, BASE + "/" + invalid["flow_id"])
+    check(invalid_view["state"] == "invalidated", "lookup invalidation fixture is not invalidated")
+    lookup(invalid_view)
+    before = records(a)
+    for invalid_context in ({**context, "agent": body["agent"]}, {**context, "project_root": None},
+                            {**context, "project_root": "relative"}, {**context, "native_session_id": "has space"},
+                            {**context, "integration": "opencode"}):
+        status, error = a.api("POST", BASE + "/lookup", invalid_context)
+        check(status == 400 and error.get("code") == "invalid", "lookup accepted invalid/extra/null context")
+    encoded = json.dumps(context)
+    for data in ('{"project_root":', json.dumps({**context, "unknown": "private-extra-marker"}),
+                 " " * (65537 - len(encoded.encode())) + encoded):
+        result = a.cli("onboarding", "project", "lookup", "--stdin", input=data)
+        check(not result.ok, "lookup CLI accepted malformed/extra/oversized stdin")
+        check(context["project_root"] not in result.stdout + result.stderr
+              and context["native_session_id"] not in result.stdout + result.stderr
+              and "private-extra-marker" not in result.stdout + result.stderr, "lookup CLI echoed private input")
+    check(not a.cli("onboarding", "project", "lookup", input=encoded).ok, "lookup selected stdin implicitly")
+    check(records(a) == before, "rejected context lookups changed durable state")
+    assert_private(a, [flow, expired, fresh, invalid])
+
+    # Lookup must join its current flow and registry in one observation even
+    # while another owner-local call commits that flow's new agent/session.
+    racing_body = proposal("lookup-atomic")
+    racing = prepared(a, racing_body)
+    racing_context = {key: racing_body[key] for key in context}
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        reads = [pool.submit(a.api, "POST", BASE + "/lookup", racing_context) for _ in range(8)]
+        approval = pool.submit(decide, a, racing)
+        observations = [read.result() for read in reads]
+        approval.result()
+    observations.append(a.api("POST", BASE + "/lookup", racing_context))
+    for status, value in observations:
+        check(status == 200 and value["context"] == racing_context, "concurrent lookup context/status")
+        observed = value["flow"]
+        check(observed["review"] == racing["review"] and observed["review_id"] == racing["review_id"],
+              "concurrent lookup changed immutable terms")
+        matching = [agent for agent in value["agents"] if agent["id"] == racing["review"]["agent"]["id"]]
+        check(observed["state"] in {"review", "attached"}
+              and bool(matching) == (observed["state"] == "attached"), "lookup tore flow/registry commit evidence")
+
+
+@suite.case("cli_stdin_validation_and_unavailable_daemon", "guided onboarding 3 verification 7; 4 verification 7")
 def _():
     body = proposal("cli-private", native="native-cli-private-marker")
     made = a.cli("onboarding", "project", "prepare", "--stdin", input=json.dumps(body))
@@ -456,18 +535,21 @@ def _():
           "advanced CLI changed reduced root help")
     a.stop()
     before_files = file_state(a.root)
-    for command in (("prepare",), ("inspect", flow["flow_id"]), ("decide",)):
+    lookup_context = {key: body[key] for key in ("project_root", "native_session_id", "integration")}
+    for command in (("prepare",), ("inspect", flow["flow_id"]), ("decide",), ("lookup",)):
         flags = ["--stdin"] if command[0] != "inspect" else []
-        check(not a.cli("onboarding", "project", *command, *flags, input=json.dumps(payload if command[0] == "decide" else body)).ok,
+        private_input = payload if command[0] == "decide" else lookup_context if command[0] == "lookup" else body
+        check(not a.cli("onboarding", "project", *command, *flags, input=json.dumps(private_input)).ok,
               "project CLI succeeded with stopped daemon")
     check(file_state(a.root) == before_files, "stopped-daemon CLI changed files")
     absent = suite.host("absent", start=False)
     shutil.rmtree(absent.state)
     before_files = file_state(absent.root)
-    for command in (("prepare",), ("inspect", flow["flow_id"]), ("decide",)):
+    for command in (("prepare",), ("inspect", flow["flow_id"]), ("decide",), ("lookup",)):
         flags = ["--stdin"] if command[0] != "inspect" else []
+        private_input = payload if command[0] == "decide" else lookup_context if command[0] == "lookup" else body
         check(not absent.cli("onboarding", "project", *command, *flags,
-                             input=json.dumps(payload if command[0] == "decide" else body)).ok,
+                             input=json.dumps(private_input)).ok,
               "project CLI succeeded with missing daemon")
     check(file_state(absent.root) == before_files and not absent.state.exists(), "missing-daemon CLI created state")
 
@@ -480,7 +562,9 @@ def _():
     flow = prepared(host, proposal("private-route"))
     other = prepared(bootstrap, proposal("bootstrap-private-route"))
     adapter = host.agent("boundary-fixture", ready=False)
-    for method, path, body in (("GET", BASE + "/" + flow["flow_id"], None), ("POST", BASE, proposal("forbidden")),
+    lookup_context = {key: flow["review"][key] for key in ("project_root", "native_session_id", "integration")}
+    for method, path, body in (("GET", BASE + "/" + flow["flow_id"], None), ("POST", BASE + "/lookup", lookup_context),
+                               ("POST", BASE, proposal("forbidden")),
                                ("POST", BASE + "/" + flow["flow_id"] + "/decision", decision(flow))):
         check(adapter.call(method, path, body)[0] == 404, "scoped adapter exposed private project route")
         args = [str(suite.probe_bin), "--state", str(peer.state), "--address", host.peer_address,
@@ -496,7 +580,9 @@ def _():
     context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
     context.load_cert_chain(str(cert), str(key))
     context.set_alpn_protocols(["peerspan-bootstrap/1"])
-    for method, path, body in (("GET", BASE + "/" + other["flow_id"], None), ("POST", BASE, proposal("bootstrap-forbidden")),
+    lookup_context = {key: other["review"][key] for key in ("project_root", "native_session_id", "integration")}
+    for method, path, body in (("GET", BASE + "/" + other["flow_id"], None), ("POST", BASE + "/lookup", lookup_context),
+                               ("POST", BASE, proposal("bootstrap-forbidden")),
                                ("POST", BASE + "/" + other["flow_id"] + "/decision", decision(other))):
         data = b"" if body is None else json.dumps(body).encode()
         with socket.create_connection(("127.0.0.1", bootstrap.bootstrap_port), timeout=5) as raw:
