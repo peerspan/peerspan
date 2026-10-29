@@ -2084,3 +2084,27 @@ send/call permission and automatic replay after an uncertain submission. The
 explicit enable is an implementation choice under the accepted scope, not a
 new decision attributed to the owner. Contract section7 defines exact fields,
 timers, scope and independent verification before implementation.
+
+## GU.impl8 — Explicit native assigned tasks (2026-10-29)
+
+Selected within GU-OWN1/2: enable assigned tasks separately under the already
+verified current native message route. Reuse that delivery proof without
+another verification model turn. Register only five scoped lifecycle tools;
+the host still owns held-task selection, acceptance authorization, idempotency,
+running-task adoption and cancellation semantics. Task input remains external
+data under existing local harness permissions.
+
+Selected failure and evidence boundaries: separate task/cancellation polling,
+message polling and lease renewal; stop task authority when its native proof
+or context changes; allow a task-only failure/Stop without cancelling host work
+or messages. Deduplicate offered delivery IDs, count submitted prompts separately
+from successful model lifecycle calls, and never replay uncertain input. The
+existing real-model quota refusal is not task acceptance evidence.
+
+Discarded: consuming tasks automatically on message-ready, auto-accept/cancel,
+a second readiness prompt, forwarding unsupported task-update notifications,
+new outbound destinations, interpreting artifact metadata as local file access,
+and rechecking a revoked peer grant to override an already accepted task. File
+transfer and outward delegation remain separate integration work. Section8
+records exact shapes, scoped operations and independent cases before code.
+This is an implementation choice, not an additional owner confirmation.

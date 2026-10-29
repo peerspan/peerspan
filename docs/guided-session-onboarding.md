@@ -5,7 +5,7 @@ Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
 local delivery check, owner-local project review backend and native human
 project review controls, native adapter review, a scoped local lease and an
-explicit incoming-message path. The full interactive
+explicit incoming-message and assigned-task paths. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -185,6 +185,16 @@ consumed. A real terminal submitted the readiness prompt, but inference hit
 the account's weekly limit; actual model receipt/reply remains an acceptance
 gate. The feature still needs guided teammate/device/access flows and the
 installed two-machine exchange.
+
+GU-03e adds [native assigned tasks and cancellation](guided-session-contract.md#8-native-assigned-tasks-and-cancellation-gu-03e)
+after an additional explicit enable under the current native delivery proof.
+Scoped task tools accept/reject, report progress, complete text output and
+confirm requested cancellation. Adopted tasks retain their running state and
+progress; task and cancellation submissions remain separate from successful
+model lifecycle calls. Task failure preserves messages/lease; context or native
+proof loss stops task authority. File transfer, outgoing delegation and its
+notifications remain future slices. Actual task/model and installed acceptance
+remain pending; the unchanged account-quota refusal is not another task test.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
