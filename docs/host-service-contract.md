@@ -252,4 +252,10 @@ only flow/context/join-review/owner-review references and the explicit
 Fresh parent/host/request checks bound key use and one submission; no poll,
 automatic retry, later finalization, new route or schema. A public recorded result
 is signature evidence only. Exact completed-offer replay avoids key/agent IO,
-including historical detached/expired flows. Native signing follows separately.
+including historical detached/expired flows.
+[Native bounded signing](guided-session-contract.md#19-native-bounded-original-owner-offer-signing)
+uses that exact CLI after an explicit human Sign action and fresh bindings, with
+one45s process bound. It validates the same public review plus recorded marker,
+keeps partial signature evidence separate from completed offer/admission/access,
+and recovers by pure owner lookup without signing or automatic retry. No new
+host API/schema or frontend key handling.

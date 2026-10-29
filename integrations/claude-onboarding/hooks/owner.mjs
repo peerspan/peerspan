@@ -1,4 +1,4 @@
-// Exact public owner consent only. No signing, key inventory or native effects.
+// Public owner consent/signature evidence. No keys, signing bytes or effects.
 import { same, bytes, quoted } from './project.mjs';
 import { context } from './adapter.mjs';
 import { canonical, publicKey, freeze } from './invitation.mjs';
@@ -49,7 +49,32 @@ export async function owner(raw, flow, parent, host) {
   if (o.review_id !== 'review_' + Array.from(digest, b => b.toString(16).padStart(2, '0')).join('')) throw new Error('Changed owner digest');
   return freeze(v);
 }
-export function reviewLines(v, parent, expired = false) {
+export function sameOriginal(a, b) {
+  return same(a.owner?.review, b.owner?.review) && a.owner?.review_id === b.owner?.review_id &&
+    ['request_id', 'network_id', 'context_id', 'person_public_key', 'host_public_key', 'device_public_key',
+      'created_at', 'expires_at', 'request_packet_id'].every(k => a.request[k] === b.request[k]);
+}
+export function signatureDeadline(v) {
+  return Math.min(Date.parse(v.request.expires_at), Date.parse(v.owner.review.not_after));
+}
+export function signable(v, now) {
+  if (v?.owner?.state !== 'approved' || v.request.state !== 'pending' ||
+      v.request.selection_approved || v.request.commit_approved || !same(v.request.completed, ['request_created']) ||
+      !['owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id', 'manifest_id',
+        'activation_id', 'outcome_id'].every(k => v.request[k] === '-')) return false;
+  const deadline = signatureDeadline(v), observed = Date.parse(v.observed_at);
+  return Number.isFinite(now) && now < deadline && observed < deadline && observed <= now + 30000;
+}
+export async function signature(raw, flow, parent, host, captured) {
+  const v = JSON.parse(raw);
+  if (!exact(v, 'version host_id flow_id join_review_id context observed_at request owner original_signature') ||
+      !exact(v.original_signature, 'state') || v.original_signature.state !== 'recorded') throw new Error('Unavailable original signature evidence');
+  const { original_signature, ...snapshot } = v;
+  const checked = await owner(JSON.stringify(snapshot), flow, parent, host);
+  if (checked.owner?.state !== 'approved' || !sameOriginal(captured, checked)) throw new Error('Changed original signature evidence');
+  return freeze(v);
+}
+export function reviewLines(v, parent, expired = false, recorded = false) {
   const o = v.owner;
   if (!o) return 'Owner consent: no recorded owner review. Review owner powers explicitly to prepare one.';
   const r = o.review, state = expired && o.state === 'review' ? 'expired' : o.state;
@@ -67,10 +92,16 @@ export function reviewLines(v, parent, expired = false) {
     'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
     `Observed request state: ${v.request.state}`,
     ...(state === 'approved' ? ['The ordinary protocol records approval; this record does not identify which interface approved it.',
-      o.next_action === 'provide_original_signature'
-        ? 'Original signature: still required. Advanced linking is the next separate action in this preview.'
-        : 'Owner offer recorded. Check join progress for the next participant.'] : []),
+      recorded || v.request.owner_offer_id !== '-'
+        ? 'Original signature: recorded. This is durable protocol evidence; it does not identify which interface signed it.'
+        : 'Original signature: not confirmed by this public snapshot. A partial signature may already be retained.',
+      v.request.owner_offer_id !== '-'
+        ? 'Owner offer recorded. Check join progress for the next participant.'
+        : 'Owner offer: not confirmed. Signature evidence alone does not establish a completed offer.',
+      'An explicit signing action uses only the approved original on this computer: its safe normal generated key or exact SSH-agent identity.',
+      'This creates, copies and imports no key. It submits one exact original owner-offer signature; later administrator approval, original finalization and requester commit remain separate.',
+      'Leaving cannot retract an already-dispatched signature. Check owner consent reads public evidence without signing or retrying.'] : []),
     'Leaving this review does not decline, cancel or revoke the request or any recorded consent.',
     'Snapshot only. Historical approval and a finite review window do not prove current powers.',
-    'Original possession, admission, agent access, reachability and model receipt: not verified.'].join('\n');
+    'Current original key availability, admission, agent access, reachability and model receipt: not verified.'].join('\n');
 }
