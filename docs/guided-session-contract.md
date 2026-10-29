@@ -966,7 +966,8 @@ with debug clock advancement for expiry. No implementer unit tests are added.
    current ID and keeps previous outcomes.
 6. Bounded stdin CLI parity, inert unavailable-daemon behavior and controlled
    diagnostics; all non-owner routers refuse every new route. Secret output
-   appears only for explicit successful credential retrieval.
+   appears only for explicit successful credential retrieval, including its
+   private transport wrapper in section6.
 7. Additive schema24-to25 migration, historical preservation, restart, namespace
    collisions, corrupt schema25 and future26 refusal. Update only schema-version
    expectations in existing suites, retaining their original behavior checks.

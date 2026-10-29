@@ -4,7 +4,7 @@ Status: feature plan. The owner accepted the experience below on 2026-10-28.
 Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
 local delivery check, owner-local project review backend and native human
-project review controls, plus an owner-local adapter review. The full interactive
+project review controls, plus native adapter review and a scoped local lease. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -30,7 +30,7 @@ contracts; it does not promise shared conversations or PeerFS integration.
 - Tracking PR: [#35](https://github.com/peerspan/peerspan/pull/35).
 - Integration branch: `codex/guided-session-onboarding` in `peerspan/peerspan`.
 - Baseline: `2719d9978ddb86fba003675217fd04922de77a9f` from `main`.
-- One draft tracking PR compares that branch with `main` throughout development.
+- One tracking PR compares that branch with `main` throughout development.
 - Each implementation slice has a small PR whose base is the integration
   branch. Reviews and fixes land there. Main receives the complete feature
   through the tracking PR after the acceptance gates below pass.
@@ -164,8 +164,16 @@ outbound routes or capability calls. Read-only flow views contain no secret;
 an exact private retrieval can recover the approved credential after a lost
 response without another approval or plaintext token storage. Schema25 adds
 one child-flow table. The advanced `onboarding adapter` stdin interface is for
-integration work; native credential review/connection and the scoped data path
-remain next. Issuance is separate from a lease, channel proof or model receipt.
+integration work. Issuance is separate from a lease, channel proof or model receipt.
+
+GU-02e/GU-03c adds [native credential review and a scoped local lease](guided-session-contract.md#6-native-credential-review-and-scoped-lease-gu-02e--gu-03c).
+Explicit Approve/Decline captures the exact project and credential review;
+explicit Connect privately retrieves transport material and renews a local
+adapter lease. Close preserves an established runtime, Stop halts renewal, and
+reload requires explicit reconnect with the original instance. No credentials
+enter model context. A real terminal/temporary-host smoke exercised those
+actions without inference. Incoming work, native data tools and exact model
+receipt remain the next slice: a lease alone is not delivery verification.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
@@ -240,7 +248,7 @@ Rationale: make progress reviewable while the complete flow remains isolated.
 Alternative options were not recorded in the owner's instruction.
 
 Implementation choice: small PRs target the feature branch; one draft tracking
-PR targets main. Discarded: landing partial onboarding behavior directly on
+PR targets main (the owner has since marked it ready for review). Discarded: landing partial onboarding behavior directly on
 main, working in another track's checkout, and an orphan history disconnected
 from the intended main-branch merge base.
 
