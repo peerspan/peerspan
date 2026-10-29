@@ -358,7 +358,11 @@ remain (DEC-Q12).
 - **Who runs it (DEC-Q11).** Each host checks every 60 seconds, with its sync,
   which grants it may renew are inside their threshold. Hosts able to renew a
   grant take turns in a ranked order: the original key's host first, then
-  devices by host key. With K ranked signers and a renewal window W, signer
+  devices by host key. A locally selected original key takes the first turn
+  when usable. Remote original-key availability is not advertised: device
+  hosts rank the eligible current devices without reserving a turn for an
+  original key they cannot observe. Concurrent signatures use the plain
+  renewal fork rule below. With K ranked signers and a renewal window W, signer
   number i (from 0) starts at i × W ÷ (K + 1) into the window, so the last
   one still starts before expiry. Each syncs with known peers (30-second bound)
   before signing and skips grants already renewed. If two plain renewals with
