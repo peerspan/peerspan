@@ -201,6 +201,9 @@ Assigned-task receipt, lifecycle calls and cancellation also remain live-model
 acceptance gates. The unchanged quota-refused probe is not repeated for this
 slice, and no live task smoke is claimed. Independent native task fixtures and
 the existing real-host work/live suites cover their respective boundaries.
+The pinned test kit targets current drawings by key and does not retain old
+callback closures. The stale displayed Enable control's readiness binding is
+source-reviewed; its actual old-callback refusal remains a manual check.
 
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
