@@ -509,9 +509,8 @@ function stopTasks(active, state = 'stopped') {
   active.tasks.state = state;
 }
 function taskSummary(active) {
-  if (!active.tasks) return '';
   const c = active.taskCounts;
-  return `\nIncoming tasks: ${active.tasks.state}\nTasks submitted: ${c.submitted.size}\nTasks observed: ${c.observed.size}\nTask changes confirmed: ${c.changes.size}\nCancellations submitted: ${c.cancellations.size}`;
+  return `\nIncoming tasks: ${active.tasks?.state ?? 'not enabled'}\nTasks submitted: ${c?.submitted.size ?? 0}\nTasks observed: ${c?.observed.size ?? 0}\nTask changes confirmed: ${c?.changes.size ?? 0}\nCancellations submitted: ${c?.cancellations.size ?? 0}`;
 }
 const taskGuard = (active, attempt) => runtime === active && active.tasks === attempt &&
   ['starting', 'enabled'].includes(attempt.state) && active.messages === attempt.ready && attempt.ready.state === 'ready';
