@@ -872,4 +872,163 @@ def _():
     # narrower link/fsync/postcheck crash interval remains source/fault evidence.
 
 
+PROGRESS_MAP = {"pending": ("person_owner", "review_owner_offer"), "needs_selection": ("requesting_machine", "review_owner_selection"),
+                "needs_administrator": ("network_administrator", "review_admission"), "needs_owner_finalization": ("person_owner", "review_owner_finalization"),
+                "needs_commit": ("requesting_machine", "review_final_commit"), "finalizing": ("host", "await_local_application"),
+                "linked": ("requesting_machine", "inspect_access_readiness"), "cancelled": ("requesting_machine", "review_replacement"),
+                "expired": ("requesting_machine", "review_replacement"), "blocked": ("local_owner", "inspect_advanced_status")}
+
+
+def progress_body(flow):
+    return {"context": flow["review"]["context"], "review_id": flow["review_id"]}
+
+
+def progress(h, flow, *, status=200, error=None, body=None, pure=True):
+    before, files = records(h), private_files(h.state)
+    now = h.now().replace(microsecond=0)
+    actual, value = h.api("POST", BASE + "/" + flow["flow_id"] + "/progress", progress_body(flow) if body is None else body)
+    check(actual == status, f"progress HTTP {actual}, want {status}")
+    if error:
+        check(value.get("code") == error, f"progress HTTP {actual} code {value.get('code')}, want {error}")
+    if status == 200:
+        check(set(value) == {"version", "host_id", "flow_id", "review_id", "context", "observed_at", "outcome", "request", "next_participant", "next_action"}, "exact progress wrapper")
+        check(value["version"] == 1 and value["host_id"] == h.id and value["flow_id"] == flow["flow_id"]
+              and value["review_id"] == flow["review_id"] and value["context"] == flow["review"]["context"]
+              and value["outcome"] == flow["outcome"], "progress substituted historical binding/outcome")
+        observed = parse_time(value["observed_at"])
+        check(now <= observed <= h.now().replace(microsecond=0), "progress time is not the guarded whole-second observation")
+        check(value["request"] == get(h, "/v2/link/requests/" + flow["outcome"]["request_id"]), "progress did not use exact ordinary request read")
+        request = value["request"]
+        check((value["next_participant"], value["next_action"]) == PROGRESS_MAP[request["state"]], "progress state/participant/action mapping")
+        check(request["request_id"] == flow["outcome"]["request_id"] and request["role"] == "requester" and request["mode"] == "new"
+              and request["migration_proposal_id"] == "-" and request["person_public_key"] == flow["outcome"]["person_public_key"]
+              and request["host_public_key"] == h.public_key, "ordinary progress request pin mismatch")
+    if pure:
+        check(records(h) == before and private_files(h.state) == files, "progress wrote protocol/keys/frames/outbox/activity/private state")
+    public(value)
+    return value
+
+
+@suite.case("published_progress_exact_read_only_snapshot_cli_bounds_and_owner_routes", "guided onboarding15 verification1")
+def _():
+    h, parent, code, person = fixture("progress")
+    pending = prepare(h, parent, code, person); progress(h, pending, status=409, error="state_conflict")
+    requested = decide(h, pending, code); observed = progress(h, requested)
+    check(observed["request"]["state"] == "pending" and not observed["request"]["selection_approved"]
+          and not observed["request"]["commit_approved"], "fresh progress advanced requester consent")
+    body = {"flow_id": requested["flow_id"], **progress_body(requested)}; raw = compact(body)
+    before, home = records(h), private_files(h.home)
+    cli = h.cli("onboarding", "join", "progress", "--stdin", input=(raw + b" " * (65536 - len(raw))).decode(), timeout=10)
+    check(cli.ok and without(cli.json, "observed_at") == without(observed, "observed_at"), "exact64KiB progress CLI/API parity")
+    public(cli.stdout + cli.stderr, code)
+    route = BASE + "/" + requested["flow_id"] + "/progress"
+    encoded = compact(progress_body(requested)); maximum = encoded + b" " * (65536 - len(encoded))
+    check(raw_post(h, route, maximum)[0] == 200, "exact64KiB progress API body refused")
+    for data in [b"null", b"[]", b"{}", encoded + b"{}", maximum + b" ", compact({**progress_body(requested), "request_id": requested["outcome"]["request_id"]}),
+                 encoded.replace(b'"review_id":', b'"review_id":"review_' + b"1" * 64 + b'","review_id":'),
+                 encoded.replace(b'"integration":"claude-code"', b'"integration":"claude-code","integration":"claude-code"')]:
+        actual, denied = raw_post(h, route, data); check(actual == 400 and denied.get("code") == "invalid", "strict progress body validation"); public(denied)
+    for data in [b"null", raw + b"{}", raw + b" " * (65537 - len(raw)), compact({**body, "invitation": code}),
+                 raw.replace(b'"flow_id":', b'"flow_id":"flow_' + b"1" * 32 + b'","flow_id":')]:
+        result = h.cli("onboarding", "join", "progress", "--stdin", input=data.decode(), timeout=10)
+        check(not result.ok, "progress CLI accepted private/duplicate/trailing/oversized input"); public(result.stdout + result.stderr, code)
+    progress(h, requested, status=409, error="review_changed", body={**progress_body(requested), "review_id": "review_" + "1" * 64})
+    progress(h, requested, status=409, error="review_changed", body={**progress_body(requested), "context": {**context(parent), "native_session_id": "different-private-context"}})
+    actual, value = h.api("POST", BASE + "/flow_" + "1" * 32 + "/progress", progress_body(requested))
+    check(actual == 404, "unknown flow substituted a newest request"); public(value)
+    for method in ("GET", "PUT", "DELETE"):
+        actual, value = h.api(method, route); check(actual in (404, 405), "alternate progress method supported"); public(value)
+    check(records(h) == before and private_files(h.home) == home, "progress reads/errors inventoried or mutated originals/daemon state")
+    # A registered peer, valid scoped session and quiet bootstrap prove router
+    # isolation. No protocol or authority record is fabricated.
+    peer = host("progress-peer")
+    for local, remote in ((h, peer), (peer, h)):
+        local.ok("peer", "add", "--id", remote.id, "--public-key", remote.public_key, "--address", remote.peer_address)
+    adapter = h.agent("progress-route", directory=False, ready=False)
+    actual, value = adapter.call("POST", route, progress_body(requested)); adapter.stop()
+    check(actual == 404, "scoped adapter exposed progress"); public(value)
+    probe = subprocess.run([str(suite.probe_bin), "--state", str(peer.state), "--address", h.peer_address, "--alpn", "peerspan-peer/1", "--method", "POST", "--path", route, "--body-stdin"],
+                           input=compact(progress_body(requested)), capture_output=True, timeout=10)
+    check(probe.returncode == 0 and json.loads(probe.stdout)["status"] == 404, "authenticated peer exposed progress")
+    bootstrap = host("progress-boot"); cert, key = suite.work / "progress-cert.pem", suite.work / "progress-key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ed25519", "-nodes", "-subj", "/CN=progress", "-days", "1", "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True, timeout=5)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); tls.check_hostname = False; tls.verify_mode = ssl.CERT_NONE
+    tls.load_cert_chain(str(cert), str(key)); tls.set_alpn_protocols(["peerspan-bootstrap/1"])
+    data = compact(progress_body(requested))
+    with socket.create_connection(("127.0.0.1", bootstrap.bootstrap_port), timeout=5) as raw_socket:
+        with tls.wrap_socket(raw_socket, server_hostname="peerspan") as stream:
+            stream.sendall((f"POST {route} HTTP/1.1\r\nHost: peerspan\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n").encode() + data)
+            response = http.client.HTTPResponse(stream); response.begin(); response.read(); check(response.status == 404, "bootstrap exposed progress")
+    h.stop(); before = private_files(h.root)
+    result = h.cli("onboarding", "join", "progress", "--stdin", input=json.dumps(body), timeout=10)
+    check(not result.ok and private_files(h.root) == before, "progress CLI initialized unavailable daemon/state")
+
+
+@suite.case("published_progress_historical_replacement_restart_cancel_and_idle_expiry", "guided onboarding15 verification2")
+def _():
+    h, parent, code, person = fixture("progress-history")
+    requested = decide(h, prepare(h, parent, code, person), code)
+    original = progress(h, requested)
+    alternate = source()["signer"].invitation(code)
+    prepare(h, parent, alternate, person, replace=requested["flow_id"])
+    check(progress(h, requested)["outcome"] == original["outcome"], "replacement hid historical exact request")
+    h.restart(kill=True)
+    check(progress(h, requested)["request"]["request_id"] == original["request"]["request_id"], "restart selected another request or required a current parent")
+    advance_to(h, parse_time(original["request"]["expires_at"]) + timedelta(seconds=1))
+    expired = progress(h, requested)
+    check(expired["request"]["state"] == "expired" and expired["request"]["completed"] == original["request"]["completed"], "idle expiry advanced/forgot durable stages")
+    cancelled_host, p2, code2, person2 = fixture("progress-cancel")
+    outcome = decide(cancelled_host, prepare(cancelled_host, p2, code2, person2), code2)
+    status, _ = cancelled_host.api("POST", "/v2/link/requests/" + outcome["outcome"]["request_id"] + "/cancel", {})
+    check(status == 200, "public request cancel fixture")
+    check(progress(cancelled_host, outcome)["request"]["state"] == "cancelled", "progress did not retain historical cancellation")
+    # Missing/corrupt/mismatched retained protocol rows have no public destructive
+    # fixture. They remain source/fault-injection evidence; no DB edits here.
+
+
+def progress_transport_host(name):
+    h = suite.host(name, start=False, clock=Clock(suite.work / (name + ".clock")))
+    config = h.root / "transport.json"
+    config.write_bytes(compact({"format": 1, "advertise_bootstrap": [f"127.0.0.1:{h.bootstrap_port}"], "advertise_quic": [h.peer_address],
+                               "rendezvous": [], "relays": [], "publish_contacts": False})); config.chmod(0o600)
+    h.extra_args = ["--transport-config", config]
+    return h.start()
+
+
+@suite.case("published_progress_real_owner_admin_and_local_application_transitions", "guided onboarding15 verification2")
+def _():
+    from harness import commit, finalize, link_view, pull_until, select, wait_linked
+    inviter, requester = progress_transport_host("progress-owner"), progress_transport_host("progress-joiner")
+    network = create_network(inviter, "progress real protocol", "owner")
+    parent = project(requester, "real-progress"); person = source()["person"]
+    status, invitation = inviter.api("POST", f"/v2/networks/{network['id']}/invitations", {"member": "new participant", "expected_person_public_key": person,
+                                        "expires_at": rfc3339(inviter.now() + timedelta(hours=1))})
+    check(status == 201, "real transition invitation")
+    code = invitation["invitation"]
+    outcome = decide(requester, prepare(requester, parent, code, person), code); rid = outcome["outcome"]["request_id"]
+    check(progress(requester, outcome, pure=False)["request"]["state"] == "pending", "initial real ceremony not pending")
+    status, ordinary = requester.api("POST", "/v2/link/requests", {"mode": "new", "network_id": network["id"], "person_public_key": person,
+                                 "migration_proposal_id": "-", "contact_invitation": code, "helpers": []})
+    check(status == 200 and ordinary["request_id"] == rid, "advanced exact intent did not reuse guided request")
+    reply = ordinary["display_code"]
+    requester.ok_incomplete("link", "approve", "--network", network["id"], "--person-key", source()["key"], "--code-stdin", "--approve", input=reply + "\n")
+    view = pull_until(requester, rid, "owner_offer_id", timeout=15)
+    # One valid offer is automatically selected by the existing protocol. Do not
+    # disable it to manufacture needs_selection for this observation slice.
+    if view["state"] == "needs_selection":
+        select(requester, view)
+    view = link_view(requester, rid)
+    check(view["state"] == "needs_administrator" and view["selection_approved"] and not view["commit_approved"], "real intermediate requester consent separation")
+    check(progress(requester, outcome, pure=False)["request"]["state"] == "needs_administrator", "progress lost real durable intermediate")
+    inviter.ok_incomplete("link", "admit", "--network", network["id"], "--owner-offer", view["owner_offer_id"], "--selection", view["selection_id"],
+                         "--person", person, "--expect-host-key", view["host_public_key"], "--expect-device-key", view["device_public_key"], "--code-stdin", "--approve", input=reply + "\n")
+    view = pull_until(requester, rid, "administrator_offer_id", timeout=20); finalize(requester, view, source()["key"])
+    view = pull_until(requester, rid, "owner_finalization_id", timeout=20); commit(requester, view)
+    wait_linked(requester, inviter, rid, timeout=20)
+    applied = progress(requester, outcome, pure=False)
+    check(applied["request"]["state"] == "linked" and applied["request"]["selection_approved"] and applied["request"]["commit_approved"]
+          and applied["request"]["completed"][-1] == "locally_applied", "linked progress omitted actual local application/final consent")
+    check(applied["outcome"] == outcome["outcome"], "ordinary linking mutated publication outcome")
+
+
 suite.finish()
