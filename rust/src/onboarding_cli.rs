@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use clap::{Args, Subcommand};
-use peerspan_host::onboarding::{Decision, Prepare};
+use peerspan_host::onboarding::{Decision, Prepare, ProjectContext};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -28,6 +28,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
+    /// Read the current flow and local agent choices for one private context
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Prepare or resume exact terms from JSON on standard input
     Prepare {
         #[arg(long, required = true)]
@@ -67,6 +72,12 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
     let local = Local(socket);
     let base = "/v1/onboarding/project-flows";
     let result = match command {
+        ProjectCommand::Lookup { .. } => {
+            let value = input()?;
+            let _: ProjectContext = serde_json::from_value(value.clone())
+                .map_err(|_| anyhow::anyhow!("invalid project review input"))?;
+            local.post(format!("{base}/lookup"), value).await?
+        }
         ProjectCommand::Prepare { .. } => {
             let value = input()?;
             let _: Prepare = serde_json::from_value(value.clone())

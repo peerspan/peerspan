@@ -76,6 +76,14 @@ pub enum AgentChoice {
     Existing { id: String },
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectContext {
+    pub project_root: String,
+    pub native_session_id: String,
+    pub integration: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prepare {
@@ -143,8 +151,7 @@ fn invalid() -> Error {
     Error::Invalid("invalid project review request".into())
 }
 
-fn proposal(request: &Prepare) -> Result<Proposal, Error> {
-    let root = &request.project_root;
+fn validate_context(root: &str, native: &str, integration: &str) -> Result<(), Error> {
     if !root.starts_with('/')
         || root.len() > 4096
         || root.chars().any(char::is_control)
@@ -154,16 +161,22 @@ fn proposal(request: &Prepare) -> Result<Proposal, Error> {
         || std::path::Path::new(root)
             .components()
             .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-        || request.native_session_id.is_empty()
-        || request.native_session_id.len() > 256
-        || request
-            .native_session_id
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control())
-        || request.integration != "claude-code"
+        || native.is_empty()
+        || native.len() > 256
+        || native.chars().any(|c| c.is_whitespace() || c.is_control())
+        || integration != "claude-code"
     {
         return Err(invalid());
     }
+    Ok(())
+}
+
+fn proposal(request: &Prepare) -> Result<Proposal, Error> {
+    validate_context(
+        &request.project_root,
+        &request.native_session_id,
+        &request.integration,
+    )?;
     let agent = match &request.agent {
         AgentChoice::New { name, owner } => {
             let (name, owner) = (name.trim(), owner.trim());
@@ -188,18 +201,31 @@ fn proposal(request: &Prepare) -> Result<Proposal, Error> {
         }
     };
     Ok(Proposal {
-        project_root: root.clone(),
+        project_root: request.project_root.clone(),
         native_session_id: request.native_session_id.clone(),
         integration: request.integration.clone(),
         agent,
     })
 }
 
-fn latest(connection: &Connection, p: &Proposal) -> Result<Option<String>, Error> {
+fn latest_context(
+    connection: &Connection,
+    root: &str,
+    native: &str,
+    integration: &str,
+) -> Result<Option<String>, Error> {
     Ok(connection.query_row(
         "SELECT flow_id FROM onboarding_project_flows WHERE project_root=?1 AND native_session_id=?2 AND integration=?3 ORDER BY rowid DESC LIMIT 1",
-        params![p.project_root, p.native_session_id, p.integration], |r| r.get(0),
+        params![root, native, integration], |r| r.get(0),
     ).optional()?)
+}
+fn latest(connection: &Connection, p: &Proposal) -> Result<Option<String>, Error> {
+    latest_context(
+        connection,
+        &p.project_root,
+        &p.native_session_id,
+        &p.integration,
+    )
 }
 fn load(connection: &Connection, id: &str) -> Result<Flow, Error> {
     let (request, review, review_id, state, expires_at, session_id): (String, String, String, String, String, Option<String>) = connection.query_row(
@@ -292,6 +318,28 @@ fn view(connection: &Connection, f: &Flow, now: DateTime<Utc>) -> Result<Value, 
 }
 
 impl Store {
+    pub fn lookup_project(&self, context: ProjectContext) -> Result<Value, Error> {
+        validate_context(
+            &context.project_root,
+            &context.native_session_id,
+            &context.integration,
+        )?;
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let flow = latest_context(
+            &tx,
+            &context.project_root,
+            &context.native_session_id,
+            &context.integration,
+        )?
+        .map(|id| view(&tx, &load(&tx, &id)?, crate::clock::now()))
+        .transpose()?;
+        Ok(
+            json!({"version":1,"host_id":self.identity().id,"context":context,
+            "flow":flow,"agents":self.agents_in(&tx)?}),
+        )
+    }
+
     pub fn prepare_project(&self, request: Prepare) -> Result<(bool, Value), Error> {
         let p = proposal(&request)?;
         let mut connection = self.connection()?;
@@ -432,8 +480,18 @@ impl Store {
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/v1/onboarding/project-flows", post(prepare))
+        .route("/v1/onboarding/project-flows/lookup", post(lookup))
         .route("/v1/onboarding/project-flows/{id}", get(inspect))
         .route("/v1/onboarding/project-flows/{id}/decision", post(decide))
+}
+async fn lookup(
+    State(store): State<Arc<Store>>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let context: ProjectContext = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.lookup_project(context)).await?,
+    ))
 }
 async fn prepare(
     State(store): State<Arc<Store>>,

@@ -36,7 +36,7 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Read the owner-local onboarding snapshot without changing setup
+    /// Read onboarding status or run advanced project review commands
     Onboarding(crate::onboarding_cli::OnboardingArgs),
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
