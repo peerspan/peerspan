@@ -19,6 +19,13 @@ export function identities(raw, parent, host) {
   }
   return freeze(v.identities);
 }
+export function createdIdentity(raw, parent, host) {
+  const v = JSON.parse(raw);
+  if (!exact(v, 'version host_id context identity') || v.version !== 1 || v.host_id !== host || !id(host, 'host') ||
+      !same(v.context, context(parent)) || !exact(v.identity, 'public_key sources') || !publicKey(v.identity.public_key) ||
+      !same(v.identity.sources, ['generated'])) throw new Error('Unavailable saved identity');
+  return freeze(v.identity);
+}
 export async function flow(raw, parent, host) {
   const v = typeof raw === 'string' ? JSON.parse(raw) : raw, r = v?.review;
   const actions = { review: 'approve_join_request', declined: 'none', requested: 'await_participant_reviews',

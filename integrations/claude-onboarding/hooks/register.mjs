@@ -11,7 +11,7 @@ import { flow as parseInvitationFlow, lookup as parseInvitationLookup, networks 
   proposal as invitationProposal, handoff as parseInvitationHandoff, reviewLines as invitationReviewLines } from './invitation.mjs';
 
 import { validCode as validInvitationCode, preview as parseRecipientPreview, reviewLines as recipientReviewLines, terms as recipientPublicTerms } from './recipient.mjs';
-import { identities as parseJoinIdentities, flow as parseJoinFlow, lookup as parseJoinLookup,
+import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdentity, flow as parseJoinFlow, lookup as parseJoinLookup,
   reviewLines as joinReviewLines, provenance as joinProvenance } from './join.mjs';
 
 let options;
@@ -915,7 +915,7 @@ async function joinParent($, running, epoch) {
 }
 async function joinRun($, command, payload) {
   const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
-    'onboarding', 'join', ...command], { timeoutMs: command[0] === 'identities' ? 15000 : 5000,
+    'onboarding', 'join', ...command], { timeoutMs: ['identities', 'create-identity'].includes(command[0]) ? 15000 : 5000,
     ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
   if (result.exitCode !== 0) throw new Error('Unavailable join flow');
   return result.stdout;
@@ -941,10 +941,10 @@ async function joinView($, running, epoch, flow, extra = {}) {
   joiningExpiry?.cancel();
   joiningExpiry = null;
   let stage = flow ? flow.state : extra.stage ?? 'draft';
-  const deadline = flow?.state === 'review' ? flow.review.expires_at : stage === 'choose' ? extra.preview.review.invitation.expires_at : null;
+  const deadline = flow?.state === 'review' ? flow.review.expires_at : ['choose', 'create_review'].includes(stage) ? extra.preview.review.invitation.expires_at : null;
   if (deadline && Date.parse(deadline) <= now) stage = 'expired';
   if (flow?.state === 'review' && Date.parse(deadline) - now > 900000) throw new Error('Changed join deadline');
-  const secret = ['choose', 'review'].includes(stage) ? extra.secret ?? null : null;
+  const secret = ['choose', 'create_review', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority };
   if (deadline && stage !== 'expired') {
@@ -967,7 +967,7 @@ async function openJoining($, previous, epoch) {
     if (!await joinCurrent($, running, epoch)) return;
     const value = await parseJoinLookup(raw, running.parent, running.host);
     if (!await joinCurrent($, running, epoch)) return;
-    await joinView($, running, epoch, value.flow, { preview: null, selected: null, identities: [], replace: null });
+    await joinView($, running, epoch, value.flow, { preview: null, selected: null, identities: [], replace: null, saved: null });
   } catch { joinFailure($, running, epoch); }
 }
 function joinDraft($, previous, epoch, value) {
@@ -993,7 +993,7 @@ async function joiningChoices($, previous, epoch) {
     if (Date.parse(preview.review.invitation.expires_at) <= now || Date.parse(preview.review.invitation.issued_at) > now + 30000) throw new Error('Expired joining invitation');
     const identities = await joinIdentities($, running, epoch);
     if (identities === null) return;
-    await joinView($, running, epoch, null, { stage: 'choose', preview, identities, page: 0, selected: null, secret: code });
+    await joinView($, running, epoch, null, { stage: 'choose', preview, identities, page: 0, selected: null, secret: code, saved: null });
   } catch { joinFailure($, running, epoch); }
 }
 async function chooseJoinIdentity($, previous, epoch, selected) {
@@ -1018,6 +1018,54 @@ async function chooseJoinIdentity($, previous, epoch, selected) {
         flow.flow_id === previous.replace) throw new Error('Changed join proposal');
     await joinView($, running, epoch, flow, { selected, identities, preview: previous.preview, secret: previous.secret });
   } catch { joinFailure($, running, epoch); }
+}
+function canCreateIdentity(previous) {
+  return previous.stage === 'choose' && previous.identities.length === 0 && previous.secret &&
+    previous.preview.review.invitation.expected_person_public_key === '-';
+}
+async function reviewIdentityCreation($, previous, epoch) {
+  if (!canCreateIdentity(previous)) return;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    await joinView($, running, epoch, null, { stage: 'create_review', preview: previous.preview, secret: previous.secret });
+  } catch { joinFailure($, running, epoch); }
+}
+async function createJoinIdentity($, previous, epoch) {
+  if (previous.stage !== 'create_review' || !previous.secret || previous.identities.length !== 0 ||
+      previous.preview.review.invitation.expected_person_public_key !== '-') return;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    const before = await joinIdentities($, running, epoch);
+    if (before === null) return;
+    if (before.length) throw new Error('Local identity now exists');
+    if (!await joinHost($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (Date.parse(previous.preview.review.invitation.expires_at) <= now ||
+        Date.parse(previous.preview.review.invitation.issued_at) > now + 30000) throw new Error('Expired identity creation review');
+    sent = true;
+    const raw = await joinRun($, ['create-identity', '--stdin'], {
+      context: adapterContext(running.parent), decision: 'create_new_identity' });
+    if (!await joinCurrent($, running, epoch)) return;
+    const saved = parseCreatedIdentity(raw, running.parent, running.host);
+    const identities = await joinIdentities($, running, epoch);
+    if (identities === null) return;
+    if (!identities.some(i => i.public_key === saved.public_key && i.sources.includes('generated'))) throw new Error('Saved identity unavailable');
+    await joinView($, running, epoch, null, { stage: 'choose', preview: previous.preview, secret: previous.secret,
+      identities, page: 0, selected: null, saved: saved.public_key });
+  } catch {
+    const current = joining === running && epoch === generation;
+    joinFailure($, running, epoch);
+    if (sent && current) {
+      joining = { ...joining, message: 'Identity creation outcome unavailable. A new original may have been saved. Reopen joining and inspect local identities before another attempt; no automatic retry.' };
+      $.ui.invalidate('ui.render');
+    }
+  }
 }
 async function recoverJoinCode($, previous, epoch) {
   if (previous.stage !== 'review' || previous.secret) return;
@@ -1099,23 +1147,36 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   });
   if (previous.busy) return [Text({ children: ['Joining: working…'] }), back];
   if (previous.stage === 'draft') return [
-    Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Existing local identities only; no new identity is created.',
+    Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Reviewing identities creates no key; creating a new original requires separate consent.',
       previous.replace ? '\nAnother publication does not cancel or revoke the earlier request.' : ''] }),
     Input({ key: 'join-code', label: 'Private invitation for joining', value: previous.code,
       onInput: v => joinDraft($, previous, epoch, v), onSubmit: v => joinDraft($, previous, epoch, v) }),
     button('join-identities', 'Review joining identities', () => joiningChoices($, previous, epoch)), back];
   if (previous.stage === 'choose') {
     const page = previous.page ?? 0, pin = previous.preview.review.invitation.expected_person_public_key;
-    return [Text({ children: ['Joining: choose an existing original identity', '\n', recipientReviewLines(previous.preview),
+    return [Text({ children: ['Joining: choose an original identity', '\n', recipientReviewLines(previous.preview),
       '\nChoosing a public key is not proof of ownership and does not publish a request.',
-      !previous.identities.length ? '\nNo local original identity is available. New identity creation and device linking are separate workflows.'
+      previous.saved ? `\nNew original identity saved: ${quoted(previous.saved)}. Review its public key before publishing a join request.` : '',
+      !previous.identities.length ? '\nNo local original identity is available. Creating a new person and linking your existing person are separate workflows.'
         : pin !== '-' && !previous.identities.some(i => i.public_key === pin) ? '\nNo local identity matches the invitation pin. Use the original identity on its existing machine; device linking is separate.' : ''] }),
       ...previous.identities.slice(page * 10, page * 10 + 10).flatMap(i => [Text({ children: [`Original public key: ${quoted(i.public_key)}\nIdentity source: ${joinProvenance(i)}`] }),
         ...(pin === '-' || pin === i.public_key ? [button(`join-identity-${i.public_key}`, `Review identity ${i.public_key}`,
           () => chooseJoinIdentity($, previous, epoch, i))] : [Text({ children: ['This identity does not match the invitation pin.'] })])]),
       ...(page > 0 ? [button('join-prev', 'Previous identities', () => joinPage($, previous, epoch, page - 1))] : []),
-      ...(previous.identities.length > (page + 1) * 10 ? [button('join-next', 'More identities', () => joinPage($, previous, epoch, page + 1))] : []), back];
+      ...(previous.identities.length > (page + 1) * 10 ? [button('join-next', 'More identities', () => joinPage($, previous, epoch, page + 1))] : []),
+      ...(canCreateIdentity(previous) ? [button('join-create-review', 'Create a new original identity', () => reviewIdentityCreation($, previous, epoch))] : []), back];
   }
+  if (previous.stage === 'create_review') return [Text({ children: ['New original identity: review creation\n', recipientReviewLines(previous.preview),
+    '\nGenerate and save one new original person identity on this computer, in its normal original identity location.',
+    '\nThis creates a new person. It does not copy, import or link your existing person from another computer.',
+    '\nThe private key is saved locally and needs a private backup through ordinary host administration.',
+    '\nThe saved original survives Back, Close, cancellation of a later request, or navigation after approval is dispatched.',
+    '\nNo join request is prepared or published. No participant approval, membership, agent permission, files, conversation or capability access is granted.',
+    '\nConnection readiness and model receipt: not verified. After saving, separately review the public key and approve any join request.'] }),
+    button('join-create-save', 'Create and save identity', () => createJoinIdentity($, previous, epoch)),
+    button('join-create-cancel', 'Cancel identity creation', () => {
+      if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
+    }), back];
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
   const flow = previous.flow;
   const status = previous.stage === 'requested' ? 'Join request: publication recorded'

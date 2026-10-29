@@ -18,6 +18,7 @@ mod integration;
 mod link_cli;
 mod onboarding_cli;
 mod onboarding_identity_cli;
+mod onboarding_identity_create;
 mod service;
 mod sign_in_cli;
 mod up;
