@@ -2332,3 +2332,15 @@ path/discovery fallback, daemon key handling/copy/import, auto retry and treatin
 historical approval as possession or connection readiness. Section18 pins faults,
 recovery and all17 suite gates; key use/context changes/POST are not one atomic
 transaction and cannot retract an already-dispatched signature.
+
+### GU.impl18a — Preserve ordinary stage expiry in the signing fixture
+
+Selected: the independent author removes an invalid fresh-signing stimulus
+that waited beyond the approved fifteen-minute review window after an ordinary
+resume. Spec8 expires a still-unoffered request after ten minutes without a new
+recorded stage; resume does not extend that boundary. The real ceremony must
+sign while eligible, then exercise actual expired-history pure replay. The
+client's review-expiry distinction remains a source-coverage limit where the
+ordinary stage rule prevents a truthful fresh-success fixture. Discarded:
+fabricating authority rows, changing protocol expiry, or relabeling a rewritten
+public review as the daemon's retained exact consent.

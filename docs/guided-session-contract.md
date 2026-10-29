@@ -3200,6 +3200,12 @@ No implementer tests and no fabricated protocol/authority rows.
    response + exact retry recovers once, without another original signature.
    Missing/pruned/corrupt evidence and narrow final-read/POST race intervals stay
    explicit source/fault coverage when no authentic public fixture exists.
+   A fresh unoffered request also retains spec8's ten-minute stage-inactivity
+   limit: resume does not record a new stage. Do not manufacture a fresh success
+   beyond that limit to demonstrate an elapsed fifteen-minute approved review.
+   The client distinction between review expiry and signature/request expiry
+   remains source coverage when ordinary stage expiry makes it unreachable;
+   actual expired-history replay is still exercised after a completed offer.
 6. Existing advanced administrator/F/commit finishes the same request/intent;
    this command's exact complete-offer retry stays pure through later application,
    expiry/detachment/restart, with absent keys/agent and no later signing/resume.

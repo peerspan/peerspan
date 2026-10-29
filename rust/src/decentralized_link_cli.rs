@@ -122,7 +122,7 @@ fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str()
         .with_context(|| format!("invalid linking {k}"))
 }
-fn shape(v: &Value, names: &str) -> Result<()> {
+pub(crate) fn shape(v: &Value, names: &str) -> Result<()> {
     let o = v.as_object().context("invalid linking object")?;
     let names: Vec<_> = names.split_whitespace().collect();
     ensure!(
@@ -156,7 +156,7 @@ fn base(id: &str) -> Result<String> {
     ensure!(ident(id, "link_"), "invalid link request ID");
     Ok(format!("/v2/link/requests/{}", encoded(id)))
 }
-fn view(v: &Value) -> Result<()> {
+pub(crate) fn view(v: &Value) -> Result<()> {
     let mut fields = v.clone();
     if let Some(o) = fields.as_object_mut() {
         o.remove("display_code");
@@ -320,7 +320,12 @@ fn same_target(a: &Value, b: &Value) -> Result<()> {
     }
     Ok(())
 }
-fn check_slot(entry: &Value, r: &Value, v: &Value, local_host: &str) -> Result<(String, bool)> {
+pub(crate) fn check_slot(
+    entry: &Value,
+    r: &Value,
+    v: &Value,
+    local_host: &str,
+) -> Result<(String, bool)> {
     shape(
         entry,
         "intent_id slot_id object_type object_id role public_key format template_base64 message_base64",
@@ -616,7 +621,7 @@ async fn signatures(
     }
     bail!("too many dependency signature batches; resume the exact retained request")
 }
-fn describe_shape(response: &Value) -> Result<()> {
+pub(crate) fn describe_shape(response: &Value) -> Result<()> {
     shape(response, "request review signing_requests")?;
     view(&response["request"])?;
     shape(

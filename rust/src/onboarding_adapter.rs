@@ -77,7 +77,7 @@ pub struct AdapterContext {
     pub integration: String,
 }
 impl AdapterContext {
-    pub(crate) fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&self) -> Result<(), Error> {
         if !crate::peer_store::valid_id(&self.project_flow_id, "flow", 16)
             || !crate::peer_store::valid_id(&self.project_review_id, "review", 32)
         {
