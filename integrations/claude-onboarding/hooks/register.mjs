@@ -1145,7 +1145,11 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   const back = button('join-back', 'Back from joining', () => {
     if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy) return [Text({ children: ['Joining: working…'] }), back];
+  const cancelCreation = button('join-create-cancel', 'Cancel identity creation', () => {
+    if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.busy) return [Text({ children: ['Joining: working…'] }),
+    ...(previous.stage === 'create_review' ? [cancelCreation] : []), back];
   if (previous.stage === 'draft') return [
     Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Reviewing identities creates no key; creating a new original requires separate consent.',
       previous.replace ? '\nAnother publication does not cancel or revoke the earlier request.' : ''] }),
@@ -1174,9 +1178,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
     '\nNo join request is prepared or published. No participant approval, membership, agent permission, files, conversation or capability access is granted.',
     '\nConnection readiness and model receipt: not verified. After saving, separately review the public key and approve any join request.'] }),
     button('join-create-save', 'Create and save identity', () => createJoinIdentity($, previous, epoch)),
-    button('join-create-cancel', 'Cancel identity creation', () => {
-      if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
-    }), back];
+    cancelCreation, back];
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
   const flow = previous.flow;
   const status = previous.stage === 'requested' ? 'Join request: publication recorded'
