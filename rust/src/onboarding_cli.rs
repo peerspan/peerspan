@@ -30,6 +30,36 @@ pub enum OnboardingCommand {
         #[command(subcommand)]
         command: AdapterCommand,
     },
+    /// Review a contact-only teammate invitation and retrieve its private handoff
+    Invitation {
+        #[command(subcommand)]
+        command: InvitationCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum InvitationCommand {
+    /// Read the current invitation attempt for an exact project context
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare or resume exact invitation terms from stdin without signing
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Inspect a retained invitation review without retrieving its code
+    Inspect { flow_id: String },
+    /// Submit an exact owner-local decision from stdin
+    Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Explicitly retrieve an approved private invitation; output contains a secret
+    Handoff {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
@@ -99,6 +129,12 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Invitation { command }),
+    }) = command
+    {
+        return invitation_command(command, socket).await.map(Some);
+    }
+    if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Adapter { command }),
     }) = command
     {
@@ -145,6 +181,52 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+
+async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Result<Value> {
+    use peerspan_host::onboarding_invitation::{Decision, Handoff, Lookup, Prepare};
+    let local = Local(socket);
+    let base = "/v1/onboarding/invitation-flows";
+    if let InvitationCommand::Inspect { flow_id } = command {
+        return local.get(format!("{base}/{}", encoded(flow_id))).await;
+    }
+    let mut value = input().map_err(|_| anyhow::anyhow!("invalid invitation review input"))?;
+    let invalid = |_| anyhow::anyhow!("invalid invitation review input");
+    match command {
+        InvitationCommand::Lookup { .. } => {
+            let _: Lookup = serde_json::from_value(value.clone()).map_err(invalid)?;
+            local.post(format!("{base}/lookup"), value).await
+        }
+        InvitationCommand::Prepare { .. } => {
+            let _: Prepare = serde_json::from_value(value.clone()).map_err(invalid)?;
+            local.post(base.into(), value).await
+        }
+        InvitationCommand::Decide { .. } | InvitationCommand::Handoff { .. } => {
+            let id = value
+                .as_object_mut()
+                .and_then(|v| v.remove("flow_id"))
+                .and_then(|id| id.as_str().map(str::to_owned))
+                .filter(|id| {
+                    id.strip_prefix("flow_").is_some_and(|v| {
+                        v.len() == 32
+                            && v.bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+                })
+                .ok_or_else(|| anyhow::anyhow!("invalid invitation review input"))?;
+            let operation = if matches!(command, InvitationCommand::Decide { .. }) {
+                let _: Decision = serde_json::from_value(value.clone()).map_err(invalid)?;
+                "decision"
+            } else {
+                let _: Handoff = serde_json::from_value(value.clone()).map_err(invalid)?;
+                "handoff"
+            };
+            local
+                .post(format!("{base}/{}/{operation}", encoded(&id)), value)
+                .await
+        }
+        InvitationCommand::Inspect { .. } => unreachable!(),
+    }
 }
 
 async fn adapter_command(command: &AdapterCommand, socket: &Path) -> Result<Value> {

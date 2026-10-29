@@ -552,21 +552,20 @@ fn networks(store: &Store, _time: &str) -> Result<Vec<u8>> {
             .collect::<Result<Vec<_>>>()?,
     ))
 }
-fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
-    // `expires_at` is optional (DEC-Q2): 60 to 86400 seconds after the
-    // decision time; the default is one hour.
-    let lifetime = input.get("expires_at");
-    if lifetime.is_some() {
-        fields(input, "member expected_person_public_key expires_at")?;
-    } else {
-        fields(input, "member expected_person_public_key")?;
-    }
-    label(text(input, "member")?)?;
-    let person = text(input, "expected_person_public_key")?;
-    check(person == "-" || key(person))?;
-    let mut c = store.connection().map_err(|_| Error::new("internal"))?;
-    let tx = c.transaction().map_err(db)?;
-    let snapshot = load(&tx, network, &store.identity().public_key)?;
+/// One verified snapshot and one captured configuration for invitation terms.
+/// Planning has no signing, contact-sequence or persistence effect.
+pub(crate) struct InvitationPlan {
+    pub terms: Value,
+    pub time: String,
+    descriptor: super::Descriptor,
+    settings: super::bootstrap_io::Settings,
+}
+pub(crate) fn invitation_plan(
+    store: &Store,
+    c: &Connection,
+    network: &str,
+) -> Result<InvitationPlan> {
+    let snapshot = load(c, network, &store.identity().public_key)?;
     let projection = snapshot.project(&now()?)?;
     let own = projection
         .members()?
@@ -575,48 +574,126 @@ fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
         .ok_or_else(|| Error::new("forbidden"))?;
     let actual = decision_clock(&now()?, &projection.decision_time)?;
     require(actual < own.not_after, "authority_expired")?;
-    let contact = super::bootstrap_io::own_contact(
-        &tx,
-        store,
-        &actual,
-        network,
-        &snapshot.network.context_id,
-    )?;
-    let helpers = store
+    let settings = store
         .bootstrap_settings
         .read()
         .map_err(|_| Error::new("internal"))?
-        .rendezvous
         .clone();
-    let end = match lifetime {
-        Some(value) => {
-            let end = value.as_str().ok_or_else(|| Error::new("invalid"))?;
-            let lasts = stamp(end)? - stamp(&actual)?;
-            check(
-                lasts >= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MIN)
-                    && lasts <= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MAX),
-            )?;
-            end.to_owned()
-        }
-        None => (stamp(&actual)? + chrono::TimeDelta::seconds(super::bootstrap::INVITE_DEFAULT))
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string(),
-    };
-    // The return secret of the automatic return path (DEC-Q3).
+    let terms = json!({
+        "network":{"id":network,"name":snapshot.descriptor.name,
+            "context_id":snapshot.network.context_id,
+            "genesis_root_public_key":snapshot.descriptor.genesis_root_public_key},
+        "inviter_host_public_key":store.identity().public_key,
+        "transport":{"bootstrap_addresses":settings.bootstrap,"quic_addresses":settings.quic,
+            "relays":settings.relays,"helpers":settings.rendezvous}
+    });
+    Ok(InvitationPlan {
+        terms,
+        time: actual,
+        descriptor: snapshot.descriptor,
+        settings,
+    })
+}
+/// Caller holds the transaction that also records its consent/outcome.
+pub(crate) fn mint_invitation_in(
+    store: &Store,
+    c: &Connection,
+    plan: &InvitationPlan,
+    member: &str,
+    person: &str,
+    end: &str,
+) -> Result<Value> {
+    label(member)?;
+    check(person == "-" || key(person))?;
+    let lasts = stamp(end)? - stamp(&plan.time)?;
+    check(
+        lasts >= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MIN)
+            && lasts <= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MAX),
+    )?;
+    let network = &plan.descriptor.network_id;
+    let context = plan.descriptor.context_id();
+    let contact = super::bootstrap_io::own_contact_with_settings(
+        c,
+        store,
+        &plan.time,
+        network,
+        &context,
+        &plan.settings,
+    )?;
     let mut secret = [0u8; 16];
     getrandom::fill(&mut secret).map_err(|_| Error::new("internal"))?;
     let (invite, token) = super::bootstrap::Invitation::create(
         &store.signing_key,
-        &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers,"return_secret_base64":encode(&secret)}),
-        &actual,
+        &json!({"descriptor":plan.descriptor,"member":member,"expected_person_public_key":person,
+            "issued_at":plan.time,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],
+            "helpers":plan.settings.rendezvous,"return_secret_base64":encode(&secret)}),
+        &plan.time,
     )?;
-    super::invite_return::remember(&tx, &invite, &secret)?;
-    let result = encode_json(
-        &json!({"network_id":network,"context_id":snapshot.network.context_id,"invitation_id":invite.id,"invitation":token,"expires_at":invite.expires_at}),
-    )?;
-    tx.commit().map_err(db)?;
-    Ok(result)
+    super::invite_return::remember(c, &invite, &secret)?;
+    Ok(
+        json!({"network_id":network,"context_id":context,"invitation_id":invite.id,
+        "invitation":token,"expires_at":invite.expires_at}),
+    )
 }
+pub(crate) fn retained_invitation(
+    c: &Connection,
+    id: &str,
+    time: &str,
+) -> Result<(super::Invitation, String)> {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    check(ident(id, "di_"))?;
+    let row: Option<(String, String, Option<Vec<u8>>)> = c
+        .query_row(
+            "SELECT record,deadline,secret FROM dec_pending WHERE request_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    let (raw, deadline, secret) = row.ok_or_else(|| Error::new("not_found"))?;
+    let value = parse(raw.as_bytes(), 64 << 10)?;
+    let o = object(&value)?;
+    fields(o, "format kind network_id invitation_base64")?;
+    version(o)?;
+    check(text(o, "kind")? == "invite_return")?;
+    let invite = super::Invitation::read(&b64(text(o, "invitation_base64")?, 32 << 10)?, time)?;
+    check(
+        invite.id == id
+            && invite.expires_at == deadline
+            && invite.descriptor.network_id == text(o, "network_id")?
+            && invite.return_secret.as_ref().map(|v| v.as_slice()) == secret.as_deref()
+            && invite.return_secret.is_some(),
+    )?;
+    let token = format!("psi2-{}", URL_SAFE_NO_PAD.encode(&invite.body));
+    Ok((invite, token))
+}
+fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
+    let lifetime = input.get("expires_at");
+    fields(
+        input,
+        if lifetime.is_some() {
+            "member expected_person_public_key expires_at"
+        } else {
+            "member expected_person_public_key"
+        },
+    )?;
+    label(text(input, "member")?)?;
+    let person = text(input, "expected_person_public_key")?;
+    check(person == "-" || key(person))?;
+    let mut c = store.connection().map_err(|_| Error::new("internal"))?;
+    let tx = c.transaction().map_err(db)?;
+    let plan = invitation_plan(store, &tx, network)?;
+    let end = match lifetime {
+        Some(v) => v.as_str().ok_or_else(|| Error::new("invalid"))?.to_owned(),
+        None => (stamp(&plan.time)? + chrono::TimeDelta::seconds(super::bootstrap::INVITE_DEFAULT))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+    };
+    let result = mint_invitation_in(store, &tx, &plan, text(input, "member")?, person, &end)?;
+    tx.commit().map_err(db)?;
+    encode_json(&result)
+}
+
 fn select_provider(store: &Store, network: &str, request: &Obj, _time: &str) -> Result<Vec<u8>> {
     fields(
         request,
