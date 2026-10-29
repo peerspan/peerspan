@@ -71,6 +71,13 @@ struct Proposal {
     member: String,
     expected_person_public_key: String,
 }
+/// Private read-only recipient inspection; no code is retained or returned.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Preview {
+    pub context: AdapterContext,
+    pub invitation: String,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prepare {
@@ -242,6 +249,49 @@ fn retained(c: &Connection, f: &Flow, now: DateTime<Utc>) -> Result<Option<Strin
     Ok(Some(code))
 }
 impl Store {
+    pub fn preview_invitation(&self, request: Preview) -> Result<Value, Error> {
+        request.context.validate()?;
+        if request.invitation.len() > 32 << 10 {
+            return Err(invalid());
+        }
+        let mut c = self.connection()?;
+        let tx = c.transaction()?;
+        let now = now()?;
+        let (parent, attached) = request.context.project(&tx, now)?;
+        if !attached {
+            return Err(coded("review_changed"));
+        }
+        let invite = crate::decentralized::Invitation::read_token(&request.invitation, &stamp(now))
+            .map_err(product::model)?;
+        let contacts: Vec<Value> = invite.contacts.iter().map(|contact| json!({
+            "sequence":contact.sequence.to_string(), "issued_at":contact.issued_at,
+            "expires_at":contact.expires_at, "quic_addresses":contact.payload["quic_addresses"],
+            "bootstrap_addresses":contact.payload["bootstrap_addresses"], "relays":contact.payload["relays"]
+        })).collect();
+        let host = self.identity().id;
+        let review = json!({"version":1,"kind":"inspect_contact_invitation","host_id":host,
+            "context":request.context,"agent":parent["agent"],
+            "network":{"id":invite.descriptor.network_id,"name":invite.descriptor.name,
+                "context_id":invite.descriptor.context_id(),"genesis_root_public_key":invite.descriptor.genesis_root_public_key},
+            "inviter_host_public_key":invite.inviter_host_public_key,
+            "invitation":{"id":invite.id,"member":invite.member,"expected_person_public_key":invite.expected_person_public_key,
+                "issued_at":invite.issued_at,"expires_at":invite.expires_at,"automatic_return":invite.return_secret.is_some()},
+            "contacts":contacts,"helpers":invite.helpers,
+            "effects":{"verify_contact_signature":true,"create_identity":false,"create_link_request":false,
+                "select_owner":false,"grant_membership":false,"grant_agent_access":false,"approve_machine":false,
+                "share_files":false,"share_conversation":false,"capability_calls":false}});
+        let review_id = format!(
+            "review_{}",
+            hex::encode(Sha256::digest(format!(
+                "peerspan-invitation-preview-v1\n{}",
+                crate::canonical::value_text(&review)
+            )))
+        );
+        Ok(
+            json!({"version":1,"host_id":host,"context":request.context,"review_id":review_id,
+            "review":review,"next_action":"choose_join_identity"}),
+        )
+    }
     fn invitation_flow_state(
         &self,
         c: &Connection,
@@ -450,6 +500,7 @@ impl Store {
 
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
+        .route("/v1/onboarding/invitation-preview", post(preview))
         .route("/v1/onboarding/invitation-flows", post(prepare))
         .route("/v1/onboarding/invitation-flows/lookup", post(lookup))
         .route("/v1/onboarding/invitation-flows/{id}", get(inspect))
@@ -512,5 +563,20 @@ async fn handoff(
     let request = decode(body)?;
     Ok(Json(
         blocking(store, move |s| s.invitation_handoff(&id, request)).await?,
+    ))
+}
+
+async fn preview(
+    State(store): State<Arc<Store>>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let body = body.map_err(|_| invalid())?;
+    if body.len() > 65536 {
+        return Err(invalid());
+    }
+    let request: Preview =
+        crate::linking::decode_mutation(&body, "context invitation").map_err(|_| invalid())?;
+    Ok(Json(
+        blocking(store, move |s| s.preview_invitation(request)).await?,
     ))
 }

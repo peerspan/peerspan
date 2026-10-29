@@ -38,6 +38,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum InvitationCommand {
+    /// Privately verify incoming contact terms without creating an identity or request
+    Preview {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read the current invitation attempt for an exact project context
     Lookup {
         #[arg(long, required = true)]
@@ -184,7 +189,7 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
 }
 
 async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Result<Value> {
-    use peerspan_host::onboarding_invitation::{Decision, Handoff, Lookup, Prepare};
+    use peerspan_host::onboarding_invitation::{Decision, Handoff, Lookup, Prepare, Preview};
     let local = Local(socket);
     let base = "/v1/onboarding/invitation-flows";
     if let InvitationCommand::Inspect { flow_id } = command {
@@ -193,6 +198,12 @@ async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Resul
     let mut value = invitation_input(command)?;
     let invalid = |_| anyhow::anyhow!("invalid invitation review input");
     match command {
+        InvitationCommand::Preview { .. } => {
+            let _: Preview = serde_json::from_value(value.clone()).map_err(invalid)?;
+            local
+                .post("/v1/onboarding/invitation-preview".into(), value)
+                .await
+        }
         InvitationCommand::Lookup { .. } => {
             let _: Lookup = serde_json::from_value(value.clone()).map_err(invalid)?;
             local.post(format!("{base}/lookup"), value).await
@@ -238,6 +249,7 @@ fn invitation_input(command: &InvitationCommand) -> Result<Value> {
         "invitation review input exceeds 64 KiB"
     );
     let fields = match command {
+        InvitationCommand::Preview { .. } => "context invitation",
         InvitationCommand::Lookup { .. } => "context",
         InvitationCommand::Prepare { .. } => {
             // This preliminary value chooses only the optional field set. The
