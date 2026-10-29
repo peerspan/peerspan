@@ -165,7 +165,17 @@ neither grants membership/access nor approves the remaining participant steps.
 
 Success says **Join request: publication recorded**. This is a historical
 publication outcome, not current link state, reachability, readiness or model
-receipt. Reopen/Refresh reads this outcome without retrieving a code or making
+receipt. **Check join progress** explicitly reads a snapshot of that exact
+ordinary request. It shows recorded stages, requester selection/final-commit
+consent, and the next participant's task. **Local application recorded** is a
+historical protocol result; current authority, agent access and readiness still
+need separate checks. A pending-delivery observation does not prove arrival.
+Remaining approvals use advanced linking in this preview. Checking progress
+never signs, resumes the protocol, polls a peer, retrieves a code or inventories
+person keys. A failed check clears older progress and preserves publication;
+Check again explicitly. Refresh/navigation discard the progress snapshot.
+
+Reopen/Refresh reads the publication outcome without retrieving a code or making
 another request. A live review after reload requires explicit code re-entry
 through **Check invitation for this review** before Approve is available.
 An uncertain result must be recovered through lookup; there is no automatic

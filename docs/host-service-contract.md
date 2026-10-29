@@ -221,3 +221,12 @@ creation consent for empty, unpinned identity choices. Local private filesystem
 persistence completes atomically without replacing an existing key, before public
 identity choice and request approval. No new API/schema or person signature;
 unknown outcomes recover through normal read-only inventory, never auto-retry.
+
+
+[Published-request progress](guided-session-contract.md#15-read-only-published-request-progress)
+adds private owner-local `POST /v1/onboarding/join-flows/{id}/progress` and
+`onboarding join progress --stdin`. It binds the historical requested flow,
+review/context/outcome and exact validated ordinary request in one read snapshot,
+with guarded observation time and derived next participant/action. Native Check
+is explicit. No schema, key, signature, authority mutation, peer poll or resume;
+local application remains separate from current authority/access/readiness.

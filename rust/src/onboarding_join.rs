@@ -85,6 +85,12 @@ pub struct Lookup {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Progress {
+    pub context: AdapterContext,
+    pub review_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Decision {
     pub context: AdapterContext,
     pub review_id: String,
@@ -318,6 +324,81 @@ impl Store {
         let tx = c.transaction()?;
         view(self, &tx, &load(&tx, id)?, now()?)
     }
+    pub fn join_progress(&self, id: &str, request: Progress) -> Result<Value, Error> {
+        request.context.validate()?;
+        if !crate::peer_store::valid_id(&request.review_id, "review", 32) {
+            return Err(invalid());
+        }
+        let mut c = self.connection()?;
+        let tx = c.transaction()?;
+        let now = now()?;
+        let f = load(&tx, id)?;
+        if request.context != f.proposal.context || request.review_id != f.review_id {
+            return Err(coded("review_changed"));
+        }
+        request.context.project(&tx, now)?;
+        if f.state != "requested" {
+            return Err(coded("state_conflict"));
+        }
+        let outcome = f.outcome.as_ref().ok_or_else(corrupt)?;
+        let fields = [
+            "request_id",
+            "network_id",
+            "context_id",
+            "person_public_key",
+        ];
+        if !outcome
+            .as_object()
+            .is_some_and(|o| o.len() == fields.len() && fields.iter().all(|k| o.contains_key(*k)))
+        {
+            return Err(corrupt());
+        }
+        let request_id = field(outcome, "request_id")?;
+        if !crate::peer_store::valid_id(request_id, "link", 32)
+            || outcome["network_id"] != f.review["invitation"]["network"]["id"]
+            || outcome["context_id"] != f.review["invitation"]["network"]["context_id"]
+            || outcome["person_public_key"] != f.proposal.person_public_key
+        {
+            return Err(coded("request_mismatch"));
+        }
+        let pending = requests::load(&tx, request_id).map_err(|e| {
+            if e.code == "not_found" {
+                coded("request_unavailable")
+            } else {
+                product::model(e)
+            }
+        })?;
+        let observed_at = stamp(now);
+        let ordinary = pending.view(&observed_at).map_err(product::model)?;
+        if ordinary["request_id"] != request_id
+            || ordinary["role"] != "requester"
+            || ordinary["mode"] != "new"
+            || ordinary["migration_proposal_id"] != "-"
+            || ordinary["host_public_key"] != self.identity().public_key
+            || ["network_id", "context_id", "person_public_key"]
+                .iter()
+                .any(|k| ordinary[*k] != outcome[*k])
+        {
+            return Err(coded("request_mismatch"));
+        }
+        let (next_participant, next_action) = match ordinary["state"].as_str() {
+            Some("pending") => ("person_owner", "review_owner_offer"),
+            Some("needs_selection") => ("requesting_machine", "review_owner_selection"),
+            Some("needs_administrator") => ("network_administrator", "review_admission"),
+            Some("needs_owner_finalization") => ("person_owner", "review_owner_finalization"),
+            Some("needs_commit") => ("requesting_machine", "review_final_commit"),
+            Some("finalizing") => ("host", "await_local_application"),
+            Some("linked") => ("requesting_machine", "inspect_access_readiness"),
+            Some("cancelled" | "expired") => ("requesting_machine", "review_replacement"),
+            Some("blocked") => ("local_owner", "inspect_advanced_status"),
+            _ => return Err(coded("request_mismatch")),
+        };
+        Ok(
+            json!({"version":1,"host_id":self.identity().id,"flow_id":id,"review_id":f.review_id,
+            "context":request.context,"observed_at":observed_at,"outcome":outcome,"request":ordinary,
+            "next_participant":next_participant,"next_action":next_action}),
+        )
+    }
     pub fn decide_join_flow(&self, id: &str, request: Decision) -> Result<Value, Error> {
         request.context.validate()?;
         let approve = request.decision == DecisionKind::Approve;
@@ -429,11 +510,12 @@ pub fn decode_input<T: DeserializeOwned>(
         }
         "prepare" => "context invitation person_public_key",
         "lookup" => "context",
+        "progress" => "context review_id",
         "decision" if shape.get("invitation").is_some() => "context review_id decision invitation",
         "decision" => "context review_id decision",
         _ => return Err(invalid()),
     };
-    let fields = if cli && operation == "decision" {
+    let fields = if cli && matches!(operation, "decision" | "progress") {
         format!("flow_id {fields}")
     } else {
         fields.into()
@@ -446,6 +528,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/onboarding/join-flows/lookup", post(lookup))
         .route("/v1/onboarding/join-flows/{id}", get(inspect))
         .route("/v1/onboarding/join-flows/{id}/decision", post(decide))
+        .route("/v1/onboarding/join-flows/{id}/progress", post(progress))
 }
 async fn prepare(
     State(store): State<Arc<Store>>,
@@ -485,5 +568,15 @@ async fn decide(
     let request = decode_input(&body.map_err(|_| invalid())?, "decision", false)?;
     Ok(Json(
         blocking(store, move |s| s.decide_join_flow(&id, request)).await?,
+    ))
+}
+async fn progress(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let request = decode_input(&body.map_err(|_| invalid())?, "progress", false)?;
+    Ok(Json(
+        blocking(store, move |s| s.join_progress(&id, request)).await?,
     ))
 }

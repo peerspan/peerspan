@@ -234,7 +234,10 @@ original key and claims no key possession. The [explicit creation slice](guided-
 adds a separate review and approval for a new original when inventory is empty
 and the introduction is unpinned. It saves the key atomically without replacing
 an existing identity, then returns to public-key choice before any request.
-Publication remains separate from participant approvals and agent access.
+Publication remains separate from participant approvals and agent access. The
+[explicit progress snapshot](guided-session-contract.md#15-read-only-published-request-progress)
+shows the exact ordinary request's recorded state and next participant without
+advancing it. Guided participant approvals and access remain subsequent slices.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
