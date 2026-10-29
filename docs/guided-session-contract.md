@@ -2169,6 +2169,9 @@ an inference. CLI commands take private JSON only through required `--stdin`:
 | GET `/v1/onboarding/join-flows/{id}` | `onboarding join inspect ID` | none |
 | POST `/v1/onboarding/join-flows/{id}/decision` | `onboarding join decide --stdin` | `{context,review_id,decision}`; approve additionally requires `invitation` |
 
+Legacy invitations without automatic return remain eligible; no return or
+delivery is promised. A person-pin mismatch returns400/invalid.
+
 CLI decide additionally takes `flow_id` in stdin and removes it for the route.
 `decision` is exactly `approve` or `decline`. Decline forbids `invitation`;
 approve requires the same exact code as prepare, including on an outcome retry.
@@ -2211,7 +2214,8 @@ One latest flow per project binding is resumed: identical prepare returns200
 and the retained view, never extends time or regenerates anything; a different
 proposal without explicit replacement returns409/flow_conflict. A first prepare
 returns201. Replacement requires the exact latest `replace_flow_id` and refuses
-while that review is still live. Replacing a requested outcome does not cancel
+while that flow is effectively `review`; requested/declined outcomes may be
+replaced immediately. Replacing a requested outcome does not cancel
 or revoke its protocol request. Older reviews become replaced and cannot mutate;
 requested/declined outcomes remain recorded. Lookup is read-only and returns
 exactly `{version:1,host_id,context,flow}` with null when absent. Inspect, lookup

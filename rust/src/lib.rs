@@ -35,6 +35,7 @@ pub mod oauth;
 pub mod onboarding;
 pub mod onboarding_adapter;
 pub mod onboarding_invitation;
+pub mod onboarding_join;
 pub mod peer;
 pub mod peer_store;
 pub mod persons;

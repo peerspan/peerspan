@@ -174,10 +174,13 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=26).contains(&version) {
+        if !(0..=27).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
+        if version < 27 {
+            crate::onboarding_join::check_namespace(&tx)?;
+        }
         if version < 26 {
             crate::onboarding_invitation::check_namespace(&tx)?;
         }
@@ -268,6 +271,10 @@ impl Store {
         if version < 26 {
             tx.execute_batch(crate::onboarding_invitation::SCHEMA)?;
         }
+        if version < 27 {
+            tx.execute_batch(crate::onboarding_join::SCHEMA)?;
+        }
+        crate::onboarding_join::check_schema(&tx)?;
         crate::onboarding::check_schema(&tx)?;
         crate::onboarding_adapter::check_schema(&tx)?;
         crate::onboarding_invitation::check_schema(&tx)?;
