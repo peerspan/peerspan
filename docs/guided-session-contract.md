@@ -1324,7 +1324,12 @@ added by the native engine plus the schema arguments. A valid delivery ID can
 refer to an earlier held message of this same authorization after explicit
 reconnect; the host enforces its ownership/grant. Do not select a target from
 peer text or substitute another session. Serialize message writes so overlapping
-calls cannot race counters; changed replies still conflict under the host API.
+calls cannot race counters; while one is pending a concurrent call is refused
+with a controlled busy/unavailable result. Changed replies still conflict under
+the host API. A failed model write returns a controlled error and leaves the
+ready attempt usable; the stopped-attempt rule above applies to the handoff
+loop. No failed write is automatically repeated. A successful reply counts the
+delivery as both seen and replied, matching the host's receipt behavior.
 
 - `message_seen` posts `/adapter/v1/seen` with exactly `{ids:[delivery_id]}`;
   accept exactly `{seen:[]}` or `{seen:[delivery_id]}`. Return that public result.
