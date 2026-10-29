@@ -610,7 +610,7 @@ def refuse_start(h):
     check(records(h) == before, "refused migration changed logical records, version or schema")
 
 
-@suite.case("schema26_additive_migration_reserved_names_corruption_and_future27", "guided onboarding 9 verification 6")
+@suite.case("schema26_additive_migration_reserved_names_corruption_and_future28", "guided onboarding 9 verification 6")
 def _():
     source = host("migration")
     network = create_network(source, "preserved-network", "owner")
@@ -632,6 +632,7 @@ def _():
     check(len(foreign) == 1 and foreign[0][2:5] == ("onboarding_project_flows", "project_flow_id", "flow_id"), "schema26 project reference or forbidden return-material reference")
     legacy = clone_state(source, "legacy25")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        db.execute("DROP TABLE onboarding_join_flows")
         db.execute(f"DROP TABLE {TABLE}"); db.execute("PRAGMA user_version = 25")
     old = records(legacy)
     legacy.start()
@@ -641,8 +642,8 @@ def _():
     check(get(legacy, "/v1/onboarding/adapter-flows/" + adapter_flow["flow_id"])["review"] == adapter_flow["review"], "migration changed retained adapter terms")
     legacy.stop()
     migrated = records(legacy)
-    check(migrated["$version"] == (26,) and migrated[TABLE] == (), "schema25 migration did not add empty schema26 table")
-    check(without(migrated, "$schema", "$version", TABLE) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
+    check(migrated["$version"] == (27,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows") == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),
                       ("view", f"CREATE VIEW {TABLE} AS SELECT 'reserved' AS marker"),
@@ -650,6 +651,7 @@ def _():
                       ("trigger", f"CREATE TRIGGER {TABLE} AFTER INSERT ON sessions BEGIN SELECT 1; END")):
         collision = clone_state(source, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            db.execute("DROP TABLE onboarding_join_flows")
             db.execute(f"DROP TABLE {TABLE}"); db.execute("PRAGMA user_version = 25"); db.execute(ddl)
         refuse_start(collision)
     for name, ddl in (("missing", f"DROP TABLE {TABLE}"), ("extra", f"ALTER TABLE {TABLE} ADD COLUMN unexpected TEXT"),
@@ -676,9 +678,9 @@ def _():
             db.execute(f"DROP TABLE {TABLE}")
             db.execute(f"CREATE TABLE {TABLE} (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future27")
+    future = clone_state(source, "future28")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 27")
+        db.execute("PRAGMA user_version = 28")
     refuse_start(future)
 
 
