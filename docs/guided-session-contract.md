@@ -2145,7 +2145,7 @@ button. These implement the accepted GU flow without a new owner decision.
 
 ## 12. Remaining flow contract
 
-Teammate/device admission, recipient import, remaining native data tools/events
+Teammate/device admission, joining identity consent/request creation, remaining native data tools/events
 and exact permission grants remain future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.
