@@ -1,0 +1,4 @@
+{
+  "description": "Native existing-conversation Peerspan entry",
+  "modules": ["./register.mjs"]
+}
