@@ -407,6 +407,52 @@ test('all private prefixes, including decorated ones, block an unambiguous human
   effects(w)
 })
 
+test('private prefixes inside raw and decorated OSC payloads block name, owner and capability reviews', { timeoutMs: 15_000 }, async ($, on) => {
+  const w = fixture(on)
+  const ui = await connect($, w)
+  const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.',
+    'peerspan-person-invite-v1.', 'token_', 'instance_']
+  const fields = ['name', 'owner', 'capability'] as const
+  const payloads = [
+    { kind: 'title', decorated: false }, { kind: 'title', decorated: true },
+    { kind: 'hyperlink', decorated: false }, { kind: 'hyperlink', decorated: true },
+  ]
+  for (const [prefixIndex, prefix] of prefixes.entries()) {
+    for (const [fieldIndex, field] of fields.entries()) {
+      for (const [variantIndex, variant] of payloads.entries()) {
+        // Short markers make prefix/payload absence meaningful even if a
+        // presentation bug clips a label. Every value stays in registry bounds.
+        const secret = `osc${prefixIndex}${fieldIndex}${variantIndex}X`
+        const cut = Math.floor(prefix.length / 2)
+        const embedded = variant.decorated
+          ? prefix.slice(0, cut) + '\u202e\x1b[31m' + prefix.slice(cut) + secret + '\x1b[0m'
+          : prefix + secret
+        const value = variant.kind === 'title'
+          ? '\x1b]0;' + embedded + '\x07visible'
+          : '\x1b]8;;https://x/' + embedded + '\x1b\\visible\x1b]8;;\x1b\\'
+        expect(new TextEncoder().encode(value).length <= (field === 'capability' ? 256 : 128)).toBe(true)
+        expect(quoted(value).indexOf(secret) + secret.length <= 80).toBe(true)
+        const n = 100 + prefixIndex * 12 + fieldIndex * 4 + variantIndex
+        const agent = registryAgent(n, 'Safe reviewed name', 'Safe reviewed owner', ['safe metadata'])
+        if (field === 'capability') agent.capabilities = [value]
+        else agent[field] = value
+        w.agents = [agent]
+        w.retained = await fixtureFlow({ n, agent, create: false })
+        await press(ui, 'Refresh')
+        await noDecision(ui)
+        const text = await shown(ui)
+        expect(text).toMatch(/unavailable|private|cannot|invalid/i)
+        expect(text).not.toContain(prefix)
+        expect(text).not.toContain(secret)
+        outsidePrivate(w, [prefix, secret])
+      }
+    }
+  }
+  expect(count(w, 'prepare')).toBe(0)
+  expect(count(w, 'decide')).toBe(0)
+  effects(w)
+})
+
 for (const choice of ['approve', 'decline'] as const) {
   test(`native ${choice} captures the exact review and checks trusted context before and after inspection`, async ($, on) => {
     const w = fixture(on)
