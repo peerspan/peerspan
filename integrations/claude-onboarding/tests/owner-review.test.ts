@@ -5,7 +5,8 @@
  * remain separate gates. The kit dispatches the current drawing: retained old
  * rendered-handler closure authority remains source/manual evidence. Delayed
  * effects explicitly signal registered virtual sleeps before time/navigation.
- * Original212 native cases and owner_onboarding6 are unchanged.
+ * Original212 case assertions preserved; existing pending-adapter fixture
+ * synchronization corrected separately. owner_onboarding6 remains unchanged.
  */
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted, TestOptions } from 'claude-code/testing'
