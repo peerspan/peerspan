@@ -2908,7 +2908,145 @@ daemon, admitted/root/device provider fallback, hidden signing/selection/commit,
 profile15 for a new person and metadata attachment as owner consent. Full guided
 native approval/signing remains the next slice.
 
-## 17. Remaining flow contract
+## 17. Native exact owner consent
+
+This slice supplies the human-only native review/approval for section16. It uses
+only its existing owner CLI plus existing project/join inspection and observation.
+The subsequent local-signing slice will collect the exact original signature;
+this slice never reads keys/agent identities, invokes signing/resume/selection,
+or approves administrator or requester work. No Rust/API/schema change.
+
+### Entry, preparation and complete review
+
+In an attached project's published joining outcome, offer **Review owner powers**.
+Entry, publication, normal joining lookup, Check join progress, global Refresh,
+reload and timers never automatically look up, prepare or approve owner work.
+Only explicit Review owner powers rechecks the current terminal/root/conversation,
+exact attached parent, host observation and immutable requested flow/outcome, then
+calls `onboarding join owner lookup --stdin`. If owner is null, that explicit
+action may call owner prepare once. A retained owner record is shown without
+another preparation. Parent/flow/host changes and unsupported paths stop safely.
+
+Commands use literal configured executable/state argv and exact section16 CLI
+stdin shapes (flow_id, context, join_review_id; approval adds owner_review_id),
+with timeoutMs5000. No references or private payloads enter command args, shell,
+assistant text/prompts/tools, provider diagnostics or frontend persistence.
+
+Validate the exact section16 wrapper, context/flow/join review and entire ordinary
+LINK_VIEW, using the same pins, key-to-host hash, ID types, booleans, stage-order
+and bounded public-string rules as section15. Observed_at and request/review dates
+are canonical whole-second UTC. Owner is null or its exact four-field shape;
+review/effects are exactly section16, including kind, host/context/request/intent,
+network and exact invitation member/person, host/device keys, profile7, fixed
+request.created_at+7d and proposed offer ID. Compare the network/member with the
+retained signed-introduction review; no replacement or shortened display terms.
+A completed ordinary owner offer, if present, must equal the proposed offer ID.
+Recompute the domain-separated canonical owner review digest. Internal flow,
+review, intent, request and proposed-offer references stay private to the native
+process. Reject unknown/extra/private fields, malformed/pin-inconsistent data,
+private strings (including decorated terminal payloads), and inconsistent action
+or state. Valid review state requires pending request, no completed offer, no
+selection/commit, observation before expiry and expiry no later than observation
++15min. Every review expiry is after request creation and no later than request
+expiry; observation is no earlier than request creation. Approved next_action is
+provide_original_signature exactly while owner_offer_id is absent; otherwise
+follow_join_progress. Other action/state mappings follow section16. Historical
+approved reviews may outlive their original review window; they are never live
+approval controls or evidence of current powers.
+
+Display full reversible quoted project/network name, network/context IDs and
+genesis key, invitee label, original person public key, host/device public keys,
+fixed proposed powers and not_after, review expiry and observation time. Explain
+policy editing1, host binding2 and eligible own-device approval/renewal/revocation4,
+and no network administrator8. Explain exact original signature consent, later
+bounded self B/D finalization under independently verified administrator parents,
+normal single-offer selection and publication after signature. Membership,
+agent access, network administration, requester final commit, files, conversation,
+capability calls, reachability and model receipt remain separate. No truncation,
+terminal interpretation, internal IDs or new confirmed progress/readiness.
+
+### Explicit approval, leaving and recovery
+
+Only a validated, unexpired review offers **Approve owner powers**. The first
+press synchronously clears old confirmation and sets busy; repeated presses
+share no second approval. Before dispatch, recheck native context/terminal,
+attached parent, exact published join flow, fresh host observation and pure
+owner lookup. The looked-up review ID and complete immutable review must equal
+the displayed review, state must still be review and ordinary request pending;
+recheck host/context/time immediately before approval. The fixed deadline must
+still be future and no more than15min away, and the observed host time cannot
+be more than30s in the native clock's future. Changed terms/state or elapsed
+review refuse without approval. Backend section16 still enforces the atomic
+current authority, time and exact intent binding.
+
+After dispatch, accept only the same exact review with approved state. Display
+**Owner consent: recorded**, explicitly as the ordinary protocol record without
+attributing it to this pane/frontend. Missing completed owner offer still needs
+an original signature; the existing advanced linking path is the next separate
+action in this preview. A completed offer points back to explicit progress.
+Cancellation/expiry/invalidated records show their observed state and no approve.
+A finite review window is not an active grant lifetime or readiness proof.
+
+**Leave owner review** clears local controls without declining, cancelling or
+revoking protocol work; it remains available while reads/approval are pending.
+Back/Close/Refresh, host/parent/root/conversation/surface changes and session end
+clear volatile confirmation and pending callback authority, not durable consent.
+Unapproved review expiry removes Approve, preserves publication and never renews
+or prepares another intent. Old expiry callbacks cannot expire a newer attempt.
+If expiry occurs after approval dispatch, the response may still confirm the
+same historical approval; it never claims the command did not commit. Late
+responses after navigation/context change cannot restore old terms or controls.
+
+Controlled failures clear actionable terms and preserve publication. Failed or
+mismatched approval responses are outcome unknown; never retry a write or sign
+automatically. **Check owner consent** does fresh bindings and lookup only,
+including when recovering a lost response; it never prepares an intent. Null
+recovery reports no recorded owner review, leaving preparation to a later
+explicit Review owner powers. Reopening that action also begins with lookup.
+All native confirmation remains an explicit observed snapshot, with no polling.
+Native reload tests retain an attached parent; actual daemon restart still has
+the existing metadata-attachment recovery limits. The owner CLI's detached
+historical lookup is not a native attachment bypass.
+
+Established adapter/message/task/lease runtimes and durable inviter state survive
+ordinary owner-review navigation. No extra hello, tools, inference or data work.
+
+### Verification
+
+The separate contract-only author adds a small owner-consent native test file,
+without importing production modules. Preserve all212 existing case assertions
+and their stimuli/timeouts. New deterministic delayed effects synchronize actual
+dispatch/delay registration before navigation or virtual-clock advancement.
+
+1. Entry/publication/progress/global Refresh are owner-inert; explicit double
+   Review does one lookup and at most one preparation; retained records/reentry
+   are read-only. Exact literal argv/stdin/5s bounds and no secret/model effects.
+2. Full profile/effects/identity/lifetime review, all five states/null recovery,
+   historical approved after expiry, original-needed versus completed-offer
+   distinction, no attribution, no readiness or later approval claims.
+3. Strict wrapper/review/request/digest/pins/IDs/keys/times/effects, UTF-8/private
+   and decorated-terminal negative corpus; zero approve on malformed evidence.
+4. Double explicit approve pins the same displayed review, performs fresh parent/
+   flow/host/lookup/context/deadline checks and sends one exact approval command.
+   Any changed review/state/context/host/parent/deadline prevents dispatch.
+5. Failed/raw reads and unknown write results remove confirmation; explicit pure
+   recovery finds an approval without retry, preparation or signing. Back/Leave/
+   Close/Refresh/expiry/context/end and delayed old callbacks never revive an
+   attempt. Runtime/inviter invariants and original212 cases remain covered.
+
+Run existing owner_onboarding6 and applicable Rust gates/all16 slim suites on the
+final head. Native fixtures do not establish actual installed/terminal/model or
+two-person/two-machine acceptance. Carry all previous manual gates; no rejected
+terminal action or unchanged quota-refused inference is retried here.
+
+Selected: native exact consent first, reusing section16 and explicit pure
+recovery. The next slice adds a bounded local-signing command and native control.
+Discarded: combining approval with original signing, using broad advanced link
+commands behind a button, collecting keys in the daemon, automatic preparation
+on entry/Refresh, inventing a durable decline, and inferring active permissions
+from historical approval. These keep each small PR concrete and reviewable.
+
+## 18. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
