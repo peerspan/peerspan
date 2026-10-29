@@ -815,10 +815,14 @@ def preview(h, parent, code, *, status=200, error=None, body=None):
 @suite.case("recipient_exact_real_code_and_independently_signed_legacy_stale_hints_are_pure", "guided onboarding11 verification1")
 def _():
     f = recipient_fixture(); inviter, recipient, parent, code, signer = (f[k] for k in ("inviter", "recipient", "parent", "code", "signer"))
+    # A live inviter independently schedules automatic return work. Stop it
+    # before the baseline: preview must verify the introduction entirely offline.
+    inviter.stop()
     before = state_snapshot(recipient); source_before = records(inviter)
     first = preview(recipient, parent, code)
     check(preview(recipient, parent, code) == first, "same code/context changed preview or hash")
-    check(state_snapshot(recipient) == before and records(inviter) == source_before, "inspection created identity/network/request/flow/guard/event/files or contacted signer")
+    check(state_snapshot(recipient) == before, "inspection changed recipient logical records or private files")
+    check(records(inviter) == source_before, "offline inspection changed inviter logical records")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0)); listener.listen(); listener.settimeout(0.1)
         endpoint = f"127.0.0.1:{listener.getsockname()[1]}"
@@ -927,6 +931,8 @@ def _():
         actual, value = h.api(method, PREVIEW, body if method != "GET" else None)
         check(actual in (404, 405), "wrong preview method was accepted"); public(value, code)
     check(state_snapshot(h) == before, "CLI/context/method observation mutated recipient")
+    if source.process is None:
+        source.start()
     for local, remote in ((h, source), (source, h)):
         local.ok("peer", "add", "--id", remote.id, "--public-key", remote.public_key, "--address", remote.peer_address)
     actual, agent = h.api("POST", "/v1/agents", {"name": "preview-boundary-fixture", "owner": "fixture"})
@@ -944,7 +950,7 @@ def _():
     check(probe.returncode == 0 and json.loads(probe.stdout).get("status") == 404, "authenticated peer exposed recipient preview")
     check(code not in probe.stdout.decode(errors="replace") + probe.stderr.decode(errors="replace"), "peer refusal echoed code")
     adapter.stop()
-    bootstrap = host("preview-quiescent-bootstrap")
+    bootstrap = host("preview-bootstrap")
     cert, key = suite.work / "preview-boundary-cert.pem", suite.work / "preview-boundary-key.pem"
     subprocess.run(["openssl", "req", "-x509", "-newkey", "ed25519", "-nodes", "-subj", "/CN=preview-boundary", "-days", "1",
                     "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True, timeout=5)
