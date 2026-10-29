@@ -315,8 +315,15 @@ def pair(name, *, scopes=7, short=False, before_owner=None):
     selected = pull_until(b, rid, "selection_id", timeout=10)
     def arrived():
         v = link_view(a, rid)
+        if v["owner_offer_id"] == selected["owner_offer_id"] and v["selection_id"] == selected["selection_id"]:
+            return v
+        # Explicit advanced test driver: invitation return already retained the
+        # request. Ordinary resume fetches its later packets during SETUP only.
+        # Inspection below never drives or prepares the protocol.
+        a.cli("link", "resume", rid, timeout=15)
+        v = link_view(a, rid)
         return v if v["owner_offer_id"] == selected["owner_offer_id"] and v["selection_id"] == selected["selection_id"] else None
-    observed = wait_for(arrived, timeout=15, interval=.1, message="automatic owner/selection return")
+    observed = wait_for(arrived, timeout=15, interval=.1, message="ordinary setup owner/selection retention")
     check(observed["state"] == "needs_administrator", "incoming selected prefix advanced without administrator consent")
     check(get(b, "/v2/networks") == [], "selected original prefix prematurely adopted a network")
     b.stop(); settled(a)
@@ -326,10 +333,17 @@ def pair(name, *, scopes=7, short=False, before_owner=None):
 
 def current():
     if not shared:
+        shared["initializing"] = True
         def pending_refusals(f):
             inspect(f["a"], f["parent"], f["rid"], status=409, code="admission_inspection_unavailable")
             inspect(f["b"], f["remote_parent"], f["rid"], status=409, code="admission_inspection_unavailable")
-        shared.update(pair("main", before_owner=pending_refusals))
+        try:
+            fixture = pair("main", before_owner=pending_refusals)
+        except Exception:
+            shared["setup_failed"] = True
+            raise
+        shared.clear(); shared.update(fixture)
+    check(not shared.get("setup_failed"), "shared genuine prefix setup failed in earlier case")
     return shared
 
 
