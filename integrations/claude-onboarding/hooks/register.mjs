@@ -518,10 +518,10 @@ async function taskCurrent($, active, attempt) {
   if (!taskGuard(active, attempt)) return false;
   return await messageCurrent($, active, attempt.ready, true) && taskGuard(active, attempt);
 }
-async function enableTasks($, active, epoch) {
-  if (runtime !== active || epoch !== generation || active.phase !== 'connected' || active.messages?.state !== 'ready' ||
+async function enableTasks($, active, ready, epoch) {
+  if (runtime !== active || epoch !== generation || active.phase !== 'connected' || active.messages !== ready || ready?.state !== 'ready' ||
       ['starting', 'enabled'].includes(active.tasks?.state)) return;
-  const attempt = { state: 'starting', ready: active.messages };
+  const attempt = { state: 'starting', ready };
   active.tasks = attempt;
   active.taskCounts ??= { submitted: new Set(), observed: new Set(), changes: new Set(), cancellations: new Set() };
   active.taskClaims ??= new Set();
@@ -532,10 +532,16 @@ async function enableTasks($, active, epoch) {
         !await taskCurrent($, active, attempt)) return;
     const registry = registeredTaskTools;
     for (const spec of taskTools) {
-      if (!registry.has(spec.name)) {
-        registry.set(spec.name, $.tool.register(spec));
+      let registration = registry.get(spec.name);
+      if (!registration) {
+        registration = $.tool.register(spec);
+        registry.set(spec.name, registration);
       }
-      await registry.get(spec.name);
+      try { await registration; }
+      catch (error) {
+        if (registry.get(spec.name) === registration) registry.delete(spec.name);
+        throw error;
+      }
       if (!await taskCurrent($, active, attempt)) return;
     }
     if (!await taskCurrent($, active, attempt)) return;
@@ -913,6 +919,7 @@ export function register(on, configured = {}) {
     if (e.requestId !== 'peerspan' || e.surface !== 'terminal') return next(e);
     const epoch = generation;
     const displayedRuntime = runtime;
+    const displayedReady = runtime?.messages;
     const displayedTasks = runtime?.tasks;
     const { Box, Text, Button, Input } = $.ui.resolve(e);
     return Box({ flexDirection: 'column', children: [
@@ -939,7 +946,7 @@ export function register(on, configured = {}) {
           Text({ children: ['Incoming tasks can start model turns using the normal allowance. They grant no new local tool or file permission.'] }),
           Button({ key: 'task-enable', label: runtime.tasks?.state === 'blocked' && runtime.tasks.ready === runtime.messages
             ? 'Retry incoming tasks' : 'Enable incoming tasks',
-            onPress: () => enableTasks($, displayedRuntime, epoch) }),
+            onPress: () => enableTasks($, displayedRuntime, displayedReady, epoch) }),
         ] : []),
       ...(runtime ? [Button({ key: 'adapter-stop', label: 'Stop adapter', onPress: () => {
         if (runtime !== displayedRuntime || epoch !== generation) return;
