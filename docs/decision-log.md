@@ -2177,3 +2177,26 @@ model owner tools, persistent secret copies, clipboard/file import, a second
 frontend cryptographic verifier, contact validity as authority/readiness, and
 new schema/state just for read-only inspection. Section11 and independent
 verification cases precede code. No new owner confirmation is attributed.
+
+
+## GU.impl12 — Exact recipient request publication (2026-10-29)
+
+Selected under the accepted guided flow: a durable public review binds the exact
+verified invitation, selected person public key and attached project before one
+explicit request-publication decision. Selection is not possession proof. This
+backend does not discover, create or import a person key; native identity and
+key persistence remain the next slice. Machine linking retains its separate
+ceremony and never requires copying an original key.
+
+Selected atomicity: reuse ordinary request creation inside the same transaction
+as the recorded decision/outcome. Retain a public review and token digest only;
+the ordinary protocol remains the sole durable store of pairing material.
+Replay returns the historical outcome and never republishes after cancellation
+or expiry. Schema27 is additive; installed upgrade/recovery remains a main
+merge gate.
+
+Discarded: hidden key generation, a public key as proof of ownership, implicit
+admission/access/selection, separate commits for request and decision, duplicate
+secret stores and a second pairing protocol. Section12 settles shapes and
+independent verification before code. These are implementation choices within
+the accepted scope, not new owner confirmations.
