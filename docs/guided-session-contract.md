@@ -2158,7 +2158,9 @@ slices. Section11's read-only inspection remains unchanged.
 All routes are private owner administration; neither adapter nor peer routers
 expose them. Strict exact-field JSON (including nested context, duplicate keys,
 nulls and trailing JSON) and a 64KiB bound apply. Tokens remain exact, at most
-32KiB and never trimmed. Invalid input is400/invalid; existing DEC verification
+32KiB and never trimmed: `psi2-` followed by nonempty Base64url characters,
+without padding or whitespace. A different well-formed code on approve is
+409/review_changed; malformed token syntax is400/invalid. Existing DEC verification
 errors retain their codes. No endpoint starts a daemon, chooses a key or makes
 an inference. CLI commands take private JSON only through required `--stdin`:
 
@@ -2247,6 +2249,8 @@ Schema27 adds only `onboarding_join_flows`: public proposal, code digest,
 review/digest, parent reference, fixed times, decision and public outcome.
 Migration26→27 and validation are atomic and fail closed on reserved names,
 malformed retained table or future28, preserving older tables and authority.
+The final suite uses latest27/future28; these supersede historical future-version
+examples in sections3/5/9 while preserving their original migration sources.
 The new table is not a second secret store. Main's older binary cannot reopen
 this database; retain the integration's installed-upgrade/recovery merge gate.
 

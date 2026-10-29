@@ -145,7 +145,13 @@ fn digest(review: &Value) -> String {
     )
 }
 fn token_digest(token: &str) -> Result<String, Error> {
-    if token.len() > 32 << 10 || !token.starts_with("psi2-") {
+    if token.len() > 32 << 10
+        || !token.strip_prefix("psi2-").is_some_and(|v| {
+            !v.is_empty()
+                && v.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+        })
+    {
         return Err(invalid());
     }
     Ok(hex::encode(Sha256::digest(token.as_bytes())))
