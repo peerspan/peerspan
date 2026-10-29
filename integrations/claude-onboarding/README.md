@@ -239,6 +239,14 @@ The pinned test kit targets current drawings by key and does not retain old
 callback closures. The stale displayed Enable control's readiness binding is
 source-reviewed; its actual old-callback refusal remains a manual check.
 
+The [invitation smoke](../../docs/results/guided-native-invitation-smoke.json)
+records a real native network choice, exact review/approval, private handoff,
+Refresh and reload/resume with one issued introduction, no adapter credential
+and zero assistant messages. Private terminal output was withheld during reveal;
+Hide-only behavior is covered by the independent runtime fixtures rather than
+claimed as standalone manual evidence. This is the inviter side on one temporary
+host, not installed two-person admission/access or model acceptance.
+
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
 
