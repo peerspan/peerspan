@@ -764,13 +764,18 @@ test('denied malformed or raw private process results remain controlled and neve
 test('a late old reveal cannot publish private data or clear a newly opened invitation view', async ($, on) => {
   const w = fixture(on); let ui = await setup($, w, 'issued'); await begin(w, ui)
   const normal = w.run; let first = true
+  let signalOldHandoffStarted!: () => void
+  const oldHandoffStarted = new Promise<void>(resolve => { signalOldHandoffStarted = resolve })
   w.run = async (kind, payload, e) => {
     const value = await normal(kind, payload, e)
-    if (kind === 'invitation.handoff' && first) { first = false; await w.clock.sleep(1000) }
+    if (kind === 'invitation.handoff' && first) {
+      first = false; const delay = w.clock.sleep(1000)
+      signalOldHandoffStarted(); await delay
+    }
     return value
   }
   const pending = press(ui, 'Reveal private invitation'); void pending.catch(() => undefined)
-  await w.clock.settle(); await back(ui)
+  await oldHandoffStarted; await w.clock.settle(); await back(ui)
   w.invitation = await invitationFlow(w.parent, w.networks[0], { n: 99, state: 'issued' }); w.code = CODE2
   ui = await returnToInvitation($, w, ui); await press(ui, 'Reveal private invitation')
   expect(await visible(ui)).toContain(CODE2); expect(await visible(ui)).not.toContain(CODE)
