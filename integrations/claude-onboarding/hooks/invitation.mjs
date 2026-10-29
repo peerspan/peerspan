@@ -19,12 +19,33 @@ function canonical(v) {
   if (object(v)) return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}';
   return JSON.stringify(v);
 }
+function ipv6(host) {
+  const raw = host.slice(1, -1), parts = raw.split('::');
+  if (parts.length > 2) return false;
+  const words = s => s ? s.split(':') : [];
+  const left = words(parts[0]), right = parts.length === 2 ? words(parts[1]) : [];
+  const all = [...left, ...right];
+  if (!all.every(w => /^[0-9a-f]{1,4}$/.test(w)) || (parts.length === 1 ? all.length !== 8 : all.length >= 8)) return false;
+  const groups = [...left.map(w => parseInt(w, 16)), ...Array(8 - all.length).fill(0), ...right.map(w => parseInt(w, 16))];
+  if (groups.every(n => n === 0) || (groups.slice(0, 5).every(n => n === 0) && groups[5] === 65535)) return false;
+  let best = -1, length = 1;
+  for (let i = 0; i < 8; i++) {
+    if (groups[i] !== 0) continue;
+    let end = i;
+    while (end < 8 && groups[end] === 0) end++;
+    if (end - i > length) { best = i; length = end - i; }
+    i = end - 1;
+  }
+  const strings = groups.map(n => n.toString(16));
+  const canonical = best === -1 ? strings.join(':') : strings.slice(0, best).join(':') + '::' + strings.slice(best + length).join(':');
+  return raw === canonical;
+}
 function endpoint(v) {
   if (typeof v !== 'string' || v.length > 260 || privateValue(v)) return false;
   const m = /^(\[[0-9a-f:]+\]|[a-z0-9.-]+):([1-9][0-9]{0,4})$/.exec(v);
   if (!m || Number(m[2]) > 65535) return false;
   const h = m[1];
-  if (h.startsWith('[')) return h.includes(':') && h !== '[::]';
+  if (h.startsWith('[')) return ipv6(h);
   if (/^[0-9.]+$/.test(h)) return h.split('.').length === 4 && h.split('.').every(x => /^(0|[1-9][0-9]{0,2})$/.test(x) && Number(x) <= 255) && h !== '0.0.0.0';
   return h.length <= 253 && h.split('.').every(x => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(x));
 }
