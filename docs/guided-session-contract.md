@@ -1057,6 +1057,11 @@ including terminal/bidi decoration and OSC payloads. Keep flow/hash/session/
 adapter IDs and native conversation ID out of routine review text. Validate
 exact response fields/version, known effects, parent context/review/agent/session,
 planned IDs, authorization, connection and state/next action before any control.
+While the adapter review is open or its runtime is connected, the completed
+parent attachment can be summarized as recorded; the child review still shows
+the full project/agent identity and all of its current credential effects.
+Do not repeat the parent's historical "credentials: none" as current adapter
+state or show "connection is next" alongside a connected runtime.
 Unknown or inconsistent fields/effects block the view; do not approve hidden
 terms. Retain a deeply immutable complete review and exact parent bindings.
 
@@ -1183,6 +1188,12 @@ the private transport CLI. No implementer unit tests are added.
    reload and explicitly reconnect without duplicate authorization. Record exact
    heads/build and no inference/ready/work claims. Installed/full model delivery
    remain separate acceptance gates.
+
+The pinned public test kit acts on the current drawing and exposes no captured
+old synchronous button handler. Test old asynchronous/timer/runtime results
+through those public boundaries; the stale rendered Stop guard also receives
+source review. Do not import implementation callbacks or claim an inaccessible
+stale-handler simulation as native evidence.
 
 Selected: native exact reviews, private in-memory transport, stable original
 instance and healthy scoped lease renewal, with incoming readiness still
