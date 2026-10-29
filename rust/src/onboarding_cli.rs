@@ -43,6 +43,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum JoinCommand {
+    /// Explicitly create and save a new original when no local identity is available
+    CreateIdentity {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// List existing local original public identities without creating or signing
     Identities {
         #[arg(long, required = true)]
@@ -231,11 +236,14 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     if let JoinCommand::Inspect { flow_id } = command {
         return local.get(format!("{base}/{}", encoded(flow_id))).await;
     }
+    if let JoinCommand::CreateIdentity { .. } = command {
+        return crate::onboarding_identity_cli::create_from_stdin(socket).await;
+    }
     let operation = match command {
         JoinCommand::Prepare { .. } => "prepare",
         JoinCommand::Lookup { .. } | JoinCommand::Identities { .. } => "lookup",
         JoinCommand::Decide { .. } => "decision",
-        JoinCommand::Inspect { .. } => unreachable!(),
+        JoinCommand::Inspect { .. } | JoinCommand::CreateIdentity { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid join review input");
     let mut bytes = Vec::new();
@@ -281,7 +289,7 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
                 .post(format!("{base}/{}/decision", encoded(&id)), value)
                 .await
         }
-        JoinCommand::Inspect { .. } => unreachable!(),
+        JoinCommand::Inspect { .. } | JoinCommand::CreateIdentity { .. } => unreachable!(),
     }
 }
 

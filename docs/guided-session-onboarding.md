@@ -230,8 +230,10 @@ only public review/digest/outcome state. This backend does not select, import or
 create a person key. The [native existing-identity flow](guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
 adds explicit local generated/SSH-agent public-key choice and exact publication
 review, private code re-entry and read-only outcome recovery. It creates no
-original key and claims no key possession. Explicit new-identity creation and
-persistence remain next.
+original key and claims no key possession. The [explicit creation slice](guided-session-contract.md#14-explicit-new-original-identity-creation)
+adds a separate review and approval for a new original when inventory is empty
+and the introduction is unpinned. It saves the key atomically without replacing
+an existing identity, then returns to public-key choice before any request.
 Publication remains separate from participant approvals and agent access.
 
 The observation suite isolates each automatic invitation return from previous

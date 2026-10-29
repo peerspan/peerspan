@@ -1,4 +1,4 @@
-//! Read-only local original-identity inventory for the private native UI.
+//! Local original-identity choices and explicit creation for the private UI.
 use crate::{admin::Local, cli::encoded};
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -110,4 +110,64 @@ pub async fn identities(socket: &Path, context: AdapterContext) -> Result<Value>
         "join identity parent changed"
     );
     Ok(json!({"version":1,"host_id":before.1,"context":context,"identities":identities}))
+}
+
+pub async fn create_from_stdin(socket: &Path) -> Result<Value> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Decision {
+        CreateNewIdentity,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        context: AdapterContext,
+        decision: Decision,
+    }
+    let invalid = || anyhow::anyhow!("invalid identity creation input");
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    ensure!(bytes.len() <= 65536, "invalid identity creation input");
+    let request: Request = peerspan_host::linking::decode_mutation(&bytes, "context decision")
+        .map_err(|_| invalid())?;
+    let Decision::CreateNewIdentity = request.decision;
+    let local = Local(socket);
+    let before = parent(&local, &request.context)
+        .await
+        .map_err(|_| anyhow::anyhow!("identity creation parent unavailable"))?;
+    let available = tokio::task::spawn_blocking(inventory)
+        .await
+        .map_err(|_| anyhow::anyhow!("local person identity unavailable"))??;
+    ensure!(
+        available.is_empty(),
+        "a local person identity already exists"
+    );
+    ensure!(
+        parent(&local, &request.context)
+            .await
+            .map_err(|_| anyhow::anyhow!("identity creation parent unavailable"))?
+            == before,
+        "identity creation parent changed"
+    );
+    // Persistence is not a transaction with the daemon. Once published, the
+    // approved original survives a lost response or a changed project view.
+    let public_key = tokio::task::spawn_blocking(crate::onboarding_identity_create::persist)
+        .await
+        .map_err(|_| anyhow::anyhow!("identity creation outcome unavailable"))?
+        .map_err(|_| anyhow::anyhow!("identity creation outcome unavailable"))?;
+    ensure!(
+        parent(&local, &request.context)
+            .await
+            .map_err(|_| anyhow::anyhow!("identity creation outcome unavailable"))?
+            == before,
+        "identity creation outcome unavailable"
+    );
+    Ok(
+        json!({"version":1,"host_id":before.1,"context":request.context,
+        "identity":{"public_key":public_key,"sources":["generated"]}}),
+    )
 }

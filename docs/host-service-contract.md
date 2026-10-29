@@ -211,3 +211,11 @@ explicit native public-key choice/request review. It reuses the section12 API
 without a new endpoint/schema. Original private keys/agent sockets never reach
 the daemon. New-key creation, participant authority and readiness remain
 separate; outcome recovery does not automatically retry publication.
+
+
+[Explicit local original creation](guided-session-contract.md#14-explicit-new-original-identity-creation)
+adds owner-invoked `onboarding join create-identity --stdin` and separate native
+creation consent for empty, unpinned identity choices. Local private filesystem
+persistence completes atomically without replacing an existing key, before public
+identity choice and request approval. No new API/schema or person signature;
+unknown outcomes recover through normal read-only inventory, never auto-retry.

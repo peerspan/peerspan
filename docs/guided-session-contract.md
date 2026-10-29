@@ -2545,7 +2545,8 @@ the existing generation/attempt checks. Closing while already dispatched can
 still save the explicitly approved key; show this limit before approval.
 
 Validate the exact public creation reply and re-inventory the local key. Require
-the returned key with generated provenance, then show the ordinary chooser with
+the returned key with generated provenance (an added ssh_agent source is allowed;
+other keys remain ordinary choices), then show the ordinary chooser with
 **New original identity saved** and its exact public key. Do not automatically
 select it, prepare a join review, publish a request, sign or invoke a model.
 The human must separately press **Review identity KEY**, inspect section12's
