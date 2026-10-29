@@ -3225,7 +3225,164 @@ combined approval/signing, original F batches in this command, key copying/impor
 unsafe discovery fallback, daemon key handling, new schema/API/journals, poll/
 resume loops and historical consent as proof of original possession/readiness.
 
-## 19. Remaining flow contract
+## 19. Native bounded original owner-offer signing
+
+This human-only native slice calls section18's bounded CLI after section17's
+exact owner consent. No Rust/API/schema/key-discovery/signature implementation,
+new model tool, prompt, storage journal or automatic ceremony work.
+
+### Explicit action and complete terms
+
+In the attached project's published joining outcome, a validated approved owner
+review may offer **Sign original owner offer**. Review/Approve/Check owner consent,
+publication, progress, entry, Refresh, reload and timers never invoke sign. A
+missing/unapproved/cancelled/invalidated owner record, nonpending request,
+completed owner offer, selection/commit approval, any later-stage reference or
+recorded local signature confirmation offers no fresh signing action. The
+ordinary request must have only request_created completed and no owner/selection/
+administrator/F/manifest/activation/outcome reference. Existing new-original,
+nonmigration section17 validation and all person/network/host/device pins apply.
+
+Keep the full exact section17 quoted identity, network/member, profile7, finite
+terms/effects and review digest validation. Add a clear explanation: this explicit
+action uses only the approved original on this computer (normal safe generated
+key or exact SSH-agent identity); it creates/copies/imports no key. It submits
+one exact original owner-offer signature. Existing approved host work may publish
+the offer and select a single matching offer; administrator approval, later
+original finalization, requester commit and agent access remain separate. The
+CLI handles key selection and verification; the native frontend reads no key,
+agent identities, signing template/message/signature or provider diagnostics.
+
+The approved review's old fifteen-minute window is not a fresh signing deadline.
+The request expiry and fixed not_after still bound eligibility; ordinary spec8
+stage-inactivity rules remain enforced by the CLI/daemon. Show a Sign control
+only before the earlier of request.expires_at and review.not_after, according to
+the native clock and observed_at. Future host observations beyond30s refuse
+dispatch. An authoritative expiry timer removes the Sign control without renewing
+terms, preparing an intent, cancelling protocol work or discarding publication.
+An expired unapproved review still cannot be approved.
+
+### Fresh checks, one bounded call and strict result
+
+The first explicit press synchronously sets busy and clears old confirmation;
+double presses share no second call. Recheck terminal/root/conversation, exact
+attached parent/review, host observation and immutable published join flow/outcome,
+then pure owner lookup. Require the same displayed owner review ID and complete
+review, approved state and exact immutable request pins/created/expiry/packet.
+Recheck native context/host and effective request deadline immediately before
+dispatch. Refuse changed terms/state/parent/host or expired bounds. A fresh lookup
+that already proves the exact completed owner offer may display that public
+evidence read-only, sending zero sign commands. A changed or unsupported pending
+stage must not be converted into consent or silently refreshed into another write.
+
+Call exactly the configured executable and literal configured --state argv:
+onboarding join owner sign --stdin
+with timeoutMs45000 and exactly
+{flow_id,context,join_review_id,owner_review_id,decision:"sign_original_owner_offer"}
+in private stdin. All existing owner read/approval commands retain5s. No owner
+references/private payload in argv/shell; no broad link sign/resume/selection,
+later F, administrator or requester-commit command. No automatic retry.
+
+Validate the success as exactly section17's owner wrapper plus exactly
+original_signature:{state:"recorded"}. Remove only that known extra field before
+reusing complete section17 validation. Require approved state and the same exact
+captured review/digest and immutable request pins; reject missing/null/unknown/
+extra/private fields, invalid marker state and mismatched owner/offer/context/
+keys/times/stages. Canonical dates and decorated private-string refusals remain.
+Do not accept the bare owner snapshot as a signing success. A valid result may
+have no completed offer yet (the CLI can prove an already retained original
+signature from a typed partial host slot). Later request stages may be observed
+after dispatch; do not require the request still be pending to report durable
+historical evidence. A context/parent/host change during the call invalidates its
+callback authority; recheck the attached parent, immutable join flow and host
+before displaying returned confirmation.
+
+Display **Original signature: recorded**, as global durable evidence, without
+attributing signature creation to this pane. Distinguish **Owner offer recorded**
+only when that exact completed offer is present; a recorded signature alone
+does not establish it. Neither means admission, active powers, requester commit,
+agent access, files/conversation sharing, reachability or model receipt. The
+public review without a completed offer cannot prove that no partial signature
+is retained; use "not confirmed by this public snapshot", not a definitive claim
+of missing original possession. A completed exact owner offer is sufficient
+public signature evidence, not a claim that the original key is still available.
+
+### Recovery, leaving and volatile authority
+
+**Check owner consent** remains pure fresh bindings plus owner lookup. It never
+signs, prepares, approves, polls/resumes or retries, including after a failed,
+timed-out or malformed signing result. A completed offer observed by Check may
+report recorded original signature evidence. If the public snapshot still has
+no completed offer, it cannot settle whether a partial signature was retained;
+explain that limit and leave any later sign call to another explicit press.
+Section18's CLI will recover existing proof before using a key again. Check
+does not invoke the sign command merely to recover that proof. No frontend
+signature attribution/state is persisted across reload.
+
+A signing failure before dispatch clears actionable terms with controlled
+unavailable text. Any failed/denied/timed-out/raw/mismatched result after dispatch
+is outcome unknown; clear old confirmation, preserve publication, offer explicit
+Check and never echo process stderr/stdout or retry. Partial/native confirmation
+survives only the current exact local view; owner reads replace it with public
+evidence. Leave, Back, Close, Refresh, context/host/parent/surface/conversation
+change and session end clear it and pending callback authority. **Leave owner
+review** stays available during preflight and the pending sign call. Leaving
+does not cancel/revoke protocol consent or retract an already-dispatched
+signature; say so before key use. If request expiry crosses after dispatch, an
+otherwise valid returned result may confirm historical recorded evidence;
+never claim the dispatched command could not commit. Old timers/callbacks cannot
+disable a newer owner review or restore a departed view.
+
+Established adapter/message/task/lease runtimes and durable inviter state
+survive ordinary signing navigation; no new hello, tool, model turn or data work.
+Actual native/installed two-machine/distinct-person, model receipt and schema23-
+to27 upgrade/recovery acceptance remain separate. Do not retry previous rejected
+terminal actions or an unchanged quota-refused probe.
+
+### Verification
+
+A separate contract-only author adds a compact native signing file without
+reading/importing implementation modules. Preserve all232 existing native case
+assertions, stimuli/delays/default timeouts, owner_signing6, owner_onboarding6,
+join_onboarding14 and155 Rust/2ignored. New delayed-effect fixtures explicitly
+signal dispatch/delay registration before navigation or virtual-clock advances.
+
+1. Owner-inert entry/publication/progress/approval/Check/Refresh/reload/timers;
+   only approved eligible pending original requests show Sign, with full exact
+   quoted terms, source/effects/no-key-transfer and no readiness/attribution claims.
+2. Double explicit Sign does fresh parent/host/flow/lookup/context/time checks and
+   one literal configured45s private-stdin command with exact references/decision.
+   Same review and immutable request pins required; changed parents/host/native
+   context, review/pins/stages, future host time or expired bounds send zero sign.
+   A just-completed exact offer is shown read-only without signing.
+3. Strict closed signing-result/marker/owner/request/review/digest/date/key/stage/
+   privacy corpus; bare snapshots, extra fields and wrong pinned results cannot
+   confirm. Valid partial signature differs from completed offer; later stage/
+   historical result can confirm only in the same still-attached native context.
+4. Approved review-window expiry alone does not remove an otherwise eligible
+   Sign control; effective request deadline does. Preflight crossing blocks
+   dispatch; after-dispatch crossing may confirm historical proof. Old expiry
+   callbacks cannot disable a newer attempt or automatically sign/renew.
+5. Lost/denied/raw/timeout/mismatched results become unknown without retry;
+   Check is lookup-only, null recovery stays explicit, completed-offer recovery
+   needs no sign call and partial absence is not misreported as no signature.
+6. Leave/Back/Close/Refresh/root/conversation/host/parent/surface/end during
+   preflight or after sign dispatch clear old callbacks without claiming
+   retraction. Current runtime/inviter invariants and original232 stay intact.
+
+Run native validation/full suite, owner_signing6 and existing owner/join suites,
+Rust gates and all17 CI suites on one final head. Record source/binary/results
+and actual manual/source/mock limits. The test kit invokes current drawings;
+old retained callback closures and narrow final-check/dispatch intervals retain
+source/manual coverage unless a genuine fixture is available.
+
+Selected: one explicit native action using the existing bounded CLI and exact
+approved review, strict public evidence and pure recovery. Discarded: combined
+approval/key use, key inventory/selection in the frontend, hidden sign-as-read,
+broad advanced-link automation, new API/schema/persistence, write retries and
+historical evidence as current authority or readiness.
+
+## 20. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
