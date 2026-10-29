@@ -53,7 +53,10 @@ is read-only. Expired, declined or invalidated flows offer **Review a
 replacement**, followed by a fresh explicit agent choice and review. Failed
 owner decisions show an unknown outcome; Refresh checks what committed and
 never repeats an approval automatically. Host restart invalidates metadata
-attachments under the existing host contract.
+attachments under the existing host contract. Managed Claude installations may
+suppress the directory-change event for user-installed plugins: stale controls
+are then invalidated on the next action, which always rechecks the native
+project/conversation before sending a decision.
 
 ## Check this conversation
 

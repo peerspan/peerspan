@@ -692,8 +692,12 @@ An expiry while a decision is in flight says the deadline was reached and asks
 for Refresh rather than asserting no commit occurred. Timers cannot renew the
 review or expire a newer one. Close/end/conversation/root change/module reload
 clears in-memory drafts, private views and timer/callback authority. The native
-`classic.CwdChanged` event clears the project view immediately; callbacks also
-reread root/ID before effects. Durable host reviews remain. Unsupported/nonterminal surfaces get no private flow.
+`classic.CwdChanged` event clears the project view immediately when delivered.
+Claude managed environments may suppress classic hooks for a user-installed
+plugin; there the preview detects an unsignaled root change on the next native
+action/context check. Every callback still rereads root/ID before effects and
+cannot rely on the event for authorization. Immediate redraw in that managed
+configuration is not validated. Durable host reviews remain. Unsupported/nonterminal surfaces get no private flow.
 
 ### Verification
 
