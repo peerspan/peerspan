@@ -1659,7 +1659,10 @@ replace_flow_id?}`. Network ID must be an explicit lowercase `net_` plus64 hex;
 never select the first network. Member follows the existing DEC label bounds:
 trimmed, nonempty, no control characters, at most128 UTF-8 bytes. Expected
 person is an exact canonical32-byte Base64 key or `"-"`; it pins identity only,
-never possession or admission. Unknown/null fields are invalid. Prepare returns
+never possession or admission. Unknown/null fields are invalid.
+Trim surrounding Unicode whitespace from member before validating, reviewing
+and retaining the proposal; identical retries compare this normalized label.
+Prepare returns
 201 for a new review,200 for an identical retained attempt. It signs nothing,
 generates no pairing secret, changes no contact sequence, and creates only a
 private flow row. It neither sends nor publishes an invitation.
