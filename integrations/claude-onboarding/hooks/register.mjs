@@ -1106,7 +1106,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
     button('join-identities', 'Review joining identities', () => joiningChoices($, previous, epoch)), back];
   if (previous.stage === 'choose') {
     const page = previous.page ?? 0, pin = previous.preview.review.invitation.expected_person_public_key;
-    return [Text({ children: ['Joining: choose an existing original identity', '\n', recipientPublicTerms(previous.preview).join('\n'),
+    return [Text({ children: ['Joining: choose an existing original identity', '\n', recipientReviewLines(previous.preview),
       '\nChoosing a public key is not proof of ownership and does not publish a request.',
       !previous.identities.length ? '\nNo local original identity is available. New identity creation and device linking are separate workflows.'
         : pin !== '-' && !previous.identities.some(i => i.public_key === pin) ? '\nNo local identity matches the invitation pin. Use the original identity on its existing machine; device linking is separate.' : ''] }),
@@ -1120,7 +1120,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   const flow = previous.flow;
   const status = previous.stage === 'requested' ? 'Join request: publication recorded'
     : previous.stage === 'review' ? 'Join request: review publication' : `Join request: ${previous.stage}`;
-  return [Text({ children: [status, flow ? '\n' + joinReviewLines(flow, previous.selected) : '',
+  return [Text({ children: [status, flow && ['review', 'requested', 'declined'].includes(previous.stage) ? '\n' + joinReviewLines(flow, previous.selected) : '',
       previous.stage === 'requested' ? '\nThis records publication only. Participant approvals and current link state, access, reachability and model receipt are not verified.' : ''] }),
     ...(previous.stage === 'review' ? [
       ...(previous.secret && previous.selected ? [button('join-approve', 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
