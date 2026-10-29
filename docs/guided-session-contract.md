@@ -3214,6 +3214,10 @@ Final head runs all17 slim suites, Rust gates and unchanged native232. Record
 source/binary/results and limits. Do not retry rejected terminal actions or an
 unchanged quota-refused model probe; physical/installed two-machine/distinct-person,
 actual native signing and schema23-to27 upgrade/recovery acceptance remain open.
+Preserve all232 native assertions/delays/default timeouts. GU.impl18b permits
+the separate author to establish the old authentic invitation handoff and its
+original delay before navigating in the existing late-reveal fixture; a virtual
+clock settle alone does not prove that asynchronous dispatch occurred.
 
 Selected: one explicit local typed original owner-offer signature with fixed
 existing consent and pure exact replay. Discarded: broad link CLI automation,
