@@ -133,6 +133,43 @@ impl Store {
         let now = crate::clock::now();
         crate::decentralized::product::with_read_time(&at, || self.status_in(&tx, now, Some(&at)))
     }
+    /// Owner-local observation for the guided frontend. Network authority,
+    /// pending requests and adapter evidence share the same database snapshot.
+    /// Reading this view neither resumes setup nor approves it.
+    pub fn onboarding(&self) -> Result<Value, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let at = crate::decentralized::local_decision_time()
+            .map_err(crate::decentralized::product::model)?;
+        let now = crate::clock::now();
+        crate::decentralized::product::with_read_time(&at, || {
+            let status = self.status_in(&tx, now, Some(&at))?;
+            let requests = crate::decentralized::request_views_in(&tx, &at)
+                .map_err(crate::decentralized::product::model)?;
+            let mut agents = status["agents"].clone();
+            for agent in agents.as_array_mut().ok_or_else(|| {
+                Error::Internal(anyhow::anyhow!("invalid onboarding agent snapshot"))
+            })? {
+                for session in agent["sessions"].as_array_mut().ok_or_else(|| {
+                    Error::Internal(anyhow::anyhow!("invalid onboarding session snapshot"))
+                })? {
+                    session["connection"] = match session["adapter_id"].as_str() {
+                        Some(id) => serde_json::to_value(self.adapter_connection_in(&tx, id)?)?,
+                        None => Value::Null,
+                    };
+                }
+            }
+            Ok(json!({
+                "version": 1,
+                "observed_at": at,
+                "host_id": status["host_id"],
+                "networks": status["networks"],
+                "agents": agents,
+                "requests": requests,
+                "attention": status["attention"],
+            }))
+        })
+    }
     fn status_in(
         &self,
         connection: &Connection,
@@ -647,10 +684,15 @@ impl Store {
 }
 
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
-    Router::new().route("/v1/status", get(status))
+    Router::new()
+        .route("/v1/status", get(status))
+        .route("/v1/onboarding", get(onboarding))
 }
 async fn status(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
     Ok(Json(blocking(store, Store::status).await?))
+}
+async fn onboarding(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
+    Ok(Json(blocking(store, Store::onboarding).await?))
 }
 
 #[cfg(test)]

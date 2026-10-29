@@ -46,6 +46,7 @@ pub use controls::local_decision_time;
 pub use migration::{migration_inherited_bans, migration_person_labels};
 pub use peer::state_worker;
 pub use probe::{MAX_PROBE_LINE, probe};
+pub(crate) use requests::views_in as request_views_in;
 pub use statement::{Descriptor, SignatureEntry, Statement};
 
 pub use state::{CurrentMember, Maximum, Prior, Projection, Stream};

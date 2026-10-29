@@ -980,6 +980,11 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     controls::barrier(store, "dec.request.after_commit", &id)?;
     Ok((201, bytes(&view)?))
 }
+/// Public request views within the caller's existing read snapshot. Never
+/// returns pairing material or advances the request's state.
+pub(crate) fn views_in(c: &Connection, now: &str) -> Result<Vec<Value>> {
+    ids_in(c)?.iter().map(|id| load(c, id)?.view(now)).collect()
+}
 pub(crate) fn get(store: &Store, id: Option<&str>, display: bool) -> Result<Vec<u8>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
@@ -992,12 +997,7 @@ pub(crate) fn get(store: &Store, id: Option<&str>, display: bool) -> Result<Vec<
         }
         bytes(&view)
     } else {
-        bytes(
-            &ids_in(&tx)?
-                .iter()
-                .map(|id| load(&tx, id)?.view(&now))
-                .collect::<Result<Vec<_>>>()?,
-        )
+        bytes(&views_in(&tx, &now)?)
     }?;
     tx.commit().map_err(db)?;
     Ok(result)
