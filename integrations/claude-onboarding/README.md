@@ -8,6 +8,8 @@ Explicit incoming-message and assigned-task paths use scoped native tools.
 Native invitation review and explicit private code reveal are available.
 Private recipient invitation inspection and explicit join-request publication
 with an existing or explicitly created local original identity are available.
+A published request also offers exact new-original owner consent review/approval;
+original signing and remaining participant decisions use advanced linking.
 Participant admission, sharing permissions and live model acceptance remain
 later work. Owner actions stay in the human pane; no model setup tool is added.
 
@@ -197,6 +199,32 @@ is0700. No `.pub` sidecar is written. A crash can leave private reserved
 identity discovery. After stopping any active creation command, the owner can
 remove those temporary names; preserve `person_ed25519`. Never copy an original
 private key to another computer to link that computer.
+
+## Review owner powers
+
+From a published join request, press **Review owner powers**. Peerspan reads the
+retained consent first, preparing fixed public terms only when none exists.
+Read the exact person, computer, network and finite powers: policy editing,
+host binding, and approval/renewal/revocation of eligible own devices. Network
+administration is excluded. The review also explains the later original signature,
+bounded binding/device finalization and normal single-offer selection/publication.
+None establishes membership, agent access, requester final commit or readiness.
+
+**Approve owner powers** records the exact reviewed consent after fresh checks.
+It neither uses the original key nor completes the original signature. That
+signature is the next separate action through advanced linking in this preview.
+**Owner consent: recorded** reports a retained protocol record, which may have
+been approved elsewhere; it does not identify the approving interface or prove
+current powers. Review-window expiry does not erase historical approval.
+
+**Leave owner review** closes local controls without declining, cancelling or
+revoking protocol work. If a result is uncertain, **Check owner consent** only
+reads the retained result; it never prepares, retries approval or signs. A null
+result leaves preparation to another explicit **Review owner powers**. Ordinary
+entry, progress, Refresh, reload and timers perform no owner preparation or
+approval. Navigation/context loss clears confirmations and pending callbacks,
+while an established adapter/message/task runtime stays active. Original signing,
+other participant approvals, access and final acceptance remain separate work.
 
 ## Review and connect the adapter
 
