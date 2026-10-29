@@ -691,8 +691,9 @@ this is only local UI expiry, with the host independently enforcing section3.
 An expiry while a decision is in flight says the deadline was reached and asks
 for Refresh rather than asserting no commit occurred. Timers cannot renew the
 review or expire a newer one. Close/end/conversation/root change/module reload
-clears in-memory drafts, private views and timer/callback authority. Durable
-host reviews remain. Unsupported/nonterminal surfaces get no private flow.
+clears in-memory drafts, private views and timer/callback authority. The native
+`classic.CwdChanged` event clears the project view immediately; callbacks also
+reread root/ID before effects. Durable host reviews remain. Unsupported/nonterminal surfaces get no private flow.
 
 ### Verification
 
