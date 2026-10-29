@@ -1837,7 +1837,140 @@ of consent, showing codes through status/model tools, duplicating plaintext
 secrets in a new flow table and pretending a newer invitation revokes an old one.
 These are implementation choices under the accepted GU experience.
 
-## 10. Remaining flow contract
+## 10. Native Invite someone review and private reveal (GU-03f / GU-04b)
+
+This frontend consumes section9 without changing its host APIs, schema or
+permissions. It uses the existing terminal pane in the current conversation.
+Joining, admission, device approval and agent-access reviews follow separately.
+An invitation is a private introduction, not membership, access or readiness.
+
+### Entry, choice and exact review
+
+Only an attached project exposes **Invite someone**, independent of adapter or
+model readiness. Initial load, headless entry, ordinary Refresh, project or
+adapter approval and model tools never begin an invitation. Explicit entry
+checks the current native root/conversation/terminal, exact attached parent and
+host, then calls invitation lookup with `{context:AdapterContext}`. Resume the
+retained outcome before offering a new proposal. Refresh of an active view is
+read-only and hides any revealed code immediately. Every local process uses the
+configured literal executable/state argv, a five-second timeout, and stdin for
+private bodies. No daemon startup or HTTP shortcut.
+
+For a missing attempt, read a fresh owner onboarding observation, validate the
+host and unique canonical network IDs, and offer explicit choices with quoted
+names and full public network IDs (to distinguish duplicate names). List ten
+per page. No first-network default, no implicit network creation, no arbitrary
+ID input. Legacy/unusable selections may be refused by the host; a listed
+network is no invitation authority. An empty list explains that a network must
+first be created through existing administration. Do not fabricate readiness.
+
+After explicit network choice, offer editable **Invitee label** (initially
+empty) and **Expected person public key** (initially `-`, meaning unpinned).
+Validate/trim the label using section9's bounds; an invalid draft sends nothing.
+A pin is canonical32-byte standard Base64 or `-`. **Review invitation** alone
+prepares the explicit proposal. Require the returned review to match the chosen
+network ID, normalized label and pin; no silent replacement or preparation on
+Refresh. Retained terminal outcomes offer **Invite another person** (issued)
+or **Review a replacement invitation** (declined/expired/invalidated). This
+returns to explicit network choice with the exact latest `replace_flow_id`;
+explain that another invitation does not revoke an older exported code. Back
+or failed/uncertain work never prepares or decides automatically.
+
+Validate exact section9 flow/lookup/review shapes, typed IDs, keys, bounds,
+state/action/result consistency, fixed deadlines and exact effects. Display all
+review terms before controls: project, current conversation, agent and owner
+labels/capability metadata, network name and public ID, context ID, genesis and
+inviter public keys, invitee label, pin (or unpinned), full public bootstrap/
+QUIC/relay/helper hints and keys, both expiries and every effect. These public
+identity references are deliberate human review terms, distinct from private
+flow/native-session IDs, which remain internal. Quote raw human strings
+reversibly, escaping terminal/bidi controls; private-looking prefixes in any
+metadata/hint block the review. Never display raw provider output/errors.
+
+**Approve invitation** and **Decline invitation** capture the exact rendered
+view/epoch/parent/flow/review. Synchronously exclude double presses. Before a
+decision, recheck native context/terminal/host, inspect the parent and invitation,
+require exact immutable review equality and pending state/unexpired deadline,
+and check current context again before sending the captured stdin decision.
+Approval must return that same issued flow and public invitation metadata;
+decline that same declined flow. Neither action reveals/exports a code.
+A lost result shows controlled unknown-outcome text. Refresh looks up what
+committed, never replays a decision or creates another invitation.
+
+### Private human handoff
+
+Only an exact issued view offers **Reveal private invitation**. Explain before
+reveal: share privately with the intended person; do not paste into this or
+another agent conversation; possession grants no membership or agent access.
+Recheck current native context, terminal, exact attached parent, exact issued
+flow and invitation deadline before calling `handoff --stdin`. Bind the exact
+response fields/version to the captured flow/review/network/context/public
+invitation ID/expiry; accept only a nonempty unpadded Base64URL `psi2-` code of
+at most32KiB. Cryptographic validity remains the host's responsibility, using
+its retained verified invitation; the frontend does not implement another
+signature verifier. No code is accepted from model arguments or arbitrary URL.
+
+Show the complete returned code only in the current terminal pane after this
+explicit reveal, with **Hide private invitation**. No clipboard write, file,
+plugin storage, notice, logging, command response, prompt, model tool/result,
+telemetry or session message carries the code. It exists only in the current
+private UI memory and bounded process response. Hide drops the reference;
+reveal again re-inspects and retrieves the original code, never mints another.
+The user may select/copy the revealed terminal text through their terminal.
+This slice provides no clipboard automation or recipient import control.
+
+Hide and cancel authority on Refresh, Back, Close/Escape, root/conversation/
+host/terminal loss, parent change, session end, plugin reload and expiry. A
+strict timer removes a revealed code at the original invitation deadline; a
+late response, stale callback or old timer cannot reveal/decide another view.
+All async completions recheck the captured view, context and clock before
+publishing private data. Surface changes detected by render or a subsequent
+action fail closed; no background surface subscription is claimed. Existing
+established message/task/lease runtimes survive ordinary pane navigation;
+existing runtime context/expiry/Stop rules remain unchanged. Opening an
+invitation does not submit a model prompt, claim work or change any lease.
+
+### Verification
+
+A separate contract-only author extends the pinned native runtime tests using
+public effects only, never production imports. Keep the original128 cases
+unchanged; implementers add no unit tests. Reuse the existing real-host
+invitation_onboarding suite. Do not invent retained-handler APIs: the pinned
+kit only presses the current drawing. Old-render callback refusal receives
+source review/manual evidence, while async/timer races use public boundaries.
+
+1. Inert initial/headless/load/Refresh/model actions; attached-only explicit
+   entry, exact parent/context/host/terminal checks, lookup before new choice.
+   Empty/multiple/duplicate-name networks, ten-per-page explicit selection,
+   invalid/duplicate IDs and malicious metadata fail safely.
+2. Draft validation, exact literal argv/stdin, no default network, no implicit
+   prepare/replacement; returned proposal binding, complete quoted review and
+   all effects. Malformed/unknown/private-looking fields, changed scopes and
+   mismatched refs expose no approval/reveal controls or raw diagnostics.
+3. Exact approve/decline, inspect ordering, double presses, changed parent/
+   review/context/deadline, failure/lost result, terminal resume/replacement.
+   Refresh is read-only; approval never calls handoff or model APIs.
+4. Explicit issued-only reveal after inspections, exact response binding and
+   code bounds; repeated reveal returns original host material. Code appears
+   only in private terminal drawing, never prompts/tools/logs/store/files/
+   notices/command responses/argv. Invalid/error/late results remain private.
+5. Hide/Refresh/Back/Close/end/root/session/host/terminal loss and fixed expiry
+   clear reveal and invalidate pending work. Old async responses/timers cannot
+   restore it or alter a new view. Existing adapter/messages/tasks stay intact.
+6. Actual pinned native terminal with a temporary real host: select network,
+   prepare/review/approve/reveal/hide, Close/reload/resume without another mint.
+   Record exact source and binary provenance, retained public outcomes, private
+   code absence from transcript and zero inference; no installed/two-person/
+   peer reachability or model receipt claim.
+
+Selected: explicit network choice, exact contact-only human consent, separate
+private reveal through the native pane, and read-only recovery. Discarded:
+first-network selection, automatic issuance/export/copy, secret files/plugin
+storage, model-facing owner tools, frontend signature reimplementation, hidden
+recipient admission/access and newer invitations as revocation. These choices
+implement the accepted GU flow; no new owner confirmation is attributed.
+
+## 11. Remaining flow contract
 
 Teammate/device admission, private handoff, native adapter data tools/events and exact permission
 grants remain future sections. Section 2's live verification and the complete
