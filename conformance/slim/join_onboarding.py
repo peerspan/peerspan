@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Exact public-key/publication consent, guided session contract section12.
+"""Exact join consent and local original identities, guided contract sections12–14.
 
-Independent real hosts and public APIs/CLI; no production imports, original
-person-key setup by this flow, fabricated authority or protocol rows. Independent
+Independent real hosts and public APIs/CLI; no production imports or fabricated
+authority/protocol rows. Section12 publishes only an explicitly reviewed request;
+section13 inventories existing originals; section14 separately consents to safe
+local original creation. Independent
 OpenSSL signatures exercise existing legacy/malformed wire forms only. SQLite
 reads observe atomicity and privacy; authorized schema-only ABORT triggers and
 stopped-host migration fixtures are the only DB mutations. Empty advertised
