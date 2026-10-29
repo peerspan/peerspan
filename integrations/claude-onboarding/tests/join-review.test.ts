@@ -215,7 +215,10 @@ function fixture(on: On) {
     const tail = e.argv.slice(e.argv.indexOf('onboarding') + 1)
     const kind = tail.length ? tail[0] + '.' + tail[1] : 'snapshot'
     const payload = e.init?.stdin ? JSON.parse(e.init.stdin) : undefined
-    w.calls.push({ ...e, kind, payload }); w.trace.push({ kind, payload })
+    // Capture the serialized request independently of synthetic response
+    // mutations; a real process stdout cannot mutate its already-sent stdin.
+    const sent = payload === undefined ? undefined : clone(payload)
+    w.calls.push({ ...e, kind, payload: sent }); w.trace.push({ kind, payload: sent })
     const value = await w.run(kind, payload, e)
     if (value?.fixtureDeny) return { deny: RAW }
     if (value?.fixtureRaw) return { value: { exitCode: 0, stdout: value.fixtureRaw, stderr: RAW } }
