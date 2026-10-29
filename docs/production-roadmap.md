@@ -1,6 +1,6 @@
 # Path to a coordinator-free preview
 
-Status: the coordinator-free product is integrated; preview closeout and release qualification are in progress. This roadmap replaces the earlier coordinator deployment sequence. The current network contract is the [coordinator-free spec](decentralized-spec.md) and its [wire appendix](decentralized-wire-formats.md).
+Status: the coordinator-free product and authority closeout are implemented; release qualification is in progress. This roadmap replaces the earlier coordinator deployment sequence. The current network contract is the [coordinator-free spec](decentralized-spec.md) and its [wire appendix](decentralized-wire-formats.md).
 
 ## Current implementation
 
@@ -19,7 +19,7 @@ The coordinator product and in-place migration are retired (DEC-OWN2 and DEC-OWN
 
 ## Preview closeout
 
-The remaining implementation paths are automatic renewal through delegated administrators without the root seed, original-key and external-root SSH-agent renewal, and combined owner/root approval when the local host holds the root seed. The normative behavior is in spec sections 7.1, 7.3 and 8.2. These paths require independent contract-derived conformance before being marked complete.
+Automatic renewal through delegated administrators without the root seed, original-key and external-root SSH-agent renewal, and explicit combined owner/root approval are implemented in [PR #34](https://github.com/peerspan/peerspan/pull/34), with independent contract-derived renewal and join cases. The normative behavior is in spec sections 7.1, 7.3 and 8.2. The preview still needs the installed and live qualification below.
 
 Each network still needs its root authority available often enough to renew administrator grants. Ordinary work uses locally verified grants until their deadlines or a known restriction stops it. Automatic renewal does not revive expired authority.
 
