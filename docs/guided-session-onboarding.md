@@ -237,7 +237,11 @@ an existing identity, then returns to public-key choice before any request.
 Publication remains separate from participant approvals and agent access. The
 [explicit progress snapshot](guided-session-contract.md#15-read-only-published-request-progress)
 shows the exact ordinary request's recorded state and next participant without
-advancing it. Guided participant approvals and access remain subsequent slices.
+advancing it. The [first owner consent backend](guided-session-contract.md#16-exact-new-original-owner-consent-backend)
+prepares fixed public profile7 terms for a new original and atomically approves
+the existing ordinary intent. It neither collects the original signature nor
+advances the request. Guided native review/signing, administrator admission,
+requester final consent and agent access remain subsequent slices.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
