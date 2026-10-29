@@ -266,6 +266,11 @@ existing slim suites as each area changes.
   failures. Authorization denial and access withdrawal remain enforced.
 - [ ] User guides match the tested commands and supported platforms. State any
   remaining platform or harness limitations.
+- [ ] Installed upgrade/recovery acceptance covers current main's schema23
+  state through schema26, with preserved identity/authority/history. Record a
+  private full-state backup and recovery procedure. An older schema23 binary
+  refuses upgraded state: binary-only rollback is unsupported; never rewrite
+  user_version or drop flow tables to simulate a downgrade.
 - [ ] Review and acceptance use one final feature head and corresponding
   artifacts. Later changes invalidate the affected results until rerun.
 - [ ] The tracking PR is ready for review and its final review is accepted before
