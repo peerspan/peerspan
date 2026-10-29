@@ -354,8 +354,11 @@ def _():
     frozen = request_fingerprint(reuse, rid2)
     reviewed = prepare(reuse, p2, legacy, selected); outcome = decide(reuse, reviewed, legacy)
     check(outcome["outcome"]["request_id"] == rid2 and request_fingerprint(reuse, rid2) == frozen, "guided approval failed exact existing-request reuse")
+    # Public storage19.4 also permits ordinary participant endpoints. Match all
+    # signed helpers exactly; the fingerprint above retains every endpoint.
+    stored_helpers = [endpoint for endpoint in frozen[1]["carrier_endpoints"] if endpoint["kind"] == "helper"]
     check(reviewed["review"]["invitation"]["helpers"] == [helper] and
-          frozen[1]["carrier_endpoints"] == [{"kind": "helper", **helper}], "signed helper was lost or substituted in publication")
+          stored_helpers == [{"kind": "helper", **helper}], "signed helper was lost or substituted in publication")
 
 
 @suite.case("decline_conflicts_pins_expiry_parent_and_explicit_replacement", "guided onboarding12 verification3")
