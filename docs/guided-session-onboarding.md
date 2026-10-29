@@ -4,7 +4,8 @@ Status: feature plan. The owner accepted the experience below on 2026-10-28.
 Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
 local delivery check, owner-local project review backend and native human
-project review controls, plus native adapter review and a scoped local lease. The full interactive
+project review controls, native adapter review, a scoped local lease and an
+explicit incoming-message path. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -173,7 +174,17 @@ adapter lease. Close preserves an established runtime, Stop halts renewal, and
 reload requires explicit reconnect with the original instance. No credentials
 enter model context. A real terminal/temporary-host smoke exercised those
 actions without inference. Incoming work, native data tools and exact model
-receipt remain the next slice: a lease alone is not delivery verification.
+receipt remain separate from the lease: a lease alone is not delivery verification.
+
+GU-03d adds [native incoming messages](guided-session-contract.md#7-native-incoming-messages-and-exact-model-acknowledgment-gu-03d).
+Explicit enable starts a bounded model readiness challenge; only its exact
+current-main-model acknowledgment and host confirmation permit message claims.
+Scoped tools mark held messages seen or save a response to their original
+sender, with independent submitted/seen/replied counts. No task/update is
+consumed. A real terminal submitted the readiness prompt, but inference hit
+the account's weekly limit; actual model receipt/reply remains an acceptance
+gate. The feature still needs guided teammate/device/access flows and the
+installed two-machine exchange.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
