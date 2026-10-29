@@ -1971,7 +1971,177 @@ storage, model-facing owner tools, frontend signature reimplementation, hidden
 recipient admission/access and newer invitations as revocation. These choices
 implement the accepted GU flow; no new owner confirmation is attributed.
 
-## 11. Remaining flow contract
+## 11. Recipient invitation inspection (GU-01f / GU-02g / GU-04c)
+
+This working slice lets a recipient privately inspect an introduction before
+choosing an original person or creating a join request. It verifies the existing
+wire invitation and displays its exact public terms. It creates no identity,
+flow, signing intent, contact, request or network and publishes nothing. Joining
+identity consent and the owner/administrator/access reviews follow separately.
+A valid signature establishes the signer of the introduction, not its current
+membership, authority, reachability or identity verified outside Peerspan.
+
+### Private owner-local preview
+
+`POST /v1/onboarding/invitation-preview` takes exactly `{context,invitation}`.
+Context is section5's exact AdapterContext for the latest attached project;
+an adapter credential or ready model is unnecessary. Require its current exact
+attachment. Invitation is the exact private `psi2-` string, at most32KiB, with
+no implicit trimming. Accept only the existing canonical signed wire format,
+including its descriptor/context/root-derived network ID, inviter signature,
+expected-person pin, label, one-hour default/60s..24h window, bounded sorted
+helpers and each signed contact. Old contacts inside a live invitation remain
+hints under the existing wire rules; an expired invitation never becomes valid
+through those hints. Reuse the core Invitation verifier, not another parser.
+Legacy invitations without an automatic-return secret remain inspectable.
+
+Read context and metadata from one SQLite read transaction, with one current
+coordinator-free decision time. No network I/O, cleanup, signing, key access,
+identity selection, daemon startup or database/file write is an inspection
+effect. Invalid code, signature, descriptor, contact, time, private JSON bounds
+or context fails closed. Require exactly the request fields: duplicates at any
+nesting level, unknown fields, nulls, trailing JSON and a body over64KiB refuse
+without echoing private input. Preserve existing host error conventions:
+400 invalid input,404 unknown parent,409 review_changed for context/attachment,
+and the existing wire expired/not_yet_valid/quota errors. Errors contain no code,
+return secret or signed payload. The route exists only on owner administration;
+peer/bootstrap/scoped routers refuse it.
+
+Successful200 is exactly `{version:1,host_id,context,review_id,review,
+next_action:"choose_join_identity"}`. Review is exactly:
+
+- `version:1`, `kind:"inspect_contact_invitation"`, `host_id`, `context`;
+- `agent`: exact parent-reviewed `{id,name,owner,capabilities}`;
+- `network`: `{id,name,context_id,genesis_root_public_key}` from the verified
+  signed descriptor;
+- `inviter_host_public_key`: the verified actual invitation signer;
+- `invitation`: `{id,member,expected_person_public_key,issued_at,expires_at,
+  automatic_return}`; id is the verified public `di_` reference,
+  automatic_return is a boolean indicating whether return material is present,
+  never its value. The pin is canonical Base64 or `-`;
+- `contacts`: original verified order, at most4, each exactly
+  `{sequence,issued_at,expires_at,quic_addresses,bootstrap_addresses,relays}`.
+  Sequence is a canonical decimal u64 STRING to preserve all bits through JS.
+  Times and all public hints/relay keys are exact verified terms. Host/context
+  repeat the invitation signer/context and need not be duplicated here;
+- `helpers`: exact verified public `{address,public_key}` pairs;
+- `effects`: exactly `{verify_contact_signature:true,create_identity:false,
+  create_link_request:false,select_owner:false,grant_membership:false,
+  grant_agent_access:false,approve_machine:false,share_files:false,
+  share_conversation:false,capability_calls:false}`.
+
+No raw invitation, return secret, payload_base64, signed contact bytes, signing
+request, keys or model data are returned. Public signer/root/helper keys are
+review terms, never private key material. Preserve signed labels exactly;
+frontends must refuse private-looking metadata rather than redact exact reviews.
+`review_id` is SHA256 of `peerspan-invitation-preview-v1\n` plus canonical
+recursively key-sorted JSON of review, prefixed `review_`. Repeated reads of the
+same code/context/parent yield the same review/hash while usable. This hash is
+a content reference, not durable consent or an approval capability; no decision
+route is added. Inspection does not retain the incoming code in host storage.
+
+Advanced integration command: `peerspan [--state DIR] onboarding invitation
+preview --stdin`, with the same exact body/response and strict64KiB stdin
+handling. It uses the selected existing owner socket. Input/code is never an
+argument or routine diagnostic. Root help and all existing commands stay intact.
+
+### Native private recipient entry
+
+An attached project offers **Review an invitation**, independently of inviter
+controls and adapter/model readiness. Initial load, headless entry, Refresh,
+project/adapter/inviter approval and model tools never enter or inspect a code.
+Explicit entry captures/rechecks the native root/conversation/terminal, host
+and exact attached parent before showing an initially empty **Private invitation
+code** field. Explain that this is a private human pane, not an agent chat; the
+field is visible terminal text (the pinned Input has no masking facility).
+No clipboard read, file import or cross-session message is added.
+
+Typing only changes a bounded volatile draft. **Inspect invitation** alone
+validates the `psi2-` prefix/Base64URL syntax/32KiB limit, clears the raw code
+from the current drawing synchronously, rechecks current native context and
+parent plus a fresh owner host observation, and sends exact `{context,
+invitation}` through literal `onboarding invitation preview --stdin` argv with
+five-second timeout. No code in argv. Input submission/Enter only updates the
+draft; it does not inspect or approve. Double presses send at most one request.
+Malformed/oversized input clears the draft and sends nothing.
+
+Validate exact response/review/inner shapes, canonical public IDs/keys, bounds,
+fixed effects and canonical digest, captured host/context/agent and the current
+clock before displaying it. Do not implement a frontend signature verifier.
+Render all project/agent metadata, network identity and root, inviter key,
+invitation public ID/member/pin/times/return availability, each full contact's
+sequence/times/public hints/relay keys, helpers and every effect. Quote raw
+human strings reversibly using the existing terminal/bidi escaping; any
+private-looking metadata blocks the entire review. Native flow/session IDs
+stay internal. No raw provider output, errors, signed bytes or code appear in
+the preview, command response, prompt, model tool/result, storage, log, notice,
+file or another conversation. The typed code exists only in current private
+UI memory and the bounded local process response/request boundary.
+
+The displayed status is **Invitation: signature verified** with clear text
+that signer membership/authority, admission, agent access, reachability and
+model receipt are not established. Show that identity selection and joining
+are subsequent work; offer no Approve/Join/Continue button that cannot perform
+that next step. **Inspect another invitation** explicitly starts a fresh empty
+private draft after rechecking context/parent. Back/Close leave no retained
+recipient draft/review; a later entry starts empty. Existing issued inviter
+outcomes remain durable and separate.
+
+Clear the private code/review and pending callback authority on Refresh,
+Back, Close/Escape, root/conversation/host/terminal/parent loss, session end,
+reload and invitation expiry. Recipient Refresh closes its volatile view; it
+never reuses the code or performs another preview. Recheck context/surface on
+render/action; no unimplemented background subscription is claimed. A strict
+expiry timer hides the verified preview; late responses or old timers cannot
+publish into another view. Errors show controlled unavailable text and require
+explicit re-entry; no automatic retry. Opening either native inviter/recipient
+pane clears the other's volatile human view and pending callback authority,
+without revoking its durable outcome or changing an established adapter,
+message or task runtime. No new model tool, inference, readiness or work claim.
+
+### Verification
+
+A separate contract-only author extends the existing invitation_onboarding
+slim suite and adds focused pinned native runtime cases. Preserve its original9
+host cases and original148 native cases. No implementer unit tests. No new
+schema or migration fixture changes. Use public APIs/CLI and independently
+constructed signed wire fixtures where a negative case requires them; never
+fabricate host authority/protocol database rows. Keep each host suite below
+two minutes using the debug clock. No signature validity is claimed from stubs.
+
+1. Distinct real inviter/recipient hosts: exact signed network/signer/pin/label/
+   contacts/helpers/expiry/return availability, digest, same-code retry,
+   read-only snapshots, no new identity/network/link/flow/outbox/events and
+   no code/secret/signed blob in responses. Live invitation with stale contact
+   hints and legacy no-return invitation inspect correctly without I/O.
+2. Bad signature/body/descriptor/context/contact/endpoint/key/order/expiry,
+   unknown/mismatched/detached/replaced parent, strict JSON/stdin bounds,
+   unavailable daemon and wrong/non-owner methods/routes refuse privately.
+   Independent wire fixtures may sign malformed payloads to reach validation.
+3. Native attached-only explicit entry, empty draft, no implicit reads or
+   clipboard/files, draft-only Enter, exact literal argv/private stdin, one
+   explicit request/double press, complete exact quoted preview and effects.
+4. Malformed/changed/private-looking response terms, digest/host/context/agent,
+   expired and late results cannot display a verified preview. Code appears
+   only in the explicit input drawing and bounded stdin, never in prompts/
+   tools/output/storage/diagnostics. Rendering does not claim membership.
+5. Refresh/Back/Close/end/root/host/terminal changes, fixed expiry, old async/
+   timer results and switching inviter/recipient panes clear private state
+   without changing durable outcomes or an established delivery runtime.
+6. Actual pinned terminal with two temporary distinct hosts: paste privately,
+   inspect the real code, observe exact public terms and no identity/request
+   creation or model turn; close/reload returns empty. Suppress private input
+   capture and record source/binary provenance. Installed, physical-machine,
+   two-person admission/access and real-model exchange remain later gates.
+
+Selected: verify and display an incoming introduction before any identity or
+request creation, private volatile native input, core wire verification and
+explicit separation from consent. Discarded: code in chat/model tools/argv,
+automatic key generation/import/join, treating signer possession as authority,
+new persistent secret copies, frontend cryptography and a nonfunctional Join
+button. These implement the accepted GU flow without a new owner decision.
+
+## 12. Remaining flow contract
 
 Teammate/device admission, recipient import, remaining native data tools/events
 and exact permission grants remain future sections. Section 2's live verification and the complete
