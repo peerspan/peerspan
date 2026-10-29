@@ -971,6 +971,13 @@ async function prepareInvitation($, previous, epoch) {
 }
 async function inspectInvitation($, running, epoch, state) {
   if (!await inspectInvitationParent($, running, epoch)) return false;
+  // A newly replaced daemon must be observed even if a retained UI still has
+  // the original project references. This read creates no setup or authority.
+  const observed = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await invitationCurrent($, running, epoch)) return false;
+  if (observed.exitCode !== 0) throw new Error('Unavailable invitation host');
+  observation(observed.stdout);
+  if (JSON.parse(observed.stdout).host_id !== running.host) throw new Error('Changed invitation host');
   const captured = running.flow;
   const raw = await invitationRun($, ['inspect', captured.flow_id]);
   if (!await invitationCurrent($, running, epoch)) return false;
