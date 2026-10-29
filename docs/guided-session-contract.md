@@ -2327,6 +2327,10 @@ public identities, with no signing; use existing bounded agent transport. A
 missing/nonanswering agent contributes no available keys, never a fabricated
 identity. Ignore unsupported/invalid public keys and omit all agent comments.
 The daemon never receives original key bytes or an SSH-agent socket path.
+Native identity-inventory processes use a15-second budget around the existing
+10-second agent response bound plus owner reads; other native joining process
+calls use5 seconds. An outer black-box subprocess deadline must allow those
+transport and owner-read budgets.
 
 ### Native entry, choice and exact review
 
