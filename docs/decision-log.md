@@ -2255,3 +2255,19 @@ fake approval controls. Exact snapshot, strict privacy/binding and independent
 verification are specified in section15 before implementation. Manual terminal
 creation/reopen, installed artifacts and final feature acceptance remain open;
 this is an implementation choice, not a new owner confirmation.
+
+
+## GU.impl16 — Reuse exact new-original owner consent (2026-10-29)
+
+Selected under the accepted guided experience: first implement owner consent
+for a new original person's own request, reusing the existing durable unapproved
+protocol owner intent. Bind the complete public proposal to its join context
+and compare before atomically recording ordinary approval. Fixed profile7 and
+request-created+7d avoid new default-expiry drift; original signature and native
+controls follow separately. Lookup/retry recover existing global protocol
+approval without attributing it to a new frontend or copying a secret.
+
+Discarded: a schema28 duplicate approval journal, importing/copying originals,
+signing in the daemon, widening to15/admin8, device/root fallback and approval
+as membership/access/commit/readiness. Section16 and independent verification
+precede code. All installed/actual-terminal/model and final main gates stay open.

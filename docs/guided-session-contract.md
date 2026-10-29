@@ -2739,7 +2739,167 @@ publication as current membership, polling/resume as a read, silently selecting 
 offer/signer, fake approval controls, a second progress store/schema and a linked
 result as evidence of agent access or model receipt.
 
-## 16. Remaining flow contract
+## 16. Exact new-original owner consent backend
+
+This working backend slice prepares and explicitly approves the first person's
+possession-only owner intent for their own published request. It reuses the
+ordinary protocol's durable unapproved owner intent; no schema/table, duplicate
+secret store, original-key import, peer API or native control is added. Native
+review/signing controls follow separately. Approval records consent; it does not
+prove original possession until the exact original signature is supplied.
+
+### Scope, shapes and retained review
+
+Private owner-local POST routes under
+`/v1/onboarding/join-flows/{flow_id}/owner/{prepare,lookup,approve}` accept exactly
+`{context,join_review_id}` for prepare/lookup and additionally `owner_review_id`
+for approve. The advanced private-stdin interface is
+`peerspan onboarding join owner prepare|lookup|approve --stdin`, adding exactly
+flow_id to those shapes. Reuse strict64KiB body/stdin and duplicate/unknown-field,
+context and typed-ID validation. No paths, code, scopes, provider, deadline,
+private key or signatures can be supplied. CLI starts no daemon/state and never
+reads an original key or SSH agent. Only explicit approve changes approval.
+
+Bind the exact requested join flow, publication review/context and immutable
+outcome to its validated ordinary requester/new/non-migration request, exact
+network/context/person and this host key. Only a new original person's own
+request before local network adoption is eligible for a fresh preparation.
+No existing-person/device/root-provider fallback. The local person key need not
+be available to prepare or record public consent; later signing must check it.
+
+Lookup is pure and returns owner:null when no owner intent exists. Fresh prepare
+requires the exact attached parent and a live pending request, with no local
+network record. It prepares the ordinary unapproved owner intent atomically,
+using the pairing material already held by the ordinary protocol; no code is
+returned or stored elsewhere and no resume/poll/signature/publication is invoked.
+Preparation may record ordinary unapproved templates, owner role and decision
+clock, never a completed owner offer or admitted state. Repeated prepare reuses
+that exact existing intent and fixed terms without renewal or another nonce,
+key, template set or intent. Existing incompatible owner preparations refuse.
+
+Choose the ordinary new-person profile7: policy editing1, host binding2 and
+approving/renewing/revoking eligible own devices4, without network-admin8.
+These are proposed future device powers, conditional on admission and final
+consent. Set not_after to the signed request.created_at +7 days, matching the
+ordinary stable CLI default. Original provider only, SSHSIG, lease/root IDs '-'
+and no issuer leases in this possession-only offer. A proposed offer ID is not
+a completed signature, published offer or membership proof.
+
+Return exactly
+`{version:1,host_id,flow_id,join_review_id,context,observed_at,request,owner}`.
+Request is the exact public LINK_VIEW. Owner is null or exactly
+`{review_id,review,state,next_action}`. Observed_at is guarded whole-second UTC.
+The public review is exactly:
+
+```
+{version:1,kind:"approve_new_original_owner",host_id,context,flow_id,
+ join_review_id,request_id,intent_id,network,member,person_public_key,
+ host_public_key,device_public_key,proposed_owner_offer_id,scopes:7,
+ not_after,expires_at,effects}
+```
+
+Network is the exact section11 `{id,name,context_id,genesis_root_public_key}`;
+member is its exact invitee label. Intent_id is the existing dint_32hex reference.
+The other fields bind the retained original owner-offer template, not the mutable
+later owner-finalization review. Expires_at is fixed min(request.expires_at,
+intent.created_at+15min). Review_id is review_ + SHA256 of
+`"peerspan-onboarding-original-owner-review-v1\n" + canonical(review)`.
+Effects are exactly:
+
+```
+{approve_owner_intent:true,authorize_original_signature:true,
+ authorize_bounded_owner_finalization:true,
+ auto_select_single_offer_after_signature:true,
+ publish_owner_offer_after_signature:true,
+ grant_membership:false,grant_agent_access:false,
+ approve_network_administrator:false,commit_request:false,
+ share_files:false,share_conversation:false,capability_calls:false}
+```
+
+This consent permits the existing protocol's exact bounded later self B/D
+finalization under independently verified administrator parents, and its normal
+single-offer selection after signature. It never chooses another person, widens
+powers/lifetime, approves administrator work or supplies requester final commit.
+Original private bytes stay on their original machine. New routes never return
+signing templates/messages/requests, signatures, code, ciphertext, seeds, socket
+paths or provider diagnostics. The existing ordinary private signing interface
+remains separate; this slice does not collect an original signature.
+
+### State, exact approval and recovery
+
+Lookup/prepare of an existing compatible intent return its fixed public review.
+State is approved if the ordinary owner intent already records approval,
+including after signature/finalization/application, expiry or parent detachment.
+This reports the global protocol intent, not which frontend/context originally
+approved it. It creates no new approval attribution. Before approval, precedence
+is cancelled if the request/intent was cancelled; expired if the review, intent
+or ordinary request has expired; invalidated if its parent is no longer attached,
+local network adoption changed eligibility, or the request left pending; otherwise
+review. Approved next_action is provide_original_signature while the completed
+owner offer is absent, otherwise follow_join_progress. Review uses
+approve_owner_intent; other states use inspect_join_progress. No implicit
+replacement/expiry extension or durable decline is added. Leaving a review
+unapproved is read-only; cancelling the request remains its existing separate
+explicit protocol action.
+
+Approve rechecks the exact join context/review, retained owner review digest,
+current attached parent, live pending request, eligibility, fixed provider,
+profile and expiry in the same SQLite transaction that sets the ordinary owner
+intent's approved/approved_at fields. Recompute and compare before any approval
+write, reusing ordinary owner preparation/validation, not a second authority or
+signature implementation. Recheck time/request liveness before commit; crossing
+expiry rolls back. No gap between frontend approval recording and protocol intent
+approval. No explicit resume or original signing after commit in this route.
+Ordinary background work may subsequently materialize/sign host-owned slots of
+that approved intent; it cannot fabricate the missing original signature.
+
+Unknown flow is404; a non-requested flow409 state_conflict; malformed input400;
+wrong join context/review or owner digest409 review_changed; expired owner review
+409 review_expired; detached/changed parent409 review_changed; unsupported or
+incompatible proposal409 owner_review_unavailable. Invalid retained evidence
+fails closed. No route is exposed to scoped adapters, peers or bootstrap callers;
+alternate methods are405. Failed decisions expose no raw private diagnostics.
+
+An exact approved retry returns the recorded approved result read-only, including
+after restart/detachment/expiry; it never re-signs, regenerates pairing material,
+recreates an intent or advances the link. Wrong context/digest still refuses.
+Lookup and response loss recovery remain pure. Historical review bytes/digest
+remain stable even after ordinary owner-finalization changes its mutable review.
+No original signature, admission, grant, commit, adapter or readiness is claimed
+by this backend's approved state. Installed/terminal/model acceptance stays open.
+
+### Verification
+
+A separate contract-only author extends join_onboarding. Preserve original14 host
+case bodies, all212 native cases and155 Rust tests. No new implementer tests.
+
+1. Pure lookup before prepare; real pending new-person preparation, exact public
+   review/digest/profile/deadline/effects, ordinary unapproved intent/templates
+   and one fixed retry. No new key, original signature, completed offer,
+   publication, membership/access/adapter state or duplicate secret store.
+2. Exact atomic approval and read-only retry/lost response/restart/expiry recovery;
+   changed context/review/hash/parent, nonpending/known-network/provider/profile,
+   cancellation and malformed/private inputs refuse. Route/CLI/method/credential
+   boundaries; public errors/replies contain no secret/template/signature.
+3. Schema-only ABORT trigger on the ordinary approved-intent update proves full
+   rollback before approval; exact retry after removing it succeeds. Existing
+   after-commit barrier can demonstrate unknown response with retained consent
+   where a bounded public fixture exists; unavailable intervals remain explicit
+   source/fault coverage rather than fabricated protocol rows.
+4. Existing advanced original signing/administrator/finalization/commit completes
+   the same exact approved intent. Guided lookup after later finalization,
+   local application and restart keeps its original public review/digest and
+   historical approval, without invoking signing or granting access. Native212
+   remain unchanged; all15 slim suites/Rust gates run on the final head.
+
+Selected: reuse the durable ordinary owner intent, exact context-bound public
+review and one atomic approval transaction for the new-original path. Discarded:
+a schema28 approval mirror, private-code export, original-key handling in the
+daemon, admitted/root/device provider fallback, hidden signing/selection/commit,
+profile15 for a new person and metadata attachment as owner consent. Full guided
+native approval/signing remains the next slice.
+
+## 17. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
