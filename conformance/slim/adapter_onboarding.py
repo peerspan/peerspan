@@ -107,11 +107,13 @@ def advance_to(moment):
     suite.set_offset(math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
 
 
-def project(host, label, *, agent=None, approve=True, native=None, root=None):
+def project(host, label, *, agent=None, approve=True, native=None, root=None, replace=None):
     body = {"project_root": root or str(suite.work / "private projects" / label),
             "native_session_id": native or "private-native-" + label, "integration": "claude-code",
             "agent": {"kind": "existing", "id": agent["id"]} if agent else
                      {"kind": "new", "name": "agent-" + label, "owner": "local owner 東京"}}
+    if replace is not None:
+        body["replace_flow_id"] = replace
     status, flow = host.api("POST", PROJECT, body)
     check(status == 201, f"project fixture prepare: HTTP {status}")
     if approve:
@@ -333,8 +335,12 @@ def _():
 @suite.case("approval_secret_recovery_and_scoped_handshake", "guided onboarding 5 verification 3/4")
 def _():
     host = suite.host("approve")
-    attached = project(host, "approved")
+    status, existing = host.api("POST", "/v1/agents", {"name": "existing-é", "owner": "reviewed owner 東京",
+                                                       "capabilities": ['descriptive "metadata"', "東京"]})
+    check(status == 201, "existing-agent fixture failed")
+    attached = project(host, "approved", agent=existing)
     flow = prepare(host, attached)
+    check(flow["review"]["agent"] == without(existing, "created_at"), "adapter review dropped existing-agent metadata")
     agents, sessions, activity = get(host, "/v1/agents"), get(host, "/v1/sessions"), events(host)
     session_records = records(host)["sessions"]
     results = parallel(lambda: decide(host, flow))
@@ -518,6 +524,17 @@ def _():
             credential(host, flow, status=409, code="flow_conflict")
             decide(host, flow, status=409, code="flow_conflict")
             check(get(host, BASE + "/" + flow["flow_id"])["authorization"] == flow["authorization"], "new attempt rewrote old authorization evidence")
+        if mutation == "detach":
+            successor = project(host, "successor-project", agent=get(host, "/v1/agents/" + flow["review"]["agent"]["id"]),
+                                root=attached["review"]["project_root"], native=attached["review"]["native_session_id"],
+                                replace=attached["flow_id"])
+            successor_flow = prepare(host, successor)
+            successor_secret = credential(host, decide(host, successor_flow))
+            check(successor_secret["adapter_id"] != first["adapter_id"], "successor project reused the detached adapter")
+            before = records(host)
+            credential(host, flow, status=409, code="flow_conflict")
+            decide(host, flow, status=409, code="flow_conflict")
+            check(records(host) == before, "superseded project callback revived its old adapter")
 
 
 @suite.case("stdin_cli_parity_bounds_and_inert_daemon_failures", "guided onboarding 5 verification 6")
