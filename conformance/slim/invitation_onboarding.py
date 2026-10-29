@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact contact-invitation reviews, guided-session-contract.md section 9.
+"""Exact contact-invitation reviews and recipient inspection, contract sections 9/11.
 
 Independent real-host/public API/CLI checks; no production imports or fabricated
 DEC, protocol, membership or credential records. Read-only SQLite snapshots
@@ -9,7 +9,10 @@ flow's issued-state update to test rollback of actual mint work. No model or
 participant consent is simulated. A public join proves the code is a usable
 introduction, never admission/access. Legacy networks and missing return-secret
 records have no public construction/destruction fixture and remain separate
-historic-fixture/source checks. Transport reachability is not inferred.
+historic-fixture/source checks. Independent OpenSSL signatures construct legacy,
+stale-contact and malformed recipient wire fixtures only; these prove signer
+possession and wire validation, never current membership. No protocol rows are
+manufactured. Transport reachability is not inferred.
 """
 import base64
 import hashlib
@@ -27,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from harness import (Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
+from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
                      join_request, parse_time, ssh_key, ssh_public_base64, wait_for)
 
 suite = Suite("invitation_onboarding", __doc__)
@@ -676,6 +679,299 @@ def _():
     with closing(sqlite3.connect(db_path(future))) as db, db:
         db.execute("PRAGMA user_version = 27")
     refuse_start(future)
+
+
+
+PREVIEW = "/v1/onboarding/invitation-preview"
+PREVIEW_EFFECTS = {"verify_contact_signature": True, "create_identity": False, "create_link_request": False,
+                   "select_owner": False, "grant_membership": False, "grant_agent_access": False,
+                   "approve_machine": False, "share_files": False, "share_conversation": False, "capability_calls": False}
+preview_state = {}
+
+
+def compact(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def state_snapshot(h):
+    # SQLite shared memory/read-lock/checkpoint pages are mutable live bookkeeping;
+    # compare all logical DB records plus names/modes and other private file bytes.
+    names = {str(p.relative_to(h.state)): p.lstat().st_mode for p in h.state.rglob("*")}
+    files = {str(p.relative_to(h.state)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in h.state.rglob("*") if p.is_file() and not any(str(p).endswith(x) for x in (".db", ".db-wal", ".db-shm"))}
+    return records(h), names, files
+
+
+class WireSigner:
+    """Disposable Ed25519 fixture key, unrelated to any admitted host authority."""
+    def __init__(self):
+        self.key = suite.work / "preview-fixture-ed25519.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(self.key)], check=True, capture_output=True, timeout=5)
+        self.key.chmod(0o600)
+        der = subprocess.run(["openssl", "pkey", "-in", str(self.key), "-pubout", "-outform", "DER"],
+                             check=True, capture_output=True, timeout=5).stdout
+        check(len(der) == 44, "fixture Ed25519 SubjectPublicKeyInfo shape")
+        self.public = base64.b64encode(der[-32:]).decode()
+
+    def sign(self, message):
+        path = suite.work / "preview-fixture-signing-message"
+        path.write_bytes(message); path.chmod(0o600)
+        signed = subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(self.key), "-in", str(path)],
+                                check=True, capture_output=True, timeout=5).stdout
+        check(len(signed) == 64, "fixture Ed25519 signature length")
+        return base64.b64encode(signed).decode()
+
+    def contact(self, context_id, now, sequence=0, hints=None, **changes):
+        payload = hints or {"quic_addresses": ["[::1]:9"], "bootstrap_addresses": ["127.0.0.1:9"], "relays": []}
+        value = {"format": 1, "context_id": context_id, "host_public_key": self.public, "sequence": sequence,
+                 "issued_at": (now - timedelta(seconds=600)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "expires_at": (now - timedelta(seconds=300)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "payload_base64": base64.b64encode(compact(payload)).decode()}
+        value.update(changes)
+        message = "\n".join(["peerspan-decentralized-contact-v1", value["context_id"], value["host_public_key"], str(value["sequence"]),
+                             value["issued_at"], value["expires_at"], hashlib.sha256(base64.b64decode(value["payload_base64"])).hexdigest()]).encode()
+        value["signature"] = self.sign(message)
+        return value
+
+    def invitation(self, original, *, payload_changes=None, envelope_changes=None, raw_payload=None):
+        envelope = b64url_json(original, "psi2-")
+        payload = json.loads(base64.b64decode(envelope["payload_base64"], validate=True))
+        if payload_changes:
+            payload_changes(payload)
+        envelope["inviter_host_public_key"] = self.public
+        envelope["payload_base64"] = base64.b64encode(compact(payload) if raw_payload is None else raw_payload).decode()
+        if envelope_changes:
+            envelope_changes(envelope)
+        message = "\n".join(["peerspan-decentralized-contact-invitation-v1", envelope["context_id"],
+                             envelope["inviter_host_public_key"], hashlib.sha256(base64.b64decode(envelope["payload_base64"])).hexdigest()]).encode()
+        envelope["signature"] = self.sign(message)
+        return "psi2-" + base64.urlsafe_b64encode(compact(envelope)).decode().rstrip("=")
+
+
+def recipient_fixture():
+    if not preview_state:
+        inviter, recipient = host("preview-inviter"), host("preview-recipient")
+        network = create_network(inviter, 'Public "東京" network', "inviter")
+        parent_source, parent = project(inviter, "preview-source"), project(recipient, "preview-recipient")
+        pin = ssh_public_base64(ssh_key(suite.work, "public-pin-only"))
+        issued = decide(inviter, prepare(inviter, proposal(parent_source, network, 'Exact "é東京" member', pin)))
+        code = handoff(inviter, issued)["invitation"]
+        preview_state.update(inviter=inviter, recipient=recipient, network=network, parent=parent, code=code, signer=WireSigner())
+    return preview_state
+
+
+def json_fields(value):
+    if isinstance(value, dict):
+        return set(value).union(*(json_fields(item) for item in value.values()))
+    if isinstance(value, list):
+        return set().union(*(json_fields(item) for item in value))
+    return set()
+
+
+def preview(h, parent, code, *, status=200, error=None, body=None):
+    actual, value = h.api("POST", PREVIEW, body if body is not None else {"context": context(parent), "invitation": code}, timeout=10)
+    check(actual == status, f"recipient preview HTTP {actual}, want{status}")
+    if error:
+        check(value.get("code") == error, f"recipient preview expected{error}")
+    public(value, code)
+    if status != 200:
+        check(not ({"payload_base64", "signature", "return_secret_base64"} & json_fields(value)), "private wire fields in preview error")
+        return value
+    check(set(value) == {"version", "host_id", "context", "review_id", "review", "next_action"}
+          and value["version"] == 1 and value["host_id"] == h.id and value["context"] == context(parent)
+          and value["next_action"] == "choose_join_identity", "exact recipient preview envelope")
+    review = value["review"]
+    check(set(review) == {"version", "kind", "host_id", "context", "agent", "network", "inviter_host_public_key", "invitation", "contacts", "helpers", "effects"}
+          and review["version"] == 1 and review["kind"] == "inspect_contact_invitation" and review["host_id"] == h.id
+          and review["context"] == context(parent) and review["agent"] == parent["review"]["agent"], "recipient review/context/agent shape")
+    envelope = b64url_json(code, "psi2-")
+    raw = base64.b64decode(envelope["payload_base64"], validate=True); payload = json.loads(raw)
+    descriptor = payload["descriptor"]
+    if isinstance(descriptor, str):
+        descriptor = json.loads(base64.b64decode(descriptor, validate=True))
+    check(review["network"] == {"id": descriptor["network_id"], **{k: descriptor[k] for k in ("name", "genesis_root_public_key")},
+                                "context_id": envelope["context_id"]}, "preview changed verified signed descriptor")
+    message = "\n".join(["peerspan-decentralized-contact-invitation-v1", envelope["context_id"], envelope["inviter_host_public_key"], hashlib.sha256(raw).hexdigest()]).encode()
+    expected_id = "di_" + hashlib.sha256(message).hexdigest()
+    check(review["inviter_host_public_key"] == envelope["inviter_host_public_key"] and review["invitation"] == {
+        "id": expected_id, **{k: payload[k] for k in ("member", "expected_person_public_key", "issued_at", "expires_at")},
+        "automatic_return": "return_secret_base64" in payload}, "preview signer/invitation/return projection")
+    contacts = []
+    for contact in payload["contacts"]:
+        hints = json.loads(base64.b64decode(contact["payload_base64"], validate=True))
+        contacts.append({"sequence": str(contact["sequence"]), **{k: contact[k] for k in ("issued_at", "expires_at")}, **hints})
+    check(review["contacts"] == contacts and review["helpers"] == payload["helpers"], "preview lost order, u64 sequence bits or public contact/helper terms")
+    check(review["effects"] == PREVIEW_EFFECTS and all(type(v) is bool for v in review["effects"].values()), "preview invented mutation/authority effects")
+    digest_bytes = json.dumps(review, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    check(value["review_id"] == "review_" + hashlib.sha256(b"peerspan-invitation-preview-v1\n" + digest_bytes).hexdigest(), "recipient canonical review hash")
+    for field in ("payload_base64", "signature", "return_secret_base64"):
+        check(field not in json_fields(value), "preview returned private signed wire framing")
+    for secret in (envelope["payload_base64"], envelope["signature"], payload.get("return_secret_base64", "")):
+        if secret:
+            public(value, secret)
+    return value
+
+
+@suite.case("recipient_exact_real_code_and_independently_signed_legacy_stale_hints_are_pure", "guided onboarding11 verification1")
+def _():
+    f = recipient_fixture(); inviter, recipient, parent, code, signer = (f[k] for k in ("inviter", "recipient", "parent", "code", "signer"))
+    before = state_snapshot(recipient); source_before = records(inviter)
+    first = preview(recipient, parent, code)
+    check(preview(recipient, parent, code) == first, "same code/context changed preview or hash")
+    check(state_snapshot(recipient) == before and records(inviter) == source_before, "inspection created identity/network/request/flow/guard/event/files or contacted signer")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0)); listener.listen(); listener.settimeout(0.1)
+        endpoint = f"127.0.0.1:{listener.getsockname()[1]}"
+        hints = {"quic_addresses": ["[::1]:9"], "bootstrap_addresses": [endpoint], "relays": []}
+        contacts = [signer.contact(f["network"]["context_id"], recipient.now(), seq, hints=hints) for seq in (0, 18446744073709551615)]
+        def legacy_payload(payload):
+            payload.pop("return_secret_base64", None); payload["contacts"] = contacts
+            payload["helpers"] = [{"address": endpoint, "public_key": signer.public}]
+        legacy = signer.invitation(code, payload_changes=legacy_payload)
+        observed = preview(recipient, parent, legacy)
+        check(observed["review"]["invitation"]["automatic_return"] is False, "legacy no-return introduction was rejected or gained a return secret")
+        check([c["sequence"] for c in observed["review"]["contacts"]] == ["0", "18446744073709551615"], "u64 contact sequences were rounded")
+        try:
+            connection, _ = listener.accept()
+        except socket.timeout:
+            connection = None
+        if connection:
+            connection.close()
+        check(connection is None, "read-only preview attempted bootstrap/helper network I/O")
+    check(state_snapshot(recipient) == before, "legacy/stale preview retained code, contacts or selected an identity")
+
+
+@suite.case("recipient_signed_wire_refusals_strict_input_and_expiry_remain_private_and_pure", "guided onboarding11 verification2")
+def _():
+    f = recipient_fixture(); h, parent, signer, original = (f[k] for k in ("recipient", "parent", "signer", "code"))
+    def initial(payload):
+        payload["contacts"] = [signer.contact(f["network"]["context_id"], h.now(), 1)]
+    valid = signer.invitation(original, payload_changes=initial)
+    preview(h, parent, valid)
+    before = state_snapshot(h)
+    bad_signature = b64url_json(valid, "psi2-")
+    bad_signature["signature"] = base64.b64encode(bytes(64)).decode()
+    invalid = ["psi2-" + base64.urlsafe_b64encode(compact(bad_signature)).decode().rstrip("="),
+               " " + valid, valid + "\n", "psi2-", "psi2-" + "A" * 32764]
+    def descriptor_mismatch(payload):
+        descriptor = payload["descriptor"]
+        encoded = isinstance(descriptor, str)
+        if encoded:
+            descriptor = json.loads(base64.b64decode(descriptor))
+        descriptor["network_id"] = "net_" + "0" * 64
+        payload["descriptor"] = base64.b64encode(compact(descriptor)).decode() if encoded else descriptor
+    invalid.append(signer.invitation(valid, payload_changes=descriptor_mismatch))
+    invalid.append(signer.invitation(valid, envelope_changes=lambda e: e.update(context_id="ctx_" + "0" * 64)))
+    invalid.append(signer.invitation(valid, payload_changes=lambda p: p.update(expected_person_public_key="bad-key")))
+    invalid.append(signer.invitation(valid, payload_changes=lambda p: p.update(helpers=[{"address": "https://bad.example/path", "public_key": signer.public}])))
+    invalid.append(signer.invitation(valid, payload_changes=lambda p: p.update(helpers=[{"address": "127.0.0.1:9", "public_key": "bad-key"}])))
+    invalid.append(signer.invitation(valid, payload_changes=lambda p: p.update(contacts=[
+        signer.contact(f["network"]["context_id"], h.now(), 2), signer.contact(f["network"]["context_id"], h.now(), 1)])))
+    for mode in ("signature", "context", "endpoint", "time"):
+        def change(payload, fault=mode):
+            options = {"context_id": "ctx_" + "0" * 64} if fault == "context" else {}
+            hints = {"quic_addresses": ["[0:0:0:0:0:0:0:1]:9"], "bootstrap_addresses": [], "relays": []} if fault == "endpoint" else None
+            contact = signer.contact(options.get("context_id", f["network"]["context_id"]), h.now(), 1, hints=hints,
+                                     **({"expires_at": h.now().strftime("%Y-%m-%dT%H:%M:%SZ")} if fault == "time" else {}))
+            if fault == "signature":
+                contact["signature"] = base64.b64encode(bytes(64)).decode()
+            payload["contacts"] = [contact]
+        invalid.append(signer.invitation(valid, payload_changes=change))
+    payload = json.loads(base64.b64decode(b64url_json(valid, "psi2-")["payload_base64"]))
+    invalid.append(signer.invitation(valid, raw_payload=compact(payload).replace(b'"member":', b'"member":"duplicate","member":')))
+    for code in invalid:
+        preview(h, parent, code, status=400, error="invalid")
+    now = h.now().replace(microsecond=0)
+    expired = signer.invitation(valid, payload_changes=lambda p: p.update(
+        issued_at=(now - timedelta(seconds=3601)).strftime("%Y-%m-%dT%H:%M:%SZ"), expires_at=(now - timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")))
+    future = signer.invitation(valid, payload_changes=lambda p: p.update(
+        issued_at=(now + timedelta(seconds=120)).strftime("%Y-%m-%dT%H:%M:%SZ"), expires_at=(now + timedelta(seconds=3720)).strftime("%Y-%m-%dT%H:%M:%SZ")))
+    preview(h, parent, expired, status=409, error="expired")
+    preview(h, parent, future, status=403, error="not_yet_valid")
+    body = {"context": context(parent), "invitation": original}; encoded = json.dumps(body)
+    exact = " " * (65536 - len(encoded.encode())) + encoded
+    actual, value = raw_post(h, PREVIEW, exact.encode())
+    check(actual == 200, "preview refused exact64KiB request body"); public(value, original)
+    duplicate_context = encoded.replace('"project_flow_id":', '"project_flow_id":"duplicate","project_flow_id":')
+    for data in ('null', '[]', encoded + ' {}', '{"private":', duplicate_context,
+                 '{"context":null,' + encoded[1:], " " + exact,
+                 json.dumps({**body, "extra": "PREVIEW_PRIVATE_MARKER"})):
+        actual, value = raw_post(h, PREVIEW, data.encode())
+        check(actual == 400 and value.get("code") == "invalid", "strict preview request accepted duplicate/extra/trailing/null/bounded JSON")
+        public(value, original, "PREVIEW_PRIVATE_MARKER")
+    check(state_snapshot(h) == before, "wire/input/expiry refusal changed recipient identity, state or files")
+
+
+@suite.case("recipient_context_cli_bounds_router_and_no_daemon_boundaries", "guided onboarding11 verification2")
+def _():
+    f = recipient_fixture(); h, source, parent, code = (f[k] for k in ("recipient", "inviter", "parent", "code"))
+    body = {"context": context(parent), "invitation": code}
+    before = state_snapshot(h)
+    exact = json.dumps(body); exact = " " * (65536 - len(exact.encode())) + exact
+    result = h.cli("onboarding", "invitation", "preview", "--stdin", input=exact)
+    check(result.ok and result.json == preview(h, parent, code), "private preview CLI/API parity at64KiB")
+    public(result.json, code)
+    for data in ('null', json.dumps(body) + ' {}', '{"context":null,' + json.dumps(body)[1:],
+                 json.dumps({**body, "extra": "PREVIEW_PRIVATE_MARKER"}), " " + exact):
+        result = h.cli("onboarding", "invitation", "preview", "--stdin", input=data)
+        check(not result.ok, "preview CLI accepted malformed/duplicate/extra/oversized private input")
+        for marker in (code, "PREVIEW_PRIVATE_MARKER", context(parent)["project_root"], context(parent)["native_session_id"]):
+            check(marker not in result.stdout + result.stderr, "preview CLI echoed private input")
+    check(not h.cli("onboarding", "invitation", "preview", input=json.dumps(body)).ok, "preview CLI implicitly consumed stdin")
+    check(not h.cli("onboarding", "invitation", "preview", "positional-code").ok, "preview CLI accepted a positional invitation")
+    unknown = {**body, "context": {**context(parent), "project_flow_id": "flow_" + "0" * 32}}
+    preview(h, parent, code, body=unknown, status=404, error="not_found")
+    changed = {**body, "context": {**context(parent), "native_session_id": "different-private-conversation"}}
+    preview(h, parent, code, body=changed, status=409, error="review_changed")
+    for method in ("GET", "PUT", "DELETE"):
+        actual, value = h.api(method, PREVIEW, body if method != "GET" else None)
+        check(actual in (404, 405), "wrong preview method was accepted"); public(value, code)
+    check(state_snapshot(h) == before, "CLI/context/method observation mutated recipient")
+    for local, remote in ((h, source), (source, h)):
+        local.ok("peer", "add", "--id", remote.id, "--public-key", remote.public_key, "--address", remote.peer_address)
+    actual, agent = h.api("POST", "/v1/agents", {"name": "preview-boundary-fixture", "owner": "fixture"})
+    check(actual == 201, "preview scoped-boundary agent fixture failed")
+    attached = h.ok("session", "attach", "--agent", agent["id"], "--integration", "fixture")
+    credential = h.ok("adapter", "create", "--session", attached["id"], "--expires-at", (h.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    adapter = Adapter(h, agent, attached["id"], credential)
+    actual, _ = adapter.call("POST", "/adapter/v1/connect", {"adapter_id": adapter.adapter_id, "session_id": adapter.session_id, "instance_id": adapter.instance})
+    check(actual == 200, "preview scoped-boundary connection fixture failed")
+    actual, value = adapter.call("POST", PREVIEW, body)
+    check(actual == 404, "scoped adapter exposed recipient preview"); public(value, code)
+    probe = subprocess.run([str(suite.probe_bin), "--state", str(source.state), "--address", h.peer_address,
+                            "--alpn", "peerspan-peer/1", "--method", "POST", "--path", PREVIEW, "--body-stdin"],
+                           input=json.dumps(body).encode(), capture_output=True, timeout=15)
+    check(probe.returncode == 0 and json.loads(probe.stdout).get("status") == 404, "authenticated peer exposed recipient preview")
+    check(code not in probe.stdout.decode(errors="replace") + probe.stderr.decode(errors="replace"), "peer refusal echoed code")
+    adapter.stop()
+    bootstrap = host("preview-quiescent-bootstrap")
+    cert, key = suite.work / "preview-boundary-cert.pem", suite.work / "preview-boundary-key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ed25519", "-nodes", "-subj", "/CN=preview-boundary", "-days", "1",
+                    "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True, timeout=5)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); tls.check_hostname, tls.verify_mode = False, ssl.CERT_NONE
+    tls.load_cert_chain(str(cert), str(key)); tls.set_alpn_protocols(["peerspan-bootstrap/1"])
+    data = json.dumps(body).encode()
+    with socket.create_connection(("127.0.0.1", bootstrap.bootstrap_port), timeout=5) as raw:
+        with tls.wrap_socket(raw, server_hostname="peerspan") as stream:
+            stream.sendall((f"POST {PREVIEW} HTTP/1.1\r\nHost: peerspan\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n").encode() + data)
+            response = http.client.HTTPResponse(stream); response.begin(); payload = response.read()
+            check(response.status == 404 and code.encode() not in payload, "bootstrap exposed recipient preview/code")
+    h.ok("session", "detach", parent["review"]["session_id"])
+    before = state_snapshot(h)
+    preview(h, parent, code, status=409, error="review_changed")
+    check(state_snapshot(h) == before, "detached-parent preview repaired attachment")
+    newer = project(h, "replacement-preview", root=parent["review"]["project_root"], native=parent["review"]["native_session_id"],
+                    replace=parent["flow_id"], agent=parent["review"]["agent"])
+    before = state_snapshot(h)
+    preview(h, parent, code, status=409, error="review_changed")
+    preview(h, newer, code)
+    check(state_snapshot(h) == before, "replacement context preview mutated project/identity")
+    h.stop(); absent = suite.host("preview-absent", start=False); shutil.rmtree(absent.state)
+    for stopped in (h, absent):
+        before_files = file_state(stopped.root)
+        failed = stopped.cli("onboarding", "invitation", "preview", "--stdin", input=json.dumps({"context": context(newer), "invitation": code}))
+        check(not failed.ok and code not in failed.stdout + failed.stderr, "unavailable preview CLI succeeded or leaked code")
+        check(file_state(stopped.root) == before_files, "unavailable preview created daemon/state/identity files")
 
 
 suite.finish()
