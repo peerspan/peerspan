@@ -4,7 +4,8 @@ Feature-branch preview for [tracking PR #35](https://github.com/peerspan/peerspa
 Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
 host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
-Incoming work delivery, invitations and sharing permissions remain later slices.
+An explicit incoming-message path uses scoped native tools. Tasks, invitations
+and sharing permissions remain later slices; live model acceptance is pending.
 
 ## Try the entry
 
@@ -89,7 +90,36 @@ invalidated reviews offer **Review a replacement adapter**.
 
 The native Unix transport requires an absolute socket path of at most 103 UTF-8
 bytes. An unsupported path or unavailable host produces a controlled failure.
-No new model approval or owner-administration tool is registered.
+No model approval or owner-administration tool is registered.
+
+## Enable incoming messages
+
+Once connected, press **Enable incoming messages**. This starts a model turn
+using the conversation's normal allowance. The model must acknowledge a fresh
+readiness challenge through `adapter_ready` before any message is claimed.
+Queue acceptance or a saved host channel state does not satisfy that check.
+After 60 seconds without acknowledgment, the attempt expires; **Retry incoming
+messages** starts a fresh explicit check. Peerspan sends no automatic retry.
+
+After acknowledgment and host confirmation, the pane reports **Incoming
+delivery: verified (messages)**. It submits authorized messages to this same
+conversation as external peer content. The model can acknowledge a held
+delivery with `message_seen` or answer once with `message_reply`. The host
+enforces the original sender, grant, session, expiry and reply bounds. These
+tools add no local file/tool permission, owner operation, arbitrary destination
+or capability-call access. Tasks and updates stay queued on the host.
+
+Submitted, seen and replied counts are separate. Submission is harness
+acceptance; seen/reply requires a successful current-model tool call. **Peer
+exchange** remains **not verified** because a saved reply does not prove its
+sender retrieved it. The local conversation check below is separate.
+
+Close/Back preserve an established enabled runtime. Stop, session end, reload,
+context/scope change or lease expiry cancels its tool authority and polling.
+A handoff/submission/forwarded failure stops the message attempt while lease
+renewal continues. An uncertain message is never automatically resubmitted.
+Retry performs a new readiness check; it does not recover uncertain held work.
+Existing advanced host diagnostics remain available for that recovery.
 
 ## Check this conversation
 
@@ -129,9 +159,11 @@ for the exact source heads and scope. This run used no inference.
 The [adapter smoke evidence](../../docs/results/guided-native-adapter-smoke.json)
 records real native approval, connection, renewal with the pane closed, Stop
 and explicit reconnect after plugin reload, with one retained authorization.
-It used a temporary single host and no inference. The earlier live inference
-probe was refused by the account's weekly usage limit. Real-model acknowledgment
-and the complete adapter/data path remain outstanding acceptance work.
+It used a temporary single host and no inference. The subsequent [message smoke](../../docs/results/guided-native-message-smoke.json)
+submitted the actual readiness prompt, but the account's weekly usage limit
+refused inference. The host remained unverified and claimed no messages.
+Real-model acknowledgment, message/reply and installed two-machine acceptance
+remain outstanding; deterministic runtime fixtures do not replace those checks.
 
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).

@@ -165,3 +165,9 @@ Its private stdin `onboarding adapter transport` wrapper derives the original
 instance and selects the sibling adapter socket after exact credential retrieval;
 it adds no API, schema or write. Native renewal uses the existing scoped connect
 route. A live lease remains separate from incoming delivery and peer receipt.
+
+The [native incoming-message path](guided-session-contract.md#7-native-incoming-messages-and-exact-model-acknowledgment-gu-03d)
+explicitly enables a current-conversation readiness challenge before using the
+existing scoped ready/next/forwarded/seen/reply routes. It adds no API/schema or
+access grant. A saved host channel is insufficient for the current native
+attempt; submission, model acknowledgment and peer receipt remain distinct.

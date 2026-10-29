@@ -2061,3 +2061,26 @@ deadline, ignore late responses and never reschedule stale work. An already
 sent request can still complete once. Section6 records the contract and
 independent cases; real terminal evidence records its exact source heads.
 This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl7 — Explicit native incoming messages (2026-10-29)
+
+Selected within GU-OWN1/2: enable messages explicitly after lease connection,
+because this starts a model turn using the current allowance. A fresh nonce
+and current main-engine acknowledgment precede scoped host readiness and any
+claim. Register only readiness, seen and reply tools on enable; owner powers,
+outbound destinations and local harness permissions remain unchanged. Poll
+messages first, leaving unsupported task/update work on the host.
+
+Selected failure behavior: one60-second challenge with explicit retry, bounded
+single-flight handoffs, no replay of uncertain content, lease renewal separate
+from message-attempt failure, and separate submitted/seen/replied evidence.
+Native runtime checks and a quota-refused real terminal attempt are recorded
+separately from actual model receipt and installed two-machine acceptance.
+
+Discarded: automatic model turns on connection/reload, automatic second hello,
+saved channel status as current proof, queue acceptance as model receipt,
+claiming unsupported task work, owner/admin tools in model context, new broad
+send/call permission and automatic replay after an uncertain submission. The
+explicit enable is an implementation choice under the accepted scope, not a
+new decision attributed to the owner. Contract section7 defines exact fields,
+timers, scope and independent verification before implementation.
