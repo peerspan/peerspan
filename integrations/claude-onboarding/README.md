@@ -6,9 +6,10 @@ host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
 Native invitation review and explicit private code reveal are available.
-Private recipient invitation inspection is also available. Joining/admission,
-sharing permissions and live model acceptance remain later work. The advanced owner-local invitation-review backend is
-available for integration development; it adds no model invitation tool.
+Private recipient invitation inspection and explicit join-request publication
+with an existing local original identity are available. New identity creation,
+participant admission, sharing permissions and live model acceptance remain
+later work. Owner actions stay in the human pane; no model setup tool is added.
 
 ## Try the entry
 
@@ -110,16 +111,56 @@ the signer's membership/authority, admission, agent access or reachability.
 Old contact hints may remain useful inside a live invitation; their expiry is
 shown independently. An old invitation without automatic return is identified.
 
-Identity selection and joining in this native pane follow in subsequent slices.
-The host also offers an advanced private-stdin `onboarding join` review/decision
-backend for an explicitly supplied person public key; this pane does not call it.
-It creates no person key and proves no key possession, membership or access.
+This inspection pane is read-only; use the separate **Join a network** action
+for an existing local identity and explicit request-publication consent.
+Inspection itself creates no person key or request and proves no key
+possession, membership or access.
 This preview has no Join/Approve control. **Inspect another invitation** starts an empty draft.
 Refresh, Back, Close, context changes, reload and expiry discard the volatile
 preview. Re-entry requires pasting privately again. No code is stored in plugin
 files or sent to the model; your terminal or screenshots may retain displayed
 input. The inviter's retained reviews and existing connected delivery runtimes
 are separate from this private recipient view.
+
+## Join using an existing original identity
+
+After attachment, press **Join a network**. Peerspan first reads any recorded
+review/outcome. A new attempt starts an empty **Private invitation for joining**
+field. Paste only in this human pane; the input is visible terminal text. Enter
+only edits the draft. **Review joining identities** clears the drawn input,
+verifies the exact incoming introduction, and reads available local identities.
+The joining attempt retains the code only in volatile private memory until its
+explicit decision, expiry or navigation; it never sends it to the model or
+stores it in plugin files.
+
+Choose explicitly among original Ed25519 identities from the normal local
+Peerspan-generated person file or your SSH agent. No identity is selected by
+default, created, copied, imported or used to sign ownership. A pinned
+introduction only permits its matching key; all available keys and their sources
+remain visible. No available or matching identity is an unavailable state;
+new identity creation and connecting another computer are separate later work.
+
+**Review identity KEY** prepares a public review, without publishing a request.
+Read the full network, invitation, person-key, expiry and effect terms. Only
+**Approve join request** publishes the ordinary request; **Decline join request**
+records a refusal. Approval rechecks the parent, review, host and selected local
+identity. A supplied/available public key is not proof of ownership. Publication
+neither grants membership/access nor approves the remaining participant steps.
+
+Success says **Join request: publication recorded**. This is a historical
+publication outcome, not current link state, reachability, readiness or model
+receipt. Reopen/Refresh reads this outcome without retrieving a code or making
+another request. A live review after reload requires explicit code re-entry
+through **Check invitation for this review** before Approve is available.
+An uncertain result must be recovered through lookup; there is no automatic
+resubmission. **Review another join request** explicitly replaces a non-review
+attempt and does not cancel or revoke an earlier published request.
+
+Back, Close/Escape, Refresh, reload, expiry or context loss clear the private
+attempt. Ordinary pane navigation preserves an established adapter and delivery
+runtime. No native owner/model tool or person-key creation is added. Section13
+of the [contract](../../docs/guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
+defines exact bindings, privacy, recovery and remaining acceptance gates.
 
 ## Review and connect the adapter
 

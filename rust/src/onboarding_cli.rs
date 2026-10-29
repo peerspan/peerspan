@@ -43,6 +43,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum JoinCommand {
+    /// List existing local original public identities without creating or signing
+    Identities {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Prepare or resume public join terms; creates no person key or request
     Prepare {
         #[arg(long, required = true)]
@@ -228,7 +233,7 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     }
     let operation = match command {
         JoinCommand::Prepare { .. } => "prepare",
-        JoinCommand::Lookup { .. } => "lookup",
+        JoinCommand::Lookup { .. } | JoinCommand::Identities { .. } => "lookup",
         JoinCommand::Decide { .. } => "decision",
         JoinCommand::Inspect { .. } => unreachable!(),
     };
@@ -238,6 +243,10 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     ensure!(bytes.len() <= 65536, "join review input exceeds 64 KiB");
     let mut value: Value = decode_input(&bytes, operation, true).map_err(|_| invalid())?;
     match command {
+        JoinCommand::Identities { .. } => {
+            let request: Lookup = serde_json::from_value(value).map_err(|_| invalid())?;
+            crate::onboarding_identity_cli::identities(socket, request.context).await
+        }
         JoinCommand::Prepare { .. } => {
             let _: Prepare = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
             local.post(base.into(), value).await

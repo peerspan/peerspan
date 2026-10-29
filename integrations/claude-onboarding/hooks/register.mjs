@@ -10,7 +10,9 @@ import { tools as taskTools, handoff as parseTask, cancellation as parseCancella
 import { flow as parseInvitationFlow, lookup as parseInvitationLookup, networks as invitationNetworks,
   proposal as invitationProposal, handoff as parseInvitationHandoff, reviewLines as invitationReviewLines } from './invitation.mjs';
 
-import { validCode as validInvitationCode, preview as parseRecipientPreview, reviewLines as recipientReviewLines } from './recipient.mjs';
+import { validCode as validInvitationCode, preview as parseRecipientPreview, reviewLines as recipientReviewLines, terms as recipientPublicTerms } from './recipient.mjs';
+import { identities as parseJoinIdentities, flow as parseJoinFlow, lookup as parseJoinLookup,
+  reviewLines as joinReviewLines, provenance as joinProvenance } from './join.mjs';
 
 let options;
 let hostId = null;
@@ -28,6 +30,8 @@ let invitation = { stage: 'inactive', busy: false };
 let invitationExpiry = null;
 let recipient = { stage: 'inactive', busy: false };
 let recipientExpiry = null;
+let joining = { stage: 'inactive', busy: false };
+let joiningExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -72,6 +76,7 @@ function summary() {
 }
 
 async function refresh($) {
+  clearJoining();
   clearRecipient();
   // Invalidate pending invitation effects and drop a revealed code before any await.
   if (invitation.stage !== 'inactive') invitation = { ...invitation, code: null, busy: false };
@@ -161,6 +166,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  clearJoining();
   clearRecipient();
   clearInvitation();
   clearAdapter();
@@ -854,6 +860,270 @@ async function connectAdapter($, previous, epoch) {
     $.ui.invalidate('ui.render');
   }
 }
+function clearJoining() {
+  joiningExpiry?.cancel();
+  joiningExpiry = null;
+  joining = { stage: 'inactive', busy: false };
+}
+function joinStart($, previous, epoch) {
+  if (joining !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
+  joiningExpiry?.cancel();
+  joiningExpiry = null;
+  joining = { ...previous, code: '', busy: true, expiryAuthority: null, parent: project.flow, context: project.context, host: hostId };
+  $.ui.invalidate('ui.render');
+  return joining;
+}
+async function joinCurrent($, running, epoch) {
+  if (joining !== running || epoch !== generation || project.stage !== 'attached' ||
+      project.flow.flow_id !== running.parent.flow_id || project.flow.review_id !== running.parent.review_id ||
+      !same(project.flow.review, running.parent.review)) return false;
+  const current = await projectContext($), surfaces = await $.session.surfaces();
+  if (joining !== running || epoch !== generation) return false;
+  if (!same(current, running.context) || current.native_session_id !== session || running.host !== hostId || !surfaces.includes('terminal')) {
+    if (runtime) stopRuntime('Adapter: stopped after project, conversation or surface change.');
+    clearProject();
+    $.ui.invalidate('ui.render');
+    return false;
+  }
+  return true;
+}
+async function joinHost($, running, epoch) {
+  if (!await joinCurrent($, running, epoch)) return false;
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await joinCurrent($, running, epoch)) return false;
+  if (result.exitCode !== 0) throw new Error('Unavailable joining host');
+  observation(result.stdout);
+  if (JSON.parse(result.stdout).host_id !== running.host) throw new Error('Changed joining host');
+  return true;
+}
+async function joinParent($, running, epoch) {
+  if (!await joinCurrent($, running, epoch)) return false;
+  const raw = await projectRun($, ['inspect', running.parent.flow_id]);
+  if (!await joinCurrent($, running, epoch)) return false;
+  const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
+  if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
+      !same(parent.review, running.parent.review)) throw new Error('Changed joining project');
+  return joinHost($, running, epoch);
+}
+async function joinRun($, command, payload) {
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+    'onboarding', 'join', ...command], { timeoutMs: command[0] === 'identities' ? 15000 : 5000,
+    ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
+  if (result.exitCode !== 0) throw new Error('Unavailable join flow');
+  return result.stdout;
+}
+async function joinIdentities($, running, epoch) {
+  const raw = await joinRun($, ['identities', '--stdin'], { context: adapterContext(running.parent) });
+  if (!await joinCurrent($, running, epoch)) return null;
+  return parseJoinIdentities(raw, running.parent, running.host);
+}
+function joinFailure($, running, epoch, uncertain = false) {
+  if (joining !== running || epoch !== generation) return;
+  joiningExpiry?.cancel();
+  joiningExpiry = null;
+  joining = { ...running, stage: 'unavailable', code: '', secret: null, preview: null, busy: false,
+    message: uncertain ? 'Join outcome unavailable. Reopen joining to inspect the recorded result; no automatic retry.'
+      : 'Joining unavailable. Reopen to inspect the host before another private attempt.' };
+  $.ui.invalidate('ui.render');
+}
+async function joinView($, running, epoch, flow, extra = {}) {
+  if (!await joinCurrent($, running, epoch)) return;
+  const now = await $.clock.now();
+  if (!await joinCurrent($, running, epoch)) return;
+  joiningExpiry?.cancel();
+  joiningExpiry = null;
+  let stage = flow ? flow.state : extra.stage ?? 'draft';
+  const deadline = flow?.state === 'review' ? flow.review.expires_at : stage === 'choose' ? extra.preview.review.invitation.expires_at : null;
+  if (deadline && Date.parse(deadline) <= now) stage = 'expired';
+  if (flow?.state === 'review' && Date.parse(deadline) - now > 900000) throw new Error('Changed join deadline');
+  const secret = ['choose', 'review'].includes(stage) ? extra.secret ?? null : null;
+  const expiryAuthority = {};
+  joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority };
+  if (deadline && stage !== 'expired') {
+    joiningExpiry = $.clock.after(Date.parse(deadline) - now, () => {
+      if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
+        joining = { ...joining, stage: 'expired', secret: null, code: '', preview: null, busy: false };
+        $.ui.invalidate('ui.render');
+      }
+    });
+  }
+  $.ui.invalidate('ui.render');
+}
+async function openJoining($, previous, epoch) {
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  clearInvitation(); clearRecipient();
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    const raw = await joinRun($, ['lookup', '--stdin'], { context: adapterContext(running.parent) });
+    if (!await joinCurrent($, running, epoch)) return;
+    const value = await parseJoinLookup(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    await joinView($, running, epoch, value.flow, { preview: null, selected: null, identities: [], replace: null });
+  } catch { joinFailure($, running, epoch); }
+}
+function joinDraft($, previous, epoch, value) {
+  if (joining !== previous || previous.busy || epoch !== generation ||
+      !(previous.stage === 'draft' || previous.stage === 'review' && !previous.secret)) return;
+  joining = { ...previous, code: typeof value === 'string' && bytes(value) <= 32768 ? value : '' };
+  $.ui.invalidate('ui.render');
+}
+async function joiningChoices($, previous, epoch) {
+  if (previous.stage !== 'draft') return;
+  const code = previous.code;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!validInvitationCode(code)) throw new Error('Invalid private joining invitation');
+    if (!await joinParent($, running, epoch)) return;
+    const raw = await invitationRun($, ['preview', '--stdin'], { context: adapterContext(running.parent), invitation: code });
+    if (!await joinCurrent($, running, epoch)) return;
+    const preview = await parseRecipientPreview(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (Date.parse(preview.review.invitation.expires_at) <= now || Date.parse(preview.review.invitation.issued_at) > now + 30000) throw new Error('Expired joining invitation');
+    const identities = await joinIdentities($, running, epoch);
+    if (identities === null) return;
+    await joinView($, running, epoch, null, { stage: 'choose', preview, identities, page: 0, selected: null, secret: code });
+  } catch { joinFailure($, running, epoch); }
+}
+async function chooseJoinIdentity($, previous, epoch, selected) {
+  if (previous.stage !== 'choose' || !previous.identities.includes(selected) || !previous.secret ||
+      previous.preview.review.invitation.expected_person_public_key !== '-' &&
+      previous.preview.review.invitation.expected_person_public_key !== selected.public_key) return;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    const identities = await joinIdentities($, running, epoch);
+    if (identities === null) return;
+    if (!identities.some(i => same(i, selected))) throw new Error('Changed local original identity');
+    if (!await joinHost($, running, epoch)) return;
+    const raw = await joinRun($, ['prepare', '--stdin'], { context: adapterContext(running.parent), invitation: previous.secret,
+      person_public_key: selected.public_key, ...(previous.replace ? { replace_flow_id: previous.replace } : {}) });
+    if (!await joinCurrent($, running, epoch)) return;
+    const flow = await parseJoinFlow(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (flow.state !== 'review' || flow.review.person_public_key !== selected.public_key ||
+        flow.review.invitation_review_id !== previous.preview.review_id || !same(flow.review.invitation, previous.preview.review) ||
+        flow.flow_id === previous.replace) throw new Error('Changed join proposal');
+    await joinView($, running, epoch, flow, { selected, identities, preview: previous.preview, secret: previous.secret });
+  } catch { joinFailure($, running, epoch); }
+}
+async function recoverJoinCode($, previous, epoch) {
+  if (previous.stage !== 'review' || previous.secret) return;
+  const code = previous.code, captured = previous.flow;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!validInvitationCode(code)) throw new Error('Invalid private joining invitation');
+    if (!await joinParent($, running, epoch)) return;
+    const raw = await joinRun($, ['prepare', '--stdin'], { context: adapterContext(running.parent), invitation: code,
+      person_public_key: captured.review.person_public_key });
+    if (!await joinCurrent($, running, epoch)) return;
+    const flow = await parseJoinFlow(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!same(flow, captured) || flow.state !== 'review') throw new Error('Changed retained join review');
+    const identities = await joinIdentities($, running, epoch);
+    if (identities === null) return;
+    const selected = identities.find(i => i.public_key === captured.review.person_public_key);
+    if (!selected) throw new Error('Selected local original identity unavailable');
+    await joinView($, running, epoch, flow, { selected, identities, secret: code });
+  } catch { joinFailure($, running, epoch); }
+}
+async function decideJoining($, previous, epoch, decision) {
+  if (previous.stage !== 'review' || decision === 'approve' && (!previous.secret || !previous.selected)) return;
+  const captured = previous.flow;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    const raw = await joinRun($, ['inspect', captured.flow_id]);
+    if (!await joinCurrent($, running, epoch)) return;
+    const flow = await parseJoinFlow(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!same(flow, captured) || flow.state !== 'review') throw new Error('Changed join review');
+    if (decision === 'approve') {
+      const identities = await joinIdentities($, running, epoch);
+      if (identities === null) return;
+      if (!identities.some(i => same(i, previous.selected))) throw new Error('Changed local original identity');
+    }
+    if (!await joinHost($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (Date.parse(captured.review.expires_at) <= now) throw new Error('Expired join review');
+    sent = true;
+    const result = await joinRun($, ['decide', '--stdin'], { context: adapterContext(running.parent), flow_id: captured.flow_id,
+      review_id: captured.review_id, decision, ...(decision === 'approve' ? { invitation: previous.secret } : {}) });
+    if (!await joinCurrent($, running, epoch)) return;
+    const outcome = await parseJoinFlow(result, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (outcome.flow_id !== captured.flow_id || outcome.review_id !== captured.review_id || !same(outcome.review, captured.review) ||
+        outcome.state !== (decision === 'approve' ? 'requested' : 'declined')) throw new Error('Unknown join outcome');
+    await joinView($, running, epoch, outcome, { preview: null, selected: null, identities: [] });
+  } catch { joinFailure($, running, epoch, sent); }
+}
+async function anotherJoining($, previous, epoch) {
+  if (!previous.flow || previous.stage === 'review') return;
+  const running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    await joinView($, running, epoch, null, { stage: 'draft', replace: previous.flow.flow_id, preview: null,
+      selected: null, identities: [], secret: null });
+  } catch { joinFailure($, running, epoch); }
+}
+function joinPage($, previous, epoch, page) {
+  if (joining !== previous || previous.busy || epoch !== generation || previous.stage !== 'choose' ||
+      page < 0 || page * 10 >= previous.identities.length) return;
+  joining = { ...previous, page };
+  $.ui.invalidate('ui.render');
+}
+function joiningControls($, { Text, Button, Input }, epoch) {
+  if (project.stage !== 'attached' || project.busy) return [];
+  const previous = joining, button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.stage === 'inactive') return invitation.stage === 'inactive' && recipient.stage === 'inactive'
+    ? [button('join-open', 'Join a network', () => openJoining($, previous, epoch))] : [];
+  const back = button('join-back', 'Back from joining', () => {
+    if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.busy) return [Text({ children: ['Joining: working…'] }), back];
+  if (previous.stage === 'draft') return [
+    Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Existing local identities only; no new identity is created.',
+      previous.replace ? '\nAnother publication does not cancel or revoke the earlier request.' : ''] }),
+    Input({ key: 'join-code', label: 'Private invitation for joining', value: previous.code,
+      onInput: v => joinDraft($, previous, epoch, v), onSubmit: v => joinDraft($, previous, epoch, v) }),
+    button('join-identities', 'Review joining identities', () => joiningChoices($, previous, epoch)), back];
+  if (previous.stage === 'choose') {
+    const page = previous.page ?? 0, pin = previous.preview.review.invitation.expected_person_public_key;
+    return [Text({ children: ['Joining: choose an existing original identity', '\n', recipientPublicTerms(previous.preview).join('\n'),
+      '\nChoosing a public key is not proof of ownership and does not publish a request.',
+      !previous.identities.length ? '\nNo local original identity is available. New identity creation and device linking are separate workflows.'
+        : pin !== '-' && !previous.identities.some(i => i.public_key === pin) ? '\nNo local identity matches the invitation pin. Use the original identity on its existing machine; device linking is separate.' : ''] }),
+      ...previous.identities.slice(page * 10, page * 10 + 10).flatMap(i => [Text({ children: [`Original public key: ${quoted(i.public_key)}\nIdentity source: ${joinProvenance(i)}`] }),
+        ...(pin === '-' || pin === i.public_key ? [button(`join-identity-${i.public_key}`, `Review identity ${i.public_key}`,
+          () => chooseJoinIdentity($, previous, epoch, i))] : [Text({ children: ['This identity does not match the invitation pin.'] })])]),
+      ...(page > 0 ? [button('join-prev', 'Previous identities', () => joinPage($, previous, epoch, page - 1))] : []),
+      ...(previous.identities.length > (page + 1) * 10 ? [button('join-next', 'More identities', () => joinPage($, previous, epoch, page + 1))] : []), back];
+  }
+  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
+  const flow = previous.flow;
+  const status = previous.stage === 'requested' ? 'Join request: publication recorded'
+    : previous.stage === 'review' ? 'Join request: review publication' : `Join request: ${previous.stage}`;
+  return [Text({ children: [status, flow ? '\n' + joinReviewLines(flow, previous.selected) : '',
+      previous.stage === 'requested' ? '\nThis records publication only. Participant approvals and current link state, access, reachability and model receipt are not verified.' : ''] }),
+    ...(previous.stage === 'review' ? [
+      ...(previous.secret && previous.selected ? [button('join-approve', 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
+        Input({ key: 'join-recover-code', label: 'Private invitation for joining', value: previous.code,
+          onInput: v => joinDraft($, previous, epoch, v), onSubmit: v => joinDraft($, previous, epoch, v) }),
+        button('join-recover', 'Check invitation for this review', () => recoverJoinCode($, previous, epoch)),
+      ]),
+      button('join-decline', 'Decline join request', () => decideJoining($, previous, epoch, 'decline')),
+    ] : flow ? [button('join-another', 'Review another join request', () => anotherJoining($, previous, epoch))] : []), back];
+}
+
 function clearRecipient() {
   recipientExpiry?.cancel();
   recipientExpiry = null;
@@ -907,6 +1177,7 @@ function recipientFailure($, running, epoch) {
 async function openRecipient($, previous, epoch) {
   const running = recipientStart($, previous, epoch);
   if (!running) return;
+  clearJoining();
   clearInvitation();
   try {
     if (!await inspectRecipientParent($, running, epoch)) return;
@@ -951,7 +1222,7 @@ function recipientControls($, { Text, Button, Input }, epoch) {
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = recipient;
   const button = (key, label, onPress) => Button({ key, label, onPress });
-  if (previous.stage === 'inactive') return invitation.stage === 'inactive'
+  if (previous.stage === 'inactive') return invitation.stage === 'inactive' && joining.stage === 'inactive'
     ? [button('recipient-open', 'Review an invitation', () => openRecipient($, previous, epoch))] : [];
   if (previous.busy) return [Text({ children: ['Invitation inspection: working…'] })];
   const back = button('recipient-back', 'Back from invitation review', () => {
@@ -1047,6 +1318,7 @@ async function invitationChoices($, running, epoch, replace) {
 async function openInvitation($, previous, epoch) {
   const running = invitationStart($, previous, epoch);
   if (!running) return;
+  clearJoining();
   clearRecipient();
   try {
     if (!await inspectInvitationParent($, running, epoch)) return;
@@ -1162,7 +1434,7 @@ function invitationControls($, { Text, Button, Input }, epoch) {
   const previous = invitation;
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.busy) return [Text({ children: ['Invitation: working…'] })];
-  if (previous.stage === 'inactive') return recipient.stage === 'inactive' ? [button('invitation-open', 'Invite someone', () => openInvitation($, previous, epoch))] : [];
+  if (previous.stage === 'inactive') return recipient.stage === 'inactive' && joining.stage === 'inactive' ? [button('invitation-open', 'Invite someone', () => openInvitation($, previous, epoch))] : [];
   const back = button('invitation-back', 'Back from invitation', () => {
     if (invitation === previous && epoch === generation) { clearInvitation(); $.ui.invalidate('ui.render'); }
   });
@@ -1202,7 +1474,7 @@ function invitationControls($, { Text, Button, Input }, epoch) {
 }
 
 function adapterControls($, { Text, Button }, epoch) {
-  if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive' || recipient.stage !== 'inactive') return [];
+  if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive' || recipient.stage !== 'inactive' || joining.stage !== 'inactive') return [];
   const previous = adapter;
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.busy) return [Text({ children: ['Adapter: working…'] })];
@@ -1230,7 +1502,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'attached' && (recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+  if (previous.stage === 'attached' && (joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
@@ -1284,7 +1556,7 @@ export function register(on, configured = {}) {
   });
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== 'peerspan') return next(e);
-    if (e.surface !== 'terminal') { clearRecipient(); clearInvitation(); return next(e); }
+    if (e.surface !== 'terminal') { clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
     const epoch = generation;
     if (invitation.stage !== 'inactive') {
       const captured = invitation;
@@ -1295,6 +1567,11 @@ export function register(on, configured = {}) {
       const captured = recipient;
       try { if (!await recipientCurrent($, captured, epoch) && recipient === captured) clearRecipient(); }
       catch { if (recipient === captured) clearRecipient(); }
+    }
+    if (joining.stage !== 'inactive') {
+      const captured = joining;
+      try { if (!await joinCurrent($, captured, epoch) && joining === captured) clearJoining(); }
+      catch { if (joining === captured) clearJoining(); }
     }
     const displayedRuntime = runtime;
     const displayedReady = runtime?.messages;
@@ -1309,6 +1586,7 @@ export function register(on, configured = {}) {
       ...adapterControls($, { Text, Button }, epoch),
       ...invitationControls($, { Text, Button, Input }, epoch),
       ...recipientControls($, { Text, Button, Input }, epoch),
+      ...joiningControls($, { Text, Button, Input }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
         Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',

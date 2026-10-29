@@ -227,8 +227,11 @@ reviews an explicitly supplied person public key and the exact verified
 introduction. Explicit approval commits the ordinary request and public outcome
 together; retries recover that request without issuing another. Schema27 adds
 only public review/digest/outcome state. This backend does not select, import or
-create a person key and has no native controls yet. Native identity selection,
-explicit key creation/persistence where needed, and request controls are next.
+create a person key. The [native existing-identity flow](guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
+adds explicit local generated/SSH-agent public-key choice and exact publication
+review, private code re-entry and read-only outcome recovery. It creates no
+original key and claims no key possession. Explicit new-identity creation and
+persistence remain next.
 Publication remains separate from participant approvals and agent access.
 
 The observation suite isolates each automatic invitation return from previous

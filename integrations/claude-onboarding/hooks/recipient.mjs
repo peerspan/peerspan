@@ -47,7 +47,7 @@ export async function preview(raw, parent, host) {
   if (v.review_id !== 'review_' + Array.from(digest, b => b.toString(16).padStart(2, '0')).join('')) throw new Error('Changed invitation preview');
   return freeze(v);
 }
-export function reviewLines(v) {
+export function terms(v) {
   const r = v.review, i = r.invitation;
   const addresses = a => a.length ? a.map(quoted).join(', ') : 'none';
   const pairs = a => a.length ? a.map(h => `${quoted(h.address)} key ${quoted(h.public_key)}`).join(', ') : 'none';
@@ -59,7 +59,10 @@ export function reviewLines(v) {
     `Invitation issued: ${i.issued_at}`, `Invitation expires: ${i.expires_at}`, `Automatic return: ${i.automatic_return ? 'available' : 'unavailable (legacy invitation)'}`,
     ...(r.contacts.length ? r.contacts.flatMap((c, n) => [`Contact ${n + 1} sequence: ${c.sequence}`, `Contact issued: ${c.issued_at}`, `Contact expires: ${c.expires_at}`,
       `QUIC addresses: ${addresses(c.quic_addresses)}`, `Bootstrap addresses: ${addresses(c.bootstrap_addresses)}`, `Relays: ${pairs(c.relays)}`]) : ['Contacts: none']),
-    `Helpers: ${pairs(r.helpers)}`, 'Contact signature: verified', 'New identities: none', 'Link requests created: none', 'Owner selected: none',
+    `Helpers: ${pairs(r.helpers)}`, 'Contact signature: verified'];
+}
+export function reviewLines(v) {
+  return [...terms(v), 'New identities: none', 'Link requests created: none', 'Owner selected: none',
     'Membership grants: none', 'Agent access grants: none', 'Machine approval: none', 'Files shared: none', 'Conversation sharing: none', 'Capability calls: none',
     'Signer membership and authority: not established', 'Admission and agent access: not established', 'Peer reachability and model receipt: not verified',
     'Identity selection and joining are subsequent steps; this preview records no consent.'].join('\n');
