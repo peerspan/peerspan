@@ -2679,7 +2679,11 @@ call. Bind exact flow/review/context/outcome. Native process budget5 seconds.
 Validate the full exact wrapper/LINK_VIEW shapes, host/context/outcome pins, keys,
 IDs, UTC times, booleans, ordered unique completed-stage enum, bounded public
 attention/next strings and the state-to-next-role mapping before displaying it.
-Reject private-looking values using existing public-review privacy checks, and
+Require host_id to equal host_ plus SHA256 of the32 decoded bytes of the
+request host_public_key. Completed starts with request_created and is an ordered
+unique subsequence of runtime section5's seven stage names. Attention and next
+each contain at most32 nonempty strings, each at most1024 UTF8 bytes and without
+raw control characters. Reject private-looking values using existing public-review privacy checks, and
 never render raw provider/error text. No second frontend signature verifier.
 
 Display **Join progress: STATE**, the observed-at timestamp, network/person/host/
@@ -2705,17 +2709,20 @@ The independent actual-terminal/reopen and installed acceptance gates stay open.
 ### Verification
 
 A separate contract-only author extends join_onboarding and adds focused native
-cases. Preserve original11 host case bodies and200 native files/cases unchanged.
+cases. Preserve original11 host case bodies and all existing native files (200 cases) unchanged.
 
 1. Exact fresh pending snapshot matches ordinary GET and immutable outcome;
    observed time/role/action/context are exact, no secrets, file/DB/protocol
    mutations or outbound transport. Repeats are read-only and do not inventory
    originals. Strict API/CLI body/ID/method/context/review and owner-only bounds.
 2. Real protocol transitions observed through existing public administration:
-   at least pending, needs_selection and locally applied, plus cancellation,
+   at least pending, one naturally observable intermediate state and locally
+   applied, plus cancellation,
    idle-stage expiry and historical read after review expiry/restart/replacement.
    Keep distinct requester consent and recorded stages; read never advances them.
-   Native fixtures cover all ten mapped states without claiming live protocol
+   The existing single-offer CLI selects without an extra prompt; do not disable
+   or freeze that behavior merely to force needs_selection. Native fixtures
+   cover all ten mapped states without claiming live protocol
    transitions for their mocked effects. Unknown/mismatched/corrupt record refuses
    without substituting another request; source/fault limits are recorded.
 3. Native Check is explicit after publication/outcome resume, exact bounded argv/
