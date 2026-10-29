@@ -2389,3 +2389,17 @@ code import here, automatic provider/approval/signing, new schema/secret journal
 and interpreting original possession or incoming role as admission/access.
 Section20 defines independent admission_onboarding and final all18/native252
 verification while retaining existing manual/installed/model/recovery gates.
+
+### GU.impl20a — Isolate the CLI signer in the existing signing fixture
+
+Selected: the separate author explicitly configures both owner_signing daemon
+constructors with an absent --person-key-file path and no person agent, while
+the CLI retains its genuine normal generated key. Its existing full-ceremony
+case observed zero CLI submissions after the approved original authority/host
+signatures were already retained: the documented daemon fallback can read keys
+created after startup and fulfill approved work before the explicit CLI runs.
+Retain all six case bodies, one-submission/proof/privacy assertions, host-owned
+signing, later ceremony and pure-history checks. This isolates the intended
+CLI-generated signature stimulus without a product change. Discarded: weakening
+the one-submission assertion, treating global recorded evidence as frontend
+attribution, disabling owned host work or rerunning until the race disappears.
