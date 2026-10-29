@@ -625,7 +625,11 @@ test('exact double approve or decline reinspects parent and invitation and sends
 test('changed parent review root host terminal or elapsed deadline cannot send the captured decision', async ($, on) => {
   const w = fixture(on); const ui = await setup($, w); const originalParent = clone(w.parent)
   for (const [index, mode] of ['parent', 'review', 'root', 'host', 'terminal', 'deadline'].entries()) {
-    if (index) await back(ui)
+    if (index) {
+      // Context loss may already have cleared the private project view.
+      const previous = await ui.find({ type: 'Button', text: /^Back\b/ })
+      if (previous) await ui.press({ key: previous.key! })
+    }
     w.parent = clone(originalParent); w.root = ROOT; w.native = NATIVE; w.host = HOST; w.surface = 'terminal'; w.surfaces = ['terminal']
     w.invitation = await invitationFlow(w.parent, w.networks[0]); await begin(w, ui)
     const button = await key(ui, 'Approve invitation'), before = count(w, 'invitation.decide')
