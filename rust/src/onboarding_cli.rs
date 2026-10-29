@@ -55,6 +55,11 @@ pub enum AdapterCommand {
         #[arg(long, required = true)]
         stdin: bool,
     },
+    /// Privately retrieve approved native transport material; output contains secrets
+    Transport {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
@@ -162,7 +167,9 @@ async fn adapter_command(command: &AdapterCommand, socket: &Path) -> Result<Valu
         AdapterCommand::Inspect { flow_id } => {
             local.get(format!("{base}/{}", encoded(flow_id))).await
         }
-        AdapterCommand::Decide { .. } | AdapterCommand::Credential { .. } => {
+        AdapterCommand::Decide { .. }
+        | AdapterCommand::Credential { .. }
+        | AdapterCommand::Transport { .. } => {
             let mut value = input()?;
             let flow_id = value
                 .as_object_mut()
@@ -186,9 +193,64 @@ async fn adapter_command(command: &AdapterCommand, socket: &Path) -> Result<Valu
                     .map_err(|_| anyhow::anyhow!("invalid adapter review input"))?;
                 "credential"
             };
-            local
+            let review_id = value["review_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("invalid adapter review input"))?
+                .to_owned();
+            let result = local
                 .post(format!("{base}/{}/{operation}", encoded(&flow_id)), value)
-                .await
+                .await?;
+            if matches!(command, AdapterCommand::Transport { .. }) {
+                transport(result, socket, &flow_id, &review_id)
+            } else {
+                Ok(result)
+            }
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransportCredential {
+    version: u8,
+    adapter_id: String,
+    session_id: String,
+    token: String,
+}
+fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Result<Value> {
+    let credential: TransportCredential = serde_json::from_value(value)
+        .map_err(|_| anyhow::anyhow!("invalid private transport response"))?;
+    let valid_id = |value: &str, prefix: &str, size: usize| {
+        value.strip_prefix(prefix).is_some_and(|suffix| {
+            suffix.len() == size
+                && suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
+    };
+    ensure!(
+        credential.version == 1
+            && valid_id(&credential.adapter_id, "adapter_", 32)
+            && valid_id(&credential.session_id, "session_", 32)
+            && valid_id(&credential.token, "token_", 64),
+        "invalid private transport response"
+    );
+    let key = ring::hmac::Key::new(
+        ring::hmac::HMAC_SHA256,
+        &hex::decode(&credential.token[6..])
+            .map_err(|_| anyhow::anyhow!("invalid private transport response"))?,
+    );
+    let input = format!("peerspan-guided-adapter-instance-v1\n{flow_id}\n{review_id}");
+    let instance_id = format!(
+        "instance_{}",
+        hex::encode(ring::hmac::sign(&key, input.as_bytes()).as_ref())
+    );
+    let adapter_socket = std::path::absolute(socket.with_file_name("adapter.sock"))?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("adapter socket path is not UTF-8"))?;
+    Ok(
+        serde_json::json!({"version":1,"adapter_id":credential.adapter_id,"session_id":credential.session_id,
+        "token":credential.token,"instance_id":instance_id,"adapter_socket":adapter_socket}),
+    )
 }
