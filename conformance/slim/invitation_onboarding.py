@@ -50,6 +50,7 @@ def host(name):
     h.transport_body = {"format": 1, "advertise_bootstrap": [f"127.0.0.1:{h.bootstrap_port}"],
                         "advertise_quic": [h.peer_address], "rendezvous": [], "relays": [], "publish_contacts": False}
     h.transport_file.write_text(json.dumps(h.transport_body))
+    h.transport_file.chmod(0o600)
     h.extra_args = ["--transport-config", h.transport_file]
     return h.start()
 
