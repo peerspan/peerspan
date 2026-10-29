@@ -36,7 +36,7 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Read onboarding status or run advanced project review commands
+    /// Read onboarding status or run advanced project and adapter reviews
     Onboarding(crate::onboarding_cli::OnboardingArgs),
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]

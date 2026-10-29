@@ -1,4 +1,4 @@
-//! Private project review payloads cross stdin, never command arguments.
+//! Private onboarding payloads cross stdin, never command arguments.
 use crate::{
     admin::Local,
     cli::{Command, encoded},
