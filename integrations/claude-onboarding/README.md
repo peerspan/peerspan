@@ -56,9 +56,11 @@ claude plugin test integrations/claude-onboarding
 
 The independent tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
-These fixtures do not satisfy real-model acceptance. During development the
-native command worked on 2.1.303, but the live inference probe was refused by
-the account's weekly usage limit. Reload and real-model acknowledgment remain
+These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
+terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
+same running process; a headless command also read a real temporary daemon.
+The live inference probe was refused by the account's weekly usage limit.
+Real-model acknowledgment and the complete attachment/data path remain
 outstanding acceptance work.
 
 Contract, decisions and independent cases:

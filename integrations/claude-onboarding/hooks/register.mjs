@@ -7,12 +7,10 @@ let read = 0;
 let lines = ['Host: unavailable'];
 let check = { state: 'unverified' };
 let expiration = null;
-let submission = null;
 
 function clearCheck() {
   expiration?.cancel();
-  submission?.cancel();
-  expiration = submission = null;
+  expiration = null;
   check = { state: 'unverified' };
 }
 
@@ -96,12 +94,11 @@ async function beginCheck($, epoch) {
   expiration = $.clock.after(60_000, () => {
     if (check === pending && epoch === generation) {
       check = { state: 'timed_out' };
-      submission?.cancel();
       $.ui.invalidate('ui.render');
     }
   });
-  // Submit outside the UI event; awaiting a new turn inside its handler can stall it.
-  submission = $.clock.after(0, () => submit($, pending, epoch));
+  // Never wait for a model turn inside the UI handler that requested it.
+  void submit($, pending, epoch);
 }
 
 async function close($) {
@@ -138,10 +135,10 @@ export function register(on, configured = {}) {
     const { Box, Text, Button } = $.ui.resolve(e);
     return Box({ flexDirection: 'column', children: [
       Text({ children: [summary()] }),
-      Button({ key: 'refresh', label: 'Refresh', onPress: () => { void refresh($); } }),
+      Button({ key: 'refresh', label: 'Refresh', onPress: () => refresh($) }),
       check.state === 'waiting' ? Text({ children: ['Waiting for this model to acknowledge…'] })
-        : Button({ key: 'check', label: 'Check this conversation', onPress: () => { void beginCheck($, epoch); } }),
-      Button({ key: 'close', label: 'Close', onPress: () => { void close($); } }),
+        : Button({ key: 'check', label: 'Check this conversation', onPress: () => beginCheck($, epoch) }),
+      Button({ key: 'close', label: 'Close', onPress: () => close($) }),
     ] });
   });
   on('tool.call', { tool: 'mcp__peerspan__delivery_acknowledge' }, async ($, e, next) => {
