@@ -1054,7 +1054,9 @@ function invitationControls($, { Text, Button, Input }, epoch) {
     Input({ key: 'invitation-pin', label: 'Expected person public key (- for unpinned)', value: previous.pin,
       onInput: v => invitationDraft($, previous, epoch, 'pin', v), onSubmit: v => invitationDraft($, previous, epoch, 'pin', v) }),
     button('invitation-prepare', 'Review invitation', () => prepareInvitation($, previous, epoch)), back];
-  return [Text({ children: [`Invitation: ${previous.stage}`, '\n', invitationReviewLines(previous.flow)] }),
+  const status = previous.stage === 'expired' && previous.flow.state === 'review'
+    ? 'Invitation: review expired locally. Refresh to check the host.' : `Invitation: ${previous.stage}`;
+  return [Text({ children: [status, '\n', invitationReviewLines(previous.flow)] }),
     ...(previous.stage === 'review' ? [
       button('invitation-approve', 'Approve invitation', () => decideInvitation($, previous, epoch, 'approve')),
       button('invitation-decline', 'Decline invitation', () => decideInvitation($, previous, epoch, 'decline')),
