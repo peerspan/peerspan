@@ -2143,10 +2143,148 @@ automatic key generation/import/join, treating signer possession as authority,
 new persistent secret copies, frontend cryptography and a nonfunctional Join
 button. These implement the accepted GU flow without a new owner decision.
 
-## 12. Remaining flow contract
+## 12. Exact recipient join-request consent (backend)
 
-Teammate/device admission, joining identity consent/request creation, remaining native data tools/events
-and exact permission grants remain future sections. Section 2's live verification and the complete
+This slice implements owner-local review and publication of a join request for
+one explicitly supplied original person public key. It does not discover,
+import, generate, persist or sign with a person key. The calling human flow
+must select an existing original identity, or explicitly create and safely save
+a new original key before publication. A public-key selection is not proof of
+possession. Joining an existing person on another computer uses the separate
+machine-linking ceremony; never copy an original key to make this flow work.
+Native identity selection and this backend's native controls are subsequent
+slices. Section11's read-only inspection remains unchanged.
+
+All routes are private owner administration; neither adapter nor peer routers
+expose them. Strict exact-field JSON (including nested context, duplicate keys,
+nulls and trailing JSON) and a 64KiB bound apply. Tokens remain exact, at most
+32KiB and never trimmed. Invalid input is400/invalid; existing DEC verification
+errors retain their codes. No endpoint starts a daemon, chooses a key or makes
+an inference. CLI commands take private JSON only through required `--stdin`:
+
+| API | CLI | Exact body |
+| --- | --- | --- |
+| POST `/v1/onboarding/join-flows` | `onboarding join prepare --stdin` | `{context,invitation,person_public_key}` with optional non-null `replace_flow_id` |
+| POST `/v1/onboarding/join-flows/lookup` | `onboarding join lookup --stdin` | `{context}` |
+| GET `/v1/onboarding/join-flows/{id}` | `onboarding join inspect ID` | none |
+| POST `/v1/onboarding/join-flows/{id}/decision` | `onboarding join decide --stdin` | `{context,review_id,decision}`; approve additionally requires `invitation` |
+
+CLI decide additionally takes `flow_id` in stdin and removes it for the route.
+`decision` is exactly `approve` or `decline`. Decline forbids `invitation`;
+approve requires the same exact code as prepare, including on an outcome retry.
+No token, seed, signed packet, return capability or display/reply code appears
+in these responses, CLI errors, argv, activity or the new table.
+
+Prepare verifies the ordinary signed invitation and person pin, and requires
+an exact current attached project/agent. `person_public_key` is a canonical
+Ed25519 public key, never `-`. No automatic person selection is permitted.
+Preparation writes only a public review; no request/device key, network,
+outbox, invitation-return update or protocol frame is created. Store only the
+code's SHA256 digest and the complete public preview from section11, not the
+code or signed bytes. This digest is an internal equality binding, not access
+or possession proof.
+
+The public response is exactly `{version:1,host_id,flow_id,review_id,state,
+review,outcome,next_action}`. Review is exactly `{version:1,
+kind:"create_join_request",flow_id,host_id,context,agent,invitation_review_id,
+invitation,person_public_key,expires_at,effects}`. `invitation` is the complete
+public section11 review; `invitation_review_id` is its section11 digest.
+`expires_at` is the earlier of invitation expiry and guarded prepare time plus
+15 minutes, fixed on first prepare. Effects are exactly
+`{create_identity:false,create_link_request:true,publish_request:true,
+select_owner:false,grant_membership:false,grant_agent_access:false,
+approve_machine:false,share_files:false,share_conversation:false,
+capability_calls:false}`. Publishing permits the ordinary encrypted automatic
+return and transport workers after commit, without proving delivery. Digest:
+`review_` plus lowercase SHA256 of `peerspan-join-review-v1\n` followed by the
+recursively sorted canonical review JSON. A new `flow_` ID uses16 random bytes.
+
+States are `review`, `declined`, `requested`, `expired`, `invalidated` or
+`replaced`. `outcome` is null until requested, then exactly the immutable public
+`{request_id,network_id,context_id,person_public_key}`. Requested records report
+publication consent, never membership, readiness, receipt or current request
+completion. The ordinary request inspection supplies later state. Next actions
+are respectively `approve_join_request`, `none`, `await_participant_reviews`,
+`review_replacement`, `review_replacement`, `review_replacement`.
+
+One latest flow per project binding is resumed: identical prepare returns200
+and the retained view, never extends time or regenerates anything; a different
+proposal without explicit replacement returns409/flow_conflict. A first prepare
+returns201. Replacement requires the exact latest `replace_flow_id` and refuses
+while that review is still live. Replacing a requested outcome does not cancel
+or revoke its protocol request. Older reviews become replaced and cannot mutate;
+requested/declined outcomes remain recorded. Lookup is read-only and returns
+exactly `{version:1,host_id,context,flow}` with null when absent. Inspect, lookup
+and retry do no transport I/O or cleanup.
+
+New decisions require exact flow/context/digest, the latest review, its fixed
+unexpired deadline and the current attached parent/agent. A changed binding or
+parent returns409/review_changed, an expired review409/review_expired, and a
+conflicting/already opposite decision409/flow_conflict. Approval re-verifies the
+same signed code and person pin before signing. Create the existing new-mode
+request with exact network/person, migration `-`, invitation and its signed
+helpers, using the existing host/device signing, limits, staging and replay
+rules. The ordinary device key, request, encrypted frames/contact and public
+flow outcome commit in one SQLite transaction. A storage, quota, protocol,
+parent, pin, code or review failure rolls back all of them. Publish only after
+commit. No original-person key is read or generated, and no owner selection,
+requester selection/commit, admission, trust or agent permission is approved.
+
+An identical live request already created through the ordinary CLI may be
+reused under its existing exact-intent rules; the outcome must name that same
+request. A recorded approve/decline retry returns the recorded outcome even
+after expiry/restart/context loss, without re-running request creation, sending,
+cleanup or code validity checks. It still checks exact context/digest and, for
+approve, the original code digest. Opposite decisions conflict. Cancelling or
+expiring the underlying request does not let an old approval create another;
+only a new explicitly prepared and approved flow can do so.
+
+Schema27 adds only `onboarding_join_flows`: public proposal, code digest,
+review/digest, parent reference, fixed times, decision and public outcome.
+Migration26→27 and validation are atomic and fail closed on reserved names,
+malformed retained table or future28, preserving older tables and authority.
+The new table is not a second secret store. Main's older binary cannot reopen
+this database; retain the integration's installed-upgrade/recovery merge gate.
+
+### Verification
+
+A separate contract-only author creates a small `join_onboarding` slim suite
+and extends the CI matrix. No implementer tests. Preserve prior assertions;
+mechanically advance only latest/future schema expectations and account for
+the additional empty table in existing migration snapshots. Keep each suite
+under two minutes with the debug clock. Use public APIs for protocol authority;
+SQLite mutation is limited to migration/failure-injection fixtures.
+
+1. Two distinct real hosts: signed introduction, attached recipient, exact
+   public nested preview/key/digests/expiry/effects, no request/key/protocol side
+   effects on prepare, identical200 resume, lookup/inspect pure and private.
+2. Explicit approve creates exactly one ordinary request with exact pins and
+   helpers; immutable sanitized outcome; repeat/lost-response/restart replay
+   keeps the same request/device/frames and expiry. Existing exact advanced-CLI
+   requests reuse safely. Cancellation followed by old approval creates nothing.
+3. Decline/retry, opposite decisions, different key/code, pin mismatch,
+   expired/future/bad-signature introduction, wrong/detached/replaced parent,
+   digest/context changes and explicit replacement refuse or resume as specified.
+4. Inject failure of the public outcome update after protocol writes: all
+   request/key/frame/contact and outcome changes roll back. Retrying afterwards
+   succeeds once. Protocol quota failures also leave the flow undecided.
+5. Strict JSON/stdin/body/code boundaries and route/method/credential separation;
+   no code, secret, key seed or signed blob in public replies, errors, activity
+   or the new table. CLI is literal stdin, no lifecycle/key setup or hidden I/O.
+6. Additive26→27 migration, reserved names, corruption, future28 and rollback;
+   original155 Rust tests,162 native cases and all prior slim cases retained.
+
+Selected: durable exact public-key/publication review, no extra secret store,
+and one transaction around the existing protocol request and consent outcome.
+Discarded: key generation on preview, treating a supplied public key as owner
+proof, making admission/access implicit, partially committed approval/request,
+a second pairing protocol and retrying an old approval into a new request.
+
+## 13. Remaining flow contract
+
+Teammate/device admission, native identity selection/key creation and join
+controls, remaining native data tools/events and exact permission grants remain
+future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.
 
