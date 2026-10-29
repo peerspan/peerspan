@@ -771,3 +771,40 @@ test('root surface scope lease expiry and session end revoke message tools and a
   }
   privacy(w)
 })
+
+test('equivalent RFC3339 deadline offsets preserve handoff and receipt semantics while elapsed offsets are refused', async ($, on) => {
+  const w = fixture(on); const ui = await connected($, w)
+  const instant = w.clock.now() + 60_000
+  const deadlines = [stamp(instant), stamp(instant).replace('Z', '+00:00'),
+    stamp(instant + 330 * 60_000).replace('Z', '+05:30'), stamp(instant - 240 * 60_000).replace('Z', '-04:00')]
+  const accepted = deadlines.map((deadline, index) => {
+    expect(Date.parse(deadline), 'fixture deadlines denote the same future instant').toBe(instant)
+    const value = handoff(w, 100 + index); value.request.deadline = deadline
+    value.request.content = 'Equivalent deadline message ' + index + ' 東京'
+    return value
+  })
+  const elapsed = handoff(w, 200)
+  elapsed.request.deadline = stamp(w.clock.now() - 1000 + 330 * 60_000).replace('Z', '+05:30')
+  w.messages = [...accepted, elapsed]
+  await enable($, w, ui)
+  for (let index = 1; index < accepted.length; index++) await w.clock.advance(1000)
+  expect(w.prompts.length).toBe(1 + accepted.length); expect(forwards(w).length).toBe(accepted.length)
+  for (const [index, value] of accepted.entries()) {
+    expect(w.prompts[index + 1].text).toContain(JSON.stringify(value.request.content))
+    expect(pathOf(forwards(w)[index])).toBe('/adapter/v1/deliveries/' + value.delivery.id + '/forwarded')
+  }
+  await stats(ui, { submitted: 4, seen: 0, replied: 0 })
+  const seen = accepted[1].delivery.id, replied = accepted[2].delivery.id
+  expect(resultOf(await call($, SEEN, { delivery_id: seen }))).toEqual({ seen: [seen] })
+  expect(resultOf(await call($, REPLY, { delivery_id: replied, content: 'Offset handoff received' })))
+    .toEqual({ replied: true, delivery_id: replied })
+  await stats(ui, { submitted: 4, seen: 2, replied: 1 })
+  expect(await text(ui)).toContain('Peer exchange: not verified')
+  await w.clock.advance(1000)
+  expect(claims(w).length).toBe(5); expect(w.prompts.length).toBe(5); expect(forwards(w).length).toBe(4)
+  expect(await text(ui)).not.toContain('Incoming delivery: verified (messages)')
+  expect(await text(ui)).toContain('Adapter: connected')
+  await w.clock.advance(5000); expect(claims(w).length).toBe(5)
+  await stats(ui, { submitted: 4, seen: 2, replied: 1 })
+  privacy(w, await text(ui))
+})
