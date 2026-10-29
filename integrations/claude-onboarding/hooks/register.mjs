@@ -13,6 +13,7 @@ import { flow as parseInvitationFlow, lookup as parseInvitationLookup, networks 
 import { validCode as validInvitationCode, preview as parseRecipientPreview, reviewLines as recipientReviewLines, terms as recipientPublicTerms } from './recipient.mjs';
 import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdentity, flow as parseJoinFlow, lookup as parseJoinLookup,
   reviewLines as joinReviewLines, provenance as joinProvenance } from './join.mjs';
+import { progress as parseJoinProgress, progressLines as joinProgressLines } from './join-progress.mjs';
 
 let options;
 let hostId = null;
@@ -877,7 +878,8 @@ function joinStart($, previous, epoch) {
   if (joining !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
   joiningExpiry?.cancel();
   joiningExpiry = null;
-  joining = { ...previous, code: '', busy: true, expiryAuthority: null, parent: project.flow, context: project.context, host: hostId };
+  joining = { ...previous, code: '', busy: true, expiryAuthority: null, progress: null, progressError: false,
+    parent: project.flow, context: project.context, host: hostId };
   $.ui.invalidate('ui.render');
   return joining;
 }
@@ -1131,6 +1133,31 @@ async function anotherJoining($, previous, epoch) {
       selected: null, identities: [], secret: null });
   } catch { joinFailure($, running, epoch); }
 }
+async function checkJoinProgress($, previous, epoch) {
+  if (previous.stage !== 'requested' || previous.flow?.state !== 'requested') return;
+  const captured = previous.flow, running = joinStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await joinParent($, running, epoch)) return;
+    const raw = await joinRun($, ['inspect', captured.flow_id]);
+    if (!await joinCurrent($, running, epoch)) return;
+    const flow = await parseJoinFlow(raw, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!same(flow, captured) || flow.state !== 'requested') throw new Error('Changed published join flow');
+    if (!await joinHost($, running, epoch)) return;
+    const result = await joinRun($, ['progress', '--stdin'], { flow_id: captured.flow_id,
+      context: adapterContext(running.parent), review_id: captured.review_id });
+    if (!await joinCurrent($, running, epoch)) return;
+    const value = await parseJoinProgress(result, captured, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    await joinView($, running, epoch, captured, { progress: value, progressError: false, secret: null });
+  } catch {
+    if (joining === running && epoch === generation) {
+      joining = { ...running, busy: false, code: '', secret: null, progress: null, progressError: true };
+      $.ui.invalidate('ui.render');
+    }
+  }
+}
 function joinPage($, previous, epoch, page) {
   if (joining !== previous || previous.busy || epoch !== generation || previous.stage !== 'choose' ||
       page < 0 || page * 10 >= previous.identities.length) return;
@@ -1148,7 +1175,8 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   const cancelCreation = button('join-create-cancel', 'Cancel identity creation', () => {
     if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy) return [Text({ children: ['Joining: working…'] }),
+  if (previous.busy) return [Text({ children: [previous.stage === 'requested'
+    ? 'Join request: publication recorded\n' + joinReviewLines(previous.flow, null) + '\nJoining: working…' : 'Joining: working…'] }),
     ...(previous.stage === 'create_review' ? [cancelCreation] : []), back];
   if (previous.stage === 'draft') return [
     Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Reviewing identities creates no key; creating a new original requires separate consent.',
@@ -1185,6 +1213,11 @@ function joiningControls($, { Text, Button, Input }, epoch) {
     : previous.stage === 'review' ? 'Join request: review publication' : `Join request: ${previous.stage}`;
   return [Text({ children: [status, flow && ['review', 'requested', 'declined'].includes(previous.stage) ? '\n' + joinReviewLines(flow, previous.selected) : '',
       previous.stage === 'requested' ? '\nThis records publication only. Participant approvals and current link state, access, reachability and model receipt are not verified.' : ''] }),
+    ...(previous.stage === 'requested' ? [
+      ...(previous.progress ? [Text({ children: [joinProgressLines(previous.progress)] })] : []),
+      ...(previous.progressError ? [Text({ children: ['Join progress unavailable. Publication remains recorded. Check again explicitly; no automatic retry.'] })] : []),
+      button('join-progress', 'Check join progress', () => checkJoinProgress($, previous, epoch)),
+    ] : []),
     ...(previous.stage === 'review' ? [
       ...(previous.secret && previous.selected ? [button('join-approve', 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
         Input({ key: 'join-recover-code', label: 'Private invitation for joining', value: previous.code,

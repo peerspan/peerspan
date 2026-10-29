@@ -63,6 +63,11 @@ pub enum JoinCommand {
         #[arg(long, required = true)]
         stdin: bool,
     },
+    /// Observe the exact published request without advancing or retrieving a code
+    Progress {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Inspect public terms without retrieving pairing material
     Inspect { flow_id: String },
     /// Approve request publication or decline the exact retained review
@@ -230,7 +235,7 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
 }
 
 async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
-    use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, decode_input};
+    use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, Progress, decode_input};
     let local = Local(socket);
     let base = "/v1/onboarding/join-flows";
     if let JoinCommand::Inspect { flow_id } = command {
@@ -243,6 +248,7 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         JoinCommand::Prepare { .. } => "prepare",
         JoinCommand::Lookup { .. } | JoinCommand::Identities { .. } => "lookup",
         JoinCommand::Decide { .. } => "decision",
+        JoinCommand::Progress { .. } => "progress",
         JoinCommand::Inspect { .. } | JoinCommand::CreateIdentity { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid join review input");
@@ -263,7 +269,7 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
             let _: Lookup = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
             local.post(format!("{base}/lookup"), value).await
         }
-        JoinCommand::Decide { .. } => {
+        JoinCommand::Decide { .. } | JoinCommand::Progress { .. } => {
             let id = value
                 .as_object_mut()
                 .and_then(|v| v.remove("flow_id"))
@@ -276,6 +282,10 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
                     })
                 })
                 .ok_or_else(invalid)?;
+            if let JoinCommand::Progress { .. } = command {
+                let _: Progress = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+                return local.post(format!("{base}/{id}/progress"), value).await;
+            }
             let request: Decision = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
             ensure!(
                 matches!(
