@@ -2753,7 +2753,8 @@ prove original possession until the exact original signature is supplied.
 Private owner-local POST routes under
 `/v1/onboarding/join-flows/{flow_id}/owner/{prepare,lookup,approve}` accept exactly
 `{context,join_review_id}` for prepare/lookup and additionally `owner_review_id`
-for approve. The advanced private-stdin interface is
+for approve. Every successful action returns HTTP200, including fresh preparation
+and exact retained retries; malformed requests use400 invalid. The advanced private-stdin interface is
 `peerspan onboarding join owner prepare|lookup|approve --stdin`, adding exactly
 flow_id to those shapes. Reuse strict64KiB body/stdin and duplicate/unknown-field,
 context and typed-ID validation. No paths, code, scopes, provider, deadline,
