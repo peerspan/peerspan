@@ -207,10 +207,12 @@ the command's text. Do not claim a human control exists or run a check there.
 ### Explicit conversation check
 
 Only **Check this conversation** arms a check. It stores a fresh random
-128-bit `probe_id`, the native `$.session.id()`, and its start time in memory;
+128-bit `probe_id` encoded as 32 lowercase hexadecimal digits, the native
+`$.session.id()`, and its start time in memory;
 it submits one fixed local check prompt through `$.prompt.submit({text})`
 without `asUser`. Its prompt contains only that public challenge and
-instructions to call `mcp__peerspan__delivery_acknowledge`; it includes no host
+instructions to call `mcp__peerspan__delivery_acknowledge` with the JSON object
+`{"probe_id":"CHALLENGE"}`; it includes no host
 snapshot, files, conversation history, pairing material or owner decision.
 
 Register `delivery_acknowledge` with exactly one required string argument,
