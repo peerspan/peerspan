@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-29",
+  "kind": "manual pinned native terminal with temporary owner-local host",
+  "claude_version": "2.1.303",
+  "source_heads": {
+    "native": "43939a09816a71a3dd0a9f70cc43ac62cef31b49",
+    "rust_build": "a4e5601e17b46f844de900f56a77d802cc3743a8",
+    "merged_backend": "4a894df10e4b5b7005595deea349ef7acefb6ff2"
+  },
+  "fixture": {
+    "physical_machines": 1,
+    "coordinator_used": false,
+    "installed_bundle": false,
+    "inference_attempted": false,
+    "project_path_contained_spaces": true,
+    "network_created_through_existing_cli": true
+  },
+  "actions": [
+    "Open /peerspan in a real native conversation; attach a new local project agent through its exact human review.",
+    "Choose Invite someone without an adapter; explicitly select the sole named network.",
+    "Enter Smoke teammate with unpinned identity; Review invitation and inspect all public identity, hints, expiry and effects.",
+    "Approve invitation; observe issued without an automatic handoff.",
+    "Explicitly Reveal private invitation; native CLI audit observes project inspect, invitation inspect, then handoff --stdin.",
+    "Press Hide, then Refresh; subsequent drawing offers Reveal again and the private code is absent.",
+    "Close via Escape, reload plugins, reopen /peerspan, connect the existing project and resume Invite someone.",
+    "Observe the same issued review, no automatic reveal or extra mint; close and exit Claude."
+  ],
+  "observations": {
+    "agents": 1,
+    "sessions": 1,
+    "project_flows": 1,
+    "invitation_flows": 1,
+    "invitation_state": "issued",
+    "private_return_rows": 1,
+    "adapter_credentials": 0,
+    "native_transcripts": 1,
+    "assistant_messages": 0,
+    "private_code_prefixes_absent_from_transcript": true,
+    "flow_review_prefixes_absent_from_transcript": true
+  },
+  "privacy_of_manual_capture": "The external manual driver suppressed all terminal output before Reveal until after Hide and Refresh. No raw invitation was retained in tool output or this evidence. The audit recorded command names/IDs only, never stdin or stdout. Private code display itself was intentionally withheld from the model.",
+  "limitations": [
+    "Source-loaded temporary single host; not installed, two-person or cross-machine acceptance.",
+    "No recipient import, join, admission, agent-access grant, adapter readiness, task or peer exchange tested.",
+    "No model inference, model receipt or quota probe attempted.",
+    "Hide was pressed while output was suppressed; the observed post-Refresh hidden state is not standalone manual evidence of the Hide-only transition. Independent native fixtures verify that transition.",
+    "Old synchronous callbacks remain source-reviewed/manual-only; public test kit supports current drawing keys, not retained closures.",
+    "Later source fixes, if any, require affected independent checks; this manual run is bound to the recorded native head."
+  ],
+  "binary_sha256": {
+    "peerspan-host": "d4f26565a4f54cd0bedd10fbbf40eeaa8890e0399cd73c766430dc4c816597e3",
+    "peerspan-peer-probe": "c435186ad3f0619da22d1b04050ca77e117573e83f3fdd562525e8e7101ccd23",
+    "peerspan-helper": "a469c289ac49128ac3aecf3b3a23c89e1b062dedec10cae27b83836f60efcaf4"
+  }
+}
