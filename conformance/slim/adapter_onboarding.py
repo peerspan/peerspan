@@ -9,6 +9,7 @@ neither a native human callback nor model receipt or complete adapter delivery.
 The private host-seed format and unavailable scope-edit APIs are outside scope.
 """
 import hashlib
+import hmac
 import http.client
 import json
 import math
@@ -394,6 +395,77 @@ def _():
         check(status == 403 and error.get("code") == code, "guided credential escaped its reviewed scope")
     adapter.ready()
     check(adapter.post("/adapter/v1/next") == (200, None), "normal ready handshake did not open empty work polling")
+
+
+@suite.case("private_transport_derivation_socket_and_original_instance_reconnect", "guided onboarding 6 verification 7")
+def _():
+    host = suite.host("transport space")
+    attached, flow = approved(host, "transport-private")
+    payload = {"flow_id": flow["flow_id"], **without(decision(flow), "decision")}
+    original = credential(host, flow)
+
+    def transport():
+        result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(payload))
+        check(result.ok, "private transport CLI failed")
+        value = result.json
+        check(set(value) == {"version", "adapter_id", "session_id", "token", "instance_id", "adapter_socket"}
+              and type(value["version"]) is int and value["version"] == 1, "transport response is not the exact six-field shape")
+        check(without(value, "instance_id", "adapter_socket") == original, "transport changed the existing credential API response")
+        check(value["adapter_socket"] == str((host.state / "adapter.sock").absolute()), "transport selected a different owner-local socket")
+        message = ("peerspan-guided-adapter-instance-v1\n" + flow["flow_id"] + "\n" + flow["review_id"]).encode()
+        expected = "instance_" + hmac.new(bytes.fromhex(value["token"][6:]), message, hashlib.sha256).hexdigest()
+        check(value["instance_id"] == expected, "transport instance differs from the specified HMAC domain/bindings")
+        return value
+
+    before, before_files = records(host), file_state(host.root)
+    private = transport()
+    check(all(value == private for value in parallel(transport)), "transport retry changed its original instance")
+    check(records(host) == before and file_state(host.root) == before_files, "transport retrieval wrote records/files/activity")
+    adapter = fixture_adapter(host, flow, private)
+    adapter.instance = private["instance_id"]
+    body = {"adapter_id": private["adapter_id"], "session_id": private["session_id"],
+            "instance_id": private["instance_id"], "protocol_version": "claude-mod-v1"}
+    for _ in range(2):
+        check(adapter.call("POST", "/adapter/v1/connect", body)[0] == 200, "original transport instance failed scoped connect/reconnect")
+        view = get(host, "/v1/adapters/" + adapter.adapter_id + "/connection")
+        check(view["state"] == "ready" and view["channel"] == "unverified"
+              and view["channel_verified_at"] is None and view["protocol_version"] == "claude-mod-v1",
+              "native transport claimed channel verification or lost protocol reporting")
+        check(transport() == private, "connected retrieval substituted another instance")
+    check(len(host.ok("adapter", "list")) == 1
+          and len([event for event in events(host) if event["kind"] == "adapter.created"]) == 1,
+          "scoped reconnect issued another authorization")
+    for body in ({**payload, "review_id": "review_" + "f" * 64}, {**payload, "unknown": "private-marker"}):
+        result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(body))
+        check(not result.ok and all(value not in result.stdout + result.stderr for value in
+              (private["token"], private["instance_id"], private["adapter_socket"], "private-marker")), "refused transport leaked private material")
+    encoded = json.dumps(payload)
+    for data in ('{"flow_id":', " " * (65537 - len(encoded.encode())) + encoded):
+        check(not host.cli("onboarding", "adapter", "transport", "--stdin", input=data).ok, "transport accepted malformed/oversized stdin")
+    check(not host.cli("onboarding", "adapter", "transport", input=encoded).ok, "transport read stdin without explicit selection")
+    non_utf8 = host.root / os.fsdecode(b"non-utf8-\xff")
+    non_utf8.symlink_to(host.state, target_is_directory=True)
+    try:
+        refused = subprocess.run([str(suite.host_bin), "--state", str(non_utf8), "onboarding", "adapter", "transport", "--stdin"],
+                                 input=encoded.encode(), capture_output=True, env=host.env, timeout=10)
+        check(refused.returncode != 0 and private["token"].encode() not in refused.stdout + refused.stderr
+              and private["instance_id"].encode() not in refused.stdout + refused.stderr,
+              "transport accepted a non-UTF-8 socket path or exposed secrets on refusal")
+    finally:
+        non_utf8.unlink()
+    other_project, other = approved(host, "transport-other-flow")
+    other_payload = {"flow_id": other["flow_id"], **without(decision(other), "decision")}
+    result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(other_payload))
+    check(result.ok and result.json["instance_id"] != private["instance_id"], "different flow/token reused the original instance")
+    message = ("peerspan-guided-adapter-instance-v1\n" + other["flow_id"] + "\n" + other["review_id"]).encode()
+    check(result.json["instance_id"] == "instance_" + hmac.new(bytes.fromhex(result.json["token"][6:]), message, hashlib.sha256).hexdigest(),
+          "second flow's transport does not bind its own token and immutable references")
+    host.ok("adapter", "revoke", adapter.adapter_id)
+    before = records(host)
+    result = host.cli("onboarding", "adapter", "transport", "--stdin", input=encoded)
+    check(not result.ok and private["token"] not in result.stdout + result.stderr
+          and private["instance_id"] not in result.stdout + result.stderr, "revoked transport retrieval succeeded/leaked secrets")
+    check(records(host) == before, "transport revived a revoked authorization")
 
 
 @suite.case("exact_decisions_decline_and_explicit_replacement", "guided onboarding 5 verification 3/5")
