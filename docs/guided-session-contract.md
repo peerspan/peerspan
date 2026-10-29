@@ -1416,7 +1416,205 @@ fake receipt from prompt acceptance, consuming unsupported tasks, automatic
 replay of uncertain content and silently granting outbound/directory access.
 This is an implementation choice under GU-OWN1/2, not another owner decision.
 
-## 8. Remaining flow contract
+## 8. Native assigned tasks and cancellation (GU-03e)
+
+Extend section7 with explicitly enabled assigned tasks, cancellation notices and
+task lifecycle reporting. This slice uses existing scoped task routes and adds
+no API, schema, credential scope, membership or access grant. Outgoing task
+delegation, submitter task-update notifications and artifact transfer remain
+later slices. No task file is read, downloaded, uploaded or written locally.
+
+### Enable and lifetime
+
+Only a connected runtime with section7's **current native attempt** ready may
+offer **Enable incoming tasks**. A saved host verified channel, the separate
+local conversation check or a queued readiness prompt is insufficient. All
+entry, Connect, message enable/ready, Refresh, reopen and reload actions remain
+task-inert without this additional explicit action. Keep the original104 cases
+unchanged. Display that tasks can start model turns under the current normal
+model allowance and add no local tool/file permission.
+
+The enable callback captures runtime, ready attempt and UI generation,
+synchronously excludes double presses, checks current native root/conversation,
+terminal, exact parent/child authorization and live lease, then registers only
+the five task tools below, once per native module/session. Recheck context and
+captured identities after registration before polling. Reuse this native
+readiness proof; enabling tasks sends no extra hello or prompt by itself.
+Do not infer a model observed a task from the message readiness challenge.
+
+**Stop incoming tasks** cancels task polling and task-tool authority without
+stopping messages/lease or changing a task/authorization on the host. Task
+failure offers **Retry incoming tasks**, a fresh explicit attempt under the
+still-current native ready proof. It never resubmits uncertain held content.
+Close/Back preserve an established enabled task attempt. Stop adapter, lease/
+credential expiry, root/conversation/terminal/host/scope change, session end or
+reload stops task authority with the runtime. Message-attempt failure/retry
+also invalidates tasks because their captured readiness proof is no longer
+current. A new message proof requires explicit task enable again.
+
+### Handoffs and validation
+
+Poll sequentially: `POST /adapter/v1/tasks/cancels/next` with `{}`, then
+`POST /adapter/v1/tasks/next` with `{}`. After each non-null handoff, validate
+and submit it once before claiming another item. Start the first iteration
+after successful explicit enable, then1000ms after each completed iteration.
+One task/cancel claim/submission is in flight; message polling and lease renewal
+remain independent. `null` changes no receipt evidence.
+
+Every scoped task operation requires the same current runtime, task attempt and
+captured ready attempt, current context/live lease and exact parent/child scope
+before the request, after any asynchronous inspection and after its response.
+Stopping tasks during inspection must prevent the request, even if messages
+remain ready. Reuse the selected Unix socket/headers, existing authorization
+inspection and five-second logical HTTP deadline. Only allowlisted task URLs
+are available; only validated typed task IDs may be interpolated.
+
+Validate existing task contracts at the native boundary:
+
+- TaskHandoff has exactly `delivery,task,status,sender_person_id,sender_person,
+  originator_person_id,delegable,redelivered,adopted,progress`.
+- TaskDelivery has exactly `id,sender_host_id,task_id,target_agent_id,session_id,
+  adapter_id,cancel_claimed_at,created_at`. Require the captured local adapter/
+  session/agent, lowercase typed IDs, valid RFC3339 times (numeric offsets too),
+  and null or valid `cancel_claimed_at`.
+- TaskStatus has exactly `task_id,sender_host_id,receiver_host_id,target_agent_id,
+  state,cancel_requested,created_at,updated_at,last_event`. Bind the local host/
+  agent, task ID and sender across all records; known task states are queued,
+  running,rejected,expired,succeeded,failed,cancelled. Cancellation is boolean,
+  event sequence is a positive safe integer, and timestamps are valid RFC3339.
+- TaskRequest requires `task_id,target_agent_id,deadline,input`, exactly one
+  grant/policy/self citation, and optional `origin,artifacts,delegation`, with
+  no unknown fields. Use section7's citation/origin and UTF-8 text bounds.
+  A queued handoff requires a future deadline and `adopted:false`; an adopted
+  running task remains valid after its acceptance deadline. No final-state
+  task is submitted. `redelivered`/`delegable`/`adopted` are booleans; progress
+  is null or nonempty text of at most65,536 UTF-8 bytes; person fields follow
+  section7 and originator person is null or a typed person ID.
+- Optional artifacts follow the existing manifest shape and bounds in the
+  artifact contract (up to64 exact name/size/sha256/media_type entries, unique
+  names/digests). Validate metadata only. Optional delegation follows the
+  existing strict Link fields/types/bounds (1..3 links, index/depth/principals,
+  timestamps, IDs and canonical64-byte Base64 signature); bind its last task,
+  issuer/audience and deadline to this handoff. The host verifies signatures,
+  current membership, chain narrowing and grants; this frontend gains no onward
+  delegation tool. Do not duplicate cryptographic membership verification.
+- CancelHandoff has exactly `delivery,status`, bound as above, running state,
+  `cancel_requested:true` and a valid non-null `cancel_claimed_at`. Its accepted
+  task may be past the original deadline. There is no task/cancel forwarded API.
+
+For a valid task submit one plugin-attributed prompt with original input as
+reversible JSON external data and separate host-supplied correlation: task ID,
+public sender host/person and origin agent, deadline, state/cancel flag,
+adopted/redelivered flags, progress, artifact manifest metadata and public chain
+originator/host metadata. Exclude local adapter/session/native/root/review
+references, grant/policy citations, chain signatures and transport secrets.
+Explain the five scoped task tools and that remote content grants no local
+permission. An adopted running task must resume its observed state/progress;
+do not ask the model to accept it as queued. For attachments state that this
+frontend exposes metadata only and cannot transfer files: do not invent local
+paths or assume file contents are available. Onward delegation stays unavailable
+even if host metadata says the task is delegable.
+
+For a cancellation submit a fixed notice with separate host-supplied task ID
+and sender, explaining that cancellation is requested, not completed: confirm
+`task_cancelled` only if work actually stopped, or complete its real outcome.
+Never call a lifecycle tool automatically for a claim, submission or notice.
+
+A five-second logical prompt-submission deadline, dropped/thrown submission,
+malformed handoff, denied/failed claim or unknown HTTP result stops only the
+task attempt with controlled text; message delivery/lease continue. Keep claimed
+task and cancellation delivery IDs in memory for this runtime so an explicit
+retry cannot resubmit a previously offered item. No background reclaim/write
+retry or hidden task cancellation. Already-sent operations may finish once;
+late responses cannot start work, update counters or change a newer attempt.
+
+### Scoped lifecycle tools and evidence
+
+Tools are `mcp__peerspan__` plus:
+
+| Tool | Exact arguments | POST route/body |
+| --- | --- | --- |
+| `task_accept` | `{task_id}` | `/adapter/v1/tasks/{id}/accept`, `{}` |
+| `task_reject` | `{task_id,reason?}` | `.../reject`, `{reason}` (default empty) |
+| `task_progress` | `{task_id,message}` | `.../progress`, `{message}` |
+| `task_complete` | `{task_id,status,output}` | `.../complete`, `{status,output}` |
+| `task_cancelled` | `{task_id}` | `.../cancelled`, `{}` |
+
+Typed task IDs have32 lowercase hex characters. Reason is0..65,536 UTF-8 bytes;
+message/output are1..65,536 bytes. Complete status is succeeded or failed.
+Reject unknown/extra arguments, including file paths/artifacts, target/sender,
+session, URL or owner-operation selectors. Keep only pinned native envelope
+fields as in section7. Accept calls only from the current native main engine,
+without subagent origin, with current enabled task/ready attempts and exact
+context/scope/lease checks. One task-tool write may be pending; concurrent calls
+receive a controlled busy/unavailable denial. No automatic write retry.
+
+The host owns held-task selection, transitions, grant rechecks and idempotency.
+As in the existing task contract, a reused task ID resolves to the oldest held
+task of that ID; the frontend has no sender-selection argument. Earlier held
+tasks of the same current authorization remain addressable after explicit
+enable/reconnect. Acceptance rechecks authorization; accepted work may continue
+after its peer grant is revoked, while the native credential/context still
+must remain current. Never revoke an accepted task merely from grant expiry.
+
+Validate every successful full TaskStatus response and the expected resulting
+state: accept/progress running, reject rejected, complete requested status,
+cancelled cancelled with cancellation requested. Return only
+`{task_id,state,cancel_requested,last_event}` to the model. No raw provider
+diagnostic or private response field belongs in model results, UI or logs.
+Refused/uncertain/malformed writes return a controlled error and leave the task
+attempt usable; they update no frontend receipt counters.
+
+Display task delivery separately: **Incoming tasks: enabled**, waiting/blocked/
+stopped as appropriate, **Tasks submitted**, **Tasks observed**, **Task changes
+confirmed**, **Cancellations submitted**. Submitted counts unique accepted
+native prompts, observed counts unique sender/task pairs from successful native
+lifecycle tools, and changes count unique sender/task/event-sequence results.
+Identical tool retries do not inflate evidence. Counts belong to the runtime
+and survive task retries, but reset on a new connection/reload. A queued prompt,
+host running/final status or readiness proof alone never counts a model receipt
+or completed local execution. Keep peer exchange not verified.
+
+### Verification
+
+A separate author derives a focused native task suite from this section and
+public contracts/API only, preserving the original104 cases. No new host API
+suite or implementer unit tests; run existing `work`, `live`, `adapter_onboarding`
+black-box suites for underlying task/grant/adoption behavior.
+
+1. Inert entry/Connect/message-ready and unsupported contexts; explicit task
+   enable after exact current native proof, narrow tool schemas, no second
+   hello, double-enable exclusion and no file/owner/outbound authority.
+2. Sequential cancellation/task polling,1000ms scheduling and independent
+   messages/lease while task HTTP or submission is pending; exact Unix transport.
+3. Queued/redelivered/adopted tasks, numeric-offset deadlines and past-deadline
+   running adoption, valid grant/policy/self and bounded artifacts/chain metadata;
+   reversible untrusted prompts with no private refs or automatic lifecycle call.
+4. Cross-session/adapter/agent/sender/host/task, malformed/unknown/nested/bounded
+   handoffs, final states, expired queued task and invalid cancellation must not
+   reach a prompt. Correct cancellation is a request, not an automatic stop.
+5. Exact five tools, main/current origin and UTF-8/argument boundaries; validated
+   bound/redacted statuses, host denial and idempotency, noninflating counters,
+   accepted-task progress without a peer-grant read, serialized writes and no
+   automatic retry on uncertain or malformed responses.
+6. Dropped/uncertain claim/submission, explicit retry without resubmitting old
+   delivery IDs, Stop tasks versus Stop adapter, Close/Back, message-proof loss,
+   end/reload/root/terminal/scope/lease stops and stale callbacks/timers versus
+   newer task/runtime attempts. Stop during inspection must prevent a write.
+7. Record actual model task receipt/acceptance/progress/cancellation separately
+   from fixtures. The existing quota-refused readiness smoke is no evidence of
+   task receipt; do not repeat an unchanged unavailable inference probe. Actual
+   task/model and installed two-machine acceptance remain tracking gates.
+
+Selected: explicit assigned-task enable under a current native delivery proof,
+existing host lifecycle semantics, independent task failures and separate
+submission/model/update evidence. Discarded: enabling tasks on message ready,
+auto-accept/cancel from peer content, a second verification model turn, artifact
+file access without its integration, blanket outward delegation, unsupported
+work claims, silent sender selection beyond the existing host contract and
+replay of uncertain input. This is an implementation choice under GU-OWN1/2.
+
+## 9. Remaining flow contract
 
 Teammate/device admission, private handoff, native adapter data tools/events and exact permission
 grants remain future sections. Section 2's live verification and the complete
