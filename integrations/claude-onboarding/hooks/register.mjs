@@ -1048,10 +1048,10 @@ function invitationControls($, { Text, Button, Input }, epoch) {
       ...(previous.networks.length > page * 10 + 10 ? [button('invitation-next', 'More networks', () => invitationDraft($, previous, epoch, 'page', page + 1))] : []), back];
   }
   if (previous.stage === 'draft') return [Text({ children: [`Invitation network: ${quoted(previous.selected.name)} (${previous.selected.id})`,
-    '\nA public-key pin checks identity; it grants no membership or access.', previous.message ? '\n' + previous.message : ''] }),
+    '\nUse - for an unpinned identity. A public-key pin grants no membership or access.', previous.message ? '\n' + previous.message : ''] }),
     Input({ key: 'invitation-member', label: 'Invitee label', value: previous.member,
       onInput: v => invitationDraft($, previous, epoch, 'member', v), onSubmit: v => invitationDraft($, previous, epoch, 'member', v) }),
-    Input({ key: 'invitation-pin', label: 'Expected person public key (- for unpinned)', value: previous.pin,
+    Input({ key: 'invitation-pin', label: 'Expected person public key', value: previous.pin,
       onInput: v => invitationDraft($, previous, epoch, 'pin', v), onSubmit: v => invitationDraft($, previous, epoch, 'pin', v) }),
     button('invitation-prepare', 'Review invitation', () => prepareInvitation($, previous, epoch)), back];
   const status = previous.stage === 'expired' && previous.flow.state === 'review'
