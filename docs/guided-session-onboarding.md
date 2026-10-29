@@ -132,6 +132,14 @@ behavior. This slice does not complete GU-01 or GU-02. The next slice must settl
 the supported existing-session delivery path and exact private review transport
 before adding orchestration or the frontend.
 
+The observation suite isolates each automatic invitation return from previous
+joins and other invitations, then checks two retained pending requests together.
+Its original shared-transport fixture timed out in PR #36 CI. This fixture
+correction does not establish concurrent return delivery or retry behavior.
+GU-06/GU-08 must cover multiple invitations sharing one first-contact endpoint,
+including rate limiting and the manual fallback, before the complete feature
+merges to main.
+
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |
 | GU-01 | A concrete flow contract: participant actions, review fields, private handoff, resumable state and readiness meanings; record the decisions and discarded options | This plan | Map every action to existing authority boundaries; specify black-box cases before implementation; settle the existing-session delivery path |
