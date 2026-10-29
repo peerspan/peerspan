@@ -78,10 +78,16 @@ async function adapterFlow(parent: any, options: any = {}) {
   return flow
 }
 async function transport(child: any) {
-  const signingKey = await crypto.subtle.importKey('raw', new Uint8Array(32).fill(0xbb),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  // The pinned mod runtime exposes digest, not importKey/sign. This is the
+  // standard SHA256 HMAC construction for this fixture's 32-byte token key.
+  const innerPad = new Uint8Array(64).fill(0x36), outerPad = new Uint8Array(64).fill(0x5c)
+  for (let index = 0; index < 32; index++) { innerPad[index] ^= 0xbb; outerPad[index] ^= 0xbb }
   const message = 'peerspan-guided-adapter-instance-v1\n' + child.flow_id + '\n' + child.review_id
-  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', signingKey, new TextEncoder().encode(message)))
+  const bytes = new TextEncoder().encode(message), inner = new Uint8Array(64 + bytes.length)
+  inner.set(innerPad); inner.set(bytes, 64)
+  const innerHash = new Uint8Array(await crypto.subtle.digest('SHA-256', inner))
+  const outer = new Uint8Array(64 + innerHash.length); outer.set(outerPad); outer.set(innerHash, 64)
+  const signature = new Uint8Array(await crypto.subtle.digest('SHA-256', outer))
   return { version: 1, adapter_id: child.review.adapter_id, session_id: child.review.session_id, token: TOKEN,
     instance_id: 'instance_' + Array.from(signature, byte => byte.toString(16).padStart(2, '0')).join(''), adapter_socket: SOCKET }
 }
