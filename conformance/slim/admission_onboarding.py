@@ -167,10 +167,10 @@ LINK_KEYS = set('request_id role mode state network_id context_id migration_prop
 
 def public(value, *secrets):
     text = json.dumps(value, ensure_ascii=False, default=str)
-    for marker in (*PREFIXES, 'payload_base64', 'template_base64', 'message_base64',
+    for index, marker in enumerate((*PREFIXES, 'payload_base64', 'template_base64', 'message_base64',
                    'secret_base64', 'signing_requests', 'return_secret', 'admin.sock',
-                   'adapter.sock', '"signature"', '"seed"', *secrets):
-        check(not marker or marker not in text, "inspection exposed private input, signing material or provider diagnostics")
+                   'adapter.sock', '"signature"', '"seed"', *secrets)):
+        check(not marker or marker not in text, f"inspection exposed private input/signing/provider material (rule {index})")
 
 
 def body(parent, rid):
