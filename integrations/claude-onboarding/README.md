@@ -5,7 +5,9 @@ Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
 host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
-Invitations, sharing permissions and live model acceptance remain later work.
+Native invitation controls, sharing permissions and live model acceptance
+remain later work. The advanced owner-local invitation-review backend is
+available for integration development; it adds no model invitation tool.
 
 ## Try the entry
 

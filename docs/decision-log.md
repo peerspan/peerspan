@@ -2108,3 +2108,26 @@ and rechecking a revoked peer grant to override an already accepted task. File
 transfer and outward delegation remain separate integration work. Section8
 records exact shapes, scoped operations and independent cases before code.
 This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl9 — Exact contact-invitation review (2026-10-29)
+
+Selected within the accepted four-step experience: an explicit attached-project
+review of a named network, member label, optional person-key pin, current public
+connection hints and fixed expiry before creating a contact-only introduction.
+Use the existing owned host signer and ordinary invitation/return protocol;
+keep membership, machine powers and agent access as later distinct decisions.
+No native/model owner tool is added by this backend slice.
+
+Selected durability: record the review before signing; mint contact/return state
+and the issued flow result in one transaction; retrieve the exact retained code
+only on a private explicit handoff. The flow stores no additional plaintext
+secret. Retrying or inspecting cannot extend expiry or mint another invitation.
+An explicit additional invitation can coexist with an older exported code;
+contact introductions have no global revocation claim.
+
+Discarded: selecting the first network, using introduction possession as an
+access grant, hidden person/device/root signing, automatic renewed consent,
+returning codes through status or model tools, partial issuance across separate
+commits, and copying a return secret into another durable flow table. Schema26
+is additive; earlier flow/DEC tables and semantics remain intact. Contract
+section9 settles external fields and independent verification before code.
