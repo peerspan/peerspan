@@ -95,7 +95,19 @@ async fn main() {
     let cli = cli::command_line(program())
         .try_get_matches()
         .and_then(|matches| Cli::from_arg_matches(&matches))
-        .unwrap_or_else(|e| e.exit());
+        .unwrap_or_else(|e| {
+            // Clap may echo rejected arguments before private stdin validation.
+            // This selects only error redaction; typed parsing still owns dispatch.
+            if e.use_stderr()
+                && raw
+                    .windows(2)
+                    .any(|path| path == ["onboarding", "admission"])
+            {
+                eprintln!("error: invalid administrator admission inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            e.exit()
+        });
     let outcome = run(cli).await;
     log_total();
     if let Err(error) = outcome {
