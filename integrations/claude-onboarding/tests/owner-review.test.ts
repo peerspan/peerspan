@@ -646,7 +646,7 @@ async function ownerRecord(w: World, options: any = {}) {
     host_public_key: request.host_public_key, device_public_key: request.device_public_key,
     proposed_owner_offer_id: id64('dpk', 61), scopes: 7,
     not_after: stamp(Date.parse(request.created_at) + 7 * 86_400_000),
-    expires_at: stamp(options.expires ?? (state === 'expired' ? NOW - 1000 : NOW + 900_000)), effects: clone(ownerEffects) }
+    expires_at: stamp(Math.floor((options.expires ?? (state === 'expired' ? NOW - 1000 : NOW + 900_000)) / 1000) * 1000), effects: clone(ownerEffects) }
   return { review_id: await digest('peerspan-onboarding-original-owner-review-v1', review), review, state,
     next_action: state === 'review' ? 'approve_owner_intent' : state === 'approved'
       ? request.owner_offer_id === '-' ? 'provide_original_signature' : 'follow_join_progress' : 'inspect_join_progress' }
@@ -955,7 +955,7 @@ test('deadline native-context and future host-time changes during fresh lookup p
       if (kind === 'join.owner.lookup') {
         if (mode === 'deadline') await delayed.wait()
         if (mode === 'root') w.root = '/changed-during-owner-lookup'
-        if (mode === 'future-host') value.observed_at = stamp(w.clock.now() + 31_000)
+        if (mode === 'future-host') value.observed_at = stamp(Math.floor(w.clock.now() / 1000) * 1000 + 31_000)
       }
       return value
     }
