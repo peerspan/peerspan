@@ -52,8 +52,9 @@ existing integrations continue to work.
 Installation and session attachment are distinct. A plugin can become
 available after a plugin reload without proving that incoming events reach the
 current session. Claude's channel mode currently requires launch-time opt-in;
-plain MCP registration is not incoming-channel readiness. The frontend slice
-must establish a supported delivery path and test it with the current session.
+plain MCP registration is not incoming-channel readiness. GU.impl2 selects the
+native Claude mod API for the existing-session frontend, with a separate
+explicit prompt/tool check. The frontend slice must test that route with the current session.
 An unsupported path is a named blocker, never a successful connection.
 
 ### One guided flow per participant
@@ -128,9 +129,15 @@ no pairing secrets. Existing status and adapter APIs retain their behavior.
 
 The independent slim suite covers the response, request privacy, read-only
 behavior, connection evidence, owner-only routing and unavailable-daemon
-behavior. This slice does not complete GU-01 or GU-02. The next slice must settle
-the supported existing-session delivery path and exact private review transport
-before adding orchestration or the frontend.
+behavior. This slice does not complete GU-01 or GU-02.
+
+GU-01b/GU-03a adds the [native Claude entry](../integrations/claude-onboarding/README.md):
+`/peerspan` reads this observation in the current conversation and offers an
+explicit local delivery check. Native callbacks are the chosen direction for
+human reviews; their exact immutable terms and owner-local mutation contract
+remain next work. This entry creates no project attachment or authority. Native
+runtime fixtures do not replace the outstanding live reload/model check, whose
+first inference attempt hit the account's weekly usage limit.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.

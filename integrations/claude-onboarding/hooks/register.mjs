@@ -55,7 +55,8 @@ async function refresh($) {
   } catch {
     // Neither subprocess diagnostics nor unvalidated JSON belongs in the UI.
   }
-  if (epoch === generation && attempt === read && id === await $.session.id()) {
+  const current = await identify($);
+  if (epoch === generation && attempt === read && id === current) {
     lines = observed;
     $.ui.invalidate('ui.render');
   }
