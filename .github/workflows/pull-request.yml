@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     env:
-      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/peerspan-claude-config
       DISABLE_UPDATES: '1'
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
     steps:
@@ -31,8 +30,11 @@ jobs:
       - name: Install pinned native test runtime
         run: npm install --prefix "$RUNNER_TEMP/peerspan-claude-test" --no-audit --no-fund --save-exact @anthropic-ai/claude-code@2.1.303
       - name: Validate native entry and run independent runtime checks
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/peerspan-claude-config
         run: |
           set -euo pipefail
+          "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" --version
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin validate integrations/claude-onboarding --strict
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin test integrations/claude-onboarding
 
