@@ -1,7 +1,7 @@
 {
   "name": "peerspan",
   "version": "0.1.0",
-  "description": "Inspect Peerspan and check delivery in the current Claude conversation",
+  "description": "Connect a local project through a human review and inspect Peerspan in this Claude conversation",
   "author": { "name": "Peerspan" },
   "repository": "https://github.com/peerspan/peerspan",
   "license": "Apache-2.0",

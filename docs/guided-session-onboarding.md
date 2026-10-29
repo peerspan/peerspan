@@ -3,7 +3,8 @@
 Status: feature plan. The owner accepted the experience below on 2026-10-28.
 Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
-local delivery check and owner-local project review backend. The full interactive
+local delivery check, owner-local project review backend and native human
+project review controls. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -147,8 +148,12 @@ expiry, and accepts an exact explicit decision. Approval atomically records
 local agent/session metadata. It issues no credential, grant or channel proof.
 Schema24 adds one private flow table; existing DEC records are retained.
 The advanced `onboarding project prepare/inspect/decide` commands carry mutation
-payloads on stdin. Native human controls are the next frontend slice; the pane
-does not invoke these APIs yet. Existing startup detaches metadata sessions,
+payloads on stdin. GU-02c/GU-03b wires the native pane to this flow with private
+context lookup, explicit agent selection, exact terms and human callbacks.
+The pane rechecks the native root/conversation and captured review before each
+decision, resumes retained work, and offers explicit replacement after expiry
+or invalidation. It reports attachment metadata separately from the still-pending
+adapter connection. Existing startup detaches metadata sessions,
 so an approved flow becomes invalidated after host restart and cannot be
 silently resurrected. Pending reviews and declined outcomes remain resumable.
 

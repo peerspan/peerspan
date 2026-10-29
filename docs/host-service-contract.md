@@ -142,3 +142,9 @@ The [exact local project review](guided-session-contract.md#3-exact-local-projec
 adds owner-local prepare/inspect/decision routes and advanced stdin-only CLI
 mutations. Schema24 adds private durable review rows. Approval records local
 agent/session metadata atomically; it issues no adapter credential or access.
+
+The [native project review controls](guided-session-contract.md#4-native-project-selection-and-human-review-gu-02c--gu-03b)
+use a read-only private context lookup before agent selection. Its owner-local
+POST and stdin CLI return current flow/agent choices in one snapshot. Native
+callbacks inspect and submit the exact reviewed context; model tools retain
+no owner-decision operation. Schema24 and the attachment effects are unchanged.
