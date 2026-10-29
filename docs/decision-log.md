@@ -2037,3 +2037,27 @@ consent, plaintext token persistence and one-shot secrets lost on interruption.
 Section5 specifies the fields, recovery, invalidation, schema allocation and
 independent cases. Native connection and real model receipt remain subsequent
 gates. This is an implementation choice, not another owner confirmation.
+
+## GU.impl6 — Native adapter consent and scoped lease (2026-10-29)
+
+Selected within GU-OWN1/2: native human review of the complete immutable child
+authorization and its attached project, then a separate explicit Connect.
+The private stdin transport wrapper reproduces the original instance using
+domain-separated HMAC under the credential and returns the selected local
+adapter socket. The frontend keeps secrets in memory, renews a bounded scoped
+lease and stops on context, authorization or transport failure. Close retains
+an established runtime; Stop halts renewal; reload requires explicit reconnect.
+
+Selected delivery scope: first make consent and the local lease reviewable.
+Keep incoming work and model acknowledgment as the next independently verified
+slice. Display connected, incoming delivery and peer exchange separately.
+
+Discarded: implicit connect on approval/reload, storing plaintext transport
+files, random replacement instances on reload, owner API calls over the adapter
+socket, model approval tools, interpreting a saved verified channel or a live
+lease as receipt, and hidden retry after an uncertain decision. Native HTTP has
+no abort/timeout option in the pinned runtime; use a logical five-second
+deadline, ignore late responses and never reschedule stale work. An already
+sent request can still complete once. Section6 records the contract and
+independent cases; real terminal evidence records its exact source heads.
+This is an implementation choice, not an additional owner confirmation.

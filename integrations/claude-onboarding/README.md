@@ -2,9 +2,9 @@
 
 Feature-branch preview for [tracking PR #35](https://github.com/peerspan/peerspan/pull/35).
 Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
-host view, an explicit local conversation check and a native human review for
-local project attachment metadata. Adapter setup, invitations and sharing
-permissions remain later slices.
+host view, an explicit local conversation check, native human reviews for
+project attachment and scoped adapter credentials, and a local adapter lease.
+Incoming work delivery, invitations and sharing permissions remain later slices.
 
 ## Try the entry
 
@@ -58,6 +58,39 @@ suppress the directory-change event for user-installed plugins: stale controls
 are then invalidated on the next action, which always rechecks the native
 project/conversation before sending a decision.
 
+## Review and connect the adapter
+
+After attachment, press **Review adapter connection**. Review the full project,
+agent, fixed expiry and permissions, then **Approve adapter** or **Decline
+adapter**. Approval issues one credential for the existing local session to
+receive and reply to already authorized work, handle authorized tasks and their
+artifacts. It adds no network membership, agent access, directory access,
+outbound destination or capability-call power, and automatically shares no
+project files or conversation. Local harness permissions still govern actions.
+The credential expires 24 hours after review preparation and is not renewable.
+
+Approval and connection are separate actions. Press **Connect adapter** to
+retrieve private transport material and connect to the host's local adapter
+socket. The frontend keeps secrets in memory, outside model context. It renews
+the scoped lease while the native conversation and exact authorization remain
+current. **Adapter: connected** is a lease observation: incoming delivery and
+peer exchange remain **not verified**. This slice consumes no work and sends no
+model prompt. The local conversation check below is a separate route.
+
+Closing the pane or going Back keeps an established connection running; either
+action cancels an initial connection that has not been confirmed. **Stop
+adapter** halts renewal without revoking the credential; the last accepted
+lease expires within 15 seconds, subject to an already sent request completing.
+Ending the conversation, changing the project, losing the terminal surface,
+expiry or a failed renewal stops the runtime. Plugin reload clears it and never
+reconnects automatically. Reopen the project, review its retained outcome and
+press Connect to reuse the original approved instance. Expired, declined or
+invalidated reviews offer **Review a replacement adapter**.
+
+The native Unix transport requires an absolute socket path of at most 103 UTF-8
+bytes. An unsupported path or unavailable host produces a controlled failure.
+No new model approval or owner-administration tool is registered.
+
 ## Check this conversation
 
 Press **Check this conversation** to submit one fixed, plugin-attributed local
@@ -93,9 +126,12 @@ A real terminal project review and approval also recorded exactly one local
 agent/session attachment; close, native plugin reload and reconnect resumed the
 same outcome without duplicate records. See the [smoke evidence](../../docs/results/guided-native-project-smoke.json)
 for the exact source heads and scope. This run used no inference.
-The live inference probe was refused by the account's weekly usage limit.
-Real-model acknowledgment and the complete adapter/data path remain
-outstanding acceptance work.
+The [adapter smoke evidence](../../docs/results/guided-native-adapter-smoke.json)
+records real native approval, connection, renewal with the pane closed, Stop
+and explicit reconnect after plugin reload, with one retained authorization.
+It used a temporary single host and no inference. The earlier live inference
+probe was refused by the account's weekly usage limit. Real-model acknowledgment
+and the complete adapter/data path remain outstanding acceptance work.
 
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).

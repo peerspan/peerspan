@@ -157,4 +157,11 @@ separate from public flow observations and decision responses, and supports
 lost-response recovery without plaintext token storage. Schema25 adds one
 private child-flow table; schema24 project rows and DEC authority are unchanged.
 This host API does not establish a connection, channel verification or model
-receipt. The native pane still requires its next adapter connection slice.
+receipt.
+
+The [native adapter review and lease](guided-session-contract.md#6-native-credential-review-and-scoped-lease-gu-02e--gu-03c)
+adds exact human consent and explicit connection in the existing Claude pane.
+Its private stdin `onboarding adapter transport` wrapper derives the original
+instance and selects the sibling adapter socket after exact credential retrieval;
+it adds no API, schema or write. Native renewal uses the existing scoped connect
+route. A live lease remains separate from incoming delivery and peer receipt.
