@@ -311,7 +311,7 @@ async function stats(ui: Pane, expected: { submitted: number; seen: number; repl
 }
 function privacy(w: World, uiText = '') {
   expect(w.forbidden).toEqual([])
-  const privateValues = [TOKEN, SOCKET, NATIVE, ROOT, RAW, 'PRIVATE_PROVIDER_ERROR', '/private/provider-path',
+  const privateValues = [TOKEN, SOCKET, NATIVE, w.native, ROOT, RAW, 'PRIVATE_PROVIDER_ERROR', '/private/provider-path',
     w.parent?.flow_id, w.parent?.review_id, w.child?.flow_id, w.child?.review_id,
     w.parent?.review.session_id, w.child?.review.adapter_id, ...w.materials.map(value => value.instance_id)].filter(Boolean)
   for (const value of privateValues) {
@@ -427,13 +427,15 @@ test('entry Connect saved channel queued hello and current message ready stay ta
   privacy(w, await text(fresh))
 })
 
-test('explicit double task enable registers exactly five narrow tools once with no extra hello or automatic write', async ($, on) => {
+test('double enable and Stop/re-enable share pending registration and register five narrow tools once without another hello', async ($, on) => {
   const w = fixture(on); const ui = await connected($, w); await ready($, w, ui)
   w.register = async e => { if (e.name === 'task_accept') await w.clock.sleep(1000) }
   const button = await key(ui, 'Enable incoming tasks')
   const first = ui.press({ key: button }); void first.catch(() => undefined)
   const second = ui.press({ key: button }).catch(() => undefined)
   await w.clock.settle(); expect(taskClaims(w)).toEqual([]); expect(cancelClaims(w)).toEqual([])
+  await press(ui, 'Stop incoming tasks'); await enableTasks(w, ui)
+  expect(w.tools.filter(tool => tool.name === 'task_accept').length, 'pending registration is shared across an explicit restart').toBe(1)
   await w.clock.advance(1000); await Promise.all([first, second]); await w.clock.settle()
   const expected = [ ['task_accept', ['task_id'], ['task_id']],
     ['task_reject', ['task_id', 'reason'], ['task_id']],
@@ -791,6 +793,7 @@ test('Back and Close preserve established task polling while Stop tasks preserve
   expect(writes(w)).toEqual([]); expect(w.prompts.length).toBe(2)
   await press(fresh, 'Stop adapter'); const stopped = w.httpCalls.length
   await w.clock.advance(10_000); expect(w.httpCalls.length).toBe(stopped)
+  await press(fresh, 'Connect this project'); await press(fresh, 'Review adapter connection')
   await press(fresh, 'Connect adapter'); await ready($, w, fresh)
   await taskStats(fresh, { submitted: 0, observed: 0, changes: 0, cancellations: 0 })
   expect(await text(fresh)).not.toContain('Incoming tasks: enabled')
@@ -919,5 +922,34 @@ test('a stale task enable control cannot activate tasks after terminal support d
   expect(w.tools.filter(e => e.name.startsWith('task_'))).toEqual([])
   expect(w.prompts.length).toBe(1)
   denied(await call($, ACCEPT, { task_id: id('task', 1) }))
+  privacy(w, await text(ui))
+})
+
+
+test('late registration from an ended conversation cannot populate or duplicate the next conversation task registry', async ($, on) => {
+  const w = fixture(on); let ui = await connected($, w); await ready($, w, ui)
+  let delayed = false
+  w.register = async e => {
+    if (e.name === 'task_accept' && !delayed) { delayed = true; await w.clock.sleep(1000) }
+  }
+  await enableTasks(w, ui); expect(delayed).toBe(true); expect(taskClaims(w)).toEqual([])
+  await $.session.end({ reason: 'clear', sessionId: NATIVE, resume: { id: NATIVE } }); await ui.unmount()
+  w.native = 'new-private-native-task-conversation'
+  w.parent = await parentFlow({ native: w.native }); w.child = await adapterFlow(w.parent, { state: 'authorized', n: 11 })
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  const nextSession = w.tools.length
+  ui = await open($, w); await press(ui, 'Connect adapter'); await ready($, w, ui); await enableTasks(w, ui)
+  const names = () => w.tools.slice(nextSession).filter(tool => tool.name.startsWith('task_')).map(tool => tool.name).sort()
+  const expected = ['task_accept', 'task_cancelled', 'task_complete', 'task_progress', 'task_reject']
+  expect(names(), 'new conversation has its own registration before the old one finishes').toEqual(expected)
+  expect(await text(ui)).toContain('Incoming tasks: enabled')
+  await w.clock.advance(1000)
+  expect(names(), 'old completion adds no new-conversation registration').toEqual(expected)
+  await press(ui, 'Stop incoming tasks'); await enableTasks(w, ui)
+  expect(names(), 'same-conversation restart reuses exactly its own registered tools').toEqual(expected)
+  w.taskStatuses[id('task', 1)] = taskStatus(w, 1)
+  expect(resultOf(await call($, ACCEPT, { task_id: id('task', 1) })).state).toBe('running')
+  await taskStats(ui, { submitted: 0, observed: 1, changes: 1, cancellations: 0 })
+  expect(await text(ui)).toContain('Incoming delivery: verified (messages)')
   privacy(w, await text(ui))
 })
