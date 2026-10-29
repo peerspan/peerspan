@@ -2284,3 +2284,20 @@ Preserve the late completion, newer confirmation and privacy assertions and
 all212 cases. No production/native behavior change is inferred from this fixture
 failure. Discarded: timeout inflation, deleting assertions, repeated CI reruns
 until green, and modifying product behavior to satisfy a scheduling assumption.
+
+
+### GU.impl17 — Native owner consent before original signing
+
+Selected within the accepted guided-onboarding scope: explicit native Review
+owner powers and exact Approve owner powers, using section16's durable ordinary
+intent and owner-only private stdin CLI. Recovery is pure lookup; Leave changes
+no protocol state. Display all powers, finite terms and bounded later effects;
+historical ordinary approval does not attribute frontend consent or active
+membership/access. Native volatile callback/expiry authority follows project,
+conversation and host boundaries. No new Rust/API/schema or signer handling.
+
+The following slice will add a bounded local original-signing action. Discarded:
+combining review/approval/key use in one opaque action, broad link CLI automation,
+a daemon key provider, automatic preparation/retry/decline and metadata as grant.
+Section17 defines independent native cases, existing212 preservation and final
+all16 suite gates; actual terminal/installed/model/upgrade recovery remains open.
