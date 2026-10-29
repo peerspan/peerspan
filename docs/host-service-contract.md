@@ -201,16 +201,18 @@ adds owner-local prepare/lookup/inspect/decision routes and private stdin
 `onboarding join` commands. Explicit consent binds one supplied person public
 key and verified invitation; request/device/frame state and its public outcome
 commit atomically. Schema27 adds public join-flow state only. Person-key
-selection, creation/persistence and native controls remain subsequent work;
-publication never establishes possession, membership, agent access or receipt.
+selection, creation/persistence and native controls use the separate local
+commands described below; publication never establishes possession, membership,
+agent access or receipt.
 
 
 The [native existing-identity join flow](guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
 adds a read-only local `onboarding join identities --stdin` CLI inventory and
 explicit native public-key choice/request review. It reuses the section12 API
 without a new endpoint/schema. Original private keys/agent sockets never reach
-the daemon. New-key creation, participant authority and readiness remain
-separate; outcome recovery does not automatically retry publication.
+the daemon. New-key creation uses separate explicit consent below; participant
+authority and readiness remain separate. Outcome recovery never automatically
+retries publication.
 
 
 [Explicit local original creation](guided-session-contract.md#14-explicit-new-original-identity-creation)
