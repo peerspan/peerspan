@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
@@ -37,6 +38,25 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery (2026-10-28)
+
+- **Authority:** owner's confirmation and follow-up instruction in the guided
+  onboarding discussion, 2026-10-28.
+- **GU-OWN1, chosen experience:** "Connect this project" from inside the existing
+  agent session; "Invite someone" or "connect my other computer"; each
+  participant reviews the relevant identity and permissions in their own guided
+  flow; Peerspan completes the intermediate steps and shows actual connection
+  readiness.
+- **GU-OWN2, delivery instruction:** "start a fresh branch completely separate
+  from main - with a tracking PR. We want to break this down into small pieces
+  and eventually merge one large feature PR into main, after some level of
+  testing."
+- **Options:** alternative options not recorded in the owner's instructions.
+- **Plan:** [guided session onboarding](guided-session-onboarding.md) records the
+  accepted scope, integration branch, small implementation slices, authority
+  boundaries, merge gates and implementation recommendations with discarded
+  options. This is a plan; implementation and validation remain pending.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
