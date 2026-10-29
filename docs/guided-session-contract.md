@@ -2929,8 +2929,12 @@ another preparation. Parent/flow/host changes and unsupported paths stop safely.
 
 Commands use literal configured executable/state argv and exact section16 CLI
 stdin shapes (flow_id, context, join_review_id; approval adds owner_review_id),
-with timeoutMs5000. No references or private payloads enter command args, shell,
-assistant text/prompts/tools, provider diagnostics or frontend persistence.
+with timeoutMs5000. Owner-operation references and private payloads enter only
+stdin. Existing documented project/join/adapter inspect commands retain their
+one exact typed flow-ID argument; this adds no ID argument to an owner command.
+No private code, signature, credential or owner payload enters argv or shell.
+References/payloads never enter assistant text/prompts/tools, provider diagnostics
+or frontend persistence.
 
 Validate the exact section16 wrapper, context/flow/join review and entire ordinary
 LINK_VIEW, using the same pins, key-to-host hash, ID types, booleans, stage-order
