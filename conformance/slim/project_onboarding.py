@@ -118,9 +118,15 @@ def validate(host, body, flow):
 
 
 def db_path(host):
-    paths = sorted(host.state.glob("*.db"))
-    check(len(paths) == 1, "expected one private host database")
-    return paths[0]
+    # The public slim storage fixture identifies the host DB by `networks`;
+    # ancillary stores may also use .db files in the same private directory.
+    matches = []
+    for path in sorted(host.state.glob("*.db")):
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
+                matches.append(path)
+    check(len(matches) == 1, "expected one host database containing the networks table")
+    return matches[0]
 
 
 def records(host, *, omit_flow=False):
