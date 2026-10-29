@@ -51,5 +51,6 @@
     "peerspan-host": "d4f26565a4f54cd0bedd10fbbf40eeaa8890e0399cd73c766430dc4c816597e3",
     "peerspan-peer-probe": "c435186ad3f0619da22d1b04050ca77e117573e83f3fdd562525e8e7101ccd23",
     "peerspan-helper": "a469c289ac49128ac3aecf3b3a23c89e1b062dedec10cae27b83836f60efcaf4"
-  }
+  },
+  "source_difference": "Subsequent e365920 requires canonical IPv6 hints and updates the remaining-work placeholder. The manual fixture used IPv4. Independent native checks run on the final PR head; this manual run remains bound to its recorded source."
 }
