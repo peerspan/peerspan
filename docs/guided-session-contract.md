@@ -785,7 +785,9 @@ neither this API nor a JSON decision proves a physical human click.
 
 Apply section3's context validation and exact project review binding. An
 unknown project returns404. A wrong context/project review returns409
-`review_changed`. A new adapter review requires that project to be the latest
+`review_changed`; malformed IDs/context return400 `invalid_request`. A new
+review for a correctly bound but ineligible project returns409 `flow_conflict`.
+A new adapter review requires that project to be the latest
 attempt for its native context, currently `attached`, with unchanged agent
 metadata and its same attached session. Refuse any other unexpired, unrevoked
 adapter for this agent whose session is attached or recoverable, including an
@@ -800,6 +802,10 @@ or returns200 for an identical retained request. It creates no credential,
 session, agent, grant, connection or activity event. Each project attempt has
 one latest adapter attempt. The same request resumes that attempt without
 changing its IDs, terms or expiry, including terminal outcomes. A new attempt
+An identical retained prepare after restart returns200 with the same immutable
+review and its derived invalidated state, even though the project is detached.
+Read-only inspection does not need a current attachment to show the retained
+outcome. A new attempt
 requires the exact latest `replace_flow_id` and a current outcome of `declined`,
 `expired` or `invalidated`; a current valid authorization is not replaceable.
 The underlying project must still be attached and eligible. Refuse obsolete
@@ -954,7 +960,7 @@ with debug clock advancement for expiry. No implementer unit tests are added.
    credential cannot reach administration, directory sends or capability calls.
 5. Another unbound/live/offline/recoverable authorization is never replaced.
    Conflicts discovered after preparation invalidate it atomically. Revocation,
-   changed scope/routes, detach and superseded project/adapter attempts cannot
+   changed routes, detach and superseded project/adapter attempts cannot
    retrieve or revive a credential; explicit terminal replacement uses the exact
    current ID and keeps previous outcomes.
 6. Bounded stdin CLI parity, inert unavailable-daemon behavior and controlled
@@ -963,6 +969,14 @@ with debug clock advancement for expiry. No implementer unit tests are added.
 7. Additive schema24-to25 migration, historical preservation, restart, namespace
    collisions, corrupt schema25 and future26 refusal. Update only schema-version
    expectations in existing suites, retaining their original behavior checks.
+
+Scope flags have no public edit endpoint: assert their exact false/fixed values
+on issuance, and exercise subsequent scope invalidation through the documented
+route-creation API. Do not manufacture private-record mutations to simulate an
+unavailable public operation. The token derivation's seed is not a public disk
+format contract; verify deterministic retry, normal credential authentication,
+different-flow separation and SHA256-only token persistence without reading a
+private key layout. Real native connection/model receipt remains a later gate.
 
 Selected: a separate exact credential review, conservative fixed expiry,
 existing scoped authorization and recoverable owner-local secret retrieval.
