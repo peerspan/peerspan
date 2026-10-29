@@ -54,6 +54,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `invitation_onboarding`: exact contact-invitation reviews, atomic issuance,
   private handoff/recovery and additive schema26 (section9), plus read-only
   recipient signed-invitation inspection and privacy boundaries (section11).
+- `join_onboarding`: exact recipient public-key/publication consent, atomic
+  ordinary join-request creation, replay/privacy and additive schema27 (section12).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
