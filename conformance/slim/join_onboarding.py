@@ -578,8 +578,10 @@ def identity_inventory(h, parent, *, agent=None, data=None, fallback=False):
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
     if fallback:
         environment.pop("XDG_CONFIG_HOME", None)
+    # Existing SSH-agent transport can wait10s before reporting unavailable.
+    # Leave room for both owner observations; this is a fixture outer deadline.
     result = subprocess.run(argv, input=compact({"context": context(parent)}) if data is None else data,
-                            env=environment, capture_output=True, timeout=10)
+                            env=environment, capture_output=True, timeout=20)
     for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_IDENTITY_COMMENT", b"token_", b"person_ed25519", b"agent.sock"):
         check(marker not in result.stdout + result.stderr, "identity inventory exposed a private key/comment/source path")
     value = None
