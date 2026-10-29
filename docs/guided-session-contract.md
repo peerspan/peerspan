@@ -1124,8 +1124,8 @@ old timers cannot restart a stopped runtime or change a newer connection.
 
 Connection lifetime belongs to the current native conversation. Closing the
 pane or Back clears private review callbacks but keeps an explicitly connected
-adapter's runtime/lease. Closing while initial connection is still pending stops
-that pending runtime: a late response cannot start renewal after Close. A
+adapter's runtime/lease. Close or Back while initial connection is pending stops
+that pending runtime: a late response cannot start renewal after leaving it. A
 previously rendered Stop control cannot stop a newer runtime or act after its
 view closes. **Stop adapter** is available separately; it cancels
 renewal, clears the local runtime and forgets secrets. It revokes no credential
