@@ -550,8 +550,9 @@ def sign_ready(h, rid, iid, key):
         requests = value["signing_requests"]
         if not requests:
             return value
+        metadata = [(r["object_type"], r["role"], r["format"], r["intent_id"] == iid, r["public_key"] == source()["person"]) for r in requests]
         check(all(r["intent_id"] == iid and r["public_key"] == source()["person"] and r["format"] == "sshsig" for r in requests),
-              "ordinary signature request changed original signer/intention")
+              f"ordinary signature request changed original signer/intention; type/role/format/intent-match/person-match={metadata}")
         signatures = [{"slot_id": r["slot_id"], "role": r["role"], "signature": sshsig(key, base64.b64decode(r["message_base64"], validate=True))} for r in requests]
         status, value = h.api("POST", "/v2/link/requests/" + rid + "/signed", {"intent_id": iid, "signatures": signatures})
         check(status == 200, f"existing exact original signature submission HTTP {status}")
