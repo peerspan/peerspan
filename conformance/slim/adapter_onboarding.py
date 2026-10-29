@@ -270,7 +270,7 @@ def _():
         status, error = host.api("POST", BASE, body)
         check(status == 400, "prepare accepted missing/extra/null/malformed terms")
         if isinstance(body, dict) and isinstance(body.get("context"), dict) and body["context"] != ctx:
-            check(error.get("code") == "invalid_request", "malformed context did not return invalid_request")
+            check(error.get("code") == "invalid", "malformed context did not return invalid")
     for path in (BASE, BASE + "/lookup", BASE + "/" + flow["flow_id"] + "/decision", BASE + "/" + flow["flow_id"] + "/credential"):
         for data in (b"null", b'{"context":', b"{} {}", b"\xff"):
             check(raw_post(host, path, data) == 400, "adapter route accepted malformed/nonobject JSON")
