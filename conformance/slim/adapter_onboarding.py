@@ -382,7 +382,7 @@ def _():
         check(status == 409 and error.get("error") == "channel not verified", "guided issuance bypassed channel handshake")
     check(adapter.call("GET", "/v1/host")[0] == 404, "scoped credential reached owner administration")
     for method, path, body, code in (("GET", "/adapter/v1/agents", None, "no_directory"),
-                                    ("POST", "/adapter/v1/send", {"to": "someone/agent", "request_id": "req_" + "1" * 32, "content": "private"}, "no_directory"),
+                                    ("POST", "/adapter/v1/send", {"to": "someone/agent", "request_id": "request_" + "1" * 32, "content": "private"}, "no_directory"),
                                     ("POST", "/adapter/v1/calls", {"call_id": "call_" + "1" * 32, "address": "someone/capability", "operation": "echo", "input": {}}, "no_calls")):
         status, error = adapter.call(method, path, body)
         check(status == 403 and error.get("code") == code, "guided credential escaped its reviewed scope")
