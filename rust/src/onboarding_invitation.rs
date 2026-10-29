@@ -432,6 +432,9 @@ impl Store {
         let tx = c.transaction()?;
         let f = load(&tx, id)?;
         binding(&f, &request.context, &request.review_id)?;
+        if f.state != "issued" {
+            return Err(coded("flow_conflict"));
+        }
         let now = now()?;
         match self.invitation_flow_state(&tx, &f, now)? {
             "issued" => {}
