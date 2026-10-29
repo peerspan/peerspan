@@ -215,13 +215,17 @@ def pending(h, rid):
     return json.loads(row[0]), row[1]
 
 
-def packet_id(packet):
-    # Wire9.2: semantic packet ID excludes every signature, even in a template.
+def packet_message(packet):
+    # Wire9.2: semantic packet message excludes every signature.
     fields = ["peerspan-decentralized-packet-v1", packet["context_id"], packet["request_id"], packet["role"],
               packet["writer_host_public_key"], packet["signer_public_key"], packet["person_public_key"],
               packet["issuer_id"], packet["authority_signature_format"],
               hashlib.sha256(base64.b64decode(packet["payload_base64"], validate=True)).hexdigest()]
-    return "dpk_" + hashlib.sha256("\n".join(fields).encode()).hexdigest()
+    return "\n".join(fields).encode()
+
+
+def packet_id(packet):
+    return "dpk_" + hashlib.sha256(packet_message(packet)).hexdigest()
 
 
 def validate(h, flow, value, *, owner_required=True):
@@ -541,22 +545,34 @@ def sign_ready(h, rid, iid, key):
     def ready():
         status, value = h.api("GET", "/v2/link/requests/" + rid + "/approval")
         check(status == 200, f"ordinary approved signing lookup HTTP {status}")
-        if value["signing_requests"]:
+        if any(r["role"] == "authority" for r in value["signing_requests"]):
             return value
         h.cli("link", "resume", rid, timeout=10)
         return None
     value = wait_for(ready, timeout=10, interval=0.2, message="existing original authority signing slot")
     for _ in range(4):
-        requests = value["signing_requests"]
+        ready_slots = value["signing_requests"]
+        metadata = [(r["object_type"], r["role"], r["format"], r["intent_id"] == iid) for r in ready_slots]
+        check(all(r["intent_id"] == iid and r["object_type"] == "owner_offer_packet" and
+                  ((r["role"] == "authority" and r["format"] == "sshsig" and r["public_key"] == source()["person"]) or
+                   (r["role"] == "host" and r["format"] == "ed25519" and r["public_key"] == h.public_key)) for r in ready_slots),
+              f"ordinary signature slot changed original/local-host binding; type/role/format/intent-match={metadata}")
+        # Ordinary wrappers may also list its locally owned host slot. Only
+        # external authority is signed here; explicit ordinary resume handles
+        # the host's own key under its existing approval.
+        requests = [r for r in ready_slots if r["role"] == "authority"]
         if not requests:
             return value
-        metadata = [(r["object_type"], r["role"], r["format"], r["intent_id"] == iid, r["public_key"] == source()["person"]) for r in requests]
-        check(all(r["intent_id"] == iid and r["public_key"] == source()["person"] and r["format"] == "sshsig" for r in requests),
-              f"ordinary signature request changed original signer/intention; type/role/format/intent-match/person-match={metadata}")
+        for request in requests:
+            template = json.loads(base64.b64decode(request["template_base64"], validate=True))
+            check(template["request_id"] == rid and template["person_public_key"] == source()["person"] and
+                  template["writer_host_public_key"] == h.public_key and request["object_id"] == packet_id(template) and
+                  base64.b64decode(request["message_base64"], validate=True) == packet_message(template),
+                  "ordinary external slot is not its exact typed owner packet/message")
         signatures = [{"slot_id": r["slot_id"], "role": r["role"], "signature": sshsig(key, base64.b64decode(r["message_base64"], validate=True))} for r in requests]
         status, value = h.api("POST", "/v2/link/requests/" + rid + "/signed", {"intent_id": iid, "signatures": signatures})
         check(status == 200, f"existing exact original signature submission HTTP {status}")
-    check(not value["signing_requests"], "ordinary signing did not finish bounded ready batch")
+    check(not any(r["role"] == "authority" for r in value["signing_requests"]), "ordinary original signing did not finish bounded authority batch")
     return value
 
 
