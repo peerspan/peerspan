@@ -2349,7 +2349,7 @@ without retention and offers no joining controls.
 
 Show the full public signed invitation terms and all available identity keys
 and their provenance, quoted with the existing reversible terminal escaping.
-List up to10 keys per page, with explicit pagination, no preselected/default
+List up to10 keys per page, with **More identities** / **Previous identities** pagination, no preselected/default
 identity and no silently filtered person pin. Display the invitation's expected
 person key and explain mismatches. Only a matching pinned identity is selectable;
 unpinned introductions offer each key. Choosing an identity is an explicit
@@ -2391,7 +2391,8 @@ Lookup resumes public requested/declined/expired/invalidated outcomes without
 inventory, code retrieval, request creation or retries. A retained live review
 shows its exact public terms but requires explicit private code re-entry through
 **Check invitation for this review**. Call identical section12 prepare and
-require exactly the same flow/review/person/public terms; this binds the exact
+require exactly the same flow/review/person/public terms; a separate preview
+request is not needed on this exact retained-code path. This binds the exact
 original code without storing a second copy. Inventory must explicitly confirm
 the selected identity before enabling Approve. Decline does not require a code
 or an available signer. No original private key or signature is sent to the
