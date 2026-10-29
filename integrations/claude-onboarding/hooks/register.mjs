@@ -14,7 +14,8 @@ import { validCode as validInvitationCode, preview as parseRecipientPreview, rev
 import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdentity, flow as parseJoinFlow, lookup as parseJoinLookup,
   reviewLines as joinReviewLines, provenance as joinProvenance } from './join.mjs';
 import { progress as parseJoinProgress, progressLines as joinProgressLines } from './join-progress.mjs';
-import { owner as parseOwner, reviewLines as ownerReviewLines } from './owner.mjs';
+import { owner as parseOwner, reviewLines as ownerReviewLines, signature as parseOriginalSignature,
+  sameOriginal, signable, signatureDeadline as ownerSignatureDeadline } from './owner.mjs';
 
 let options;
 let hostId = null;
@@ -881,6 +882,7 @@ function joinStart($, previous, epoch, extra = {}) {
   joiningExpiry = null;
   joining = { ...previous, code: '', busy: true, expiryAuthority: null, progress: null, progressError: false,
     owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
+    ownerCanSign: false, ownerSignExpired: false, originalSignature: false,
     parent: project.flow, context: project.context, host: hostId, ...extra };
   $.ui.invalidate('ui.render');
   return joining;
@@ -951,15 +953,22 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const ownerDeadline = flow?.state === 'requested' && extra.owner?.owner?.state === 'review' ? extra.owner.owner.review.expires_at : null;
   const ownerExpired = ownerDeadline !== null && Date.parse(ownerDeadline) <= now;
   if (ownerDeadline && Date.parse(ownerDeadline) - now > 900000) throw new Error('Changed owner deadline');
+  const signingDeadline = flow?.state === 'requested' && extra.owner?.owner?.state === 'approved' &&
+    extra.owner.request.owner_offer_id === '-' && !extra.originalSignature ? ownerSignatureDeadline(extra.owner) : null;
+  const ownerSignExpired = signingDeadline !== null &&
+    Math.max(now, Date.parse(extra.owner.observed_at)) >= signingDeadline;
+  const ownerCanSign = !extra.originalSignature && signable(extra.owner, now);
   const secret = ['choose', 'create_review', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
-  joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority, ownerExpired };
-  const activeDeadline = deadline && stage !== 'expired' ? deadline : ownerDeadline && !ownerExpired ? ownerDeadline : null;
+  joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
+    ownerExpired, ownerCanSign, ownerSignExpired };
+  const activeDeadline = deadline && stage !== 'expired' ? deadline : ownerDeadline && !ownerExpired ? ownerDeadline
+    : signingDeadline && !ownerSignExpired ? signingDeadline : null;
   if (activeDeadline) {
     joiningExpiry = $.clock.after(Date.parse(activeDeadline) - now, () => {
       if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
-        joining = ownerDeadline
-          ? { ...joining, ownerExpired: true, busy: false }
+        joining = ownerDeadline || signingDeadline
+          ? { ...joining, ownerExpired: !!ownerDeadline, ownerCanSign: false, ownerSignExpired: !!signingDeadline, busy: false }
           : { ...joining, stage: 'expired', secret: null, code: '', preview: null, busy: false };
         $.ui.invalidate('ui.render');
       }
@@ -1179,13 +1188,16 @@ async function inspectOwnerJoin($, running, epoch, captured) {
   if (flow.state !== 'requested' || !same(flow, captured)) throw new Error('Changed owner join flow');
   return joinHost($, running, epoch);
 }
-function ownerFailure($, running, epoch, uncertain = false) {
+function ownerFailure($, running, epoch, uncertain = false, signing = false) {
   if (joining !== running || epoch !== generation) return;
   joiningExpiry?.cancel(); joiningExpiry = null;
   joining = { ...running, busy: false, code: '', secret: null, owner: null, ownerExpired: false,
-    ownerOperation: false, ownerError: uncertain
-      ? 'Owner consent outcome unknown. Check owner consent to read the recorded result; no automatic retry.'
-      : 'Owner review unavailable. Check owner consent to inspect the host; no automatic retry.' };
+    ownerOperation: false, ownerCanSign: false, ownerSignExpired: false, originalSignature: false,
+    ownerError: signing
+      ? uncertain ? 'Original signature outcome unknown. Check owner consent to read public evidence; no automatic retry. Leaving cannot retract a dispatched signature.'
+        : 'Original signing unavailable. Check owner consent to inspect public evidence; no automatic retry.'
+      : uncertain ? 'Owner consent outcome unknown. Check owner consent to read the recorded result; no automatic retry.'
+        : 'Owner review unavailable. Check owner consent to inspect the host; no automatic retry.' };
   $.ui.invalidate('ui.render');
 }
 async function readOwner($, previous, epoch, prepare) {
@@ -1238,21 +1250,60 @@ async function approveOwner($, previous, epoch) {
     await joinView($, running, epoch, flow, { owner: approved, ownerError: null, ownerOperation: false, secret: null });
   } catch { ownerFailure($, running, epoch, sent); }
 }
+async function signOriginalOwner($, previous, epoch) {
+  if (previous.stage !== 'requested' || !previous.ownerCanSign || previous.originalSignature) return;
+  const captured = previous.owner, flow = previous.flow;
+  const running = joinStart($, previous, epoch, { ownerOperation: true });
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    const raw = await joinRun($, ['owner', 'lookup', '--stdin'], ownerPayload(running, flow));
+    if (!await joinCurrent($, running, epoch)) return;
+    const current = await parseOwner(raw, flow, running.parent, running.host);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (current.owner?.state !== 'approved' || !sameOriginal(captured, current)) throw new Error('Changed displayed original consent');
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    if (current.request.owner_offer_id !== '-') {
+      await joinView($, running, epoch, flow, { owner: current, ownerError: null, ownerOperation: false, secret: null });
+      return;
+    }
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!signable(current, now)) throw new Error('Original signing bounds changed');
+    sent = true;
+    const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+      'onboarding', 'join', 'owner', 'sign', '--stdin'], { timeoutMs: 45000,
+      stdin: JSON.stringify({ ...ownerPayload(running, flow, captured), decision: 'sign_original_owner_offer' }) });
+    if (!await joinCurrent($, running, epoch)) return;
+    if (result.exitCode !== 0) throw new Error('Original signature outcome unknown');
+    const recorded = await parseOriginalSignature(result.stdout, flow, running.parent, running.host, captured);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    await joinView($, running, epoch, flow, { owner: recorded, ownerError: null, ownerOperation: false,
+      originalSignature: true, secret: null });
+  } catch { ownerFailure($, running, epoch, sent, true); }
+}
 function leaveOwner($, previous, epoch) {
   if (joining !== previous || epoch !== generation) return;
   joiningExpiry?.cancel(); joiningExpiry = null;
-  joining = { ...previous, owner: null, ownerError: null, ownerExpired: false, ownerOperation: false, busy: false, expiryAuthority: null };
+  joining = { ...previous, owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
+    ownerCanSign: false, ownerSignExpired: false, originalSignature: false, busy: false, expiryAuthority: null };
   $.ui.invalidate('ui.render');
 }
 function ownerControls($, { Text, Button }, previous, epoch) {
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (!previous.owner && !previous.ownerError) return [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))];
   return [
-    ...(previous.owner ? [Text({ children: [ownerReviewLines(previous.owner, previous.parent, previous.ownerExpired)] })] : []),
+    ...(previous.owner ? [Text({ children: [ownerReviewLines(previous.owner, previous.parent, previous.ownerExpired, previous.originalSignature)] })] : []),
     ...(previous.ownerError ? [Text({ children: [previous.ownerError] })] : []),
     ...(previous.owner?.owner?.state === 'review' && !previous.ownerExpired ? [
       button('owner-approve', 'Approve owner powers', () => approveOwner($, previous, epoch)),
     ] : []),
+    ...(previous.ownerCanSign && !previous.originalSignature ? [
+      button('owner-sign', 'Sign original owner offer', () => signOriginalOwner($, previous, epoch)),
+    ] : []),
+    ...(previous.ownerSignExpired ? [Text({ children: ['Original signing deadline elapsed. Check owner consent for public evidence; no automatic retry.'] })] : []),
     ...(previous.owner?.owner === null ? [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))] : []),
     button('owner-check', 'Check owner consent', () => readOwner($, previous, epoch, false)),
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),

@@ -211,8 +211,9 @@ bounded binding/device finalization and normal single-offer selection/publicatio
 None establishes membership, agent access, requester final commit or readiness.
 
 **Approve owner powers** records the exact reviewed consent after fresh checks.
-It neither uses the original key nor completes the original signature. That
-signature is the next separate action through advanced linking in this preview.
+It neither uses the original key nor completes the original signature. The
+separate **Sign original owner offer** action is available only for eligible
+approved pending requests, after fresh project/host/review/request checks.
 **Owner consent: recorded** reports a retained protocol record, which may have
 been approved elsewhere; it does not identify the approving interface or prove
 current powers. Review-window expiry does not erase historical approval.
@@ -223,8 +224,33 @@ reads the retained result; it never prepares, retries approval or signs. A null
 result leaves preparation to another explicit **Review owner powers**. Ordinary
 entry, progress, Refresh, reload and timers perform no owner preparation or
 approval. Navigation/context loss clears confirmations and pending callbacks,
-while an established adapter/message/task runtime stays active. Original signing,
-other participant approvals, access and final acceptance remain separate work.
+while an established adapter/message/task runtime stays active.
+
+## Sign the original owner offer
+
+Read the same exact identities, finite powers and effects before explicitly
+pressing **Sign original owner offer**. Peerspan uses the approved original on
+this computer: its safe normal generated key or exact SSH-agent identity. No key
+is created, imported or copied. The command submits one exact original signature;
+existing approved host work may publish the offer and select one matching offer.
+Administrator admission, later original finalization, requester final commit and
+agent access remain separate.
+
+**Original signature: recorded** reports durable protocol evidence, which may
+already have existed. It does not identify which interface signed it or prove
+admission, current powers, access or connection readiness. **Owner offer recorded**
+is shown only when the completed offer is present. A partial retained signature
+can precede it. A public owner snapshot without a completed offer cannot confirm
+whether that partial signature exists.
+
+The approved review's old review window does not erase its consent. Request and
+signature deadlines still bound new signing. A failed or timed-out action is
+outcome unknown: **Check owner consent** reads public evidence without signing,
+retrying or preparing anything. If the snapshot remains unconfirmed, any later
+attempt requires another explicit Sign press; the CLI checks for existing proof
+before using the key again. Leaving or navigation clears local confirmation and
+cannot retract an already-dispatched signature. No signature state is persisted
+by the plugin. Actual terminal signing and installed/model acceptance remain open.
 
 ## Review and connect the adapter
 
