@@ -3,10 +3,12 @@
 Status: feature-branch contract for [tracking PR #35](https://github.com/peerspan/peerspan/pull/35).
 The accepted experience and integration policy are in the
 [feature plan](guided-session-onboarding.md). Sections 1 and 2 specify the
-observation and native Claude entry slices. Flow creation, authority reviews,
-attachment and automatic protocol continuation remain subsequent slices.
+observation and native Claude entry slices. Section3 specifies the owner-local
+project review backend and atomic metadata attachment. Native attachment
+controls, authority reviews and automatic protocol continuation remain
+subsequent slices.
 
-## Normal experience
+## Normal experience (full feature target)
 
 The agent's `/peerspan` entry point offers inviting someone or connecting
 another computer. It guides project setup when needed. Reviews and progress
