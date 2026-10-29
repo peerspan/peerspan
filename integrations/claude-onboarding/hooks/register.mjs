@@ -2,6 +2,8 @@ import { observation, privateValue } from './observation.mjs';
 import { flow as parseProjectFlow, lookup as parseProjectLookup, validContext, same, defaultName, choiceLabel, reviewLines } from './project.mjs';
 import { context as adapterContext, flow as parseAdapterFlow, lookup as parseAdapterLookup,
   transport as parseTransport, connection as parseConnection, reviewLines as adapterReviewLines } from './adapter.mjs';
+import { tools as messageTools, argumentsOf, typedId, content as messageContent, hello as messageHello,
+  prompt as messagePrompt, handoff as parseHandoff, delivery as parseDelivery, seen as parseSeen, reply as parseReply } from './messages.mjs';
 
 let options;
 let hostId = null;
@@ -17,6 +19,7 @@ let adapter = { stage: 'inactive', busy: false };
 let adapterExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
+let registeredMessageTools = new Set();
 
 function clearCheck() {
   expiration?.cancel();
@@ -33,6 +36,7 @@ function clearSession() {
   read++;
   lines = ['Host: unavailable'];
   clearCheck();
+  registeredMessageTools = new Set();
 }
 
 async function identify($) {
@@ -50,7 +54,7 @@ function summary() {
     : 'Check this conversation to verify local model delivery.';
   return [...lines, `This conversation: ${check.state}`, meaning,
     ...(runtime ? [runtime.phase === 'connected'
-      ? 'Adapter: connected\nIncoming delivery: not verified\nPeer exchange: not verified' : 'Adapter: connecting…']
+      ? `Adapter: connected\n${messageSummary(runtime)}\nPeer exchange: not verified` : 'Adapter: connecting…']
       : runtimeNotice ? [runtimeNotice] : [])].join('\n');
 }
 
@@ -303,10 +307,184 @@ function clearAdapter() {
   adapter = { stage: 'inactive', busy: false };
 }
 function stopRuntime(message) {
+  runtime?.messages?.deadline?.cancel();
+  runtime?.messages?.poll?.cancel();
   runtime?.renewal?.cancel();
   runtime?.expiry?.cancel();
   runtime = null;
   runtimeNotice = message;
+}
+function messageSummary(active) {
+  const attempt = active.messages;
+  if (!attempt) return 'Incoming delivery: not verified';
+  const status = attempt.state === 'ready' ? 'verified (messages)' : ['starting', 'waiting'].includes(attempt.state)
+    ? 'waiting for model' : `not verified (${attempt.state})`;
+  const counts = active.messageCounts;
+  return `Incoming delivery: ${status}\nMessages submitted: ${counts.submitted.size}\nMessages seen: ${counts.seen.size}\nMessages replied: ${counts.replied.size}`;
+}
+function messageFailure($, active, attempt, state = 'blocked') {
+  if (runtime !== active || active.messages !== attempt) return;
+  attempt.deadline?.cancel();
+  attempt.poll?.cancel();
+  attempt.state = state;
+  $.ui.invalidate('ui.render');
+}
+async function messageCurrent($, active, attempt, ready = false) {
+  if (runtime !== active || active.messages !== attempt || active.phase !== 'connected' ||
+      !['starting', 'waiting', 'ready'].includes(attempt.state) || (ready && attempt.state !== 'ready')) return false;
+  if (!await runtimeCurrent($, active)) return false;
+  const now = await $.clock.now();
+  if (runtime !== active || active.messages !== attempt || !['starting', 'waiting', 'ready'].includes(attempt.state)) return false;
+  if (Date.parse(active.connection.lease_expires_at) <= now || Date.parse(active.flow.review.credential_expires_at) <= now) {
+    stopRuntime('Adapter: lease expired. Reopen the project review to reconnect.');
+    $.ui.invalidate('ui.render');
+    return false;
+  }
+  if (attempt.state !== 'ready' && attempt.until !== undefined && attempt.until <= now) {
+    messageFailure($, active, attempt, 'expired');
+    return false;
+  }
+  return true;
+}
+async function messageRequest($, active, attempt, operation, body, id) {
+  if (!await messageCurrent($, active, attempt) || !await runtimeInspect($, active) ||
+      !await messageCurrent($, active, attempt)) throw new Error('Unavailable message context');
+  let url;
+  if (operation === 'ready') url = 'http://peerspan/adapter/v1/ready';
+  else if (operation === 'next') url = 'http://peerspan/adapter/v1/next';
+  else if (operation === 'seen') url = 'http://peerspan/adapter/v1/seen';
+  else if (typedId(id, 'delivery') && operation === 'forwarded') url = `http://peerspan/adapter/v1/deliveries/${id}/forwarded`;
+  else if (typedId(id, 'delivery') && operation === 'reply') url = `http://peerspan/adapter/v1/deliveries/${id}/reply`;
+  else throw new Error('Unavailable scoped message route');
+  let deadline;
+  try {
+    const timeout = new Promise((_, reject) => {
+      deadline = $.clock.after(5000, () => reject(new Error('Unknown message outcome')));
+    });
+    const response = await Promise.race([$.http.fetch(url, { method: 'POST', socketPath: active.transport.adapter_socket,
+      headers: { Authorization: `Bearer ${active.transport.token}`, 'X-Peerspan-Instance': active.transport.instance_id, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) }), timeout]);
+    if (!await messageCurrent($, active, attempt) || response.status !== 200 || !response.ok) throw new Error('Unavailable scoped message');
+    return JSON.parse(response.text);
+  } finally { deadline?.cancel(); }
+}
+async function enableMessages($, active, epoch) {
+  if (runtime !== active || epoch !== generation || active.phase !== 'connected' ||
+      ['starting', 'waiting', 'ready'].includes(active.messages?.state)) return;
+  const attempt = { state: 'starting' };
+  active.messages = attempt;
+  active.messageCounts ??= { submitted: new Set(), seen: new Set(), replied: new Set() };
+  active.messageClaims ??= new Set();
+  $.ui.invalidate('ui.render');
+  try {
+    if (!await runtimeInspect($, active) || !await messageCurrent($, active, attempt)) return;
+    for (const spec of messageTools) {
+      if (!registeredMessageTools.has(spec.name)) {
+        await $.tool.register(spec);
+        if (!await messageCurrent($, active, attempt)) return;
+        registeredMessageTools.add(spec.name);
+      }
+    }
+    const now = await $.clock.now();
+    if (!await messageCurrent($, active, attempt)) return;
+    attempt.nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+    attempt.until = now + 60_000;
+    attempt.state = 'waiting';
+    attempt.deadline = $.clock.after(60_000, () => {
+      if (active.messages === attempt && attempt.state !== 'ready') messageFailure($, active, attempt, 'expired');
+    });
+    $.ui.invalidate('ui.render');
+    void submitMessageHello($, active, attempt);
+  } catch { messageFailure($, active, attempt); }
+}
+async function submitMessageHello($, active, attempt) {
+  try {
+    if (!await messageCurrent($, active, attempt)) return;
+    const result = await $.prompt.submit({ text: messageHello(attempt.nonce) });
+    if (active.messages === attempt && attempt.state !== 'ready' && result?.drop) messageFailure($, active, attempt);
+  } catch { if (attempt.state !== 'ready') messageFailure($, active, attempt); }
+}
+const modelOrigin = (event, next) => event.agentId === undefined && next.origin.plugin === 'engine' && next.origin.tier === 'core';
+async function readyMessages($, event, next) {
+  const active = runtime, attempt = active?.messages;
+  if (!active || !attempt || !modelOrigin(event, next) || attempt.readyBusy) return { deny: 'No current message delivery check.' };
+  attempt.readyBusy = true;
+  let checking = false;
+  try {
+    const args = argumentsOf(event, 'nonce');
+    if (typeof args.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(args.nonce) || args.nonce !== attempt.nonce ||
+        !await messageCurrent($, active, attempt)) return { deny: 'No current message delivery check.' };
+    if (attempt.state === 'ready') {
+      if (!await runtimeInspect($, active) || !await messageCurrent($, active, attempt, true)) throw new Error('Changed message context');
+      return { result: { ready: true } };
+    }
+    if (attempt.state !== 'waiting') return { deny: 'No current message delivery check.' };
+    checking = true;
+    const value = parseConnection(await messageRequest($, active, attempt, 'ready', { nonce: args.nonce }), active.flow);
+    const now = await $.clock.now();
+    if (!await messageCurrent($, active, attempt) || value.state !== 'ready' || value.channel !== 'verified' ||
+        Date.parse(value.lease_expires_at) <= now || Date.parse(value.lease_expires_at) > Date.parse(active.flow.review.credential_expires_at)) throw new Error('Unavailable message readiness');
+    attempt.deadline?.cancel();
+    attempt.state = 'ready';
+    $.ui.invalidate('ui.render');
+    void pollMessages($, active, attempt);
+    return { result: { ready: true } };
+  } catch {
+    if (checking) messageFailure($, active, attempt);
+    return { deny: 'Message delivery check unavailable. Retry incoming messages in Peerspan.' };
+  } finally { attempt.readyBusy = false; }
+}
+async function pollMessages($, active, attempt) {
+  if (attempt.pollBusy || runtime !== active || active.messages !== attempt) return;
+  attempt.pollBusy = true;
+  try {
+    if (!await messageCurrent($, active, attempt, true)) return;
+    const raw = await messageRequest($, active, attempt, 'next', {});
+    const now = await $.clock.now();
+    if (!await messageCurrent($, active, attempt, true)) return;
+    const value = parseHandoff(raw, active, now);
+    if (value !== null) {
+      if (active.messageClaims.has(value.delivery.id)) throw new Error('Duplicate message handoff');
+      active.messageClaims.add(value.delivery.id);
+      let deadline;
+      let accepted;
+      try {
+        const timeout = new Promise((_, reject) => {
+          deadline = $.clock.after(5000, () => reject(new Error('Unknown prompt outcome')));
+        });
+        accepted = await Promise.race([$.prompt.submit({ text: messagePrompt(value) }), timeout]);
+      } finally { deadline?.cancel(); }
+      if (!await messageCurrent($, active, attempt, true)) return;
+      if (accepted?.drop || typeof accepted?.text !== 'string') throw new Error('Unavailable message submission');
+      const forwarded = parseDelivery(await messageRequest($, active, attempt, 'forwarded', {}, value.delivery.id), active);
+      if (forwarded.id !== value.delivery.id || forwarded.request_id !== value.delivery.request_id ||
+          forwarded.sender_host_id !== value.delivery.sender_host_id || !['forwarded', 'replied'].includes(forwarded.state)) throw new Error('Unavailable forwarded receipt');
+      if (!await messageCurrent($, active, attempt, true)) return;
+      active.messageCounts.submitted.add(value.delivery.id);
+      $.ui.invalidate('ui.render');
+    }
+    if (await messageCurrent($, active, attempt, true)) attempt.poll = $.clock.after(1000, () => pollMessages($, active, attempt));
+  } catch { messageFailure($, active, attempt); }
+  finally { attempt.pollBusy = false; }
+}
+async function messageWrite($, event, next, operation) {
+  const active = runtime, attempt = active?.messages;
+  if (!active || !attempt || !modelOrigin(event, next) || attempt.state !== 'ready' || attempt.writeBusy) return { deny: 'No available native message connection.' };
+  attempt.writeBusy = true;
+  try {
+    const args = argumentsOf(event, operation === 'reply' ? 'delivery_id content' : 'delivery_id');
+    if (!typedId(args.delivery_id, 'delivery') || (operation === 'reply' && !messageContent(args.content)) ||
+        !await messageCurrent($, active, attempt, true)) return { deny: 'Invalid or unavailable message operation.' };
+    const value = await messageRequest($, active, attempt, operation,
+      operation === 'reply' ? { content: args.content } : { ids: [args.delivery_id] }, args.delivery_id);
+    const result = operation === 'reply' ? parseReply(value, active, args.delivery_id, args.content) : parseSeen(value, args.delivery_id);
+    if (!await messageCurrent($, active, attempt, true)) throw new Error('Changed message context');
+    active.messageCounts.seen.add(args.delivery_id);
+    if (operation === 'reply') active.messageCounts.replied.add(args.delivery_id);
+    $.ui.invalidate('ui.render');
+    return { result };
+  } catch { return { deny: 'Message operation unavailable or outcome unknown. No automatic retry was made.' }; }
+  finally { attempt.writeBusy = false; }
 }
 function adapterStart($, previous, epoch) {
   if (adapter !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
@@ -616,6 +794,11 @@ export function register(on, configured = {}) {
         : Button({ key: 'check', label: 'Check this conversation', onPress: () => beginCheck($, epoch) }),
       ...projectControls($, { Text, Button, Input }, epoch),
       ...adapterControls($, { Text, Button }, epoch),
+      ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
+        Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
+        Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',
+          onPress: () => enableMessages($, displayedRuntime, epoch) }),
+      ] : []),
       ...(runtime ? [Button({ key: 'adapter-stop', label: 'Stop adapter', onPress: () => {
         if (runtime !== displayedRuntime || epoch !== generation) return;
         stopRuntime('Adapter: stopped. The last accepted lease will expire; the credential is not revoked.');
@@ -640,6 +823,12 @@ export function register(on, configured = {}) {
     $.ui.invalidate('ui.render');
     return { result: { state: 'verified' } };
   }).catch(() => ({ deny: 'Conversation check unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__adapter_ready' }, ($, e, next) => readyMessages($, e, next))
+    .catch(() => ({ deny: 'Message delivery check unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__message_seen' }, ($, e, next) => messageWrite($, e, next, 'seen'))
+    .catch(() => ({ deny: 'Message acknowledgment unavailable.' }));
+  on('tool.call', { tool: 'mcp__peerspan__message_reply' }, ($, e, next) => messageWrite($, e, next, 'reply'))
+    .catch(() => ({ deny: 'Message reply unavailable.' }));
   on('ui.close', { id: 'peerspan' }, async ($, e, next) => {
     if (runtime?.phase === 'connecting') stopRuntime('Adapter: stopped before connection was confirmed.');
     generation++;
