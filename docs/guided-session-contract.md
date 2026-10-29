@@ -1438,7 +1438,9 @@ The enable callback captures runtime, ready attempt and UI generation,
 synchronously excludes double presses, checks current native root/conversation,
 terminal, exact parent/child authorization and live lease, then registers only
 the five task tools below, once per native module/session. Recheck context and
-captured identities after registration before polling. Reuse this native
+captured identities after registration before polling. An explicit restart
+shares any still-pending registration in that session; late registration from
+an ended conversation cannot populate the next conversation's registry. Reuse this native
 readiness proof; enabling tasks sends no extra hello or prompt by itself.
 Do not infer a model observed a task from the message readiness challenge.
 
@@ -1446,6 +1448,8 @@ Do not infer a model observed a task from the message readiness challenge.
 stopping messages/lease or changing a task/authorization on the host. Task
 failure offers **Retry incoming tasks**, a fresh explicit attempt under the
 still-current native ready proof. It never resubmits uncertain held content.
+After an explicit Stop or a new message proof, offer **Enable incoming tasks**;
+reserve **Retry incoming tasks** for a failed attempt under the same proof.
 Close/Back preserve an established enabled task attempt. Stop adapter, lease/
 credential expiry, root/conversation/terminal/host/scope change, session end or
 reload stops task authority with the runtime. Message-attempt failure/retry
