@@ -61,8 +61,8 @@ With `PEERSPAN_TIMING=1`, a debug build prints one `timing #N KIND WHAT MS` line
 
 ## Explore a subsystem
 
-- [Manual agent testing](manual-agent-testing.md) covers explicit sessions, routes, and local fixtures.
-- [Coordination contract](coordination-contract.md) and [peer messaging contract](peer-messaging-contract.md) explain enrollment and transport.
+- [Manual agent testing](manual-agent-testing.md) covers candidate installation and live work on separate machines.
+- [Coordinator-free spec](decentralized-spec.md), [wire appendix](decentralized-wire-formats.md) and [runtime contract](decentralized-runtime-contract.md) explain current enrollment and transport. The coordination contract describes the retired coordinator product.
 - [Connectivity evaluation](connectivity-evaluation.md) explains the controlled network benchmarks and their limits.
 - `PEERSPAN_TIMING=1` in debug builds prints per-request timings (see above), and the ignored Rust connectivity benchmarks in `rust/src/quic/` can be run on demand.
 

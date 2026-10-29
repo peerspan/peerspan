@@ -231,6 +231,9 @@ def _():
     _, bert = need("split", "bert")
     sent = a.ok("send", "bob/bert", "during the split")
     check(sent["state"] == "accepted", f"alice -> bob/bert during the split: {sent['state']}")
+    # Reconnect the same fixture instance before claiming; its adapter lease is at most 15 seconds
+    # (adapter recovery contract) and is independent of the network's root split.
+    bert.connect()
     check(bert.next_message()["request"]["content"] == "during the split", "bert did not get the message")
     check(b.public_key in members(b, state["net"]) and a.public_key in members(b, state["net"]),
           "bob's member list lost hosts in the split")

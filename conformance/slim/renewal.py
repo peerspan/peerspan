@@ -198,6 +198,22 @@ class OriginalWorld(World):
         join_new_person(self.a, self.b, "bob", key, self.net, scopes=1,
                         not_after=rfc3339(self.now() + timedelta(days=2)))
         self.bob_person = ssh_public_base64(key)
+        # The short join also makes the root's person/host grants immediately due. Admit those renewals
+        # before creating a policy: a policy unknown to that root renewal must become inert (spec 7.2).
+        def parents_adopted():
+            renewed = {}
+            for kind, field, value in (("person_lease", "person_public_key", self.bob_person),
+                                       ("host_lease", "host_public_key", self.b.public_key)):
+                rows = [(e, p) for _, e, p in statements(self.a, self.net, kind) if p["subject"].get(field) == value]
+                envelope, payload = max(rows, key=lambda row: row[1]["sequence"])
+                if payload["sequence"] < 2:
+                    return False
+                renewed[kind] = statement_id(envelope)
+            people = self.b.api("GET", f"/v2/networks/{self.net}/persons")[1]["persons"]
+            return (any(p["person_public_key"] == self.bob_person and p["person_lease_id"] == renewed["person_lease"]
+                        for p in people)
+                    and members(self.b, self.net).get(self.b.public_key, {}).get("host_lease_id") == renewed["host_lease"])
+        wait_for(parents_adopted, timeout=WINDOW, interval=1, message="bob to admit the short join's initial root renewals")
         self.b.ok("allow", "alice", "--person-key", key)
         self.start = {k: dict(v) for k, v in members(self.a, self.net).items()}
         self.initial_policy = self.policy_version()

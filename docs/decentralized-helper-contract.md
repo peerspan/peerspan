@@ -1,7 +1,8 @@
 # Optional rendezvous and relay operator
 
-Status: DEC-01/04/06 shared contract candidate, 2026-10-26. The complete contract
-set must be reviewed and merged before implementation or executable cases.
+Status: implemented optional-helper contract. The current
+[network spec](decentralized-spec.md) and [wire appendix](decentralized-wire-formats.md)
+take precedence where the original detailed contracts differ.
 Read with the exact
 [bootstrap/helper wire](decentralized-bootstrap-contract.md) and
 [runtime](decentralized-runtime-contract.md) contracts. This document makes the
@@ -134,7 +135,7 @@ operator artifact; the normal host bundles do not require or launch it.
 
 ## Independent verification
 
-From this contract and the wire alone, test both host implementations against
+From this contract and the wire alone, test the Rust host against
 two helpers with different identities/resource accounts. Verify exact encrypted
 mailbox delivery/retry/restart/tombstones, all caps and bad credentials, relay4
 framing/directions/renewal/replacement/source attribution, actual TLS endpoint
