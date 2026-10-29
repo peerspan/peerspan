@@ -90,7 +90,7 @@ Each term is defined once here and used with this meaning throughout.
 | Device key | 32-byte seed in the existing `link_device_keys` table. One per person per host after linking. |
 | Root seed | The existing `networks.root_seed` column, when the root key is a raw key held by this host. A root moved to an SSH key is not stored. |
 | Original person key | An SSH key file or `ssh-agent` key on the person's machine. It never enters the database, a helper or another machine. Automatic renewals never need it: they use device keys (DEC-Q21). |
-| State database | SQLite, schema 23 (17 `dec_*` tables, section 17). |
+| State database | SQLite, schema 24 (17 `dec_*` tables plus local project flows, section 17). |
 | Transport file | Optional JSON file given with `serve --transport-config PATH`, naming helpers and advertised addresses. |
 | Helper state | `$XDG_STATE_HOME/peerspan/helper`, else `$HOME/.local/state/peerspan/helper`. |
 
@@ -920,8 +920,11 @@ as legacy history.
 
 ## 17. Storage
 
-Schema 23 is unchanged (DEC-Q14). It adds 17 tables; opening the database
-never joins, renews or migrates anything, and older binaries refuse it.
+Schema 23 added the 17 DEC tables below (DEC-Q14). Schema 24 additionally
+adds the owner-local `onboarding_project_flows` table, as specified in the
+[guided session contract](guided-session-contract.md#advanced-cli-and-storage).
+Opening never joins, renews or adopts a network, prepares a project flow or
+attaches a session; older binaries refuse newer schemas.
 
 | Table | Holds |
 | --- | --- |
@@ -936,7 +939,7 @@ never joins, renews or migrates anything, and older binaries refuse it.
 | `dec_operations` | Applied join outcomes. |
 | `dec_outbox` | Deliveries to peers. |
 | `dec_contacts`, `dec_helpers` | Peer contacts and configured helpers. |
-| `dec_migrations` | Unused; a schema-24 cleanup may drop it later (DEC-Q14). |
+| `dec_migrations` | Unused; retained unchanged (DEC-Q14). |
 
 Existing tables keep their data. `networks.record` holds a tagged format-2
 record for a coordinator-free network; `network_members` holds a derived cache
@@ -1231,9 +1234,9 @@ named, with no change to stored state other than the stored decision time.
 
 **Storage**
 
-59. A schema 21 or 22 database opens to schema 23 with all old data intact; an
-    old binary refuses schema 23; schema 24 is refused; `dec_migrations` stays
-    empty.
+59. A schema 21, 22 or 23 database opens to schema 24 with all old data intact;
+    older binaries refuse newer schemas; schema 25 is refused; `dec_migrations`
+    stays empty. The local project-flow table starts empty.
 60. After a Rust daemon restart, an unfinished join and an unfinished signing
     plan continue with identical approved bytes and no duplicate events.
 

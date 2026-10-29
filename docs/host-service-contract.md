@@ -137,3 +137,8 @@ the interactive flow remains subsequent work on that feature branch. The
 [native Claude entry](guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a)
 reads that observation and offers a local conversation check. Its model tool
 only acknowledges a challenge; it acquires no owner administration authority.
+
+The [exact local project review](guided-session-contract.md#3-exact-local-project-review-gu-01c--gu-02b)
+adds owner-local prepare/inspect/decision routes and advanced stdin-only CLI
+mutations. Schema24 adds private durable review rows. Approval records local
+agent/session metadata atomically; it issues no adapter credential or access.
