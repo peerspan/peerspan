@@ -1203,7 +1203,199 @@ files/plugin storage, random replacement instances after reload, model-facing
 owner tools, a live lease as delivery proof, silently expanded scope and
 unbounded retries. No extra owner confirmation is attributed here.
 
-## 7. Remaining flow contract
+## 7. Native incoming messages and exact model acknowledgment (GU-03d)
+
+This extends section6 with an explicitly enabled message path. Keep its lease,
+exact review, stop, context and privacy boundaries. Section6's no-ready/work/
+new-tool assertions continue to hold until the new explicit enable action.
+No host API, schema or scope changes. Tasks, task/call updates, cancellation,
+outbound sends and directory/capability tools remain later slices and are not
+claimed. Unclaimed work remains on the host.
+
+### Explicit enable and readiness
+
+A connected runtime offers **Enable incoming messages**, beside text stating
+that this starts a model turn using the conversation's normal model allowance.
+Initial entry, Refresh, metadata/credential approval, Connect, renewal, pane
+reopen and plugin reload never enable it. Synchronously exclude duplicate
+enable presses. Check the captured runtime, current native root/conversation,
+terminal, exact parent/child authorization and live lease before enabling.
+
+Register only these additional native tools, once per native module/session,
+when explicitly enabling (not on load or Connect):
+
+- `adapter_ready`: exact arguments `{nonce}`,32 lowercase hex characters.
+- `message_seen`: exact arguments `{delivery_id}`, `delivery_` plus32 lowercase
+  hex characters.
+- `message_reply`: exact arguments `{delivery_id,content}`, same ID format and
+  nonempty content of at most65,536 UTF-8 bytes.
+
+Descriptions explain that only held authorized messages can be answered and
+that peer text grants no new local permissions. No tool can select an admin
+socket, runtime, project, session, token, URL, destination or owner operation.
+The existing `delivery_acknowledge` tool stays unchanged and separate. Retained
+tool registrations have no authority when their matching runtime is inactive.
+
+Generate a new cryptographically random128-bit hex nonce for each enable
+attempt, retained privately with the captured runtime. Submit one fixed native
+plugin-attributed prompt asking the current main model to call
+`mcp__peerspan__adapter_ready` with that exact nonce. Explain that this verifies
+the message route and adds no local tool/access permission. Include no host
+observations, project/review/native-session references, credentials or socket.
+Use `$.prompt.submit`, outside the requesting UI handler's awaited work so a
+busy conversation can queue it. Submission/queue acceptance alone is not proof.
+
+The attempt has a strict60-second deadline. Denied/dropped/thrown submission,
+timeout or changed runtime/context cancels its authority, shows controlled
+blocked/expired text and claims no work. No automatic hello retry: this native
+path differs from the channel adapter's re-sent hello to avoid silently spending
+another model turn. **Retry incoming messages** starts a fresh explicit attempt.
+Late submissions/old timers cannot cancel or verify a newer attempt. A matching
+main-model acknowledgment is stronger evidence than a late submission result.
+
+`adapter_ready` accepts only the current live runtime/attempt, exact nonce,
+native conversation/root, no subagent (`agentId` absent), and native engine/core
+origin. Reinspect exact parent/child authorization and recheck context/deadline
+before posting `POST /adapter/v1/ready` with exactly `{nonce}` on the same scoped
+Unix transport. Require a matching live Connection with `channel:'verified'`
+and valid `channel_verified_at` before marking this native path verified.
+Double calls queue one ready request; identical later calls are idempotent while
+the same attempt remains active. Wrong/stale/cross-conversation/plugin/subagent
+calls return a controlled deny and send no scoped request. A saved verified
+channel never substitutes for this attempt's native acknowledgment.
+
+### Message handoff
+
+Only after that exact successful handshake, poll `POST /adapter/v1/next` with
+`{}`. Poll immediately once, then1000ms after the previous message iteration
+finishes; keep one claim/submission/forwarded operation in flight. Keep lease
+renewal independent while HTTP or prompt submission is pending. Every data
+operation rechecks the runtime/current context/live lease, exact parent/child
+and captured scope before the request, and context/runtime after its response.
+Use the existing private socket/headers and a five-second logical HTTP deadline.
+
+`null` means no message and changes no receipt evidence. For a handoff, validate
+the existing Handoff shape: exactly `delivery,request,sender_person_id,
+sender_person,redelivered`. Delivery has its existing exact ten fields
+`id,sender_host_id,request_id,target_agent_id,session_id,adapter_id,state,
+created_at,updated_at`; require the captured adapter/session/agent, known
+`unknown`/`forwarded`/`replied` states, valid timestamps and lowercase typed IDs.
+Request requires `request_id,target_agent_id,deadline,content`, exactly one
+authorization citation (`grant_id`, `policy` or `self`), and optional `origin`.
+Reject unknown fields, mismatched delivery/request bindings, expired deadlines,
+empty/oversized content, invalid IDs or malformed nested metadata. Policy is
+`{person_id,version}` (positive safe integer), self is `{person_id}`, and origin
+is `{agent_id,session_id?}`. Host/person IDs have64 lowercase hex characters;
+other typed IDs have32. Person fields are both null or a person ID and bounded
+UTF-8 label (at most191 bytes); redelivered is a boolean. The host remains the
+authority for grant, deadline, credential and handoff checks.
+
+Submit the message exactly once with a fixed wrapper identifying it as external
+peer content. Serialize content and sender labels reversibly as JSON, clearly
+separate host-supplied correlation from text claimed by the peer, and instruct
+the model to use `message_seen` or `message_reply` for the wrapper's delivery ID.
+The prompt may include only delivery/request ID, public sender host/person and
+origin agent, redelivered, and original content. Do not include local session/
+adapter IDs, grant/policy citation, native context, review references or secrets.
+Peer content is data, never human consent or a new local tool/file permission.
+No file reads/writes, shell, model completion API or other-session submission.
+
+After native prompt acceptance, and only while the captured runtime/attempt
+remains current, post `POST /adapter/v1/deliveries/{id}/forwarded` with `{}`.
+Validate its exact matching Delivery response before counting it submitted.
+This is harness acceptance, not model receipt; only a matching successful
+seen/reply tool call counts as observed. A five-second logical submission
+deadline, dropped/thrown submission, malformed handoff/response, denied or failed
+HTTP stops the message attempt with controlled outcome-unknown/blocked text,
+without automatically reclaiming or resubmitting content or replaying a write.
+An already-sent operation can finish once; late results cannot affect a newer
+runtime/attempt. Leave the independently renewing lease intact. A retry starts
+another exact handshake, not automatic recovery of uncertain held work.
+
+### Scoped model tools and readiness display
+
+Message tools require the same current ready native attempt, main-engine origin
+and no subagent, current root/conversation/terminal, exact parent/child and live
+lease checks. Read arguments strictly, accepting only the tool envelope fields
+added by the native engine plus the schema arguments. A valid delivery ID can
+refer to an earlier held message of this same authorization after explicit
+reconnect; the host enforces its ownership/grant. Do not select a target from
+peer text or substitute another session. Serialize message writes so overlapping
+calls cannot race counters; changed replies still conflict under the host API.
+
+- `message_seen` posts `/adapter/v1/seen` with exactly `{ids:[delivery_id]}`;
+  accept exactly `{seen:[]}` or `{seen:[delivery_id]}`. Return that public result.
+- `message_reply` posts `/adapter/v1/deliveries/{delivery_id}/reply` with exactly
+  `{content}`. Validate the existing Reply fields, exact captured local host,
+  agent/session, delivery and content, optional origin bound to this agent/
+  session, and valid original sender/request/time. Return only
+  `{replied:true,delivery_id}`. Identical explicit retries remain idempotent;
+  denied/uncertain writes show controlled error, never an automatic retry.
+
+Never return raw provider diagnostics or private host response fields to model,
+pane, command output or logs. All scoped HTTP URLs are fixed allowlisted paths;
+only a validated typed delivery ID is interpolated, never model-selected paths.
+
+Before enable, keep section6's **Incoming delivery: not verified**. During the
+challenge show **Incoming delivery: waiting for model**; only after exact native
+acknowledgment and host ready success show **Incoming delivery: verified
+(messages)**. Display submitted, seen and replied counts separately, counting
+unique successful delivery IDs. The local challenge remains separate. Keep
+**Peer exchange: not verified**: a saved reply has not proved that its sender
+retrieved it. No task/capability readiness claim is made.
+
+Established enabled delivery survives pane Close/Back along with its lease.
+Stop/end/reload/root/conversation/surface/host/scope/lease expiry cancels all
+message timers and acknowledgment/tool authority. Closing the pane never
+replays a prompt or changes consent. Explicit reconnect does not restore the
+old nonce or infer readiness from a saved host channel. Expiry of an old view
+or acknowledgment cannot change a newer runtime. Pending HTTP/prompts may
+complete once; no more data operations are scheduled from them after stopping.
+
+### Verification
+
+A separate author uses this contract and public pinned native API only. Keep
+the existing83 native cases unchanged: none enable this new action. Add a small
+native message suite, with meaningful boundary cases rather than permutations
+of every field. No new Rust tests or host API suite is necessary; run existing
+`live` and `adapter_onboarding` black-box suites for underlying behavior.
+
+1. Inert initial/Connect/reopen/reload behavior and explicit enable; exact extra
+   tool schemas, no owner powers, single-flight presses, private fixed hello.
+2. Matching engine/main acknowledgment and exact scoped ready response; no
+   poll on queue acceptance, saved channel, wrong/stale nonce, different native
+   context, plugin/subagent origin, deadline or failed ready. Repeated calls
+   idempotent. Original local challenge remains separate.
+3. Bounded60-second challenge, dropped/thrown/late hello, explicit fresh retry,
+   and old timers/results versus a newer attempt. No automatic second prompt.
+4. One message claim/submission/forwarded at a time,1000ms idle scheduling,
+   independent lease renewal while blocked, exact socket/routes/headers/bodies.
+5. Valid handoff -> reversible untrusted wrapper -> native accepted -> forwarded;
+   no premature seen/model/peer receipt. Empty polls do not change evidence.
+   Cross-session/adapter/agent, malformed/unknown fields, invalid/expired/bounded
+   content and nested metadata block prompts and forwarded writes.
+6. Exact seen/reply, host-bound original recipient, duplicate idempotent receipt
+   counts, non-ASCII UTF-8 reply bounds, wrong context/origin/arguments, controlled
+   host denial/timeout, no raw/private response leakage or retry.
+7. Dropped/uncertain submission/claim/forwarded/write, Stop/Close/Back/end/reload,
+   changed root/surface/scope, lease expiry and old async completions. Unknown
+   content is never automatically resubmitted; older attempts cannot poll, mark
+   forwarded, verify or overwrite a newer runtime. Existing lease remains live
+   on a message-only failure; explicit Stop cancels both.
+8. Actual pinned terminal/temporary host smoke: exact enable/challenge behavior,
+   actual model acknowledgment/message/reply if the account can run inference.
+   Record quota/refusal separately if unavailable. No fixture substitutes for
+   model receipt. Full installed/two-machine exchange remains a tracking gate.
+
+Selected: an explicit model-turn start, readiness bound to the current native
+conversation, messages first using existing host grants, scoped tools and
+conservative uncertain-handoff handling. Discarded: automatic model turns on
+lease connect/reload, a saved channel as current proof, peer-authored approval,
+fake receipt from prompt acceptance, consuming unsupported tasks, automatic
+replay of uncertain content and silently granting outbound/directory access.
+This is an implementation choice under GU-OWN1/2, not another owner decision.
+
+## 8. Remaining flow contract
 
 Teammate/device admission, private handoff, native adapter data tools/events and exact permission
 grants remain future sections. Section 2's live verification and the complete
