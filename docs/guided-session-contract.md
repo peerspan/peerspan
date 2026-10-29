@@ -3019,8 +3019,13 @@ ordinary owner-review navigation. No extra hello, tools, inference or data work.
 
 The separate contract-only author adds a small owner-consent native test file,
 without importing production modules. Preserve all212 existing case assertions
-and their stimuli/timeouts. New deterministic delayed effects synchronize actual
-dispatch/delay registration before navigation or virtual-clock advancement.
+and their intended stimuli/timeouts. New deterministic delayed effects
+synchronize actual dispatch/delay registration before navigation or virtual-clock
+advancement. The existing pending-initial-adapter-connection cancellation fixture
+may add that same synchronization before Back: establish its intended in-flight
+HTTP request first, then retain the actual delayed completion, cancellation,
+no-renewal assertions and timeout. A pre-dispatch cancellation is valid product
+behavior but does not exercise that fixture's intended pending-response case.
 
 1. Entry/publication/progress/global Refresh are owner-inert; explicit double
    Review does one lookup and at most one preparation; retained records/reentry

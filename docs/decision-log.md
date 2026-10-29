@@ -2301,3 +2301,16 @@ combining review/approval/key use in one opaque action, broad link CLI automatio
 a daemon key provider, automatic preparation/retry/decline and metadata as grant.
 Section17 defines independent native cases, existing212 preservation and final
 all16 suite gates; actual terminal/installed/model/upgrade recovery remains open.
+
+
+### GU.impl17a — Establish the pending connection in its cancellation fixture
+
+Selected: the independent test author will explicitly await the existing
+initial adapter connect HTTP dispatch/delay registration before pressing Back
+in its pending-connection cancellation case. Original212 passed in the first
+full run; the next run passed all20 new owner cases but this old case observed
+zero HTTP calls where its fixture assumed one. The same scheduling failure has
+occurred in earlier slices. Preserve all original semantic assertions, delay
+and timeout; establish the intended in-flight stimulus deterministically.
+Discarded: product changes to force a request after cancellation, weakening the
+HTTP/no-renewal assertions, timeout inflation and retrying until green.
