@@ -259,3 +259,12 @@ one45s process bound. It validates the same public review plus recorded marker,
 keeps partial signature evidence separate from completed offer/admission/access,
 and recovers by pure owner lookup without signing or automatic retry. No new
 host API/schema or frontend key handling.
+
+[Incoming admission inspection](guided-session-contract.md#20-read-only-incoming-administrator-admission-inspection)
+adds private owner-local `POST /v1/onboarding/admission-inspection` and
+`onboarding admission inspect --stdin` with exactly context/request_id. One
+read snapshot binds the current attached project and verifies an already retained
+incoming original owner/selection prefix against its adopted network. The closed
+public review and digest create no intent, signer choice, signature, clock update,
+import, poll or authority mutation; schema27 is unchanged. Native admission,
+administrator consent/signing and manual incoming-code import follow separately.

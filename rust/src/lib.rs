@@ -34,6 +34,7 @@ pub mod network;
 pub mod oauth;
 pub mod onboarding;
 pub mod onboarding_adapter;
+pub mod onboarding_admission;
 pub mod onboarding_invitation;
 pub mod onboarding_join;
 pub mod peer;

@@ -251,8 +251,12 @@ signature evidence establishes neither admission nor connection readiness.
 The [native signing control](guided-session-contract.md#19-native-bounded-original-owner-offer-signing)
 adds one explicit Sign original owner offer action after approved consent, strict
 public recorded evidence and lookup-only recovery. It reads no keys or signing
-bytes itself. Administrator admission, later original finalization, requester
-final consent and agent access remain subsequent slices.
+bytes itself. The [incoming admission inspection backend](guided-session-contract.md#20-read-only-incoming-administrator-admission-inspection)
+verifies an already retained incoming new-original request and its exact selected
+owner offer, returning public terms without preparing an intent or choosing a
+signer. It adds no native admission control or approval. Administrator consent/
+signing, later original finalization, requester final consent and agent access
+remain subsequent slices.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.

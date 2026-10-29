@@ -61,6 +61,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   approval, rollback/history and consent boundaries (guided session contract section16).
 - `owner_signing`: bounded local original owner-offer signing, exact generated/
   SSH-agent selection, typed-slot faults and pure replay (section18).
+- `admission_onboarding`: read-only incoming new-original request/owner/selection
+  inspection before administrator consent, purity and privacy (section20).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
