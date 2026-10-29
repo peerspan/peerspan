@@ -987,9 +987,210 @@ review, plaintext token storage, a one-shot secret lost after interruption,
 and treating credential issuance as connection or model readiness. These are
 implementation choices under GU-OWN1/2, not additional owner confirmations.
 
-## 6. Remaining flow contract
+## 6. Native credential review and scoped lease (GU-02e / GU-03c)
 
-Teammate/device admission, private handoff, native adapter connection and exact permission
+This slice connects section5 to native human controls and a real credential-
+scoped local lease. It does not claim complete incoming delivery: it registers
+no new model tool, sends no adapter hello/model prompt, calls no ready/work
+route, and consumes no messages or tasks. The existing local conversation check
+remains separate. Native data tools, incoming events and their exact model
+acknowledgment are the next slice before claiming a ready connection.
+
+### Private transport material
+
+Add advanced `peerspan [--state DIR] onboarding adapter transport --stdin`.
+Its exact input is the existing credential CLI input:
+`{flow_id,context:AdapterContext,review_id}`. Apply the same 64-KiB bound,
+validation, controlled diagnostics and owner-local credential retrieval. The
+existing credential API/CLI response remains unchanged. Transport adds no API,
+schema, write, event, approval, credential issuance or lease mutation.
+
+Only successful exact retrieval returns this private object, with exactly
+`version:1`, `adapter_id`, `session_id`, `token`, `instance_id`, `adapter_socket`.
+The first four fields match credential retrieval. `adapter_socket` is the
+absolute path to `adapter.sock` beside the administration socket selected by
+that CLI invocation. Reject a non-UTF-8 path with a controlled diagnostic.
+Never select a socket from model arguments or the project directory.
+
+`instance_id` is `instance_` plus lowercase HMAC-SHA256, keyed by the token's
+32 decoded bytes, over UTF-8 `peerspan-guided-adapter-instance-v1\n` + `flow_id`
++ `\n` + `review_id`. This privately reproduces the same original instance after
+plugin reload without a secret file. Changed flow/token/review produces a
+different instance. It does not reset the host's instance hash, take over a
+different instance, or bypass revocation/expiry/recovery. The credential already
+authorizes this local consumer; this derivation is no separate authentication
+of the native conversation against another process owned by the same account.
+Do not persist or display either secret or the socket. The private transport
+command is for integrations, not a suggested interactive shell command.
+
+### Native review and consent
+
+Section4's initial, headless and project actions retain their behavior. Only
+an attached project offers **Review adapter connection**. Native private
+project/adapter controls render only on the terminal surface; another surface
+gets no private review or owner decision controls even if a terminal is also
+attached. No entry/load, ordinary initial Refresh, input edit or model tool
+prepares, decides, retrieves a credential or connects an adapter.
+
+The explicit Review control rechecks trusted root/conversation/host and the
+exact attached project via its inspection route, then privately looks up the
+section5 flow. It resumes a retained outcome first. If no attempt exists, that
+same explicit review intent prepares one; this is preparation, not approval.
+An active adapter-view Refresh is read-only and never prepares a missing flow.
+An empty refreshed view offers **Review adapter permissions** to prepare.
+
+For a pending flow show every immutable human-relevant term without clipping:
+project root, current conversation, exact agent name/owner/capability metadata,
+review deadline, credential deadline, nonrenewable lifetime, and its effects:
+
+- issue one credential for this existing local session;
+- receive and reply to work already authorized for this agent;
+- handle already authorized tasks and their task artifacts;
+- existing authorized work may resume when delivery is connected;
+- no new agent/session, membership or access grant;
+- no directory access, outbound destinations or capability calls;
+- no automatic sharing of project files or conversation; ordinary local harness
+  permissions still govern local actions and task-result files.
+
+Use section4's reversible quoting, metadata bounds and private-prefix rejection,
+including terminal/bidi decoration and OSC payloads. Keep flow/hash/session/
+adapter IDs and native conversation ID out of routine review text. Validate
+exact response fields/version, known effects, parent context/review/agent/session,
+planned IDs, authorization, connection and state/next action before any control.
+Unknown or inconsistent fields/effects block the view; do not approve hidden
+terms. Retain a deeply immutable complete review and exact parent bindings.
+
+**Approve adapter** / **Decline adapter** callbacks synchronously exclude double
+presses, capture that review and UI generation, reread native root/ID/host,
+inspect the exact parent project and child flow, require their unchanged complete
+terms and current eligible states, recheck native context and fixed deadline,
+then submit the captured decision on stdin. Changed terms, old callbacks,
+expiry, failed inspection or changed context send no decision. Native clock
+expiry removes actionable controls; old timers cannot expire newer views.
+Approval only records authorization. It never retrieves transport material or
+opens a connection implicitly. Decline is flow-only. Decision uncertainty asks
+for Refresh; it never auto-retries approval. Invalidated/declined/expired flows
+offer **Review a replacement adapter**, which explicitly prepares with the
+exact current `replace_flow_id`, followed by a fresh review and decision.
+
+Opening/refreshing/closing the view does not rewrite durable consent. Close,
+Back, root/conversation change or module reload invalidates old human callbacks.
+Lookup resumes the host outcome, including a lost approval response; a retained
+authorized result offers **Connect adapter**, never silently reconnects.
+
+### Explicit scoped connection
+
+**Connect adapter** captures the exact authorized parent and child reviews,
+rechecks both inspections and native context, then retrieves private transport
+material via literal argv ending `onboarding adapter transport --stdin` with a
+five-second process bound. As in section4, all context/decision payloads remain
+on stdin. Accept exactly the six transport fields, exact planned adapter/session,
+`token_<64 lowercase hex>`, `instance_<64 lowercase hex>` and an absolute local
+socket path ending `/adapter.sock`, with at most103 UTF-8 bytes and no controls,
+empty components, `.` or `..`. Unsupported paths are a controlled blocker.
+
+After another context check, call the native host HTTP API only at the literal
+URL `http://peerspan/adapter/v1/connect`, with `method:'POST'`, the validated
+`socketPath`, `Authorization: Bearer TOKEN`, `X-Peerspan-Instance: INSTANCE`,
+`Content-Type: application/json`, and body exactly
+`{adapter_id,session_id,instance_id,protocol_version:'claude-mod-v1'}`. This
+reports the native transport, not an MCP negotiation. No TCP request, owner API
+mutation, alternate path, shell or subprocess is used for scoped traffic.
+
+Use a five-second logical deadline for HTTP, since the pinned native HTTP
+interface has no per-call timeout option. A timed-out/already-sent request may
+finish once; discard its result and schedule no more work. Failures, malformed
+responses or denied calls show controlled unavailable/outcome-unknown text;
+never expose provider diagnostics or retry a failed connection automatically.
+An explicit subsequent Connect can use the same approved original instance.
+
+Accept only the exact existing Connection shape and matching adapter/session,
+`state:'ready'`, future lease deadline no later than the credential deadline,
+and valid known field types/values. Do not turn its saved `channel:'verified'`
+into proof for this native frontend: this slice has no incoming delivery path.
+Only after that successful response show **Adapter: connected**, **Incoming
+delivery: not verified**, **Peer exchange: not verified**. Never report connected
+from a credential, preparation, request submission, or stale/expired response.
+
+While connected, renew the same lease five seconds after each successful
+response, with one request in flight. Before every renewal reread native root,
+conversation and terminal availability, inspect the exact parent and child
+without mutation, require the captured authorized terms/scope, then recheck
+context before the scoped call. Failure, invalidation, changed scope/review,
+context/host change or credential expiry stops this runtime and forgets private
+material. A separate deadline timer invalidates connected status at the last
+observed lease expiry, even when inspection/HTTP is pending. Late results and
+old timers cannot restart a stopped runtime or change a newer connection.
+
+Connection lifetime belongs to the current native conversation. Closing the
+pane or Back clears private review callbacks but keeps an explicitly connected
+adapter's runtime/lease. **Stop adapter** is available separately; it cancels
+renewal, clears the local runtime and forgets secrets. It revokes no credential
+and detaches no session; the last accepted lease expires within15 seconds unless
+an already-sent request completes later. Session end, delivered CwdChanged,
+native context change, module reload or loss of terminal support stops renewal.
+Managed suppression of CwdChanged is detected at the next callback/renewal.
+Plugin reload never auto-connects; reopening and explicit Connect recover the
+same currently approved instance under the normal host rules. Host restart may
+invalidate the project/authorization as in sections3/5; do not bypass that gate.
+
+Only connection state and controlled status survive in UI text. Tokens,
+instances, socket paths, native context and private references remain in the
+frontend's current private memory/native API payloads. No files, plugin store,
+notices/logs, command-response text, prompts, model tools or other sessions
+receive them. New runtime work begins only after explicit Connect. This slice
+adds no model-facing tool and never calls ready, work or peer routes.
+
+### Verification
+
+A separate author extends the pinned native runtime cases using only this
+contract/public API and effects at their public boundaries. Keep the original
+52 cases unchanged. A small black-box extension to adapter_onboarding covers
+the private transport CLI. No implementer unit tests are added.
+
+1. Initial/headless/load/unknown arguments remain inert; only attached projects
+   expose the adapter review intent. Nonterminal renders expose no private
+   reviews or decision controls even with a terminal attached. Keep old tools.
+2. Explicit review checks native context and parent, then lookup/resume or
+   prepare if absent. Refresh is read-only. Complete exact terms and all effects
+   are visible without IDs/secrets; unknown/malformed/changed/private-looking
+   metadata blocks controls. Retained terminal replacement is exact and explicit.
+3. Exact approve/decline after parent/child inspection and final context check;
+   double presses once. Changed hash/terms/scope/context, expiry, failed reads,
+   stale/late callbacks, close/reload/end and old timers never decide another view.
+   Lost approval is resolved by lookup; approval never connects or retrieves.
+4. Connect only after explicit intent and valid matching authorized inspections;
+   transport material stays private, argv/stdin are exact, malformed material or
+   unsupported socket blocks HTTP. No secret appears in render/command/model/
+   storage/files/log output. Never call ready/work/peer/owner-mutation HTTP paths.
+5. Exact Unix-scoped connect and protocol reporting; response binding/schema/
+   lease validation, five-second timeout, uncertain/denied/failed calls and
+   double presses. Healthy renewal is single-flight and repeats only captured
+   references. No saved channel state claims incoming or peer/model receipt.
+6. Context/host/surface/parent/child changes, revocation/scope changes, expiry,
+   lost/late responses and old timers stop renewal. Close/Back retain an approved
+   runtime; Stop/end/reload/root change do not. A stale runtime cannot restart or
+   replace a new connection. Explicit reconnect uses stable private instance.
+7. Real CLI transport: exact six fields, absolute selected socket, standard
+   HMAC result, deterministic retrieval/retry with no records/files/events changed;
+   no secret on refusal and existing credential API unchanged. Real scoped
+   connection/reconnect accepts that instance without another authorization.
+8. Real pinned terminal plus temporary host: prepare/review/approve adapter,
+   connect, observe live unverified lease and renewal, Close/reopen, Stop,
+   reload and explicitly reconnect without duplicate authorization. Record exact
+   heads/build and no inference/ready/work claims. Installed/full model delivery
+   remain separate acceptance gates.
+
+Selected: native exact reviews, private in-memory transport, stable original
+instance and healthy scoped lease renewal, with incoming readiness still
+unverified. Discarded: automatic credential approval/reconnection, new secret
+files/plugin storage, random replacement instances after reload, model-facing
+owner tools, a live lease as delivery proof, silently expanded scope and
+unbounded retries. No extra owner confirmation is attributed here.
+
+## 7. Remaining flow contract
+
+Teammate/device admission, private handoff, native adapter data tools/events and exact permission
 grants remain future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.
