@@ -2200,3 +2200,23 @@ admission/access/selection, separate commits for request and decision, duplicate
 secret stores and a second pairing protocol. Section12 settles shapes and
 independent verification before code. These are implementation choices within
 the accepted scope, not new owner confirmations.
+
+
+## GU.impl13 — Native existing-identity request consent (2026-10-29)
+
+Selected under the accepted guided experience: explicitly choose among existing
+local generated/SSH-agent original public identities, then review and approve
+one exact join request in the human terminal. No first-key default or key
+creation on paste/inspection. New original identity creation and same-person
+machine linking are separate slices. An empty inventory is an honest limit.
+
+Selected privacy/recovery: one joining-specific volatile private input across
+exact preview/choice/approval; durable state remains the existing public review
+and protocol request. Read-only outcome lookup after uncertainty/reload never
+replays an approval. Existing private inspection retains its pure behavior.
+
+Discarded: arbitrary key-path imports, implicit key generation/copy, treating
+public selection as owner proof, silent pin filtering, stored raw codes, hidden
+participant/access approval and request publication as connection readiness.
+Section13 and independent verification precede code. No new owner confirmation
+is attributed and no full-feature acceptance gate is closed by this slice.

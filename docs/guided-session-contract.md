@@ -2292,11 +2292,167 @@ Discarded: key generation on preview, treating a supplied public key as owner
 proof, making admission/access implicit, partially committed approval/request,
 a second pairing protocol and retrying an old approval into a new request.
 
-## 13. Remaining flow contract
+## 13. Native joining with an existing local original identity
 
-Teammate/device admission, native identity selection/key creation and join
-controls, remaining native data tools/events and exact permission grants remain
-future sections. Section 2's live verification and the complete
+This slice connects the section12 backend to an explicit human terminal flow.
+It supports original person keys already on this machine: the normal generated
+person file and Ed25519 identities available from its SSH agent. It neither
+creates/imports/copies a person key nor signs a person ceremony. New-person
+creation and same-person device linking remain later separate actions. No
+available key is an honest unavailable state, not permission to create one.
+
+### Local identity choices
+
+`peerspan onboarding join identities --stdin` takes exactly `{context}` with
+section12's strict64KiB JSON/stdin validation. It has no new API or schema.
+Read the exact project flow and public host identity from the existing private
+owner API; require attached state and exact flow/review/root/native session/
+integration binding before reading local identity sources. Recheck the exact
+parent/host after inventory. A missing daemon never starts one or initializes
+state. Return only `{version:1,host_id,context,identities}`. Each identity is
+exactly `{public_key,sources}`; `sources` is a nonempty ordered subset of
+`["generated","ssh_agent"]`. Deduplicate by public key, merge sources, sort by
+canonical public key, and bound the list to64 entries, failing closed if larger.
+No default selection, comments, filesystem/socket paths, timestamps, private
+keys, signatures, secret references or provider diagnostics are returned.
+
+Read only the normal `$XDG_CONFIG_HOME/peerspan/person_ed25519` path, falling
+back to `$HOME/.config/peerspan/person_ed25519`. Missing file is not an error.
+An existing file must be a regular, non-symlink, current-user-owned private file
+(mode has no group/other bits), bounded64KiB and a valid unencrypted OpenSSH
+Ed25519 private key. A malformed/insecure/unreadable file fails privately; do
+not mask it by falling back to another identity. Never chmod, create, import,
+write public sidecars or initialize directories. Agent inventory requests only
+public identities, with no signing; use existing bounded agent transport. A
+missing/nonanswering agent contributes no available keys, never a fabricated
+identity. Ignore unsupported/invalid public keys and omit all agent comments.
+The daemon never receives original key bytes or an SSH-agent socket path.
+
+### Native entry, choice and exact review
+
+Add attached-only **Join a network**, distinct from section11's unchanged
+read-only **Review an invitation**. Enter only from the current terminal
+conversation/project. Recheck the native context/surface and exact parent/host
+around every asynchronous effect. On entry, use section12 lookup before any
+private input or local inventory; no implicit preparation or publication.
+
+No flow starts a fresh empty **Private invitation for joining** field. Enter
+updates the draft only. **Review joining identities** clears the drawn input
+synchronously, verifies the ordinary incoming invitation through section11's
+private stdin preview, validates its complete public terms/digest/bindings and
+current clock, then explicitly inventories local identities. Only this joining
+lane may retain that code in volatile private UI memory for the same attempt;
+never render it after submission or put it in a model tool/prompt/result, argv,
+files, logs, notices, plugin storage or another conversation. Invalid/oversized
+input clears and sends nothing. The older inspection lane still drops its code
+without retention and offers no joining controls.
+
+Show the full public signed invitation terms and all available identity keys
+and their provenance, quoted with the existing reversible terminal escaping.
+List up to10 keys per page, with explicit pagination, no preselected/default
+identity and no silently filtered person pin. Display the invitation's expected
+person key and explain mismatches. Only a matching pinned identity is selectable;
+unpinned introductions offer each key. Choosing an identity is an explicit
+**Review identity KEY** action. No key or no matching key explains that an
+existing original identity is required and that new-identity/device workflows
+are separate; do not offer an inert Create/Continue/Approve control.
+
+Before prepare, recheck current local inventory and require the selected public
+key and its source list to remain identical. Then use section12 private stdin
+prepare with exact context/code/key and optional explicit replacement. Validate
+all top/review/nested shapes, canonical review digests, captured host/context/
+agent/code-public-preview/person pin, fixed effects, next action, immutable
+outcome and fixed deadline. Render the complete section12 review, including all
+nested section11 terms, selected original public key, expiry and publication
+versus authority effects. Native flow/conversation references remain internal.
+No key file path or raw provider output is displayed.
+
+**Approve join request** and **Decline join request** are separate human actions.
+Both re-inspect exact parent and retained flow before submission, bind the same
+review, and refuse changed/expired/non-review terms. Approve additionally
+rechecks the exact selected local identity availability/provenance and retains
+the code only until the bounded private stdin call completes/fails. A fresh host
+observation follows these reads immediately before any decision/private-code
+submission. The owner API still performs atomic final authorization. Nothing
+selects an owner, approves membership/machine powers, requester selection/commit,
+agent access, capabilities, directory or conversation sharing. No model turn,
+readiness challenge, scoped tool or inference is added.
+
+Success is **Join request: publication recorded**, showing the immutable public
+outcome's network/person and the explicit limit: this records publication only;
+participant approval/current link state, access, reachability and model receipt
+are not verified. Never call this a connected or joined network. No polling or
+hidden protocol advancement. A failed/uncertain decision drops the private code
+and offers only reopening/lookup; do not automatically retry or re-sign.
+
+### Resume, replacement and cleanup
+
+Lookup resumes public requested/declined/expired/invalidated outcomes without
+inventory, code retrieval, request creation or retries. A retained live review
+shows its exact public terms but requires explicit private code re-entry through
+**Check invitation for this review**. Call identical section12 prepare and
+require exactly the same flow/review/person/public terms; this binds the exact
+original code without storing a second copy. Inventory must explicitly confirm
+the selected identity before enabling Approve. Decline does not require a code
+or an available signer. No original private key or signature is sent to the
+host. Ordinary backend public-key selection still is not possession proof.
+
+**Review another join request** is explicit replacement, only for a non-review
+retained outcome, preserving the exact latest replace_flow_id. It starts an
+empty draft. Replacing publication does not cancel/revoke the earlier request;
+show that limit. New lookup/Refresh never reuses a retained code, prepares a flow,
+publishes a request, signs or creates a person key.
+
+Clear the private code, review-choice authority and pending callback authority
+on Refresh, Back, Close/Escape, session end/reload, invitation/review expiry,
+root/conversation/host/surface/parent loss and pane switches. Recheck freshness
+on render/action; no unimplemented subscription is claimed. Late responses,
+old timers and double presses cannot publish into another view. Preserve
+established adapter/message/task runtime and all durable protocol outcomes
+through ordinary pane navigation. Context loss stops them under existing rules.
+The existing inviter/recipient panes and the new joining pane exclude one
+another's volatile views; do not revoke each other's durable outcomes.
+
+### Verification
+
+A separate contract-only author extends `join_onboarding` with small CLI/source
+cases and adds focused pinned native runtime cases; preserve all original6 host
+cases and162 native cases. No implementer unit tests. No migration change.
+
+1. Real private generated key and real SSH-agent identities: exact sorted,
+   deduplicated public keys/provenance, multiple-key choice, comments omitted,
+   no key/file/signature/state mutations. Missing daemon, wrong/detached parent,
+   malformed/oversized JSON, agent unavailable, bad/symlink/insecure/oversized
+   generated file and >64-key bound refuse or report available keys as specified.
+2. Native attached-only entry and lookup before input; empty private draft,
+   draft-only Enter; explicit preview/inventory, exact argv/stdin, no default
+   selection, full quoted terms and pagination; pin/no-key/mismatch conditions
+   cannot enable approval. Selecting a key only prepares a public review.
+3. Exact review/Approve/Decline, fresh parent/flow/identity/host before effects,
+   exact bounded private stdin and no duplicate press. Changed public/digest/
+   context/host/identity/provenance/pin/expiry refuses before mutation; altered
+   provider/error/private-looking terms never render or reach model context.
+4. Public outcome resume/reload, private review re-entry, exact same-code prepare,
+   explicit replacement and uncertain response recovery without automatic retry.
+   Refresh/Back/Close/end/root/surface/host/parent/expiry and late callbacks/timers
+   clear private authority while preserving durable publication/runtime.
+5. Actual pinned terminal with distinct temporary hosts and an existing original
+   recipient key: private paste, explicit choice/review/approval, one ordinary
+   pending request and no person-key writes or participant/access approvals;
+   reopen retrieves public outcome without private code or request regeneration.
+   Capture source/binary provenance without private input or model activity.
+   Installed/physical-machine/new-person/admission/access/model gates stay open.
+
+Selected: an explicit existing-local-key choice and exact durable publication
+review, one volatile joining input, read-only recovery and the existing atomic
+protocol backend. Discarded: first-key defaults, arbitrary key-path imports,
+automatic original-key creation/copy, signing ownership on selection, private
+codes in chat/argv/storage, hidden request retries and publication as readiness.
+
+## 14. Remaining flow contract
+
+Teammate/device admission, explicit new original identity creation, remaining
+native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.
 
