@@ -13,14 +13,15 @@ function session(value) {
     ['lease_expires_at', 'last_seen_at', 'channel_verified_at', 'protocol_version'].every(key => optionalString(c[key]));
 }
 
-export function safeName(value) {
+const PRIVATE = /(?:psi2-|psl2-|token_|instance_|peerspan-(?:(?:member|person)-)?invite-v1\.)[A-Za-z0-9_.-]*/g;
+function normalized(value) {
   return value
     .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\|$)/g, '')
     .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
-    .replace(/(?:psi2-|psl2-|token_|instance_|peerspan-(?:(?:member|person)-)?invite-v1\.)[A-Za-z0-9_.-]*/g, '[private value]')
-    .slice(0, 80);
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
 }
+export function privateValue(value) { return normalized(value).match(PRIVATE) !== null; }
+export function safeName(value) { return normalized(value).replace(PRIVATE, '[private value]').slice(0, 80); }
 
 export function observation(text) {
   const v = JSON.parse(text);
