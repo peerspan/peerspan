@@ -653,7 +653,9 @@ strings reversibly, using JSON escapes for quote/backslash/controls and explicit
 `\\uXXXX` for bidi/invisible formatting characters; do not strip, abbreviate or
 truncate reviewed terms. The native pane provides scrolling. If a known private
 invitation/token prefix from section2 appears in any reviewed string, including
-one split by terminal/bidi controls, show a controlled unavailable review with
+one split by terminal/bidi controls or inside an OSC title/hyperlink payload,
+check both the original content and decoration-free forms (retaining payload
+text as well as ordinary terminal-visible text). Show a controlled unavailable review with
 no private value or decision controls. Do not turn redaction into approval of
 ambiguous hidden terms. Never echo raw stdout/stderr, unknown fields or provider
 errors. A capability list over100 entries or strings exceeding their registry
@@ -716,7 +718,10 @@ project slim suite. Keep suites below two minutes.
    shell metacharacters remain literal; private context stays on stdin.
 3. A retained flow resumes regardless of new-name defaults or list order. Exact
    fields/effects are visible; internal IDs, private prefixes and raw diagnostics
-   are absent from routine UI. Malformed, extra-field, context/host-mismatched or
+   are absent from routine UI. Include raw and decorated private prefixes inside
+   OSC payloads in agent names, owner labels and capability metadata; exact
+   quoting must not expose a value removed by terminal normalization.
+   Malformed, extra-field, context/host-mismatched or
    unexpected-effect responses cannot offer or submit an approval.
 4. Only trusted native approve/decline controls send decisions, after matching
    inspection and a second native-context check. Captured hashes/context remain
