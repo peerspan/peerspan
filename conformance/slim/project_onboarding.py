@@ -641,6 +641,7 @@ def _():
     check(any(row[2:5] == ("sessions", "session_id", "id") for row in foreign), "flow outcome session foreign key")
     legacy = clone_state(source, "legacy23")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        db.execute("DROP TABLE onboarding_adapter_flows")
         db.execute("DROP TABLE onboarding_project_flows")
         db.execute("PRAGMA user_version = 23")
     old = records(legacy)
@@ -650,8 +651,9 @@ def _():
     check(get(legacy, "/v1/sessions/" + session["id"])["state"] == "detached", "migration attached historical session")
     legacy.stop()
     migrated = records(legacy)
-    check(migrated["$version"] == (24,) and migrated[TABLE] == (), "migration did not create an empty schema-24 flow table")
-    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE)}
+    check(migrated["$version"] == (25,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == (),
+          "migration did not create empty schema-24/25 flow tables")
+    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows")}
           == {key: value for key, value in old.items() if key not in ("$schema", "$version")},
           "additive migration changed legacy registry/DEC logical records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed existing table definitions")
@@ -660,6 +662,7 @@ def _():
                       ("index", "CREATE INDEX onboarding_project_flows ON sessions(id)")):
         collision = clone_state(source, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            db.execute("DROP TABLE onboarding_adapter_flows")
             db.execute("DROP TABLE onboarding_project_flows")
             db.execute("PRAGMA user_version = 23")
             db.execute(ddl)
@@ -688,9 +691,9 @@ def _():
             db.execute("DROP TABLE onboarding_project_flows")
             db.execute("CREATE TABLE onboarding_project_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future25")
+    future = clone_state(source, "future26")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 25")
+        db.execute("PRAGMA user_version = 26")
     refuse_start(future)
 
 
