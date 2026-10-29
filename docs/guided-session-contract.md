@@ -747,9 +747,234 @@ silent first-agent adoption, frontend-only persisted guesses, preparing during
 entry, truncated/redacted consent, and auto-retrying decisions. These are GU
 implementation choices; no additional owner decision is attributed here.
 
-## 5. Remaining flow contract
+## 5. Exact local adapter authorization (GU-01d / GU-02d)
 
-Teammate/device admission, private handoff, adapter setup and exact permission
+This host slice follows an approved section3 project attachment. It prepares an
+exact, durable review before issuing one credential for that same session.
+It does not connect an adapter, submit model input, grant inbound access, start
+a process, or complete GU-03. Native connection controls are the next slice.
+
+### Scope and immutable terms
+
+The first guided credential has a fixed expiry 24 hours after preparation and
+is not renewable. It may receive messages and tasks already authorized for the
+selected agent, reply to those messages, handle those tasks and their authorized
+artifacts. It gets no directory access, outbound routes or capability-call
+permission. Existing remote grants still govern incoming work. Connecting an
+existing agent may resume that agent's already authorized work; the review must
+say this explicitly. This issues no permission to read or automatically share
+the project's files or conversation. Ordinary harness permissions still govern
+local actions and files used in task results.
+
+All routes below exist only on owner-local administration, under
+`/v1/onboarding/adapter-flows`. Peer, first-contact/bootstrap and credential-scoped
+interfaces refuse them. The local account remains the authority boundary;
+neither this API nor a JSON decision proves a physical human click.
+
+`AdapterContext` is exactly:
+
+```json
+{
+  "project_flow_id": "flow_<32 lowercase hex>",
+  "project_review_id": "review_<64 lowercase hex>",
+  "project_root": "/absolute/project",
+  "native_session_id": "native-conversation-id",
+  "integration": "claude-code"
+}
+```
+
+Apply section3's context validation and exact project review binding. An
+unknown project returns404. A wrong context/project review returns409
+`review_changed`. A new adapter review requires that project to be the latest
+attempt for its native context, currently `attached`, with unchanged agent
+metadata and its same attached session. Refuse any other unexpired, unrevoked
+adapter for this agent whose session is attached or recoverable, including an
+unbound setup or offline adapter. No implicit revocation, replacement or
+takeover is included in this review. The owner can cancel an old authorization
+through existing advanced administration before reviewing again.
+
+`POST /v1/onboarding/adapter-flows` takes exactly
+`{"context":AdapterContext,"replace_flow_id":optional-string}`; an explicit
+null or unknown field is invalid. It creates a private flow and returns201,
+or returns200 for an identical retained request. It creates no credential,
+session, agent, grant, connection or activity event. Each project attempt has
+one latest adapter attempt. The same request resumes that attempt without
+changing its IDs, terms or expiry, including terminal outcomes. A new attempt
+requires the exact latest `replace_flow_id` and a current outcome of `declined`,
+`expired` or `invalidated`; a current valid authorization is not replaceable.
+The underlying project must still be attached and eligible. Refuse obsolete
+replacement IDs and other conflicts with409 `flow_conflict`.
+
+The immutable review has exactly these fields:
+
+- `version:1`, `kind:"authorize_adapter"`, `flow_id`, `host_id`;
+- the five `AdapterContext` fields at the top level;
+- `agent`: section3's exact `{id,name,owner,capabilities}` from the project review;
+- `session_id`: that already attached session;
+- `adapter_id`: a planned `adapter_<32 lowercase hex>`;
+- `expires_at`: the fixed review deadline, 15 minutes after preparation;
+- `credential_expires_at`: the fixed credential deadline, 24 hours after
+  preparation; `renewable:false`;
+- `effects` exactly: `issue_adapter_credential:true`,
+  `receive_authorized_work:true`, `reply_to_authorized_work:true`,
+  `handle_authorized_tasks:true`, `task_artifacts:true`, `register_agent:false`,
+  `attach_session:false`, `grant_network_access:false`, `directory_access:false`,
+  `outbound_routes:false`, `capability_calls:false`, `share_files:false`,
+  `share_conversation:false`.
+
+Times use UTC RFC3339 whole seconds with `Z`. `review_id` is
+`review_` plus lowercase SHA256 of UTF-8
+`peerspan-adapter-review-v1\n` followed by the review's canonical JSON, with the
+same canonicalization as section3. Every term above participates in the hash.
+
+### Inspect, lookup and decisions
+
+`GET /v1/onboarding/adapter-flows/{flow_id}` inspects without mutation.
+`POST /v1/onboarding/adapter-flows/lookup` takes `AdapterContext` directly and
+returns exactly `{version:1,host_id,context,flow}`, where `flow` is the latest
+attempt for that exact project or null. Lookup validates the project binding,
+but may report a retained invalidated outcome after detach or restart. Neither
+read changes logical records, deadlines, credentials, consent or events. Select
+the project and adapter state in one database read transaction.
+
+A flow response has exactly `version:1`, `flow_id`, `state`, `review_id`,
+`review`, `authorization`, `connection`, `next_action`. Before approval,
+`authorization` and `connection` are null. Once issued, `authorization` retains
+exactly `{adapter_id,session_id,agent_id,expires_at,renewable:false}`, even if
+later invalidated; `connection` is the existing adapter-connection view.
+No view contains a token, instance secret, token hash or derived secret.
+
+States and next actions:
+
+| State | Meaning | Next action |
+| --- | --- | --- |
+| `review` | exact terms remain current and review deadline has not passed | `review` |
+| `authorized` | credential was issued, remains current and has not expired | `connect_adapter` |
+| `declined` | explicit refusal, retained | `restart_review` |
+| `expired` | pending review deadline or issued credential deadline reached | `restart_review` |
+| `invalidated` | project no longer current/attached, metadata changed, conflicting authorization appeared, or issued scope/credential was changed, detached or revoked | `restart_review` |
+
+`POST /v1/onboarding/adapter-flows/{flow_id}/decision` takes exactly
+`{context:AdapterContext,review_id,decision:"approve"|"decline"}`. Only the latest
+attempt may decide. Wrong immutable references/context give409 `review_changed`;
+an expired review gives409 `review_expired`; other terminal/conflicting changes
+give409 `flow_conflict`. Approval in one transaction rechecks all terms,
+records the exact planned adapter ID for the existing session with fixed
+expiry, false directory/calls and no routes, appends the ordinary
+`adapter.created` event once, and retains the authorized outcome. It creates no
+extra agent or session and never replaces another adapter. Decline changes only
+the private flow. Concurrent/repeated identical decisions return the same
+outcome with no duplicate effects; opposite decisions conflict. A repeated
+approval after issuance does not extend the credential or recheck the old
+review deadline; it still requires a currently valid authorization. Reads and
+decision responses never return the credential secret.
+
+Expiry/invalidated states are derived at observation. A declined decision stays
+declined. A pending review expires at its deadline; otherwise a changed project
+or conflicting adapter invalidates it. An issued authorization expires at its
+credential deadline; otherwise changed project/session/metadata, revocation,
+renewability, scope or routes invalidate it. There is no silent widening or
+renewal. Host restart follows the existing session-detach contract: it may
+invalidate a guided authorization; this slice does not override restart or
+instance recovery rules.
+
+### Private credential retrieval and recovery
+
+`POST /v1/onboarding/adapter-flows/{flow_id}/credential` takes exactly
+`{context:AdapterContext,review_id}`. Only the latest, already authorized and
+currently valid attempt returns200 with exactly
+`{version:1,adapter_id,session_id,token}`. Wrong context/review gives409
+`review_changed`; any other ineligible outcome gives409 `flow_conflict` and no
+secret. It makes no logical writes or events. A lost decision response can be
+resolved by lookup, then the same approved credential retrieved without
+replaying approval. A lost retrieval response can be retried. No mutation is
+performed by lookup or inspect to enable recovery.
+
+For bounded secret recovery without persisting plaintext tokens, the token is
+`token_` plus lowercase HMAC-SHA256, keyed by the host's 32-byte Ed25519 seed,
+over UTF-8 `peerspan-guided-adapter-token-v1\n` + `flow_id` + `\n` + `review_id`.
+Only its normal SHA256 token hash is stored in `adapter_credentials`. Public
+references cannot derive the token. The domain differs from every signing and
+review domain. The private retrieval route and normal local administration
+already trust the same account. Normal adapter issuance remains random and
+unchanged. Revocation/expiry never recreate or reactivate a credential.
+
+The future native frontend must keep retrieved tokens only in private memory
+or deliberately managed private artifacts, never in model context, argv,
+routine diagnostics or plugin storage. This host slice exposes no model tool
+and claims no adapter lease, verified channel or model receipt.
+
+### Advanced CLI and storage
+
+Add `peerspan [--state DIR] onboarding adapter prepare --stdin`,
+`lookup --stdin`, `inspect FLOW_ID`, `decide --stdin`, `credential --stdin`.
+Prepare/lookup bodies match API. Decide/credential stdin adds `flow_id` for
+route selection, removed before posting. Only the explicit `credential`
+operation prints the secret response; it is a private integration interface,
+never normal user guidance. Reuse the 64-KiB stdin limit, fixed owner-local
+socket selection and controlled diagnostics. No payload appears in argv.
+
+Schema25 adds only `onboarding_adapter_flows` with these TEXT columns in order:
+`flow_id PRIMARY KEY NOT NULL`, `project_flow_id NOT NULL REFERENCES
+onboarding_project_flows(flow_id)`, `request NOT NULL`, `review NOT NULL`,
+`review_id NOT NULL`, `state NOT NULL CHECK (state IN
+('review','authorized','declined'))`, `created_at NOT NULL`, `expires_at NOT NULL`,
+`adapter_id REFERENCES adapter_credentials(id)`, `decided_at`.
+Migrate existing schema24 additively in the startup transaction; older supported
+schemas pass through their existing migrations. Preserve every existing table,
+DEC object, project flow, identity, activity and detached historical session.
+Before migration, any object occupying that new name is an error. At schema25,
+missing/altered table definitions are errors. All refusal paths leave logical
+data, schema and version untouched. Future schema26 is refused. Section3's
+schema24 layout remains unchanged; its migration tests now expect the additive
+schema25 table as well. Existing version-refusal cases move their future
+fixture to26; this is a version update, not weakened refusal behavior.
+
+### Verification
+
+A separate contract-only author writes a small black-box `adapter_onboarding`
+slim suite, using real hosts and the public API/CLI. Keep it under two minutes,
+with debug clock advancement for expiry. No implementer unit tests are added.
+
+1. Prepare only after an exact attached project; complete immutable terms/hash,
+   exact scope/deadlines, no credentials/events/session/agent effects before
+   approval; reject missing, wrong, unknown, null and malformed fields.
+2. Identical and concurrent preparation/resume preserve one attempt and fixed
+   terms across restart; lookup/inspect are coherent and read-only, including
+   empty, pending, authorized and terminal outcomes. A restarted detached
+   project invalidates the review without resurrecting it.
+3. Exact approval creates one planned normal credential/event, no other effects;
+   concurrent/repeated approval is idempotent, decline inert and opposite
+   decisions conflict. Wrong review/context or changed metadata/session/project
+   cannot authorize. Check pending deadline and credential expiry independently.
+4. Private retrieval only after approval, exact/current binding, deterministic
+   retry, normal verify-credential and scoped connect compatibility. Neither
+   persisted records nor ordinary views/decisions contain plaintext token.
+   Before ready, work stays gated by the existing channel handshake; a scoped
+   credential cannot reach administration, directory sends or capability calls.
+5. Another unbound/live/offline/recoverable authorization is never replaced.
+   Conflicts discovered after preparation invalidate it atomically. Revocation,
+   changed scope/routes, detach and superseded project/adapter attempts cannot
+   retrieve or revive a credential; explicit terminal replacement uses the exact
+   current ID and keeps previous outcomes.
+6. Bounded stdin CLI parity, inert unavailable-daemon behavior and controlled
+   diagnostics; all non-owner routers refuse every new route. Secret output
+   appears only for explicit successful credential retrieval.
+7. Additive schema24-to25 migration, historical preservation, restart, namespace
+   collisions, corrupt schema25 and future26 refusal. Update only schema-version
+   expectations in existing suites, retaining their original behavior checks.
+
+Selected: a separate exact credential review, conservative fixed expiry,
+existing scoped authorization and recoverable owner-local secret retrieval.
+Discarded: folding credential issuance into the metadata approval, blanket
+directory/capability access, replacing an offline/unbound adapter without a
+review, plaintext token storage, a one-shot secret lost after interruption,
+and treating credential issuance as connection or model readiness. These are
+implementation choices under GU-OWN1/2, not additional owner confirmations.
+
+## 6. Remaining flow contract
+
+Teammate/device admission, private handoff, native adapter connection and exact permission
 grants remain future sections. Section 2's live verification and the complete
 attachment/data path must pass before the frontend claims a ready connection.
 Plugin reload or this slice's attachment metadata alone does not establish it.
