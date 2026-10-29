@@ -194,3 +194,12 @@ returns only exact public review terms for the attached project. It retains no
 code, writes no state, creates no identity/request and performs no network I/O.
 Schema26 and existing invitation/linking behavior remain unchanged. The native
 private input is separate from chat; signature validity grants no authority.
+
+
+The [recipient join-request review](guided-session-contract.md#12-exact-recipient-join-request-consent-backend)
+adds owner-local prepare/lookup/inspect/decision routes and private stdin
+`onboarding join` commands. Explicit consent binds one supplied person public
+key and verified invitation; request/device/frame state and its public outcome
+commit atomically. Schema27 adds public join-flow state only. Person-key
+selection, creation/persistence and native controls remain subsequent work;
+publication never establishes possession, membership, agent access or receipt.

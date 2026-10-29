@@ -28,7 +28,7 @@ pub(crate) mod product;
 mod provider;
 mod renewal;
 mod requester;
-mod requests;
+pub(crate) mod requests;
 mod requests_io;
 mod roots;
 pub(crate) mod runtime;

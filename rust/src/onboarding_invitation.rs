@@ -256,12 +256,24 @@ impl Store {
         }
         let mut c = self.connection()?;
         let tx = c.transaction()?;
-        let now = now()?;
-        let (parent, attached) = request.context.project(&tx, now)?;
+        self.invitation_preview_in(&tx, &request.context, &request.invitation, now()?)
+    }
+    pub(crate) fn invitation_preview_in(
+        &self,
+        c: &Connection,
+        context: &AdapterContext,
+        invitation: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Value, Error> {
+        context.validate()?;
+        if invitation.len() > 32 << 10 {
+            return Err(invalid());
+        }
+        let (parent, attached) = context.project(c, now)?;
         if !attached {
             return Err(coded("review_changed"));
         }
-        let invite = crate::decentralized::Invitation::read_token(&request.invitation, &stamp(now))
+        let invite = crate::decentralized::Invitation::read_token(invitation, &stamp(now))
             .map_err(product::model)?;
         let contacts: Vec<Value> = invite.contacts.iter().map(|contact| json!({
             "sequence":contact.sequence.to_string(), "issued_at":contact.issued_at,
@@ -270,7 +282,7 @@ impl Store {
         })).collect();
         let host = self.identity().id;
         let review = json!({"version":1,"kind":"inspect_contact_invitation","host_id":host,
-            "context":request.context,"agent":parent["agent"],
+            "context":context,"agent":parent["agent"],
             "network":{"id":invite.descriptor.network_id,"name":invite.descriptor.name,
                 "context_id":invite.descriptor.context_id(),"genesis_root_public_key":invite.descriptor.genesis_root_public_key},
             "inviter_host_public_key":invite.inviter_host_public_key,
@@ -288,7 +300,7 @@ impl Store {
             )))
         );
         Ok(
-            json!({"version":1,"host_id":host,"context":request.context,"review_id":review_id,
+            json!({"version":1,"host_id":host,"context":context,"review_id":review_id,
             "review":review,"next_action":"choose_join_identity"}),
         )
     }

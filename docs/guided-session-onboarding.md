@@ -220,7 +220,16 @@ The local host verifies a privately supplied introduction without retaining it
 or creating any identity/request/network. The native pane shows exact signer,
 network, pin, contacts/hints, expiry and read-only effects. Signature validity
 is distinct from current authority or admission. Recipient identity selection,
-request publication, participant consent and access remain subsequent slices.
+native request controls, participant consent and access remain subsequent slices.
+
+The [recipient request-consent backend](guided-session-contract.md#12-exact-recipient-join-request-consent-backend)
+reviews an explicitly supplied person public key and the exact verified
+introduction. Explicit approval commits the ordinary request and public outcome
+together; retries recover that request without issuing another. Schema27 adds
+only public review/digest/outcome state. This backend does not select, import or
+create a person key and has no native controls yet. Native identity selection,
+explicit key creation/persistence where needed, and request controls are next.
+Publication remains separate from participant approvals and agent access.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
@@ -267,7 +276,7 @@ existing slim suites as each area changes.
 - [ ] User guides match the tested commands and supported platforms. State any
   remaining platform or harness limitations.
 - [ ] Installed upgrade/recovery acceptance covers current main's schema23
-  state through schema26, with preserved identity/authority/history. Record a
+  state through schema27, with preserved identity/authority/history. Record a
   private full-state backup and recovery procedure. An older schema23 binary
   refuses upgraded state: binary-only rollback is unsupported; never rewrite
   user_version or drop flow tables to simulate a downgrade.

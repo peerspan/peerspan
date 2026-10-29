@@ -20,6 +20,11 @@ pub struct OnboardingArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum OnboardingCommand {
+    /// Review and explicitly publish a join request for a selected person public key
+    Join {
+        #[command(subcommand)]
+        command: JoinCommand,
+    },
     /// Prepare, inspect or decide an exact local project attachment review
     Project {
         #[command(subcommand)]
@@ -34,6 +39,26 @@ pub enum OnboardingCommand {
     Invitation {
         #[command(subcommand)]
         command: InvitationCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum JoinCommand {
+    /// Prepare or resume public join terms; creates no person key or request
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Read the current exact project's join review or recorded outcome
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Inspect public terms without retrieving pairing material
+    Inspect { flow_id: String },
+    /// Approve request publication or decline the exact retained review
+    Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -134,6 +159,12 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Join { command }),
+    }) = command
+    {
+        return join_command(command, socket).await.map(Some);
+    }
+    if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Invitation { command }),
     }) = command
     {
@@ -186,6 +217,63 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+
+async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
+    use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, decode_input};
+    let local = Local(socket);
+    let base = "/v1/onboarding/join-flows";
+    if let JoinCommand::Inspect { flow_id } = command {
+        return local.get(format!("{base}/{}", encoded(flow_id))).await;
+    }
+    let operation = match command {
+        JoinCommand::Prepare { .. } => "prepare",
+        JoinCommand::Lookup { .. } => "lookup",
+        JoinCommand::Decide { .. } => "decision",
+        JoinCommand::Inspect { .. } => unreachable!(),
+    };
+    let invalid = || anyhow::anyhow!("invalid join review input");
+    let mut bytes = Vec::new();
+    io::stdin().lock().take(65537).read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= 65536, "join review input exceeds 64 KiB");
+    let mut value: Value = decode_input(&bytes, operation, true).map_err(|_| invalid())?;
+    match command {
+        JoinCommand::Prepare { .. } => {
+            let _: Prepare = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+            local.post(base.into(), value).await
+        }
+        JoinCommand::Lookup { .. } => {
+            let _: Lookup = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+            local.post(format!("{base}/lookup"), value).await
+        }
+        JoinCommand::Decide { .. } => {
+            let id = value
+                .as_object_mut()
+                .and_then(|v| v.remove("flow_id"))
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .filter(|id| {
+                    id.strip_prefix("flow_").is_some_and(|v| {
+                        v.len() == 32
+                            && v.bytes()
+                                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+                    })
+                })
+                .ok_or_else(invalid)?;
+            let request: Decision = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+            ensure!(
+                matches!(
+                    (&request.decision, &request.invitation),
+                    (peerspan_host::onboarding::DecisionKind::Approve, Some(_))
+                        | (peerspan_host::onboarding::DecisionKind::Decline, None)
+                ),
+                "invalid join review input"
+            );
+            local
+                .post(format!("{base}/{}/decision", encoded(&id)), value)
+                .await
+        }
+        JoinCommand::Inspect { .. } => unreachable!(),
+    }
 }
 
 async fn invitation_command(command: &InvitationCommand, socket: &Path) -> Result<Value> {

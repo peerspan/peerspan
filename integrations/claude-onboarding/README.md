@@ -110,8 +110,11 @@ the signer's membership/authority, admission, agent access or reachability.
 Old contact hints may remain useful inside a live invitation; their expiry is
 shown independently. An old invitation without automatic return is identified.
 
-Identity selection and joining follow in subsequent slices. This preview has
-no Join/Approve control. **Inspect another invitation** starts an empty draft.
+Identity selection and joining in this native pane follow in subsequent slices.
+The host also offers an advanced private-stdin `onboarding join` review/decision
+backend for an explicitly supplied person public key; this pane does not call it.
+It creates no person key and proves no key possession, membership or access.
+This preview has no Join/Approve control. **Inspect another invitation** starts an empty draft.
 Refresh, Back, Close, context changes, reload and expiry discard the volatile
 preview. Re-entry requires pasting privately again. No code is stored in plugin
 files or sent to the model; your terminal or screenshots may retain displayed
