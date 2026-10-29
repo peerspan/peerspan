@@ -2314,3 +2314,21 @@ occurred in earlier slices. Preserve all original semantic assertions, delay
 and timeout; establish the intended in-flight stimulus deterministically.
 Discarded: product changes to force a request after cancellation, weakening the
 HTTP/no-renewal assertions, timeout inflation and retrying until green.
+
+
+### GU.impl18 — One bounded local original owner-offer signature
+
+Selected: an advanced private-stdin owner sign command with an explicit
+sign_original_owner_offer decision, exact approved section16 review/intent and
+one typed authority SSHSIG slot. Use existing FixedPacket/PersonSigner/link
+validation, secure non-creating normal-key reads or exact SSH-agent selection,
+fresh project/host/request checks and one ordinary signature submission. Complete
+offer retries are read-only; ordinary host-owned selection/publication remain
+bounded by existing consent. No new schema/API or signature attribution store.
+
+Native signing control follows after independent CLI conformance. Discarded:
+combining approval/key use, broad signing/resume loops or later F work, unsafe
+path/discovery fallback, daemon key handling/copy/import, auto retry and treating
+historical approval as possession or connection readiness. Section18 pins faults,
+recovery and all17 suite gates; key use/context changes/POST are not one atomic
+transaction and cannot retract an already-dispatched signature.
