@@ -923,8 +923,11 @@ as legacy history.
 Schema 23 added the 17 DEC tables below (DEC-Q14). Schema 24 additionally
 adds the owner-local `onboarding_project_flows` table, as specified in the
 [guided session contract](guided-session-contract.md#advanced-cli-and-storage).
-Opening never joins, renews or adopts a network, prepares a project flow or
-attaches a session; older binaries refuse newer schemas.
+Schema25 adds the guided adapter-flow table; schema26 adds the guided
+contact-invitation-flow table. Both are owner-local review state, as specified
+in the guided contract, and change no DEC protocol/authority tables. Opening
+never joins, renews or adopts a network, prepares a review, mints an invitation
+or attaches a session; older binaries refuse newer schemas.
 
 | Table | Holds |
 | --- | --- |

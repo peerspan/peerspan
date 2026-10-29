@@ -196,6 +196,17 @@ proof loss stops task authority. File transfer, outgoing delegation and its
 notifications remain future slices. Actual task/model and installed acceptance
 remain pending; the unchanged account-quota refusal is not another task test.
 
+GU-01e/GU-02f/GU-04a adds the [exact contact-invitation backend](guided-session-contract.md#9-exact-contact-invitation-review-gu-01e--gu-02f--gu-04a).
+An attached project selects an explicit network, member label and optional
+person-key pin. The host retains exact human-review terms before minting one
+introduction and its automatic return path atomically. Codes are retrieved only
+through the private handoff operation; inspection/decision/status contain no
+code. Fixed expiry, explicit additional invitations and exact retry preserve
+consent. Schema26 adds a private flow table and no membership/access authority.
+Native invitation controls, joining identity review, participant approval and
+agent-access review remain subsequent slices. This backend is not the complete
+Invite someone flow or evidence of peer/model readiness.
+
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
 Its original shared-transport fixture timed out in PR #36 CI. This fixture

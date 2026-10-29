@@ -178,3 +178,11 @@ routes under the current native readiness proof. It changes no host API/schema
 or grant. Submitted prompts, successful model lifecycle calls and peer result
 retrieval remain separate. Task file transfer and outward delegation are not
 provided by this frontend slice.
+
+The [exact contact-invitation review](guided-session-contract.md#9-exact-contact-invitation-review-gu-01e--gu-02f--gu-04a)
+adds owner-local prepare/lookup/inspect/decision and explicit private handoff
+operations for an attached guided project. Schema26 adds only the durable
+invitation-flow table. Approval atomically mints one ordinary coordinator-free
+introduction and return-path state; ordinary views never return its private
+code. Membership, machine approval, agent access and native human controls
+remain separate. Existing advanced invitation semantics are preserved.
