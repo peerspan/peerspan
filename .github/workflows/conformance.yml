@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing]
+        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding]
     steps:
       - uses: actions/checkout@v4
         with:

@@ -236,6 +236,65 @@ fn resolve(c: &Connection, b: &Base, provider: &str, format: &str) -> Result<Res
     let _ = (c, provider, format);
     Err(Error::new("forbidden"))
 }
+/// Verify a retained incoming prefix without opening/preparing an admission,
+/// resolving a signer, updating a clock or importing anything from transport.
+pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    require(
+        p.record.roles.iter().any(|r| r == "administrator")
+            && !p.record.roles.iter().any(|r| r == "requester")
+            && p.record.mode == "new"
+            && p.record.migration_proposal_id == "-"
+            && p.record.owner_offer_id != "-"
+            && p.record.selection_id != "-"
+            && p.record.administrator_offer_id == "-"
+            && p.record.owner_finalization_id == "-"
+            && p.record.commit_packet_base64 == "-"
+            && p.record.manifest_id == "-"
+            && p.record.activation_id == "-"
+            && p.record.outcome_packet_base64 == "-",
+        "state_conflict",
+    )?;
+    let b = base(
+        c,
+        store,
+        p,
+        &p.record.owner_offer_id,
+        &p.record.selection_id,
+    )?;
+    let request = p.view(&b.now)?;
+    require(
+        request["state"] == "needs_administrator"
+            && stamp(&b.now)? >= stamp(field(&request, "created_at")?)?
+            && (p.record.stage_at == "-" || stamp(&b.now)? >= stamp(&p.record.stage_at)?),
+        "state_conflict",
+    )?;
+    let owner = &b.offer.owner;
+    let payload = &owner.payload;
+    let signed_request = p.packet()?;
+    let fixed_end = (stamp(text(&signed_request.payload, "created_at")?)?
+        + chrono::TimeDelta::days(7))
+    .format("%Y-%m-%dT%H:%M:%SZ")
+    .to_string();
+    check(
+        b.offer.provider["kind"] == "original_person"
+            && text(payload, "root_state_id")? == "-"
+            && text(payload, "person_lease_id")? == "-"
+            && ids(payload, "issuer_lease_ids", "ds_")?.is_empty()
+            && text(payload, "renewed_device_lease_id")? == "-"
+            && num(payload, "scopes")? == 7
+            && text(payload, "not_after")? == fixed_end
+            && text(&owner.object, "authority_signature_format")? == "sshsig"
+            && text(&owner.object, "writer_host_public_key")? == p.record.host_public_key
+            && p.record.expected_network_id == b.descriptor.network_id
+            && p.record.expected_context_id == b.descriptor.context_id()
+            && p.record.expected_person_public_key == text(&owner.object, "person_public_key")?,
+    )?;
+    Ok(json!({"observed_at":b.now,"request":request,
+        "network":{"id":b.descriptor.network_id,"name":b.descriptor.name,
+            "context_id":b.descriptor.context_id(),"genesis_root_public_key":b.descriptor.genesis_root_public_key},
+        "root_state_id":b.projection.root_state_id()?,"member":payload["member"],
+        "scopes":7,"not_after":fixed_end}))
+}
 fn issuer(base: &Base, r: &Resolved) -> Result<(Value, BTreeMap<String, String>)> {
     if r.provider.kind == "root" {
         return Ok((

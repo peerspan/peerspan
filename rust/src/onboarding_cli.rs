@@ -20,6 +20,11 @@ pub struct OnboardingArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum OnboardingCommand {
+    /// Inspect retained incoming admission evidence before administrator consent
+    Admission {
+        #[command(subcommand)]
+        command: AdmissionCommand,
+    },
     /// Review and explicitly publish a join request for a selected person public key
     Join {
         #[command(subcommand)]
@@ -39,6 +44,14 @@ pub enum OnboardingCommand {
     Invitation {
         #[command(subcommand)]
         command: InvitationCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum AdmissionCommand {
+    /// Verify public incoming original/selection evidence without mutation
+    Inspect {
+        #[arg(long, required = true)]
+        stdin: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -202,6 +215,12 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Admission { .. }),
+    }) = command
+    {
+        return admission_inspection(socket).await.map(Some);
+    }
+    if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Join { command }),
     }) = command
     {
@@ -260,6 +279,25 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+async fn admission_inspection(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid administrator admission inspection input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input = peerspan_host::onboarding_admission::decode_input(&bytes).map_err(|_| invalid())?;
+    let payload = serde_json::json!({"context":input.context,"request_id":input.request_id});
+    let unavailable = || anyhow::anyhow!("administrator admission inspection unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post("/v1/onboarding/admission-inspection".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
 }
 
 async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
