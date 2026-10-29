@@ -355,6 +355,9 @@ impl Store {
     }
 
     pub fn decide_project(&self, id: &str, decision: Decision) -> Result<Value, Error> {
+        if decision.integration != "claude-code" {
+            return Err(invalid());
+        }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let f = load(&tx, id)?;
