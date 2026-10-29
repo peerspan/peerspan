@@ -458,10 +458,14 @@ session has the ordinary attached metadata state and no adapter credential or
 channel proof. An existing agent's metadata and authority stay untouched.
 Decline records only the flow decision, with no registry/activity effects.
 
-An exact same-decision retry returns 200 without duplicate rows/events, including
-after a crash/restart. A still-attached successful approval remains idempotent
-after its old review deadline. A detached attachment cannot be resurrected by
-replaying that approval. Superseded reviews never authorize the replacement.
+An exact same-decision retry returns 200 without duplicate rows/events while
+its committed attachment remains attached. A still-attached successful approval
+remains idempotent after its old review deadline. Existing host startup detaches
+metadata sessions and records `session.disconnected`; after restart this flow
+is invalidated and replay returns `flow_conflict`, preserving its outcome IDs
+without duplicate rows or resurrection. Uncommitted preparation resumes exactly
+after restart. A decline retry remains idempotent after restart. A detached
+attachment cannot be resurrected by replaying that approval. Superseded reviews never authorize the replacement.
 No approval or human review tool is registered for the model. The trusted
 native human callback is the selected future frontend; owner-local API access
 continues to trust the local account, as existing administration does. A JSON
@@ -516,7 +520,8 @@ human review or adapter connection.
    preserve one flow, IDs, terms and deadline. Different agent choices conflict;
    different native conversation/project contexts remain distinct.
 3. Exact approval commits one reviewed agent/session and ordinary events;
-   repeat/concurrent approval and restart/retry create no duplicates. No adapter,
+   repeat/concurrent approval creates no duplicates. Restart invalidates the
+   metadata attachment; retry cannot resurrect it or duplicate registry/events. No adapter,
    network access, file/conversation sharing or channel evidence appears.
 4. Explicit existing-agent selection pins its exact metadata and creates only
    the reviewed session/event. Reject unknown agent IDs and reserved/invalid new

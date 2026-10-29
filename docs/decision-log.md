@@ -1986,7 +1986,9 @@ success is claimed by this contract.
 Selected within the accepted guided-onboarding scope: start orchestration with
 an immutable review of one local project/native conversation and explicitly
 chosen agent. Preparation stores only the review; approval atomically records
-the reviewed agent/session metadata. Exact retries preserve terms and expiry;
+the reviewed agent/session metadata. Existing startup detachment invalidates
+a committed metadata attachment; replay never resurrects it. Pending reviews
+and decline decisions survive restart. Exact retries preserve terms and expiry;
 replacement is explicit and retains the old review. Schema24 adds one private
 flow table without changing DEC authority. The native human callback is the
 selected next frontend; no model approval tool is added.
