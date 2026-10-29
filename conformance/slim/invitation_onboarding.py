@@ -28,6 +28,7 @@ import ssl
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
