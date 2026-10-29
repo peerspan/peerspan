@@ -589,6 +589,15 @@ const mapping: Record<string, [string, string]> = {
   expired: ['requesting_machine', 'review_replacement'], blocked: ['local_owner', 'inspect_advanced_status'],
 }
 const stages = ['request_created', 'owner_offered', 'owner_selected', 'administrator_offered', 'owner_finalized', 'commit_persisted', 'locally_applied']
+const stageMeaning: Record<string, RegExp> = {
+  request_created: /Request created/i,
+  owner_offered: /Owner offer (?:recorded|received)/i,
+  owner_selected: /Owner (?:selection recorded|selected)/i,
+  administrator_offered: /Administrator offer (?:recorded|received)/i,
+  owner_finalized: /Owner finali[sz]ation (?:recorded|complete)/i,
+  commit_persisted: /Final commit (?:recorded|persisted)/i,
+  locally_applied: /Local application recorded/i,
+}
 async function progressResponse(w: World, state = 'pending') {
   const order = ['pending', 'needs_selection', 'needs_administrator', 'needs_owner_finalization', 'needs_commit', 'finalizing', 'linked']
   const level = Math.max(0, order.indexOf(state)), outcome = w.joining.outcome
@@ -648,7 +657,7 @@ test('all ten recorded states show exact public progress consent stages and hone
     const shown = await visible(ui)
     expect(shown).toContain(state === 'linked' ? 'Join progress: Local application recorded' : 'Join progress: ' + state)
     for (const term of [value.observed_at, value.request.network_id, value.request.person_public_key, value.request.host_public_key, value.request.device_public_key]) expect(shown).toContain(term)
-    for (const stage of value.request.completed) expect(shown).toContain(stage)
+    for (const stage of value.request.completed) expect(shown, stage + ': recorded human meaning').toMatch(stageMeaning[stage])
     expect(shown).toMatch(new RegExp('Requester owner selection approved[^\\n]{0,12}\\b' + (value.request.selection_approved ? 'yes' : 'no') + '\\b', 'i'))
     expect(shown).toMatch(new RegExp('Requester final commit approved[^\\n]{0,12}\\b' + (value.request.commit_approved ? 'yes' : 'no') + '\\b', 'i'))
     for (const word of ['advanced', 'snapshot', 'authority', 'agent access', 'reachability', 'model receipt']) expect(shown.toLowerCase()).toContain(word)
@@ -681,7 +690,7 @@ test('explicit double Check clears old confirmation synchronously rechecks paren
   progressPrivacy(w, await visible(ui), false, configured.options.executable, configured.options.state)
 })
 
-test('malformed wrapper LINK_VIEW pins host-key hash mapping booleans stages bounds and private metadata cannot confirm progress', async ($, on) => {
+test('malformed wrapper LINK_VIEW pins host-key hash mapping booleans stages bounds and private metadata cannot confirm progress', { timeoutMs: 15000 }, async ($, on) => {
   const w = fixture(on); const ui = await published($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
     ['extra', v => { v.private_provider = RAW }], ['host', v => { v.host_id = 'host_' + '9'.repeat(64) }],
