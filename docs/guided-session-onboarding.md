@@ -215,6 +215,13 @@ human pane. Hide/navigation/Refresh/context change/expiry clear it; no model
 turn, clipboard, file or plugin storage is involved. This is the inviter side;
 recipient import, admission and access reviews remain later slices.
 
+GU-01f/GU-02g/GU-04c adds [private recipient inspection](guided-session-contract.md#11-recipient-invitation-inspection-gu-01f--gu-02g--gu-04c).
+The local host verifies a privately supplied introduction without retaining it
+or creating any identity/request/network. The native pane shows exact signer,
+network, pin, contacts/hints, expiry and read-only effects. Signature validity
+is distinct from current authority or admission. Recipient identity selection,
+request publication, participant consent and access remain subsequent slices.
+
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
 Its original shared-transport fixture timed out in PR #36 CI. This fixture

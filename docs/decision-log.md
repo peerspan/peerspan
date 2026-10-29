@@ -2153,3 +2153,27 @@ frontend cryptographic verifier, hidden recipient admission/access, and calling
 an introduction proof of reachability or receipt. Section10 precedes code and
 settles independent native checks. Joining and participant permissions remain
 separate working slices, not completed by this inviter control.
+
+## GU.impl11 — Recipient inspection before identity selection (2026-10-29)
+
+Selected within the accepted GU flow: verify and display an incoming contact
+introduction before choosing/generating an original person or publishing any
+request. Reuse the signed-wire verifier, exact attached-project binding and a
+read transaction. Return exact public network/signer/pin/contacts/hints/expiry
+terms and their canonical digest, with no secret or signed blob. Contact
+sequence is a decimal u64 string, preserving its full range through JavaScript.
+Legacy no-return introductions remain inspectable; signature possession does
+not establish signer membership or authority.
+
+Selected native input: explicit human-only paste into a volatile terminal pane,
+then a separate Inspect action. The pinned Input supports visible text; no
+masking is claimed. Clear the code before asynchronous inspection; keep it out
+of model context, argv, storage and diagnostics. Refresh/navigation/context
+loss/reload/expiry discard the recipient view. Identity consent and joining
+remain real subsequent work; no inert Join button is offered.
+
+Discarded: automatic key generation/import or joining on paste/inspection,
+model owner tools, persistent secret copies, clipboard/file import, a second
+frontend cryptographic verifier, contact validity as authority/readiness, and
+new schema/state just for read-only inspection. Section11 and independent
+verification cases precede code. No new owner confirmation is attributed.
