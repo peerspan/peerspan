@@ -1349,6 +1349,12 @@ unique successful delivery IDs. The local challenge remains separate. Keep
 **Peer exchange: not verified**: a saved reply has not proved that its sender
 retrieved it. No task/capability readiness claim is made.
 
+Counters belong to the connected runtime and survive message-attempt retry;
+Stop/reload/new Connect starts fresh counters. A successful `message_seen`
+counts its delivery ID even when the host returns an empty `seen` list because
+it was already seen. This current main-model tool call is receipt evidence;
+never count that ID twice. Ready success returns `{ready:true}`.
+
 Established enabled delivery survives pane Close/Back along with its lease.
 Stop/end/reload/root/conversation/surface/host/scope/lease expiry cancels all
 message timers and acknowledgment/tool authority. Closing the pane never
