@@ -1,11 +1,14 @@
 import { observation, privateValue } from './observation.mjs';
-import { flow as parseProjectFlow, lookup as parseProjectLookup, validContext, same, defaultName, choiceLabel, reviewLines } from './project.mjs';
+import { flow as parseProjectFlow, lookup as parseProjectLookup, validContext, same, quoted, defaultName, choiceLabel, reviewLines } from './project.mjs';
 import { context as adapterContext, flow as parseAdapterFlow, lookup as parseAdapterLookup,
   transport as parseTransport, connection as parseConnection, reviewLines as adapterReviewLines } from './adapter.mjs';
 import { tools as messageTools, argumentsOf, typedId, content as messageContent, hello as messageHello,
   prompt as messagePrompt, handoff as parseHandoff, delivery as parseDelivery, seen as parseSeen, reply as parseReply } from './messages.mjs';
 import { tools as taskTools, handoff as parseTask, cancellation as parseCancellation, prompt as taskPrompt,
   cancelPrompt, argumentsFor as taskArguments, result as taskResult, url as taskUrl } from './tasks.mjs';
+
+import { flow as parseInvitationFlow, lookup as parseInvitationLookup, networks as invitationNetworks,
+  proposal as invitationProposal, handoff as parseInvitationHandoff, reviewLines as invitationReviewLines } from './invitation.mjs';
 
 let options;
 let hostId = null;
@@ -19,6 +22,8 @@ let check = { state: 'unverified' };
 let expiration = null;
 let adapter = { stage: 'inactive', busy: false };
 let adapterExpiry = null;
+let invitation = { stage: 'inactive', busy: false };
+let invitationExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -63,6 +68,9 @@ function summary() {
 }
 
 async function refresh($) {
+  // Invalidate pending invitation effects and drop a revealed code before any await.
+  if (invitation.stage !== 'inactive') invitation = { ...invitation, code: null, busy: false };
+  $.ui.invalidate('ui.render');
   const id = await identify($);
   const attempt = ++read;
   const epoch = generation;
@@ -91,6 +99,7 @@ async function refresh($) {
     hostId = observedHost;
     if (project.stage !== 'inactive' && !project.busy) await openProject($, project, generation);
     if (adapter.stage !== 'inactive' && !adapter.busy) await openAdapter($, adapter, generation, false);
+    if (invitation.stage !== 'inactive' && !invitation.busy) await openInvitation($, invitation, generation);
     $.ui.invalidate('ui.render');
   }
 }
@@ -147,6 +156,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  clearInvitation();
   clearAdapter();
   projectExpiry?.cancel();
   projectExpiry = null;
@@ -204,6 +214,8 @@ async function projectView($, running, epoch, context, agents, flow) {
   const stage = flow === null ? 'choose' : flow.state === 'review' && Date.parse(flow.review.expires_at) <= now ? 'expired' : flow.state;
   if (adapter.stage !== 'inactive' && (stage !== 'attached' || adapter.parent?.flow_id !== flow.flow_id ||
       adapter.parent?.review_id !== flow.review_id || !same(adapter.parent?.review, flow.review))) clearAdapter();
+  if (invitation.stage !== 'inactive' && (stage !== 'attached' || invitation.parent?.flow_id !== flow.flow_id ||
+      invitation.parent?.review_id !== flow.review_id || !same(invitation.parent?.review, flow.review))) clearInvitation();
   const view = { stage, context, host: hostId, agents, flow, busy: false, page: 0,
     name: running.name ?? defaultName(context.project_root), owner: running.owner ?? 'local owner' };
   project = view;
@@ -834,8 +846,231 @@ async function connectAdapter($, previous, epoch) {
     $.ui.invalidate('ui.render');
   }
 }
-function adapterControls($, { Text, Button }, epoch) {
+function clearInvitation() {
+  invitationExpiry?.cancel();
+  invitationExpiry = null;
+  invitation = { stage: 'inactive', busy: false };
+}
+function invitationStart($, previous, epoch) {
+  if (invitation !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
+  invitation = { ...previous, code: null, busy: true, parent: project.flow, context: project.context, host: hostId };
+  $.ui.invalidate('ui.render');
+  return invitation;
+}
+async function invitationCurrent($, running, epoch) {
+  if (invitation !== running || epoch !== generation || project.stage !== 'attached' ||
+      project.flow.flow_id !== running.parent.flow_id || project.flow.review_id !== running.parent.review_id ||
+      !same(project.flow.review, running.parent.review)) return false;
+  const current = await projectContext($);
+  const surfaces = await $.session.surfaces();
+  if (invitation !== running || epoch !== generation) return false;
+  if (!same(current, running.context) || current.native_session_id !== session || running.host !== hostId || !surfaces.includes('terminal')) {
+    if (runtime && (!same(current, running.context) || !surfaces.includes('terminal'))) stopRuntime('Adapter: stopped after project, conversation or surface change.');
+    clearProject();
+    $.ui.invalidate('ui.render');
+    return false;
+  }
+  return true;
+}
+async function invitationRun($, command, payload) {
+  if (typeof options.executable !== 'string' || !options.executable || typeof options.state !== 'string') throw new Error('Unavailable local host');
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+    'onboarding', 'invitation', ...command], { timeoutMs: 5000, ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
+  if (result.exitCode !== 0) throw new Error('Unavailable invitation flow');
+  return result.stdout;
+}
+async function inspectInvitationParent($, running, epoch) {
+  if (!await invitationCurrent($, running, epoch)) return false;
+  const raw = await projectRun($, ['inspect', running.parent.flow_id]);
+  if (!await invitationCurrent($, running, epoch)) return false;
+  const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
+  if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
+      !same(parent.review, running.parent.review)) throw new Error('Changed invitation project');
+  return true;
+}
+function invitationFailure($, running, epoch, decision = false) {
+  if (invitation !== running || epoch !== generation) return;
+  invitationExpiry?.cancel();
+  invitationExpiry = null;
+  invitation = { ...running, code: null, stage: 'unavailable', busy: false,
+    message: decision ? 'Invitation decision outcome unknown. Refresh to check the host.' : 'Invitation unavailable. Refresh to check the host.' };
+  $.ui.invalidate('ui.render');
+}
+async function invitationView($, running, epoch, flow, extra = {}) {
+  const now = await $.clock.now();
+  if (!await invitationCurrent($, running, epoch)) return;
+  invitationExpiry?.cancel();
+  invitationExpiry = null;
+  const deadline = flow?.state === 'review' ? flow.review.expires_at : flow?.state === 'issued' ? flow.review.invitation_expires_at : null;
+  const stage = flow === null ? 'choose' : deadline && Date.parse(deadline) <= now ? 'expired' : flow.state;
+  invitation = { ...running, ...extra, code: null, stage, flow, busy: false, message: null };
+  if (deadline && stage !== 'expired') {
+    invitationExpiry = $.clock.after(Math.max(0, Date.parse(deadline) - now), () => {
+      if (epoch === generation && invitation.flow === flow && ['review', 'issued'].includes(invitation.stage)) {
+        invitation = { ...invitation, stage: 'expired', busy: false, code: null };
+        $.ui.invalidate('ui.render');
+      }
+    });
+  }
+  $.ui.invalidate('ui.render');
+}
+async function invitationChoices($, running, epoch, replace) {
+  if (!await inspectInvitationParent($, running, epoch)) return;
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await invitationCurrent($, running, epoch)) return;
+  if (result.exitCode !== 0) throw new Error('Unavailable invitation networks');
+  const networks = invitationNetworks(result.stdout, running.host);
+  await invitationView($, running, epoch, null, { networks, page: 0, selected: null, member: '', pin: '-', replace });
+}
+async function openInvitation($, previous, epoch) {
+  const running = invitationStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await inspectInvitationParent($, running, epoch)) return;
+    const raw = await invitationRun($, ['lookup', '--stdin'], { context: adapterContext(running.parent) });
+    if (!await invitationCurrent($, running, epoch)) return;
+    const flow = (await parseInvitationLookup(raw, running.parent, running.host)).flow;
+    if (flow === null) await invitationChoices($, running, epoch);
+    else await invitationView($, running, epoch, flow);
+  } catch { invitationFailure($, running, epoch); }
+}
+function invitationDraft($, previous, epoch, key, value) {
+  if (invitation !== previous || previous.busy || epoch !== generation || !['choose', 'draft'].includes(previous.stage)) return;
+  invitation = { ...previous, [key]: value, message: null };
+  $.ui.invalidate('ui.render');
+}
+function selectInvitationNetwork($, previous, epoch, network) {
+  if (invitation !== previous || previous.busy || epoch !== generation || previous.stage !== 'choose' || !previous.networks.includes(network)) return;
+  invitation = { ...previous, stage: 'draft', selected: network, member: '', pin: '-', message: null };
+  $.ui.invalidate('ui.render');
+}
+async function prepareInvitation($, previous, epoch) {
+  if (previous.stage !== 'draft') return;
+  const running = invitationStart($, previous, epoch);
+  if (!running) return;
+  try {
+    let terms;
+    try { terms = invitationProposal(previous.member, previous.pin); }
+    catch {
+      if (invitation === running) {
+        invitation = { ...running, busy: false, message: 'Enter a nonempty invitee label (up to 128 UTF-8 bytes) and a valid public key or -.' };
+        $.ui.invalidate('ui.render');
+      }
+      return;
+    }
+    if (!await inspectInvitationParent($, running, epoch)) return;
+    const request = { context: adapterContext(running.parent), network_id: previous.selected.id, ...terms,
+      ...(previous.replace ? { replace_flow_id: previous.replace } : {}) };
+    const raw = await invitationRun($, ['prepare', '--stdin'], request);
+    if (!await invitationCurrent($, running, epoch)) return;
+    const flow = await parseInvitationFlow(JSON.parse(raw), running.parent, running.host);
+    if (flow.state !== 'review' || flow.review.network.id !== request.network_id || flow.review.member !== terms.member ||
+        flow.review.expected_person_public_key !== terms.expected_person_public_key || flow.flow_id === previous.replace) throw new Error('Changed invitation proposal');
+    await invitationView($, running, epoch, flow);
+  } catch { invitationFailure($, running, epoch); }
+}
+async function inspectInvitation($, running, epoch, state) {
+  if (!await inspectInvitationParent($, running, epoch)) return false;
+  const captured = running.flow;
+  const raw = await invitationRun($, ['inspect', captured.flow_id]);
+  if (!await invitationCurrent($, running, epoch)) return false;
+  const current = await parseInvitationFlow(JSON.parse(raw), running.parent, running.host);
+  const now = await $.clock.now();
+  if (!await invitationCurrent($, running, epoch)) return false;
+  if (current.flow_id !== captured.flow_id || current.review_id !== captured.review_id || !same(current.review, captured.review) ||
+      !same(current.invitation, captured.invitation) || current.state !== state ||
+      Date.parse(state === 'review' ? captured.review.expires_at : captured.review.invitation_expires_at) <= now) throw new Error('Changed invitation review');
+  return true;
+}
+async function decideInvitation($, previous, epoch, decision) {
+  if (previous.stage !== 'review' || !previous.flow) return;
+  const running = invitationStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await inspectInvitation($, running, epoch, 'review')) return;
+    const captured = previous.flow;
+    sent = true;
+    const raw = await invitationRun($, ['decide', '--stdin'], { context: adapterContext(running.parent),
+      flow_id: captured.flow_id, review_id: captured.review_id, decision });
+    if (!await invitationCurrent($, running, epoch)) return;
+    const flow = await parseInvitationFlow(JSON.parse(raw), running.parent, running.host);
+    if (flow.flow_id !== captured.flow_id || flow.review_id !== captured.review_id || !same(flow.review, captured.review) ||
+        flow.state !== (decision === 'approve' ? 'issued' : 'declined')) throw new Error('Unknown invitation outcome');
+    await invitationView($, running, epoch, flow);
+  } catch { invitationFailure($, running, epoch, sent); }
+}
+async function revealInvitation($, previous, epoch) {
+  if (previous.stage !== 'issued' || previous.code || !previous.flow) return;
+  const running = invitationStart($, previous, epoch);
+  if (!running) return;
+  try {
+    if (!await inspectInvitation($, running, epoch, 'issued')) return;
+    const raw = await invitationRun($, ['handoff', '--stdin'], { context: adapterContext(running.parent),
+      flow_id: previous.flow.flow_id, review_id: previous.flow.review_id });
+    if (!await invitationCurrent($, running, epoch)) return;
+    const code = parseInvitationHandoff(raw, previous.flow);
+    const now = await $.clock.now();
+    if (!await invitationCurrent($, running, epoch)) return;
+    if (Date.parse(previous.flow.review.invitation_expires_at) <= now) throw new Error('Expired private invitation');
+    invitation = { ...running, code, busy: false };
+    $.ui.invalidate('ui.render');
+  } catch { invitationFailure($, running, epoch); }
+}
+async function replaceInvitation($, previous, epoch) {
+  if (!['issued', 'declined', 'expired', 'invalidated'].includes(previous.stage) || !previous.flow) return;
+  const running = invitationStart($, previous, epoch);
+  if (!running) return;
+  try {
+    invitationExpiry?.cancel();
+    invitationExpiry = null;
+    await invitationChoices($, running, epoch, previous.flow.flow_id);
+  } catch { invitationFailure($, running, epoch); }
+}
+function invitationControls($, { Text, Button, Input }, epoch) {
   if (project.stage !== 'attached' || project.busy) return [];
+  const previous = invitation;
+  const button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.busy) return [Text({ children: ['Invitation: working…'] })];
+  if (previous.stage === 'inactive') return [button('invitation-open', 'Invite someone', () => openInvitation($, previous, epoch))];
+  const back = button('invitation-back', 'Back from invitation', () => {
+    if (invitation === previous && epoch === generation) { clearInvitation(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
+  if (previous.stage === 'choose') {
+    const page = previous.page;
+    return [Text({ children: ['Invitation: choose a network', '\nA listed network is not proof of invitation authority.',
+      previous.replace ? '\nAnother invitation does not revoke an older exported code.' : '',
+      previous.networks.length ? '' : '\nNo networks. Create a network through existing host administration first.'] }),
+      ...previous.networks.slice(page * 10, page * 10 + 10).map(n => button(`invitation-network-${n.id}`,
+        `Choose network ${quoted(n.name)} (${n.id})`, () => selectInvitationNetwork($, previous, epoch, n))),
+      ...(page > 0 ? [button('invitation-prev', 'Previous networks', () => invitationDraft($, previous, epoch, 'page', page - 1))] : []),
+      ...(previous.networks.length > page * 10 + 10 ? [button('invitation-next', 'More networks', () => invitationDraft($, previous, epoch, 'page', page + 1))] : []), back];
+  }
+  if (previous.stage === 'draft') return [Text({ children: [`Invitation network: ${quoted(previous.selected.name)} (${previous.selected.id})`,
+    '\nA public-key pin checks identity; it grants no membership or access.', previous.message ? '\n' + previous.message : ''] }),
+    Input({ key: 'invitation-member', label: 'Invitee label', value: previous.member,
+      onInput: v => invitationDraft($, previous, epoch, 'member', v), onSubmit: v => invitationDraft($, previous, epoch, 'member', v) }),
+    Input({ key: 'invitation-pin', label: 'Expected person public key (- for unpinned)', value: previous.pin,
+      onInput: v => invitationDraft($, previous, epoch, 'pin', v), onSubmit: v => invitationDraft($, previous, epoch, 'pin', v) }),
+    button('invitation-prepare', 'Review invitation', () => prepareInvitation($, previous, epoch)), back];
+  return [Text({ children: [`Invitation: ${previous.stage}`, '\n', invitationReviewLines(previous.flow)] }),
+    ...(previous.stage === 'review' ? [
+      button('invitation-approve', 'Approve invitation', () => decideInvitation($, previous, epoch, 'approve')),
+      button('invitation-decline', 'Decline invitation', () => decideInvitation($, previous, epoch, 'decline')),
+    ] : previous.stage === 'issued' ? [
+      Text({ children: ['Share privately with the intended person. Do not paste into this or another agent conversation. Possession grants no membership or agent access.'] }),
+      ...(previous.code ? [Text({ children: ['Private invitation:\n', previous.code] }),
+        button('invitation-hide', 'Hide private invitation', () => {
+          if (invitation === previous && epoch === generation) { invitation = { ...previous, code: null }; $.ui.invalidate('ui.render'); }
+        }),
+      ] : [button('invitation-reveal', 'Reveal private invitation', () => revealInvitation($, previous, epoch))]),
+      button('invitation-replace', 'Invite another person', () => replaceInvitation($, previous, epoch)),
+    ] : [button('invitation-replace', 'Review a replacement invitation', () => replaceInvitation($, previous, epoch))]), back];
+}
+
+function adapterControls($, { Text, Button }, epoch) {
+  if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive') return [];
   const previous = adapter;
   const button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.busy) return [Text({ children: ['Adapter: working…'] })];
@@ -863,7 +1098,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'attached' && (adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+  if (previous.stage === 'attached' && (invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
@@ -916,8 +1151,14 @@ export function register(on, configured = {}) {
     return {};
   });
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
-    if (e.requestId !== 'peerspan' || e.surface !== 'terminal') return next(e);
+    if (e.requestId !== 'peerspan') return next(e);
+    if (e.surface !== 'terminal') { clearInvitation(); return next(e); }
     const epoch = generation;
+    if (invitation.stage !== 'inactive') {
+      const captured = invitation;
+      try { if (!await invitationCurrent($, captured, epoch) && invitation === captured) clearInvitation(); }
+      catch { if (invitation === captured) clearInvitation(); }
+    }
     const displayedRuntime = runtime;
     const displayedReady = runtime?.messages;
     const displayedTasks = runtime?.tasks;
@@ -929,6 +1170,7 @@ export function register(on, configured = {}) {
         : Button({ key: 'check', label: 'Check this conversation', onPress: () => beginCheck($, epoch) }),
       ...projectControls($, { Text, Button, Input }, epoch),
       ...adapterControls($, { Text, Button }, epoch),
+      ...invitationControls($, { Text, Button, Input }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
         Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',
