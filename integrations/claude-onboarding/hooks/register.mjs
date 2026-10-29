@@ -321,7 +321,7 @@ export function register(on, configured = {}) {
       inputSchema: { type: 'object', properties: { probe_id: { type: 'string' } },
         required: ['probe_id'], additionalProperties: false },
     });
-    await $.command.register({ name: 'peerspan', description: 'Inspect Peerspan in this conversation', immediate: true });
+    await $.command.register({ name: 'peerspan', description: 'Connect this project and inspect Peerspan', immediate: true });
     return next(e);
   });
   on('command.run', { command: 'peerspan' }, async ($, e) => {
