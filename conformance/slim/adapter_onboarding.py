@@ -420,7 +420,11 @@ def _():
     before, before_files = records(host), file_state(host.root)
     private = transport()
     check(all(value == private for value in parallel(transport)), "transport retry changed its original instance")
-    check(records(host) == before and file_state(host.root) == before_files, "transport retrieval wrote records/files/activity")
+    after, after_files = records(host), file_state(host.root)
+    changed_records = sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
+    changed_files = sorted(key for key in before_files.keys() | after_files.keys() if before_files.get(key) != after_files.get(key))
+    check(not changed_records, "transport retrieval changed logical records/activity: " + ", ".join(changed_records))
+    check(not changed_files, "transport fixture changed files: " + ", ".join(changed_files))
     adapter = fixture_adapter(host, flow, private)
     adapter.instance = private["instance_id"]
     body = {"adapter_id": private["adapter_id"], "session_id": private["session_id"],
