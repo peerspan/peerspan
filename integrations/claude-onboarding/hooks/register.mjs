@@ -76,7 +76,9 @@ function summary() {
 }
 
 async function refresh($) {
+  const previousJoining = joining;
   clearJoining();
+  const clearedJoining = joining;
   clearRecipient();
   // Invalidate pending invitation effects and drop a revealed code before any await.
   if (invitation.stage !== 'inactive') invitation = { ...invitation, code: null, busy: false };
@@ -110,6 +112,10 @@ async function refresh($) {
     if (project.stage !== 'inactive' && !project.busy) await openProject($, project, generation);
     if (adapter.stage !== 'inactive' && !adapter.busy) await openAdapter($, adapter, generation, false);
     if (invitation.stage !== 'inactive' && !invitation.busy) await openInvitation($, invitation, generation);
+    if (previousJoining.stage !== 'inactive' && joining === clearedJoining && epoch === generation && attempt === read &&
+        previousJoining.host === hostId && project.stage === 'attached' && same(previousJoining.context, project.context) &&
+        previousJoining.parent.flow_id === project.flow.flow_id && previousJoining.parent.review_id === project.flow.review_id &&
+        same(previousJoining.parent.review, project.flow.review)) await openJoining($, joining, epoch);
     $.ui.invalidate('ui.render');
   }
 }
@@ -230,6 +236,8 @@ async function projectView($, running, epoch, context, agents, flow) {
       invitation.parent?.review_id !== flow.review_id || !same(invitation.parent?.review, flow.review))) clearInvitation();
   if (recipient.stage !== 'inactive' && (stage !== 'attached' || recipient.parent?.flow_id !== flow.flow_id ||
       recipient.parent?.review_id !== flow.review_id || !same(recipient.parent?.review, flow.review))) clearRecipient();
+  if (joining.stage !== 'inactive' && (stage !== 'attached' || joining.parent?.flow_id !== flow.flow_id ||
+      joining.parent?.review_id !== flow.review_id || !same(joining.parent?.review, flow.review))) clearJoining();
   const view = { stage, context, host: hostId, agents, flow, busy: false, page: 0,
     name: running.name ?? defaultName(context.project_root), owner: running.owner ?? 'local owner' };
   project = view;
