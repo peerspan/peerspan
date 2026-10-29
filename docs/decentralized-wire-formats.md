@@ -813,7 +813,11 @@ addresses and port 0; advertised endpoints may not. **Changed (DEC-Q20):**
 All records are strict JSON as in section 1. U64 columns store 0 to 2^63−1 as
 SQLite INTEGER and 2^63 to 2^64−1 as an 8-byte big-endian BLOB.
 
-### 19.1 Tables (schema 23, unchanged)
+### 19.1 Tables (introduced in schema 23, unchanged in schema 24)
+
+Schema24 additionally adds one owner-local project-review table, specified in
+the [guided session contract](guided-session-contract.md#advanced-cli-and-storage).
+It changes no DEC columns or authority records below.
 
 ```sql
 CREATE TABLE dec_contexts (network_id TEXT NOT NULL, context_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, context_id));
