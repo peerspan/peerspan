@@ -77,7 +77,7 @@ pub struct AdapterContext {
     pub integration: String,
 }
 impl AdapterContext {
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         if !crate::peer_store::valid_id(&self.project_flow_id, "flow", 16)
             || !crate::peer_store::valid_id(&self.project_review_id, "review", 32)
         {
@@ -89,7 +89,11 @@ impl AdapterContext {
             &self.integration,
         )
     }
-    fn project(&self, connection: &Connection, now: DateTime<Utc>) -> Result<(Value, bool), Error> {
+    pub(crate) fn project(
+        &self,
+        connection: &Connection,
+        now: DateTime<Utc>,
+    ) -> Result<(Value, bool), Error> {
         project_attachment(
             connection,
             &self.project_flow_id,
