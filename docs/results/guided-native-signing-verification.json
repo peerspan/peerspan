@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-30",
+  "kind": "independent contract-derived native bounded original owner-offer signing verification",
+  "merged_base": "87c5194803192e9a18b61030807fd07299c22dfc",
+  "contract_commit": "172c08dad12ccf5c0292c833808e29c2aef7fe60",
+  "production_source_commit": "eda7290a64209c1421ef844e5c98efed36148ef7",
+  "independent_test_commit": "af5b3a5d2d357d4657ee7a6bf50beb51c1dcedbb",
+  "integrated_test_commit": "e59672a955627241d18dd678e3e7ee496ebe9126",
+  "rust_source_and_host_suites_unchanged_from_merged_base": true,
+  "binary_sha256": "e25b09fcbeb6a348ffac924f43f6f9b41e6b90c716068ec642fae7211e9ca723",
+  "native_runtime": "Claude Code 2.1.303; isolated RAM config; updates disabled; no inference",
+  "local_results": {
+    "native": {
+      "passed": 252,
+      "failed": 0,
+      "seconds": 30.56,
+      "new_cases": 20,
+      "original_232_test_files_unchanged": true,
+      "full_runs_after_product_timer_fix": 1
+    },
+    "owner_signing": {"passed": 6, "failed": 0, "seconds": 54, "source_unchanged": true},
+    "owner_onboarding": {"passed": 6, "failed": 0, "seconds": 40, "source_unchanged": true},
+    "join_onboarding": {"passed": 14, "failed": 0, "seconds": 55, "source_unchanged": true},
+    "rust": {"passed": 155, "failed": 0, "ignored": 2},
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "native_strict_validation": "pass",
+    "js_syntax": "pass"
+  },
+  "coverage": [
+    "Owner-inert entry/publication/progress/approval/Check/Refresh/reload/timers; full approved exact terms, source/no-key-transfer/effects and eligibility before explicit signing",
+    "Fresh exact parent/host/join/owner/request/context/deadline guards and one literal configured45s private-stdin original sign command; double presses share no second invocation",
+    "Closed recorded marker and public wrapper validation, immutable review/request pins, canonical dates, digest and decorated private strings; no raw process/provider diagnostics or signature material",
+    "Partial original signature evidence distinct from completed owner offer, admission/current powers/access/readiness; just-completed public proof is read-only and later historical evidence retains exact review",
+    "Approved review expiry distinct from effective request deadline, actual expiry timer, preflight/after-dispatch clock crossings and old timer authority",
+    "Unknown/denied/raw/malformed/process-timeout boundary results clear confirmation without retry; pure Check/null/partial/completed recovery never invokes signing",
+    "Leave/navigation/Refresh/root/conversation/parent/host/surface/end invalidate pending callbacks without claiming retraction; established runtime/inviter invariants remain"
+  ],
+  "product_finding": {
+    "initial_ci_head": "a8f653a94ed54f0c18338b1b96f2b6b2f4d4f0d4",
+    "initial_native_result": "230/232; two existing approved-owner confirmation assertions failed",
+    "bot_review": "https://github.com/peerspan/peerspan/pull/56#discussion_r4418842447",
+    "priority": "P1",
+    "cause": "The numeric epoch-millisecond signing deadline was passed through Date.parse, yielding an invalid delay.",
+    "fix_commit": "eda7290a64209c1421ef844e5c98efed36148ef7",
+    "fix": "Normalize every selected deadline to epoch milliseconds and schedule activeDeadline - now directly. Original owner/join string-deadline behavior remains equivalent.",
+    "verification": "Independent20 cases and all original232 pass after the fix, unchanged. No assertion/delay/timeout changes or retry-until-green."
+  },
+  "limits": [
+    "Native cases mock process results and native effects; they do not establish actual key/crypto/signature protocol behavior. Existing real-host owner_signing6 covers that boundary separately",
+    "Process124/deny models the timeout/result boundary; no real process termination or retraction of dispatched key use is claimed",
+    "Approved-old-review eligibility is native behavior; ordinary ten-minute stage inactivity still constrains a real unoffered request, as documented in section18",
+    "The pinned test kit invokes current drawings; retained old callback closures and narrow final-check/dispatch intervals retain source/manual coverage",
+    "No actual terminal signing, physical/installed two-machine/distinct-person, real model receipt or schema23-to27 full-state upgrade/recovery acceptance is claimed",
+    "Earlier rejected terminal creation/progress/outcome-reopen actions and unchanged quota-refused model probes were not retried",
+    "Final-head all17 CI suites and fresh bot review are recorded in PR56 and tracking PR35"
+  ]
+}
