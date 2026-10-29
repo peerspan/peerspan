@@ -82,8 +82,12 @@ ordering rules as status. Each session is exactly:
 }
 ```
 
-`adapter_id` and `expires_at` may be null, and `renewable` is false without a
-current credential. When an adapter exists, `connection` is its full public
+`adapter_id` and `expires_at` may be null, and `renewable` is false when the
+session has no credential record. Match status's credential selection: the
+most recent unrevoked, unexpired credential, or the most recent historical
+credential when none is live. `renewable` describes that record; it does not
+establish that renewal is currently authorized. When an adapter exists,
+`connection` is its full public
 connection record from the existing adapter connection contract:
 `{adapter_id, session_id, state, recoverable, lease_expires_at, last_seen_at,
 channel, channel_verified_at, protocol_version}`. Without an adapter it is null.
