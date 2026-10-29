@@ -52,5 +52,5 @@
     "peerspan-peer-probe": "c435186ad3f0619da22d1b04050ca77e117573e83f3fdd562525e8e7101ccd23",
     "peerspan-helper": "a469c289ac49128ac3aecf3b3a23c89e1b062dedec10cae27b83836f60efcaf4"
   },
-  "source_difference": "Subsequent e365920 requires canonical IPv6 hints and updates the remaining-work placeholder. The manual fixture used IPv4. Independent native checks run on the final PR head; this manual run remains bound to its recorded source."
+  "source_difference": "Later changes require canonical IPv6 hints (e365920), distinguish a local review deadline (a2e3455), clarify input/file labels (0410713), and read a fresh owner observation before decision/reveal (7f6ec84). The manual fixture used IPv4 and its existing unchanged host. All148 independent native cases pass after these changes; this manual run remains bound to its recorded source."
 }

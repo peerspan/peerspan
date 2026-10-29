@@ -1889,7 +1889,8 @@ metadata/hint block the review. Never display raw provider output/errors.
 
 **Approve invitation** and **Decline invitation** capture the exact rendered
 view/epoch/parent/flow/review. Synchronously exclude double presses. Before a
-decision, recheck native context/terminal/host, inspect the parent and invitation,
+decision, recheck native context/terminal/host (including a fresh owner
+observation), inspect the parent and invitation,
 require exact immutable review equality and pending state/unexpired deadline,
 and check current context again before sending the captured stdin decision.
 Approval must return that same issued flow and public invitation metadata;

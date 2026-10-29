@@ -214,7 +214,8 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent tests use Claude's actual mod runtime with public API effects
+All148 independent native cases include20 invitation cases and preserve the
+original128 project/adapter/message/task checks. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
