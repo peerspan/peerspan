@@ -3382,7 +3382,156 @@ approval/key use, key inventory/selection in the frontend, hidden sign-as-read,
 broad advanced-link automation, new API/schema/persistence, write retries and
 historical evidence as current authority or readiness.
 
-## 20. Remaining flow contract
+## 20. Read-only incoming administrator admission inspection
+
+This backend slice supplies verified public inspection before administrator
+consent. It handles an existing retained incoming new-original request; automatic
+invitation return already records such requests on the inviter. Native controls,
+manual code import, durable administrator consent and signing follow separately.
+No new schema, flow table, intent, signature format or duplicate secret store.
+
+### Owner-local API and private CLI
+
+POST /v1/onboarding/admission-inspection
+peerspan onboarding admission inspect --stdin
+
+Both accept exactly {context,request_id}, with section5's exact AdapterContext.
+CLI input is private stdin only; no positional ID, code/file/provider/key/profile/
+deadline/packet/template/approval input. Strict64KiB JSON, duplicate/unknown/null/
+type refusal and a typed link_ plus64 lowercase-hex request ID. CLI validates
+locally before IO, uses one5s local request, redacts daemon/provider/path errors
+and starts no daemon/state. Endpoint is only on the private owner-local router;
+alternate methods405, absent from scoped adapter/peer/bootstrap administration.
+
+Read the exact current attached project/context/agent and existing ordinary
+request in one SQLite read snapshot on a blocking worker. Unknown request404;
+malformed input400; changed/detached parent409 review_changed; unavailable/
+unsupported/missing/corrupt protocol evidence409 admission_inspection_unavailable.
+Failures do not echo input, pairing material or raw verification diagnostics.
+No import, network poll, resume, cleanup, proof admission, clock advance, contact
+minting, activity event, key inventory/signing or database/file mutation. Capture
+one effective observation time from the existing guarded ordinary decision read,
+including the adopted network's clock guard without updating it.
+
+### Supported incoming evidence
+
+Require an administrator-side retained request, no requester role, mode new,
+no migration and exact adopted network/context/person pins. It must be live and
+at needs_administrator, with recorded request/owner/selection packets and no
+administrator/F/commit/manifest/activation/outcome result. Request expiry and
+ordinary ten-minute stage-inactivity limits apply. Existing unapproved intent
+evidence must not be approved, resumed or rewritten by inspection.
+
+Reuse the ordinary typed request, owner-offer, requester-selection and network
+projection validators. Verify full signatures, canonical packet IDs, exact
+request/owner/selection references, descriptor/genesis-derived network/context,
+member and person/host/device tuple. The original owner must prove possession
+only: original_person, no person/root/issuer-lease authority, original SSHSIG,
+no renewed device, exact profile7, fixed request.created_at+7days not_after,
+and a person not already present in adopted prior authority. All target pins
+must match the request and selected offer; no default offer or provider choice.
+Already-admitted owner, root/device owner provider, folded admin, renewal,
+migration, unsupported profile/deadline, missing evidence, cancelled/expired or
+later-stage request refuses. Do not fetch missing proof or reconstruct a request.
+
+The inspection does not select or prove a local administrator signer/provider.
+A retained incoming role and valid original/requester signatures do not authorize
+admission. The later administrator consent must independently freeze and verify
+its current root/provider, exact P/H dependencies, signatures and public terms.
+Inspection's digest is not an approvable intent or a mutation authorization.
+
+### Closed public result and replay
+
+Return exactly
+{version:1,host_id,context,observed_at,request,review_id,review,next_action}
+where request is the ordinary public LINK_VIEW with role approver and no
+display_code or extra private fields. Its selection_approved/commit_approved
+booleans keep ordinary local semantics; a verified requester-selection packet
+does not fabricate a local boolean consent. next_action is
+review_administrator_consent, a proposed later step, not an available approval
+command in this slice.
+
+review contains exactly:
+{version:1,kind:"inspect_new_original_admission",host_id,context,agent,
+ network:{id,name,context_id,genesis_root_public_key},root_state_id,
+ request_id,request_packet_id,owner_offer_id,selection_id,member,
+ person_public_key,host_public_key,device_public_key,scopes:7,not_after,
+ created_at,expires_at,effects}
+with the exact attached parent's public agent metadata and current verified
+projection root_state_id. created_at/expires_at are fixed ordinary signed-request
+bounds, not a new review window; not_after is the selected owner's fixed proposed
+machine lifetime. Canonical whole-second UTC observation and public dates.
+Recompute review_id as review_ + SHA256 of
+"peerspan-admission-inspection-v1\n" + canonical JSON(review).
+Unchanged evidence/context yields the same review/digest; only observed_at and
+ordinary mutable observation fields may change on another pure inspection.
+
+effects is exactly:
+{verify_request_signature:true,verify_original_owner_signature:true,
+ verify_requester_selection:true,prepare_administrator_intent:false,
+ approve_administrator_intent:false,sign_admission:false,grant_membership:false,
+ grant_agent_access:false,commit_request:false,share_files:false,
+ share_conversation:false,capability_calls:false}
+
+Never return code/secrets/seeds, provider key paths, contact/carrier addresses,
+raw packet/catalog/template/message/signature bytes, signing requests or mutable
+intent records. Reject ambiguous public metadata containing private code/
+credential markers, including control/bidi/zero-width decorated forms, rather
+than drawing them later. Use existing seven private prefixes. Current authority,
+admission, agent access, connection readiness and model receipt are not claimed.
+No frontend signature attribution or durable inspection journal.
+
+After explicit advanced admission/finalization/commit, this fresh-only inspection
+may refuse its now-unsupported stage. It never resurrects pending work or returns
+a retained authorization history. No purity claim includes independently running
+transport/background work; settle authentic evidence before whole-DB snapshots.
+CLI/API calls themselves perform no mutation in either live or terminal cases.
+
+### Verification
+
+A separate contract-only author adds admission_onboarding, a compact under2min
+suite, no implementation imports or fabricated protocol/authority rows. Preserve
+all252 native case assertions, owner_signing6/owner6/join14 and155 Rust/2ignored.
+
+1. Two real hosts/persons with an automatic-return invitation, genuine original
+   owner signature and selected offer produce an incoming retained admin request.
+   Exact response/digest/public identities/profile/fixed times/effects and known
+   adopted network/root agree with ordinary public views. Stable pure retry:
+   settle transport, compare logical DB/schema/key files before/after, no new
+   intent/approval/signature/clock/authority/registry event or secret journal.
+2. Parent/context/ID/malformed/strict64KiB CLI/API/duplicate/null/extra/private
+   input bounds, missing daemon/no initialization, method and scoped adapter/
+   peer/bootstrap boundaries. No raw secret/input/provider/path diagnostics.
+3. Pending/no owner or no selection, requester-side, already-admitted/root/device
+   owner, renewal/migration, cancellation, request/stage expiry and changed
+   unsupported profile/deadline refuse without mutation or signer fallback.
+   Use authentic public protocol fixtures; unsupported cases with no bounded
+   genuine fixture stay explicit source/fault limits, not fabricated DB rows.
+4. Missing/pruned/inconsistent proof fails closed and fetches/signs nothing.
+   Existing read-only expiry/debug controls or schema-only aborts are permitted;
+   corrupt authority rows are not positive setup. Narrow unavailable retention/
+   corruption/race fixtures remain explicit source coverage if needed.
+5. Same request proceeds through existing explicit advanced administrator
+   admission, original F and requester commit, with no intent created by prior
+   inspection. Fresh inspection then refuses later stage read-only, and no
+   membership/access/readiness is attributed to the earlier inspection.
+6. Restart/context replacement and future/stale clock boundaries preserve pure
+   refusal and stable evidence semantics; source-reviewed absence of transport/
+   signing calls plus public before/after observations. No new native/model or
+   actual-terminal/physical/installed acceptance is inferred.
+
+Run all18 final-head CI suites, Rust gates, native252 and unchanged applicable
+host onboarding suites, record source/binary/evidence/limits and fresh bot review.
+Carry existing manual/installed/two-machine/distinct-person/model/schema23-to27
+acceptance gates; do not retry rejected terminal actions or unchanged quota probes.
+
+Selected: read-only verification of an existing incoming exact original/selection
+prefix before administrator consent. Discarded: using ordinary admissions preview
+as an observation (it imports/polls/prepares durable intents), code import in a
+read route, automatic provider choice/approval/signing, frontend key access, new
+schema/journal and public signature evidence as admission or agent access.
+
+## 21. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

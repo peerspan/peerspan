@@ -2373,3 +2373,19 @@ sign-as-read recovery, broad link/resume/finalization automation, new API/schema
 persistence, automatic retries and historical evidence as current permissions.
 Section19 pins independent native cases and original232/all17 CI preservation;
 terminal/installed/physical/model/schema23-to27 recovery acceptance stays open.
+
+### GU.impl20 — Inspect the incoming original/selection prefix before admission
+
+Selected: a pure owner-local admission inspection of an already retained incoming
+new-original request. Reuse ordinary typed request/owner/selection and adopted
+network projection validators, bind the exact attached project and expose only
+closed public identities/terms/effects with a stable digest. No signer choice,
+intent creation or authority mutation. Administrator consent/signing and native
+controls follow in separate reviewable slices.
+
+Ordinary admissions preview imports/polls and creates durable intent state, so it
+cannot serve as an observation. Discarded: calling it from a read action, manual
+code import here, automatic provider/approval/signing, new schema/secret journal,
+and interpreting original possession or incoming role as admission/access.
+Section20 defines independent admission_onboarding and final all18/native252
+verification while retaining existing manual/installed/model/recovery gates.
