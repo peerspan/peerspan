@@ -573,4 +573,144 @@ def _():
     refuse_start(future)
 
 
+def identity_inventory(h, parent, *, agent=None, data=None, fallback=False):
+    argv = [str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "identities", "--stdin"]
+    environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
+    if fallback:
+        environment.pop("XDG_CONFIG_HOME", None)
+    result = subprocess.run(argv, input=compact({"context": context(parent)}) if data is None else data,
+                            env=environment, capture_output=True, timeout=10)
+    for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_IDENTITY_COMMENT", b"token_", b"person_ed25519", b"agent.sock"):
+        check(marker not in result.stdout + result.stderr, "identity inventory exposed a private key/comment/source path")
+    value = None
+    if result.stdout.strip():
+        try:
+            value = json.loads(result.stdout)
+        except ValueError:
+            check(False, "identity inventory stdout is not controlled JSON")
+    if result.returncode == 0:
+        check(isinstance(value, dict) and set(value) == {"version", "host_id", "context", "identities"}
+              and value["version"] == 1 and value["host_id"] == h.id and value["context"] == context(parent), "exact inventory envelope/binding")
+        keys = []
+        for item in value["identities"]:
+            check(set(item) == {"public_key", "sources"} and len(base64.b64decode(item["public_key"], validate=True)) == 32,
+                  "identity inventory returned private/unknown or invalid public fields")
+            check(item["sources"] in (["generated"], ["ssh_agent"], ["generated", "ssh_agent"]), "identity provenance order/content")
+            keys.append(item["public_key"])
+        check(len(keys) <= 64 and keys == sorted(set(keys)), "inventory order/dedup/bound")
+    return result.returncode, value
+
+
+def identity_agent(h):
+    path = h.root / "agent.sock"
+    with (h.root / "agent.log").open("ab") as log:
+        suite.spawn(["ssh-agent", "-D", "-a", str(path)], stdout=log, stderr=log)
+    wait_for(path.exists, timeout=5, message="private real SSH agent")
+    return path
+
+
+def add_identity(h, agent, path):
+    added = subprocess.run(["ssh-add", str(path)], env={**h.env, "SSH_AUTH_SOCK": str(agent)}, capture_output=True, timeout=5)
+    check(added.returncode == 0, "real ssh-add fixture failed")
+
+
+def generated_identity(h):
+    directory = Path(h.env["XDG_CONFIG_HOME"]) / "peerspan"
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    key = directory / "person_ed25519"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "PRIVATE_IDENTITY_COMMENT generated", "-f", str(key)],
+                   check=True, capture_output=True, timeout=5)
+    public_key = ssh_public_base64(key)
+    key.with_suffix(".pub").unlink()
+    return key, public_key
+
+
+@suite.case("local_identity_inventory_exact_generated_agent_dedup_and_read_only", "guided onboarding13 verification1")
+def _():
+    h, parent, _, _ = fixture("identities")
+    normal, generated = generated_identity(h)
+    agent = identity_agent(h); add_identity(h, agent, normal)
+    expected = {generated: ["generated", "ssh_agent"]}
+    for index in range(2):
+        key = ssh_key(suite.work, "agent-original-" + str(index))
+        # Comments remain agent-local and must not reach the inventory response.
+        subprocess.run(["ssh-keygen", "-q", "-c", "-P", "", "-C", "PRIVATE_IDENTITY_COMMENT token_COMMENT_" + str(index), "-f", str(key)],
+                       check=True, capture_output=True, timeout=5)
+        add_identity(h, agent, key); expected[ssh_public_base64(key)] = ["ssh_agent"]
+    rsa = suite.work / "unsupported-agent-rsa"
+    subprocess.run(["ssh-keygen", "-q", "-t", "rsa", "-b", "1024", "-N", "", "-C", "PRIVATE_IDENTITY_COMMENT rsa", "-f", str(rsa)],
+                   check=True, capture_output=True, timeout=5)
+    add_identity(h, agent, rsa)
+    before, state, home = records(h), private_files(h.state), private_files(h.home)
+    code, value = identity_inventory(h, parent, agent=agent)
+    check(code == 0 and value["identities"] == [{"public_key": key, "sources": expected[key]} for key in sorted(expected)], "real generated/agent public inventory differs")
+    code, value = identity_inventory(h, parent, agent=agent, fallback=True)
+    check(code == 0 and len(value["identities"]) == 3, "HOME fallback changed normal original identity source")
+    code, value = identity_inventory(h, parent)
+    check(code == 0 and value["identities"] == [{"public_key": generated, "sources": ["generated"]}], "missing SSH agent fabricated keys or hid generated key")
+    # A real listening but nonanswering agent must contribute no keys, bounded.
+    silent = h.root / "silent-agent.sock"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stalled:
+        stalled.bind(str(silent)); stalled.listen(1)
+        code, value = identity_inventory(h, parent, agent=silent)
+        check(code == 0 and value["identities"] == [{"public_key": generated, "sources": ["generated"]}], "nonanswering agent changed available identities")
+    silent.unlink()
+    check(records(h) == before and private_files(h.state) == state and private_files(h.home) == home,
+          "inventory changed daemon/identity state, private key, permissions or recreated public sidecar")
+
+
+@suite.case("local_identity_inventory_private_failures_bounds_context_and_no_initialization", "guided onboarding13 verification1")
+def _():
+    h, parent, _, _ = fixture("identity-refuse")
+    code, value = identity_inventory(h, parent)
+    check(code == 0 and value["identities"] == [], "empty sources silently created/selected an original key")
+    normal, _ = generated_identity(h)
+    original, mode = normal.read_bytes(), normal.stat().st_mode & 0o777
+    agent = identity_agent(h)
+    other = ssh_key(suite.work, "available-agent-original"); add_identity(h, agent, other)
+    for fault in ("insecure", "malformed", "oversized", "symlink", "directory"):
+        normal.unlink()
+        if fault == "symlink":
+            normal.symlink_to(other)
+        elif fault == "directory":
+            normal.mkdir(mode=0o700)
+        else:
+            normal.write_bytes(original if fault == "insecure" else b"PRIVATE_IDENTITY_COMMENT invalid" if fault == "malformed" else b"x" * 65537)
+            normal.chmod(0o644 if fault == "insecure" else mode)
+        before, home = records(h), private_files(h.home)
+        exit_code, response = identity_inventory(h, parent, agent=agent)
+        check(exit_code != 0, "invalid/insecure generated source was masked by an available agent key")
+        check(records(h) == before and private_files(h.home) == home, "source refusal rewrote or repaired private identity files")
+        if normal.is_dir():
+            normal.rmdir()
+        else:
+            normal.unlink()
+        normal.write_bytes(original); normal.chmod(mode)
+    body = compact({"context": context(parent)})
+    before, home = records(h), private_files(h.home)
+    maximum = body + b" " * (65536 - len(body))
+    check(identity_inventory(h, parent, data=maximum)[0] == 0, "identity inventory refused exact64KiB JSON boundary")
+    malformed = [b"null", b"[]", b"{}", body + b"{}", maximum + b" ", compact({"context": None}),
+                 compact({"context": context(parent), "extra": "PRIVATE_IDENTITY_COMMENT"}),
+                 b'{"context":' + compact(context(parent)) + b',"context":' + compact(context(parent)) + b'}',
+                 body.replace(b'"integration":"claude-code"', b'"integration":"claude-code","integration":"claude-code"')]
+    for data in malformed:
+        check(identity_inventory(h, parent, data=data)[0] != 0, "identity inventory accepted malformed/duplicate/trailing/oversized JSON")
+    for change in ({"project_flow_id": "flow_" + "1" * 32}, {"project_review_id": "review_" + "1" * 64}, {"native_session_id": "other-private-native"}):
+        check(identity_inventory(h, parent, data=compact({"context": {**context(parent), **change}}))[0] != 0, "inventory accepted wrong parent/context")
+    check(records(h) == before and private_files(h.home) == home, "JSON/context refusals mutated identity or daemon state")
+    #65 actual supported agent keys exceed the complete-result bound. Generated
+    # is a further distinct identity, and no result may truncate to a first64.
+    for index in range(64):
+        key = ssh_key(suite.work, "bounded-agent-" + str(index)); add_identity(h, agent, key)
+    before, home = records(h), private_files(h.home)
+    check(identity_inventory(h, parent, agent=agent)[0] != 0, "over64 identity inventory silently truncated or selected keys")
+    check(records(h) == before and private_files(h.home) == home, "oversized inventory changed local state")
+    h.ok("session", "detach", parent["review"]["session_id"])
+    check(identity_inventory(h, parent)[0] != 0, "detached parent inventoried local original identities")
+    h.stop(); before, home = private_files(h.state), private_files(h.home)
+    check(identity_inventory(h, parent)[0] != 0, "missing daemon identity inventory succeeded")
+    check(private_files(h.state) == before and private_files(h.home) == home, "inventory initialized missing daemon/identity state")
+
+
 suite.finish()
