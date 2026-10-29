@@ -451,7 +451,8 @@ function safe(w: World, uiText = '', reveal = false, runtime = false, executable
     const [noun, verb] = command.kind.split('.')
     const prefix = [executable, ...(state ? ['--state', state] : []), 'onboarding']
     const suffix = command.kind === 'snapshot' ? [] : [noun, verb, ...(verb === 'inspect' ? [command.argv.at(-1)] : ['--stdin'])]
-    expect(command.argv).toEqual([...prefix, ...suffix]); expect(command.init?.timeoutMs).toBe(5000)
+    expect(command.argv).toEqual([...prefix, ...suffix])
+    expect(command.init?.timeoutMs).toBe(command.kind === 'join.identities' ? 15000 : 5000)
     for (const code of w.codes) expect(command.argv.join('\n')).not.toContain(code)
     expect(command.argv).not.toContain(ROOT); expect(command.argv).not.toContain(NATIVE)
     if (command.kind.startsWith('invitation.') && verb !== 'inspect') expect(typeof command.init.stdin).toBe('string')
