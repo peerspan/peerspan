@@ -422,9 +422,21 @@ def _():
     check(all(value == private for value in parallel(transport)), "transport retry changed its original instance")
     after, after_files = records(host), file_state(host.root)
     changed_records = sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
-    changed_files = sorted(key for key in before_files.keys() | after_files.keys() if before_files.get(key) != after_files.get(key))
+    check(before_files.keys() == after_files.keys(), "transport retrieval created or removed state/private files")
+    # Live SQLite readers update existing shared-memory read-lock/WAL-index
+    # pages. Those are synchronization state, not durable database contents.
+    # Preserve names and modes, every other file, and secret absence everywhere.
+    shared_memory = {str(path.relative_to(host.root)) for path in host.state.glob("*.db-shm")
+                     if path.with_name(path.name[:-4]).is_file()}
+    changed_files = sorted(key for key in before_files if
+                           (before_files[key][0] != after_files[key][0] if key in shared_memory
+                            else before_files[key] != after_files[key]))
     check(not changed_records, "transport retrieval changed logical records/activity: " + ", ".join(changed_records))
     check(not changed_files, "transport fixture changed files: " + ", ".join(changed_files))
+    for path in [host.log, *host.state.rglob("*")]:
+        if path.is_file():
+            check(all(secret.encode() not in path.read_bytes() for secret in (private["token"], private["instance_id"])),
+                  "transport retrieval persisted or logged a private token/instance")
     adapter = fixture_adapter(host, flow, private)
     adapter.instance = private["instance_id"]
     body = {"adapter_id": private["adapter_id"], "session_id": private["session_id"],
