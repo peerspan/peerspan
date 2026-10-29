@@ -171,3 +171,10 @@ explicitly enables a current-conversation readiness challenge before using the
 existing scoped ready/next/forwarded/seen/reply routes. It adds no API/schema or
 access grant. A saved host channel is insufficient for the current native
 attempt; submission, model acknowledgment and peer receipt remain distinct.
+
+The [native assigned-task path](guided-session-contract.md#8-native-assigned-tasks-and-cancellation-gu-03e)
+explicitly enables existing scoped task/cancellation claims and lifecycle
+routes under the current native readiness proof. It changes no host API/schema
+or grant. Submitted prompts, successful model lifecycle calls and peer result
+retrieval remain separate. Task file transfer and outward delegation are not
+provided by this frontend slice.

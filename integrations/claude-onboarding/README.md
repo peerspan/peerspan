@@ -4,8 +4,8 @@ Feature-branch preview for [tracking PR #35](https://github.com/peerspan/peerspa
 Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
 host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
-An explicit incoming-message path uses scoped native tools. Tasks, invitations
-and sharing permissions remain later slices; live model acceptance is pending.
+Explicit incoming-message and assigned-task paths use scoped native tools.
+Invitations, sharing permissions and live model acceptance remain later work.
 
 ## Try the entry
 
@@ -107,7 +107,8 @@ conversation as external peer content. The model can acknowledge a held
 delivery with `message_seen` or answer once with `message_reply`. The host
 enforces the original sender, grant, session, expiry and reply bounds. These
 tools add no local file/tool permission, owner operation, arbitrary destination
-or capability-call access. Tasks and updates stay queued on the host.
+or capability-call access. Assigned tasks require the separate enable below;
+outgoing delegation and its update notifications remain later work.
 
 Submitted, seen and replied counts are separate. Submission is harness
 acceptance; seen/reply requires a successful current-model tool call. **Peer
@@ -120,6 +121,38 @@ A handoff/submission/forwarded failure stops the message attempt while lease
 renewal continues. An uncertain message is never automatically resubmitted.
 Retry performs a new readiness check; it does not recover uncertain held work.
 Existing advanced host diagnostics remain available for that recovery.
+
+## Enable incoming tasks
+
+After the current native message readiness check succeeds, press **Enable
+incoming tasks**. Tasks can start model turns under the normal allowance. This
+adds no local tool or file permission, performs no new readiness prompt and
+does not enable outgoing delegation or file transfer.
+
+Assigned tasks arrive as external peer input. The model can use `task_accept`
+or `task_reject`, then `task_progress` and `task_complete` with a text outcome.
+An adopted running task resumes its observed progress and cancellation flag;
+it is not accepted again as a queued task. Cancellation notices request a stop:
+the model may call `task_cancelled` only if work actually stopped, or complete
+its real outcome. The host checks held-task ownership, transitions and grant
+rules. Accepted tasks can continue after their peer grant expires, while the
+native credential and context must remain valid.
+
+Attachments are metadata only in this frontend. It cannot download task inputs
+or upload result files. No file is read or shared automatically, and onward
+delegation remains unavailable even when a task's metadata permits it.
+
+Task and cancellation submission counts mean native prompt acceptance. Tasks
+observed and task changes confirmed require successful current-model lifecycle
+calls; identical retries do not inflate them. A status record does not prove
+the model performed the work or that its submitter retrieved the result.
+
+**Stop incoming tasks** pauses delivery and reporting; it does not cancel an
+accepted task, stop messages or revoke the credential. Task handoff failures
+stop the task attempt; **Retry incoming tasks** starts another explicit attempt
+without resubmitting uncertain held input. Close/Back preserve enabled tasks.
+Losing the native ready proof, stopping the adapter, expiry, context change or
+reload stops task authority and requires explicit setup again.
 
 ## Check this conversation
 
@@ -164,6 +197,10 @@ submitted the actual readiness prompt, but the account's weekly usage limit
 refused inference. The host remained unverified and claimed no messages.
 Real-model acknowledgment, message/reply and installed two-machine acceptance
 remain outstanding; deterministic runtime fixtures do not replace those checks.
+Assigned-task receipt, lifecycle calls and cancellation also remain live-model
+acceptance gates. The unchanged quota-refused probe is not repeated for this
+slice, and no live task smoke is claimed. Independent native task fixtures and
+the existing real-host work/live suites cover their respective boundaries.
 
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
