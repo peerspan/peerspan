@@ -655,6 +655,7 @@ export function register(on, configured = {}) {
   });
   on('session.end', async ($, e, next) => {
     clearSession();
+    $.ui.invalidate('ui.render');
     return next(e);
   });
 }
