@@ -311,7 +311,7 @@ def _():
             response = http.client.HTTPResponse(stream)
             response.begin()
             response.read()
-            check(response.status == 404, "bootstrap listener exposed onboarding")
+            check(response.status == 404, f"bootstrap listener exposed onboarding: HTTP {response.status}, want 404")
 
 
 @suite.case("unavailable_daemon_is_inert", "guided onboarding verification 8")
