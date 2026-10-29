@@ -186,3 +186,11 @@ invitation-flow table. Approval atomically mints one ordinary coordinator-free
 introduction and return-path state; ordinary views never return its private
 code. Membership, machine approval, agent access and native human controls
 remain separate. Existing advanced invitation semantics are preserved.
+
+The [recipient invitation preview](guided-session-contract.md#11-recipient-invitation-inspection-gu-01f--gu-02g--gu-04c)
+adds owner-local `POST /v1/onboarding/invitation-preview` and private stdin
+`onboarding invitation preview`. It verifies the core signed introduction and
+returns only exact public review terms for the attached project. It retains no
+code, writes no state, creates no identity/request and performs no network I/O.
+Schema26 and existing invitation/linking behavior remain unchanged. The native
+private input is separate from chat; signature validity grants no authority.

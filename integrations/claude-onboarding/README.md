@@ -6,7 +6,8 @@ host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
 Native invitation review and explicit private code reveal are available.
-Joining/admission, sharing permissions and live model acceptance remain later work. The advanced owner-local invitation-review backend is
+Private recipient invitation inspection is also available. Joining/admission,
+sharing permissions and live model acceptance remain later work. The advanced owner-local invitation-review backend is
 available for integration development; it adds no model invitation tool.
 
 ## Try the entry
@@ -92,6 +93,30 @@ older exported invitation. Declined, expired or invalidated outcomes similarly
 require an explicit replacement review. An introduction is not admission or
 agent access: the recipient's guided join and each participant's permissions
 are subsequent slices. There is no recipient import control in this preview.
+
+## Review an invitation you received
+
+After attaching the project, press **Review an invitation**. Paste the code
+only into **Private invitation code** in this human pane, never into an agent
+chat. The field is visible terminal text. Typing or Enter updates the private
+draft; **Inspect invitation** clears that draft and asks the local host to
+verify the signature, signed network identity, contacts and expiry. No model
+turn, key creation, network adoption, request publication or permission change
+occurs. There is no clipboard or file import.
+
+A successful view says **Invitation: signature verified** and shows the exact
+public terms. This identifies the introduction's signer; it does not establish
+the signer's membership/authority, admission, agent access or reachability.
+Old contact hints may remain useful inside a live invitation; their expiry is
+shown independently. An old invitation without automatic return is identified.
+
+Identity selection and joining follow in subsequent slices. This preview has
+no Join/Approve control. **Inspect another invitation** starts an empty draft.
+Refresh, Back, Close, context changes, reload and expiry discard the volatile
+preview. Re-entry requires pasting privately again. No code is stored in plugin
+files or sent to the model; your terminal or screenshots may retain displayed
+input. The inviter's retained reviews and existing connected delivery runtimes
+are separate from this private recipient view.
 
 ## Review and connect the adapter
 
