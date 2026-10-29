@@ -29,6 +29,7 @@ import socketserver
 import sqlite3
 import stat
 import subprocess
+import sys
 import threading
 import time
 from contextlib import closing
@@ -494,8 +495,14 @@ def pure_retry(h, flow, approved, proxy, agent=None, *, logical=True):
     check(not any(endpoint.endswith(("/approval", "/signed", "/resume")) for _, endpoint, _ in calls) and len(proxy.submissions) == submitted,
           "complete-offer retry performed ordinary signing lookup/submission/polling")
     check(agent is None or len(agent.signatures) == signatures, "completed-offer retry signed again")
-    check((not logical or records(h) == before) and private_files(h.state) == files and private_files(h.home) == home,
-          "complete-offer retry changed logical records/private files")
+    after = records(h) if logical else None
+    state_after, home_after = private_files(h.state), private_files(h.home)
+    tables = sorted(key for key in set(before or {}) | set(after or {}) if (before or {}).get(key) != (after or {}).get(key))
+    state_paths = sorted(key for key in set(files) | set(state_after) if files.get(key) != state_after.get(key))
+    home_paths = sorted(key for key in set(home) | set(home_after) if home.get(key) != home_after.get(key))
+    check((not logical or after == before) and state_after == files and home_after == home,
+          f"complete-offer retry changed logical records/private files at caller line{sys._getframe(1).f_lineno}; "
+          f"tables={tables}, state_paths={state_paths}, home_paths={home_paths}")
     return result
 
 
