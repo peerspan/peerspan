@@ -1276,10 +1276,13 @@ Use the existing private socket/headers and a five-second logical HTTP deadline.
 
 `null` means no message and changes no receipt evidence. For a handoff, validate
 the existing Handoff shape: exactly `delivery,request,sender_person_id,
-sender_person,redelivered`. Delivery has its existing exact ten fields
+sender_person,redelivered`. Delivery has its existing exact nine fields
 `id,sender_host_id,request_id,target_agent_id,session_id,adapter_id,state,
 created_at,updated_at`; require the captured adapter/session/agent, known
 `unknown`/`forwarded`/`replied` states, valid timestamps and lowercase typed IDs.
+State validation also covers forwarded acknowledgments; a claim from `/next`
+must be `unknown`. The frontend never reclaims or resubmits a forwarded/replied
+handoff. An explicit new handshake does not alter that rule.
 Request requires `request_id,target_agent_id,deadline,content`, exactly one
 authorization citation (`grant_id`, `policy` or `self`), and optional `origin`.
 Reject unknown fields, mismatched delivery/request bindings, expired deadlines,
@@ -1326,7 +1329,9 @@ calls cannot race counters; changed replies still conflict under the host API.
 - `message_seen` posts `/adapter/v1/seen` with exactly `{ids:[delivery_id]}`;
   accept exactly `{seen:[]}` or `{seen:[delivery_id]}`. Return that public result.
 - `message_reply` posts `/adapter/v1/deliveries/{delivery_id}/reply` with exactly
-  `{content}`. Validate the existing Reply fields, exact captured local host,
+  `{content}`. Reply has exactly `sender_host_id,request_id,receiver_host_id,
+  target_agent_id,session_id,delivery_id,content,replied_at` and optional `origin`.
+  Validate those fields, exact captured local host as `receiver_host_id`,
   agent/session, delivery and content, optional origin bound to this agent/
   session, and valid original sender/request/time. Return only
   `{replied:true,delivery_id}`. Identical explicit retries remain idempotent;
