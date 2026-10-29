@@ -112,6 +112,11 @@ accepted notification or a live lease alone does not prove model receipt.
 These are implementation tasks, not separate releases. Each slice lands only
 on the integration branch through a small PR.
 
+The [flow contract](guided-session-contract.md) starts with GU-01a/GU-02a:
+a read-only owner-local onboarding snapshot. Mutation APIs, participant reviews
+and existing-session delivery remain later work; this foundation is not the
+complete four-step experience.
+
 | ID | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |
 | GU-01 | A concrete flow contract: participant actions, review fields, private handoff, resumable state and readiness meanings; record the decisions and discarded options | This plan | Map every action to existing authority boundaries; specify black-box cases before implementation; settle the existing-session delivery path |

@@ -39,6 +39,18 @@ Contents:
 
 ## Full entries
 
+### GU.impl1: one owner-local onboarding observation (2026-10-28)
+
+- **Authority:** implementation choice within the accepted GU-OWN1 experience
+  and GU-OWN2 feature-branch delivery model; not a new owner decision.
+- **Selected:** one read-only owner-local snapshot of existing network,
+  session, adapter-connection and pending-request views, with an advanced CLI
+  command. Preserve live-lease and verified-delivery observations separately.
+- **Rationale and discarded options:** recorded under **Implementation choices**
+  in the [guided onboarding contract](guided-session-contract.md).
+- **Scope:** GU-01a/GU-02a only. This does not implement flow mutations, reviews,
+  the plugin or the complete accepted experience.
+
 ### GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery (2026-10-28)
 
 - **Authority:** owner's confirmation and follow-up instruction in the guided
