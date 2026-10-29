@@ -300,16 +300,252 @@ Sources checked against the installed Claude Code 2.1.303:
 [runtime testing](https://code.claude.com/docs/en/plugins/mods/create), and
 [channel opt-in](https://code.claude.com/docs/en/channels).
 
-## 3. Remaining flow contract
+## 3. Exact local project review (GU-01c / GU-02b)
 
-The earlier API discussion proposed `/v1/onboarding/flows`, immutable reviews
-and private decisions. Those mutation endpoints remain design proposals until
-their precise request bodies, retry rules and review transport are recorded.
-They are not implemented by the observation slice.
+This slice supplies a concrete owner-local review flow for recording a project
+and its existing native conversation against a local agent. It does not yet
+wire the native pane to this flow. Its outcome is **attachment metadata**, not
+an adapter, an admitted network member, shared files, capability permission or
+verified delivery. Teammate and other-computer reviews remain separate work.
 
-Section 2 selects the native existing-session route. Its live verification and
-the attachment/data path must pass before the frontend can claim the complete
-connection is ready. Plugin reload alone does not verify incoming delivery.
+### Prepare and resume
+
+`POST /v1/onboarding/project-flows` on `admin.sock` accepts exactly:
+
+```json
+{
+  "project_root": "/absolute/project",
+  "native_session_id": "current-native-conversation",
+  "integration": "claude-code",
+  "agent": {"kind": "new", "name": "project-agent", "owner": "local owner"}
+}
+```
+
+Alternatively `agent` is exactly `{"kind":"existing","id":"agent_..."}`.
+An existing agent must be explicitly selected by ID; never adopt an agent by
+name or list order. New names/owner labels follow registry validation (trimmed,
+nonempty, at most 128 UTF-8 bytes, reserved agent name refused). New agents have
+no capability metadata. The integration is exactly `claude-code` in this slice.
+Native session IDs are nonempty, at most 256 UTF-8 bytes, with no whitespace or
+control characters. Project roots are absolute UTF-8 paths, at most 4096 bytes,
+with no control characters, `.` or `..` segments, repeated `/`, or trailing `/`
+except `/` itself. No filesystem read, canonicalization, directory creation or
+project-file edit occurs. The frontend obtains the root and native ID through
+trusted native APIs, and must recheck them before a future decision callback.
+A path is local metadata; it is never an authority claim.
+
+The first prepare returns 201; an identical retry/resume returns 200 with the
+same flow, exact review, planned IDs and original expiry, including after a
+daemon restart. Match the tuple `(integration, native_session_id, project_root)`;
+changing the selected agent for an existing attempt returns 409 `flow_conflict`.
+Preparation commits only its private flow row. It creates no agent, session,
+credential, grant or activity event. It fixes a 15-minute review deadline; a
+read or retry never refreshes it. Concurrent identical prepares create one row.
+
+A terminal/expired/invalidated attempt can be explicitly replaced by including
+`replace_flow_id` naming the current latest attempt for that context. This
+creates a new review with new IDs and expiry; it never changes the old review.
+The replacement may change the agent proposal. Replacement of a still-reviewable
+or attached attempt, or using a stale/nonmatching ID, returns 409 `flow_conflict`.
+Without this explicit field, prepare always resumes the current attempt, even
+when its derived state is expired or invalidated. A rejected replacement writes
+nothing. Concurrent replacements against one old ID create at most one new row.
+
+### Immutable review and observation
+
+`GET /v1/onboarding/project-flows/FLOW_ID` returns 200, or 404 for an unknown ID.
+Prepare, inspect and decision return the same exact top-level fields:
+
+```json
+{
+  "version": 1,
+  "flow_id": "flow_...",
+  "state": "review",
+  "review_id": "review_...",
+  "review": {
+    "version": 1,
+    "kind": "attach_project",
+    "flow_id": "flow_...",
+    "host_id": "host_...",
+    "project_root": "/absolute/project",
+    "native_session_id": "current-native-conversation",
+    "integration": "claude-code",
+    "create_agent": true,
+    "agent": {"id": "agent_...", "name": "project-agent", "owner": "local owner", "capabilities": []},
+    "session_id": "session_...",
+    "expires_at": "RFC3339 UTC",
+    "effects": {
+      "register_agent": true,
+      "attach_session": true,
+      "issue_adapter_credential": false,
+      "grant_network_access": false,
+      "share_files": false,
+      "share_conversation": false,
+      "capability_calls": false
+    }
+  },
+  "attachment": null,
+  "next_action": "review"
+}
+```
+
+For an existing agent, `create_agent` and `effects.register_agent` are false;
+its ID, name, owner and capability metadata are pinned exactly. All other
+explicit effects retain the values above. IDs are allocated during preparation;
+`flow_`, `agent_`, and `session_` append 16 random bytes as lowercase hex. A
+`review_id` is `review_` plus lowercase SHA256 of UTF-8
+`peerspan-project-review-v1\n` followed by the canonical JSON of `review` using
+the existing canonical JSON rules. It binds every field, including host,
+project, conversation, agent, session, effects and fixed expiry. Review objects
+never change; state/evidence is outside them. No invitation, signing input,
+adapter token/instance or private key is present.
+
+States and next actions:
+
+| State | Meaning | next_action |
+| --- | --- | --- |
+| `review` | Exact terms remain current and before the deadline | `review` |
+| `attached` | This flow committed its local attachment, still attached | `continue_adapter_setup` |
+| `declined` | The owner refused these terms | `restart_review` |
+| `expired` | Uncommitted review reached its fixed deadline | `restart_review` |
+| `invalidated` | Agent terms changed, a proposed new name was taken, or the committed session was detached | `restart_review` |
+
+Expiry is strict: at or after `expires_at` an uncommitted review is expired.
+Before expiry, a conflicting agent proposal makes it invalidated. An attached
+flow does not expire as an approval and never recreates a detached session.
+`attachment` is null before a commit, otherwise exactly
+`{"agent_id":"...","session_id":"..."}`, including if later invalidated.
+Inspection and ordinary resume derive current state without durable changes,
+including when expired/invalidated. They do not connect, resume an adapter,
+approve, repair or renew anything. No flow with private project/native metadata
+is added to the public onboarding snapshot, peer router or scoped adapter API.
+
+### Exact decision and atomic attachment
+
+`POST /v1/onboarding/project-flows/FLOW_ID/decision` accepts exactly:
+
+```json
+{
+  "review_id": "review_...",
+  "project_root": "/absolute/project",
+  "native_session_id": "current-native-conversation",
+  "integration": "claude-code",
+  "decision": "approve"
+}
+```
+
+`decision` is `approve` or `decline`. Require the exact current flow, review ID
+and context. Wrong context or hash returns 409 `review_changed`; expired review
+returns 409 `review_expired`; invalidated, superseded or opposite already-decided
+state returns 409 `flow_conflict`. Unknown flow is 404. Reject unknown fields,
+nulls, malformed JSON, unsupported integrations and invalid proposals with 400
+`invalid`. The 1-MiB administration body bound applies. Refusals are atomic.
+
+Approval on a valid current review atomically creates the reviewed new agent
+if requested, attaches the preallocated session to that exact agent with
+integration `claude-code`, records the decision, and appends the ordinary
+`agent.registered` (only if new) and `session.attached` events once. The new
+session has the ordinary attached metadata state and no adapter credential or
+channel proof. An existing agent's metadata and authority stay untouched.
+Decline records only the flow decision, with no registry/activity effects.
+
+An exact same-decision retry returns 200 without duplicate rows/events, including
+after a crash/restart. A still-attached successful approval remains idempotent
+after its old review deadline. A detached attachment cannot be resurrected by
+replaying that approval. Superseded reviews never authorize the replacement.
+No approval or human review tool is registered for the model. The trusted
+native human callback is the selected future frontend; owner-local API access
+continues to trust the local account, as existing administration does. A JSON
+boolean or incoming peer content does not prove a human click.
+
+### Advanced CLI and storage
+
+Existing `peerspan onboarding` remains the read-only snapshot command. Add:
+
+```sh
+peerspan [--state DIR] onboarding project prepare --stdin
+peerspan [--state DIR] onboarding project inspect FLOW_ID
+peerspan [--state DIR] onboarding project decide --stdin
+```
+
+Prepare reads the exact JSON body above from bounded standard input. Decide
+reads that decision body plus required `flow_id`, removes that field, and sends
+the exact remaining body to its owner-local route. Input is at most 64 KiB;
+stdin must be explicitly selected, with no interactive fallback, raw diagnostic
+echo or project/private payload in argv. Successful commands print the response
+JSON. No `--approve` shorthand exists. Unsupported/null/extra fields are refused
+before mutation. Missing/unavailable daemon fails without creating host state.
+Reduced root help stays unchanged; advanced help documents the subcommands.
+
+Schema **24** adds only `onboarding_project_flows`, retaining every existing
+schema-23/DEC record. Opening migrates in one transaction without preparing,
+attaching, granting or creating activity. Older binaries refuse 24; this binary
+refuses 25 and later without rewriting them. A pre-24 database containing an
+object of this reserved name is refused atomically; a schema-24 database missing
+or altering this table is refused rather than silently repaired.
+
+Normative columns (in order; all TEXT): `flow_id` (primary key, NOT NULL),
+`project_root`, `native_session_id`, `integration`, `request`, `review`,
+`review_id`, `state`, `created_at`, `expires_at` (all NOT NULL), `session_id`
+(nullable foreign key to `sessions.id`), `decided_at` (nullable). `request` holds
+the normalized proposal without `replace_flow_id`. `review` holds the immutable
+review JSON. Stored state is `review`, `attached` or `declined`; expiry and
+invalidation are derived. No existing table changes. Preparation/decision hold
+one database transaction across context selection, validation and commit.
+
+### Verification
+
+A separate author writes a slim black-box suite from this section and existing
+public contracts, without reading the implementation. Use real temporary hosts;
+keep the suite under two minutes. No real model or frontend stub proves a
+human review or adapter connection.
+
+1. Prepare a new-agent review, verify exact review/response fields and recompute
+   its digest independently. Preparation/inspection/retry create only the flow
+   row: no agent, session, credential, event, grant or project file change.
+2. Identical preparations (including concurrent ones and after daemon restart)
+   preserve one flow, IDs, terms and deadline. Different agent choices conflict;
+   different native conversation/project contexts remain distinct.
+3. Exact approval commits one reviewed agent/session and ordinary events;
+   repeat/concurrent approval and restart/retry create no duplicates. No adapter,
+   network access, file/conversation sharing or channel evidence appears.
+4. Explicit existing-agent selection pins its exact metadata and creates only
+   the reviewed session/event. Reject unknown agent IDs and reserved/invalid new
+   names, relative/noncanonical paths, invalid native IDs/integration, unknown
+   fields/nulls, and malformed or oversized stdin without incidental writes.
+5. Altered hash/context and opposite decisions fail atomically. Decline creates
+   no registry/events. Fixed expiry is not renewed by reads/retries; exact
+   deadline refuses approval. Already-committed retries remain idempotent.
+6. Publicly create a name collision after preparation; the old review becomes
+   invalidated and cannot approve. Detach a committed session; replay cannot
+   resurrect it. Replacing a declined/expired/invalidated attempt preserves the
+   old review, requires its exact current ID, and creates a fresh review. Old or
+   concurrent stale replacements/decisions cannot affect the new attempt.
+7. CLI prepare/inspect/decide match API behavior, keep payloads on stdin, and fail
+   inertly with absent/stopped daemon. Routes remain unavailable through peer,
+   bootstrap and credential-scoped adapter interfaces.
+8. Schema23 to24 migration preserves identity/registry/DEC rows and creates no
+   flow or event. Pre-24 reserved-name collisions and malformed/missing schema24
+   fail closed; newer-schema refusal checks use25, preserving the refused DB.
+
+### Choice and discarded options
+
+Selected: a durable exact local attachment review, with explicit replacement
+and atomic metadata commit, as the first concrete orchestration path. This
+makes interruption/retry observable before adding credential issuance or the
+multi-person protocol. Discarded: minting credentials while displaying a
+preview; adopting a same-named agent; rebuilding expiry on retry; overwriting
+old terms; treating metadata attachment as ready; and using model output as
+owner consent. Later flows compose existing authority protocols after their
+own exact permission reviews. This is an implementation choice within GU, not
+a new owner decision or a completed four-step flow.
+
+## 4. Remaining flow contract
+
+Teammate/device admission, private handoff, adapter setup and exact permission
+grants remain future sections. Section 2's live verification and the complete
+attachment/data path must pass before the frontend claims a ready connection.
+Plugin reload or this slice's attachment metadata alone does not establish it.
 
 ## Implementation choices
 

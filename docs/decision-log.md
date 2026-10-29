@@ -1980,3 +1980,20 @@ omitted only after independent current evaluation; their retained maxima stay.
 The separate author derives exact-byte/purity, missing/fork/expiry and native
 unavailable-key controls after reviewed merge. No implementation or runtime
 success is claimed by this contract.
+
+## GU.impl3 — Exact local project reviews (2026-10-29)
+
+Selected within the accepted guided-onboarding scope: start orchestration with
+an immutable review of one local project/native conversation and explicitly
+chosen agent. Preparation stores only the review; approval atomically records
+the reviewed agent/session metadata. Exact retries preserve terms and expiry;
+replacement is explicit and retains the old review. Schema24 adds one private
+flow table without changing DEC authority. The native human callback is the
+selected next frontend; no model approval tool is added.
+
+Discarded: speculative credential issuance during preview, name-based adoption,
+fresh default expiry on retry, rewriting reviewed terms, metadata as readiness,
+and model output as human consent. Teammate/device admission, permission grants
+and adapters remain separate reviewed paths. See guided session contract
+section3 for concrete fields, races, migration and independent cases. This is
+an implementation choice, not an additional decision attributed to the owner.
