@@ -650,11 +650,11 @@ test('session end root change terminal loss and changed parent child scope or ho
     if (mode === 'child' || mode === 'revocation') { w.child.state = 'invalidated'; w.child.next_action = 'restart_review' }
     if (mode === 'scope') w.child.review.effects.outbound_routes = true
     if (mode === 'host') w.parent.review.host_id = 'host_' + 'f'.repeat(64)
-    if (mode === 'session-end' || mode === 'root-event') expect(await text(ui)).not.toContain('Adapter: connected')
+    if (mode === 'session-end' || mode === 'root-event') expect(await text(ui), mode + ': immediate clearing').not.toContain('Adapter: connected')
     await w.clock.advance(5000)
-    expect(w.httpCalls.length).toBe(before)
-    expect(await text(ui)).not.toContain('Adapter: connected')
-    await w.clock.advance(20_000); expect(w.httpCalls.length).toBe(before)
+    expect(w.httpCalls.length, mode + ': first renewal').toBe(before)
+    expect(await text(ui), mode + ': cleared connected status').not.toContain('Adapter: connected')
+    await w.clock.advance(20_000); expect(w.httpCalls.length, mode + ': no later renewal').toBe(before)
     // Restore only the fixture's current native context so a new explicit user
     // intent can exercise the next independent stopping condition.
     w.surfaces = ['terminal']; w.surface = 'terminal'
