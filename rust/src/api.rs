@@ -39,6 +39,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::task_outbound::local_routes())
         .merge(crate::artifact::local_routes())
         .merge(crate::status::local_routes())
+        .merge(crate::onboarding::local_routes())
         .merge(crate::directory::local_routes())
         .merge(crate::agent_lookup::local_routes())
         .merge(crate::live_delivery::local_routes())
