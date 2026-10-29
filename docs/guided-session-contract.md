@@ -2600,7 +2600,139 @@ existing original, generation for a pinned invitation, a second secret store,
 private-key copies for linking, request publication before durable key save,
 and filesystem rollback after a lost UI/daemon response.
 
-## 15. Remaining flow contract
+## 15. Read-only published-request progress
+
+A section12 publication outcome remains historical. This slice adds an explicit
+snapshot of that exact ordinary request's locally recorded progress before the
+remaining participant-review controls are implemented. It never advances a
+ceremony, signs, polls a peer, retrieves a code, grants access or claims current
+network authority/readiness. Schema27 and the ordinary LINK_VIEW are unchanged.
+
+### Owner-local snapshot and private CLI
+
+`POST /v1/onboarding/join-flows/{flow_id}/progress` takes exactly
+`{context,review_id}`. `peerspan onboarding join progress --stdin` takes exactly
+`{flow_id,context,review_id}` and carries no private invitation. Reuse section12
+strict64KiB JSON/stdin, duplicate/unknown-field/context/ID validation; no daemon
+startup, state initialization or identity inventory. Owner-local only; adapter,
+peer and unauthenticated bootstrap surfaces never acquire this route. No GET or
+alternate mutation method is supported on this new endpoint.
+
+Within one read transaction and one guarded decision time, load the exact join
+flow and original project context. Require the captured review/context, retained
+requested state and immutable outcome. Historical requested flows remain readable
+after their review expires, replacement, project detachment or host restart when
+the original context still matches. Mismatched context/review returns409
+review_changed. A valid non-requested flow returns409 state_conflict. Unknown
+flow remains404. Use the outcome's request_id only, never newest request, list
+order or caller-supplied request IDs. Load/validate the ordinary durable record
+and its referenced evidence using the existing read path, in this same snapshot.
+Missing original request returns409 request_unavailable; invalid retained evidence
+fails closed. Do not repair or advance it. Refuse409 request_mismatch if role is
+not requester, mode is not new, migration proposal is not literal '-', state is
+outside the ten ordinary states below, or network/context/person/request pins
+differ from the historical outcome or host_public_key from this local host.
+
+Return exactly
+`{version:1,host_id,flow_id,review_id,context,observed_at,outcome,request,next_participant,next_action}`.
+Outcome is unchanged section12 public outcome. Request is exactly the ordinary
+public LINK_VIEW (runtime contract section5), including public completed stages,
+consent booleans and attention/next strings, never display_code or secret material.
+Observed_at is that guarded whole-second UTC decision time. Derive the next role
+and action from the locally recorded state using this exact mapping:
+
+| request.state | next_participant | next_action |
+| --- | --- | --- |
+| pending | person_owner | review_owner_offer |
+| needs_selection | requesting_machine | review_owner_selection |
+| needs_administrator | network_administrator | review_admission |
+| needs_owner_finalization | person_owner | review_owner_finalization |
+| needs_commit | requesting_machine | review_final_commit |
+| finalizing | host | await_local_application |
+| linked | requesting_machine | inspect_access_readiness |
+| cancelled | requesting_machine | review_replacement |
+| expired | requesting_machine | review_replacement |
+| blocked | local_owner | inspect_advanced_status |
+
+The person owner may use their original key or an actually authorized same-person
+device under the existing protocol; the label does not choose a signer. Linked
+means historical atomic local application only. It does not establish current
+membership, agent access, connectivity, adapter verification or model receipt.
+Progress observes only already durable evidence, not unprocessed incoming frames.
+Reads must not invoke resume/observe/cleanup, network I/O, template materialization,
+new keys/intents/frames/outbox updates, authority checks with side effects, or
+activity. SQLite/WAL bookkeeping is not a protocol mutation.
+
+### Native explicit observation
+
+A section13 **Join request: publication recorded** outcome gains **Check join
+progress**. Entry, ordinary outcome lookup/Refresh and successful publication
+remain unchanged and do not automatically request progress. No controls appear
+on a draft, identity/creation review, declined, expired or invalidated join flow.
+The ordinary request can itself be expired/cancelled even while its join flow
+retains requested state; that historical outcome keeps this control.
+
+On explicit Check, clear any older progress confirmation synchronously; keep
+historical publication visible. Recheck exact native terminal/project/conversation,
+attached parent, fresh host and retained requested flow before the private stdin
+call. Bind exact flow/review/context/outcome. Native process budget5 seconds.
+Validate the full exact wrapper/LINK_VIEW shapes, host/context/outcome pins, keys,
+IDs, UTC times, booleans, ordered unique completed-stage enum, bounded public
+attention/next strings and the state-to-next-role mapping before displaying it.
+Reject private-looking values using existing public-review privacy checks, and
+never render raw provider/error text. No second frontend signature verifier.
+
+Display **Join progress: STATE**, the observed-at timestamp, network/person/host/
+device public keys, recorded stages and the two distinct requester-consent flags.
+Quote public strings reversibly. Describe the mapped participant's next task in
+plain language, with an honest note that the remaining approvals use existing
+advanced linking until guided controls land. No inert approval or hidden resume
+button. State linked as **Local application recorded**, never joined/connected/
+ready. State delivery_pending only as a transport observation, not proof of
+arrival; do not render arbitrary attention/next text as instructions. Show the
+snapshot limit: current authority, agent access, reachability and model receipt
+are not verified. A snapshot is not a continuously fresh connection check.
+
+Keep the Check control for explicit subsequent read-only snapshots. Failure or
+uncertain read clears previous progress and reports **Join progress unavailable**
+while preserving the publication outcome; no automatic retries. Refresh, Back,
+Close, reload, session/context/host/parent/surface loss, replacement and navigation
+clear progress/its callback authority. Late results/double presses cannot replace
+a newer view. Existing saved identity, durable requests, inviter outcomes and
+established adapter/message/task runtimes remain unchanged through navigation.
+The independent actual-terminal/reopen and installed acceptance gates stay open.
+
+### Verification
+
+A separate contract-only author extends join_onboarding and adds focused native
+cases. Preserve original11 host case bodies and200 native files/cases unchanged.
+
+1. Exact fresh pending snapshot matches ordinary GET and immutable outcome;
+   observed time/role/action/context are exact, no secrets, file/DB/protocol
+   mutations or outbound transport. Repeats are read-only and do not inventory
+   originals. Strict API/CLI body/ID/method/context/review and owner-only bounds.
+2. Real protocol transitions observed through existing public administration:
+   at least pending, needs_selection and locally applied, plus cancellation,
+   idle-stage expiry and historical read after review expiry/restart/replacement.
+   Keep distinct requester consent and recorded stages; read never advances them.
+   Native fixtures cover all ten mapped states without claiming live protocol
+   transitions for their mocked effects. Unknown/mismatched/corrupt record refuses
+   without substituting another request; source/fault limits are recorded.
+3. Native Check is explicit after publication/outcome resume, exact bounded argv/
+   stdin and fresh context/parent/host/flow. Complete public progress/limits and
+   separate local application/readiness. Reject altered shapes/pins/state mapping,
+   private-looking provider values and unknown states; no model/storage/signing.
+4. Recheck/failure/uncertainty discards old confirmation, double press, navigation,
+   Refresh/context/surface/parent/host/end and late callbacks; no hidden mutation,
+   retry, peer poll or loss of saved keys/durable flows/established runtimes.
+
+Selected: exact read-only ordinary-request snapshot with a derived next role,
+explicit human Check and historical publication kept distinct. Discarded: treating
+publication as current membership, polling/resume as a read, silently selecting an
+offer/signer, fake approval controls, a second progress store/schema and a linked
+result as evidence of agent access or model receipt.
+
+## 16. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
