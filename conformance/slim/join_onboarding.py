@@ -189,7 +189,7 @@ def prepare(h, parent, code, person, *, status=201, error=None, body=None, repla
     actual, value = h.api("POST", BASE, body if body is not None else proposal(parent, code, person, replace))
     check(actual == status, f"join prepare HTTP {actual}, want {status}")
     if error:
-        check(value.get("code") == error, f"prepare expected {error}")
+        check(value.get("code") == error, f"prepare HTTP {actual} code {value.get('code')}, want {error}")
     if status in (200, 201):
         validate(h, parent, value, person)
     public(value, code)
@@ -207,7 +207,7 @@ def decide(h, flow, code, choice="approve", *, status=200, error=None, body=None
     actual, value = h.api("POST", BASE + "/" + flow["flow_id"] + "/decision", body if body is not None else decision(flow, code, choice))
     check(actual == status, f"join decision HTTP {actual}, want {status}")
     if error:
-        check(value.get("code") == error, f"decision expected {error}")
+        check(value.get("code") == error, f"decision HTTP {actual} code {value.get('code')}, want {error}")
     if status == 200:
         check(value["review"] == flow["review"] and value["review_id"] == flow["review_id"], "decision changed immutable consent terms")
     public(value, code)
@@ -343,7 +343,8 @@ def _():
     helper = {"address": "127.0.0.1:9", "public_key": source()["signer"].public}
     legacy = source()["signer"].invitation(original, change=lambda p: p.update(helpers=[helper]))
     existing = reuse.cli("join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
-    check(existing.ok and existing.json and existing.json.get("request_id"), "ordinary advanced CLI did not publish legacy introduction")
+    check(existing.ok and existing.json and existing.json.get("request_id"),
+          f"ordinary advanced CLI exit {existing.code}, JSON fields {sorted(existing.json) if isinstance(existing.json, dict) else []}, code {existing.json.get('code') if isinstance(existing.json, dict) else None}")
     rid2 = existing.json["request_id"]; frozen = request_fingerprint(reuse, rid2)
     reviewed = prepare(reuse, p2, legacy, selected); outcome = decide(reuse, reviewed, legacy)
     check(outcome["outcome"]["request_id"] == rid2 and request_fingerprint(reuse, rid2) == frozen, "guided approval failed exact existing-request reuse")
@@ -355,8 +356,8 @@ def _():
 def _():
     h, parent, code, person = fixture("refuse")
     other = ssh_public_base64(ssh_key(suite.work, "other-original"))
-    flow = prepare(h, parent, code, person)
     prepare(h, parent, code, other, status=400, error="invalid")
+    flow = prepare(h, parent, code, person)
     decide(h, flow, code, status=409, error="review_changed", body={**decision(flow, code), "review_id": "review_" + "1" * 64})
     changed = decision(flow, code); changed["context"] = {**changed["context"], "native_session_id": "different-private-conversation"}
     decide(h, flow, code, status=409, error="review_changed", body=changed)
@@ -415,7 +416,7 @@ def _():
     check(len(get(h, "/v2/link/requests")) == 1, "rollback retry created duplicate requests")
     quota, p2, original, selected = fixture("quota")
     for index in range(8):
-        key = base64.b64encode(bytes([index + 1]) * 32).decode()
+        key = ssh_public_base64(ssh_key(suite.work, "quota-original-" + str(index)))
         status, _ = quota.api("POST", "/v2/link/requests", {"mode": "new", "network_id": "-", "person_public_key": key,
                             "migration_proposal_id": "-", "contact_invitation": "-", "helpers": []})
         check(status == 201, f"public request quota fixture {index}: HTTP {status}")
