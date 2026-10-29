@@ -168,8 +168,11 @@ establishes model receipt.
 
 ### Read-only entry
 
-`/peerspan` opens one native pane with the current project's host observation
-and a **Check this conversation** control. It registers no invitation, access,
+`/peerspan` opens the native pane `peerspan`, titled **Peerspan**, with the
+current project's host observation and controls **Refresh**, **Check this
+conversation** and **Close**. While a check is waiting, its control is replaced
+by waiting text; stale/double presses still queue no second check. It registers
+no invitation, access,
 approval or setup tools for the model. It creates no network, agent, attachment
 or credential. Loading the plugin alone neither reads the host nor submits a
 prompt. Refresh and explicit entry read the observation; there is no recurring
@@ -184,6 +187,11 @@ commands. Nonempty arguments return usage without running a process or probe.
 
 Display network names and counts of local agents, pending connection requests,
 live adapters and verified adapter channels from a valid version-1 snapshot.
+Use the labels **Networks**, **Local agents**, **Pending connections**,
+**Live adapters** and **Verified adapter channels**. Pending counts records
+whose `state` is `pending`; live counts session connections whose `state` is
+`ready`; verified counts live connections whose `channel` is `verified`.
+Use **Host: running** or **Host: unavailable**, and **This conversation: STATE**.
 Label adapter evidence separately from this plugin's conversation check. Render
 names as bounded plain text with terminal controls and bidirectional overrides
 removed. Keep routine presentation free of internal IDs, private paths and
