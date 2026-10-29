@@ -4,9 +4,9 @@ Status: feature-branch contract for [tracking PR #35](https://github.com/peerspa
 The accepted experience and integration policy are in the
 [feature plan](guided-session-onboarding.md). Sections 1 and 2 specify the
 observation and native Claude entry slices. Section3 specifies the owner-local
-project review backend and atomic metadata attachment. Native attachment
-controls, authority reviews and automatic protocol continuation remain
-subsequent slices.
+project review backend and atomic metadata attachment. Section4 wires trusted
+native project selection and exact human callbacks. Authority reviews, adapter
+setup and automatic protocol continuation remain subsequent slices.
 
 ## Normal experience (full feature target)
 
@@ -559,7 +559,185 @@ owner consent. Later flows compose existing authority protocols after their
 own exact permission reviews. This is an implementation choice within GU, not
 a new owner decision or a completed four-step flow.
 
-## 4. Remaining flow contract
+## 4. Native project selection and human review (GU-02c / GU-03b)
+
+This slice connects the terminal pane from section2 to the exact local project
+review in section3. It records metadata for the current native conversation;
+adapter setup, network admission and sharing remain later reviewed steps.
+The pane must say **Project: attachment recorded**, with **Adapter connection
+is next**, rather than describing this outcome as a ready connection.
+
+### Private context lookup
+
+Add owner-local `POST /v1/onboarding/project-flows/lookup` and advanced CLI
+`peerspan [--state DIR] onboarding project lookup --stdin`. The body is exactly
+`{"project_root":"/absolute/project","native_session_id":"native-id","integration":"claude-code"}`,
+with section3's context validation. The CLI uses the same explicit 64-KiB stdin
+bound and controlled diagnostics as prepare/decide. No project path or native
+conversation ID is passed in argv.
+
+Return200 with exactly `version:1`, `host_id`, `context` (the exact request),
+`flow` (the latest section3 flow for this tuple, or null), and `agents` (all local
+registry Agent records, ordered as `GET /v1/agents`, including each agent's
+`id`, `name`, `owner`, `capabilities`, `created_at`). Select the current attempt
+and agent list in one read transaction. A missing flow is ordinary empty state,
+not a prepared review. Reads, including expired/invalidated flows, change no
+logical records, expiry, consent or activity. All three interfaces outside
+owner administration refuse this route. No schema or grant changes are needed.
+
+### Entry, choice and resume
+
+Keep section2's snapshot and local conversation check. `/peerspan` and ordinary
+Refresh on the initial pane still execute only `peerspan onboarding`; plugin
+load, headless entry and slash arguments perform no project action. A successful
+snapshot offers **Connect this project**. Only that explicit human control
+starts the private project flow, by reading `$.session.root()` and
+`$.session.id()` and performing lookup. Root is the native project root, not
+an agent-authored command argument or shell working-directory guess.
+
+Project operations use literal argv with trusted `executable` and `state`
+options, no shell, and a five-second bound:
+
+- lookup: `[executable,...stateFlags,'onboarding','project','lookup','--stdin']`;
+- prepare: the same prefix ending `prepare --stdin`;
+- inspect: the same prefix ending `inspect FLOW_ID`;
+- decide: the same prefix ending `decide --stdin`.
+
+JSON payloads go only through the process API's `stdin`. They never reach the
+model, prompts, command response text, notices, status/log APIs, files, plugin
+storage or another session. Existing headless summary remains observation-only.
+Only the existing acknowledgment tool is registered; no project/approval tool.
+The conversation check prompt remains fixed and contains no project review.
+
+Lookup resumes a retained review/outcome before offering a new choice. No flow
+is created merely by opening, refreshing or looking up the pane. With no flow,
+show **Project: choose an agent**. Offer a native **New agent name** input,
+**Owner label** input (default `local owner`, descriptive metadata), and
+**Review new agent**. Default the editable new name to the native root's final
+path component when its trimmed UTF-8 length is1..128 and it is not `*`;
+otherwise `project-agent`. Input change/submit edits only this draft; explicit
+Review new agent prepares it. Show existing agents as individual **Review agent
+NAME** buttons, with escaped quoted names and owner labels. Each callback holds
+that exact agent ID; never adopt the first or same-named agent. Present at most
+10 existing choices per page, with **More agents** / **Previous agents** as
+needed. Changing pages is local and does not prepare a review.
+
+A retained `review` is displayed immediately; `attached` shows its outcome;
+`declined`, `expired` or `invalidated` shows the reason and offers **Review a
+replacement**. That control opens agent choice and retains the old exact
+`replace_flow_id`; it does not itself prepare/approve. The subsequent explicit
+choice calls prepare with that ID. Never silently replace or renew terms.
+**Back to Peerspan** leaves only the project view; **Close** closes the pane.
+Neither control declines, cancels or rewrites the host flow. Reopening and
+Connect this project look it up again. Refresh while a project view is active
+refreshes the observation and its current project lookup, never a mutation.
+
+### Exact human review and decision
+
+Before exposing **Approve attachment** and **Decline attachment**, show all
+human-relevant immutable terms: **Project** (full root), **Conversation: current
+conversation**, **Agent** (full name), **Owner label** (full descriptive label),
+**Agent record: new** or **existing**, the full capability-metadata list, the
+fixed **Review expires** time, and these explicit effects:
+
+- **Record this local session attachment**;
+- **Register a local agent** when new;
+- **Adapter credentials: none**;
+- **Network access: none**;
+- **File sharing: none**;
+- **Conversation sharing: none**;
+- **Capability calls: none**.
+
+Keep internal IDs/hash/reference plumbing out of routine text. Render quoted
+strings reversibly, using JSON escapes for quote/backslash/controls and explicit
+`\\uXXXX` for bidi/invisible formatting characters; do not strip, abbreviate or
+truncate reviewed terms. The native pane provides scrolling. If a known private
+invitation/token prefix from section2 appears in any reviewed string, including
+one split by terminal/bidi controls, show a controlled unavailable review with
+no private value or decision controls. Do not turn redaction into approval of
+ambiguous hidden terms. Never echo raw stdout/stderr, unknown fields or provider
+errors. A capability list over100 entries or strings exceeding their registry
+bounds is not representable by this preview and blocks the review explicitly.
+
+The frontend validates response/version/shapes, IDs, context, agent metadata,
+known effects, state/next action and attachment bindings before displaying a
+review. Reject extra fields in a flow/review/agent/effects envelope or unknown
+true effects, rather than approving fields the person never saw. The backend
+is authoritative for the review digest; retain its exact review ID and a deep
+immutable copy of every reviewed field. A refreshed response cannot silently
+change the retained review underneath a previously rendered decision callback.
+
+A decision callback captures that immutable flow, context and UI generation.
+On press, synchronously exclude overlapping actions, reread trusted native root
+and ID, and inspect the exact flow. Require the same host, flow, review ID,
+complete review object, current `review` state and unexpired deadline; recheck
+native context after inspection before sending decide. Submit only the captured
+flow/review/context and the chosen approve/decline value on stdin. Changed terms,
+changed context, stale callbacks, close/end/reload, expiration or failed inspection
+send no decision. The person must reopen/refresh and review again. Do not
+substitute a newer review and approve it in the old callback.
+
+Only a valid matching decision result updates the pane to attached/declined.
+Double presses queue one decision. Late reads, preparations, decisions and old
+expiry callbacks cannot replace a newer view or different native context.
+Closing/changing context cannot recall a decision already sent; hide stale
+results and use the next lookup to report its actual durable outcome. Process
+failure shows a controlled outcome-unknown message with Refresh; never auto-retry
+an owner decision. An incompatible/malformed/failed lookup or prepare gives no
+approval control. A refresh failure invalidates the former actionable review.
+
+Use the native clock to disable decision controls at the exact fixed deadline;
+this is only local UI expiry, with the host independently enforcing section3.
+An expiry while a decision is in flight says the deadline was reached and asks
+for Refresh rather than asserting no commit occurred. Timers cannot renew the
+review or expire a newer one. Close/end/conversation/root change/module reload
+clears in-memory drafts, private views and timer/callback authority. Durable
+host reviews remain. Unsupported/nonterminal surfaces get no private flow.
+
+### Verification
+
+A separate author extends the native runtime conformance from this section,
+without production imports or reading implementation. Keep section2's existing
+22 cases. Stub only the documented public native API effects; record exact argv,
+stdin and context calls. A separate small black-box lookup case extends the
+project slim suite. Keep suites below two minutes.
+
+1. Initial/load/headless/unknown-argument behavior remains observation-only.
+   Explicit Connect reads trusted root/ID and sends one bounded literal lookup;
+   no prepare/decision, prompt, file, log or plugin-store side effects occur.
+2. Empty lookup exposes editable defaults and explicit new/existing selection.
+   Inputs and paging do not prepare. Existing callbacks carry the selected ID;
+   new selection prepares only its reviewed draft. Paths/options with spaces and
+   shell metacharacters remain literal; private context stays on stdin.
+3. A retained flow resumes regardless of new-name defaults or list order. Exact
+   fields/effects are visible; internal IDs, private prefixes and raw diagnostics
+   are absent from routine UI. Malformed, extra-field, context/host-mismatched or
+   unexpected-effect responses cannot offer or submit an approval.
+4. Only trusted native approve/decline controls send decisions, after matching
+   inspection and a second native-context check. Captured hashes/context remain
+   exact. Altered review/hash/state, wrong host or any pre-send context change
+   prevents decide; no prompt/model tool can approve this flow.
+5. Double presses queue once. Lookup/prepare/inspect/decide failures, stale or
+   out-of-order results, context change and close/end/reload fail closed. A late
+   old callback cannot approve a newly displayed review. Outcome uncertainty is
+   resolved by lookup, not an automatic decision retry.
+6. Fixed deadline disables controls, including races with pending inspection.
+   Old timers cannot expire a newer review. Terminal replacement requires the
+   explicit control and later explicit agent choice with the exact old flow ID.
+7. Backend lookup is coherent, exact, private and read-only for empty, pending,
+   attached and expired contexts. Its CLI matches API, enforces stdin bounds and
+   fails inertly when unavailable. Refuse it on peer/bootstrap/scoped interfaces.
+8. Exercise the real pinned native runtime with a real temporary host and an
+   actual project metadata decision, without inference. Record exact build/head
+   and distinguish it from a model acknowledgment or complete adapter delivery.
+
+Selected: private native callbacks over exact owner-local flow references.
+Discarded: model approval tools, slash arguments carrying owner decisions,
+silent first-agent adoption, frontend-only persisted guesses, preparing during
+entry, truncated/redacted consent, and auto-retrying decisions. These are GU
+implementation choices; no additional owner decision is attributed here.
+
+## 5. Remaining flow contract
 
 Teammate/device admission, private handoff, adapter setup and exact permission
 grants remain future sections. Section 2's live verification and the complete

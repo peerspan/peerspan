@@ -1999,3 +1999,19 @@ and model output as human consent. Teammate/device admission, permission grants
 and adapters remain separate reviewed paths. See guided session contract
 section3 for concrete fields, races, migration and independent cases. This is
 an implementation choice, not an additional decision attributed to the owner.
+
+## GU.impl4 — Native project selection and exact decisions (2026-10-29)
+
+Selected: a private context lookup and native project picker/review controls
+that retain exact host flow references. A read resumes the actual retained
+choice; explicit new/existing selection prepares terms; native human callbacks
+inspect the captured review and recheck the current root/conversation before
+submitting an exact decision. Close/reload clears callback authority while
+durable host state remains observable. This records metadata; adapter setup
+and permission grants remain later separately reviewed steps.
+
+Discarded: model approval tools or slash-argument consent, preparing on entry,
+first-agent/name-based adoption, copied frontend state as host truth, truncated
+or redacted consent, silently substituted terms and automatic decision retries.
+Section4 of the guided session contract records concrete race/privacy and real
+native-host verification. This is an implementation choice under GU scope.
