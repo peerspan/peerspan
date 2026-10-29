@@ -534,7 +534,7 @@ function adapterControls($, { Text, Button }, epoch) {
   });
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
   if (previous.stage === 'empty') return [button('adapter-prepare', 'Review adapter permissions', () => openAdapter($, previous, epoch, true)), back];
-  const status = previous.stage === 'authorized' ? 'Adapter: authorized; connection requires Connect adapter.'
+  const status = previous.stage === 'authorized' ? 'Adapter: authorized'
     : previous.stage === 'review' ? 'Adapter: review permissions' : `Adapter: ${previous.stage}`;
   return [Text({ children: [status, '\n', adapterReviewLines(previous.flow)] }),
     ...(previous.stage === 'review' ? [
@@ -552,6 +552,9 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
+  if (previous.stage === 'attached' && (adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+    return [Text({ children: ['Project: attachment recorded'] }), back];
+  }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
   if (previous.stage === 'choose') {
     const page = previous.page ?? 0;
