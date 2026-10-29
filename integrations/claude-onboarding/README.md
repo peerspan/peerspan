@@ -86,6 +86,10 @@ stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
 same running process; a headless command also read a real temporary daemon.
+A real terminal project review and approval also recorded exactly one local
+agent/session attachment; close, native plugin reload and reconnect resumed the
+same outcome without duplicate records. See the [smoke evidence](../../docs/results/guided-native-project-smoke.json)
+for the exact source heads and scope. This run used no inference.
 The live inference probe was refused by the account's weekly usage limit.
 Real-model acknowledgment and the complete adapter/data path remain
 outstanding acceptance work.
