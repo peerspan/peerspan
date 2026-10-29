@@ -37,7 +37,7 @@ pub enum Command {
         json: bool,
     },
     /// Read the owner-local onboarding snapshot without changing setup
-    Onboarding,
+    Onboarding(crate::onboarding_cli::OnboardingArgs),
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
     Run {
@@ -1851,7 +1851,7 @@ impl Command {
                 | NetworkCommand::Unbind { .. },
             ) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
-            Self::Onboarding => (Method::GET, "/v1/onboarding".into(), None),
+            Self::Onboarding(_) => (Method::GET, "/v1/onboarding".into(), None),
             Self::Calls(CallsCommand::List { after, limit }) => (
                 Method::GET,
                 format!("/v1/calls?after={after}&limit={limit}"),

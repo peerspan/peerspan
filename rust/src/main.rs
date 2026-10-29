@@ -16,6 +16,7 @@ mod decentralized_up;
 mod discovery;
 mod integration;
 mod link_cli;
+mod onboarding_cli;
 mod service;
 mod sign_in_cli;
 mod up;
@@ -235,6 +236,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 /// Runs a command through the local daemon and returns what it prints.
 async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Value> {
     let socket = directory.join("admin.sock");
+    if let Some(value) = onboarding_cli::command(&command, &socket).await? {
+        return Ok(value);
+    }
     if let cli::Command::Task(cli::TaskCommand::To(args)) = command {
         return addressing::task_to(&socket, args).await;
     }

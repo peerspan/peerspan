@@ -1,8 +1,9 @@
 # Guided onboarding from an existing agent session
 
 Status: feature plan. The owner accepted the experience below on 2026-10-28.
-Implementation is in progress on the isolated feature branch. The first slice
-provides a read-only observation API and diagnostic command. The interactive
+Implementation is in progress on the isolated feature branch. Working slices
+provide the read-only observation API, native Claude entry,
+local delivery check and owner-local project review backend. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -139,6 +140,17 @@ remain next work. This entry creates no project attachment or authority. Native
 runtime fixtures do not replace the outstanding live model check, whose first
 inference attempt hit the account's weekly usage limit. Native pane opening,
 close, reload and reopening worked in one running Claude 2.1.303 process.
+
+GU-01c/GU-02b adds an [exact local project review](guided-session-contract.md#3-exact-local-project-review-gu-01c--gu-02b).
+The host prepares a durable immutable review, resumes it without refreshing its
+expiry, and accepts an exact explicit decision. Approval atomically records
+local agent/session metadata. It issues no credential, grant or channel proof.
+Schema24 adds one private flow table; existing DEC records are retained.
+The advanced `onboarding project prepare/inspect/decide` commands carry mutation
+payloads on stdin. Native human controls are the next frontend slice; the pane
+does not invoke these APIs yet. Existing startup detaches metadata sessions,
+so an approved flow becomes invalidated after host restart and cannot be
+silently resurrected. Pending reviews and declined outcomes remain resumable.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.
