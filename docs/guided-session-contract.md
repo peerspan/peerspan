@@ -1440,7 +1440,13 @@ terminal, exact parent/child authorization and live lease, then registers only
 the five task tools below, once per native module/session. Recheck context and
 captured identities after registration before polling. An explicit restart
 shares any still-pending registration in that session; late registration from
-an ended conversation cannot populate the next conversation's registry. Reuse this native
+an ended conversation cannot populate the next conversation's registry.
+A registration failure stops that task attempt and removes only its failed
+registration from the captured session registry. Explicit Retry can register
+that tool again while retaining successful registrations and sharing pending
+ones. An old enable control captures its displayed message-ready proof; it
+cannot enable tasks under a replacement proof in the same runtime.
+Reuse this native
 readiness proof; enabling tasks sends no extra hello or prompt by itself.
 Do not infer a model observed a task from the message readiness challenge.
 
