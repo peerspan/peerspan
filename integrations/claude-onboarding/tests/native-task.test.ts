@@ -109,7 +109,8 @@ function fixture(on: On) {
   const w = { clock, started: false, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
     surfaces: ['terminal'], parent: null as any, child: null as any, sequence: 20,
     calls: [] as any[], trace: [] as any[], httpCalls: [] as any[], outside: [] as string[], tools: [] as any[],
-    forbidden: [] as string[], prompts: [] as any[], materials: [] as any[], inFlight: 0, maxInFlight: 0,
+    forbidden: [] as string[], prompts: [] as any[], materials: [] as any[],
+    transports: {} as Record<string, any>, requestTransports: [] as any[], inFlight: 0, maxInFlight: 0,
     tasks: [] as any[], cancellations: [] as any[], taskStatuses: {} as Record<string, any>,
     taskBodies: {} as Record<string, string>,
     register: async (_e: any): Promise<void> => undefined,
@@ -135,7 +136,11 @@ function fixture(on: On) {
       w.child.connection = choice === 'approve' ? connection(w.child, clock.now()) : null
       return w.child
     }
-    if (kind === 'adapter.transport') { const value = await transport(w.child); w.materials.push(clone(value)); return value }
+    if (kind === 'adapter.transport') {
+      const selected = clone(w.child), value = await transport(selected)
+      w.transports[selected.flow_id + '/' + selected.review_id] = clone(value)
+      w.materials.push(clone(value)); return value
+    }
     throw Error('Unexpected public process operation')
   }
   w.fetch = async e => {
@@ -206,6 +211,10 @@ function fixture(on: On) {
     return { value: { exitCode: 0, stdout: JSON.stringify(value), stderr: '' } }
   })
   on('http.fetch', async ($, e) => {
+    // Capture the independently issued transport for this flow at request time,
+    // before either the request or a conversation change can finish.
+    const selected = w.child ? w.transports[w.child.flow_id + '/' + w.child.review_id] : null
+    w.requestTransports.push(clone(selected ?? null))
     w.httpCalls.push(clone(e)); w.trace.push({ kind: 'http', path: e.url }); w.inFlight++
     w.maxInFlight = Math.max(w.maxInFlight, w.inFlight)
     try { const value = await w.fetch(e); return value?.fixtureDeny ? { deny: RAW } : { value } }
@@ -320,18 +329,20 @@ function privacy(w: World, uiText = '') {
     for (const prompt of w.prompts) expect(prompt.text).not.toContain(value)
   }
   for (const prompt of w.prompts) expect(prompt.origin).toEqual({ kind: 'plugin', name: 'peerspan' })
-  for (const e of w.httpCalls) {
-    const path = pathOf(e), body = JSON.parse(e.init.body)
+  expect(w.requestTransports.length).toBe(w.httpCalls.length)
+  for (const [index, e] of w.httpCalls.entries()) {
+    const path = pathOf(e), body = JSON.parse(e.init.body), selected = w.requestTransports[index]
+    expect(Boolean(selected), path + ': current flow transport issued before request').toBe(true)
     expect(e.url.startsWith('http://peerspan/adapter/v1/')).toBe(true)
     expect(['/adapter/v1/connect', '/adapter/v1/ready', '/adapter/v1/next', '/adapter/v1/seen'].includes(path)
       || /^\/adapter\/v1\/deliveries\/delivery_[0-9a-f]{32}\/(forwarded|reply)$/.test(path)
       || [TASK_NEXT, CANCEL_NEXT].includes(path)
       || /^\/adapter\/v1\/tasks\/task_[0-9a-f]{32}\/(accept|reject|progress|complete|cancelled)$/.test(path)).toBe(true)
     expect(Object.keys(e.init).sort()).toEqual(['body', 'headers', 'method', 'socketPath'])
-    expect(e.init.method).toBe('POST'); expect(e.init.socketPath).toBe(SOCKET)
+    expect(e.init.method).toBe('POST'); expect(e.init.socketPath).toBe(selected.adapter_socket)
     const headers = Object.fromEntries(Object.entries(e.init.headers).map(([key, value]) => [key.toLowerCase(), value]))
-    expect(headers.authorization).toBe('Bearer ' + TOKEN)
-    expect(headers['x-peerspan-instance']).toBe(w.materials[0].instance_id)
+    expect(headers.authorization).toBe('Bearer ' + selected.token)
+    expect(headers['x-peerspan-instance'], path + ': current flow instance at request time').toBe(selected.instance_id)
     expect(headers['content-type']).toBe('application/json')
     if (path.endsWith('/next') || path.endsWith('/forwarded') || path.endsWith('/accept') || path.endsWith('/cancelled')) expect(body).toEqual({})
     if (path.endsWith('/reject')) expect(Object.keys(body)).toEqual(['reason'])
@@ -939,6 +950,7 @@ test('late registration from an ended conversation cannot populate or duplicate 
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
   const nextSession = w.tools.length
   ui = await open($, w); await press(ui, 'Connect adapter'); await ready($, w, ui); await enableTasks(w, ui)
+  expect(w.materials.at(-1).instance_id, 'new conversation has a distinct scoped instance').not.toBe(w.materials[0].instance_id)
   const names = () => w.tools.slice(nextSession).filter(tool => tool.name.startsWith('task_')).map(tool => tool.name).sort()
   const expected = ['task_accept', 'task_cancelled', 'task_complete', 'task_progress', 'task_reject']
   expect(names(), 'new conversation has its own registration before the old one finishes').toEqual(expected)
