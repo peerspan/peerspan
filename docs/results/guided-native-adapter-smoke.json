@@ -7,7 +7,7 @@
     "reload_explicit_reconnect_and_stop": "a4da052503289daf891017f9871a5c4015c120ed",
     "rust_binaries": "db4685f259e18a5733c54696b7d3d7dd43213d07"
   },
-  "source_difference": "Later source changes were documentation and native presentation: summarize completed attachment while the child is open or connected, and remove stale connection-is-next text. Rust binaries were unchanged.",
+  "source_difference": "Before reconnect, changes were documentation and native presentation: summarize completed attachment while the child is open or connected, and remove stale connection-is-next text. A later independent fixture found that session end cleared runtime without invalidating cached UI; commit 75e2f2a adds that invalidation and passes all 83 native runtime cases. The manual lifecycle run predates that UI fix. Rust binaries were unchanged.",
   "fixture": {
     "native_claude_process": true,
     "temporary_single_host": true,
