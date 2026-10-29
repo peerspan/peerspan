@@ -745,7 +745,13 @@ def saved_original(path):
     check(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid() and metadata.st_mode & 0o777 == 0o600,
           "saved original is not one owned regular0600 file")
     check(path.parent.lstat().st_mode & 0o777 == 0o700 and path.parent.lstat().st_uid == os.getuid(), "normal identity directory is not owned private0700")
-    public_key = ssh_public_base64(path)
+    # Creation intentionally has no .pub sidecar. Ask ordinary OpenSSH to read
+    # the saved unencrypted private file; this writes/signs nothing.
+    derived = subprocess.run(["ssh-keygen", "-y", "-P", "", "-f", str(path)], check=True, capture_output=True, timeout=5).stdout.split()
+    check(len(derived) >= 2 and derived[0] == b"ssh-ed25519", "saved original is not ordinary unencrypted Ed25519")
+    blob = base64.b64decode(derived[1], validate=True)
+    check(len(blob) == 51 and blob[:15] == b"\x00\x00\x00\x0bssh-ed25519" and blob[15:19] == b"\x00\x00\x00\x20", "ordinary public-key derivation shape")
+    public_key = base64.b64encode(blob[-32:]).decode()
     check(not path.with_suffix(".pub").exists(), "creation wrote a public sidecar")
     # Ordinary unencrypted discovery must read it without agent/signing/key setup.
     body = path.read_bytes()
