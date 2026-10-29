@@ -323,7 +323,8 @@ verified delivery. Teammate and other-computer reviews remain separate work.
 
 Alternatively `agent` is exactly `{"kind":"existing","id":"agent_..."}`.
 An existing agent must be explicitly selected by ID; never adopt an agent by
-name or list order. New names/owner labels follow registry validation (trimmed,
+name or list order. A well-formed unknown agent ID returns 404 `not_found`; a
+malformed ID returns 400 `invalid`. New names/owner labels follow registry validation (trimmed,
 nonempty, at most 128 UTF-8 bytes, reserved agent name refused). New agents have
 no capability metadata. The integration is exactly `claude-code` in this slice.
 Native session IDs are nonempty, at most 256 UTF-8 bytes, with no whitespace or
@@ -395,7 +396,14 @@ explicit effects retain the values above. IDs are allocated during preparation;
 `flow_`, `agent_`, and `session_` append 16 random bytes as lowercase hex. A
 `review_id` is `review_` plus lowercase SHA256 of UTF-8
 `peerspan-project-review-v1\n` followed by the canonical JSON of `review` using
-the existing canonical JSON rules. It binds every field, including host,
+the following canonical JSON rules: recursively sort object keys by UTF-8 byte
+order, retain array order, use compact separators without whitespace, and emit
+UTF-8 strings without ASCII-escaping non-ASCII characters or escaping `/`.
+Escape `"` and `\` with a backslash; use `\b`, `\t`, `\n`, `\f`, `\r`
+for those controls and lowercase `\u00xx` for other U+0000..001F characters.
+Booleans use `true`/`false`; version is integer `1`. The review contains no
+floating-point numbers. There is one newline after the domain prefix, with
+no trailing newline after the canonical object. It binds every field, including host,
 project, conversation, agent, session, effects and fixed expiry. Review objects
 never change; state/evidence is outside them. No invitation, signing input,
 adapter token/instance or private key is present.
@@ -434,6 +442,7 @@ is added to the public onboarding snapshot, peer router or scoped adapter API.
 }
 ```
 
+Successful first decisions and same-decision retries return 200.
 `decision` is `approve` or `decline`. Require the exact current flow, review ID
 and context. Wrong context or hash returns 409 `review_changed`; expired review
 returns 409 `review_expired`; invalidated, superseded or opposite already-decided
@@ -527,6 +536,9 @@ human review or adapter connection.
 8. Schema23 to24 migration preserves identity/registry/DEC rows and creates no
    flow or event. Pre-24 reserved-name collisions and malformed/missing schema24
    fail closed; newer-schema refusal checks use25, preserving the refused DB.
+   A legacy-layout fixture may stop a real host, remove only the new flow table
+   and set its version to23; retain all registry/DEC records unchanged. This
+   tests the additive24 migration, not historical binary compatibility.
 
 ### Choice and discarded options
 
