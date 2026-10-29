@@ -3055,7 +3055,167 @@ commands behind a button, collecting keys in the daemon, automatic preparation
 on entry/Refresh, inventing a durable decline, and inferring active permissions
 from historical approval. These keep each small PR concrete and reviewable.
 
-## 18. Remaining flow contract
+## 18. Bounded local original owner-offer signing
+
+This backend/CLI slice adds one explicit original-signature action for the
+section16 approved new-original intent. Native signing controls follow separately.
+The CLI uses the existing owner-local daemon/signature protocol and local
+PersonSigner/FixedPacket verification. No new HTTP route, schema, signature
+format, duplicate approval/signature store or broad link/resume loop is added.
+
+### Private invocation and exact eligibility
+
+`peerspan onboarding join owner sign --stdin` accepts exactly
+`{flow_id,context,join_review_id,owner_review_id,decision:"sign_original_owner_offer"}`.
+Use strict64KiB input, duplicate/unknown/null/type rejection and the exact typed
+IDs/context from sections12/16. No code, path, key/provider selector, scopes,
+deadline, template/message or signature input; no daemon/state/key creation.
+Only this explicit decision authorizes local key use, not ordinary prepare,
+approve, lookup, entry, recovery or any native control in section17.
+
+Start with pure section16 owner lookup. Validate its complete closed response,
+exact captured flow/context/join/owner review and domain-separated digest,
+fixed profile7/lifetime/effects and all request/network/person/host/device pins.
+The host ID must hash from the canonical request host key. Owner must be
+approved; a missing/unapproved/incompatible review refuses before key/agent IO.
+A completed owner_offer_id must equal the approved proposed offer ID.
+
+If that exact offer is already recorded, return its historical public result
+without key/agent IO, ordinary signing lookup/submission, polling or protocol
+advancement, including after parent detachment/request expiry. Approval alone
+is not proof that an original signature exists. Before a fresh signature, require
+a still-live pending requester/new/nonmigration request, no completed offer,
+selection or requester commit, no adopted local network, and current exact
+attached parent/host and published join flow/outcome. Recheck the immutable
+join review/outcome through existing inspection, not latest-request selection.
+The approved15min review window may have elapsed: fresh signing is bounded by
+request.expires_at and the fixed not_after, not a renewed approval window.
+
+### One typed original slot
+
+Read the existing private ordinary approval view once. Require exact request/
+review/signing_requests shape, same intent and pinned target, owner stage,
+possession-only original_person provider (exact original and this host, device/
+lease/root '-', scopes0/not_after '-'), profile7 and fixed finite terms. All
+selection/administrator/person/host/binding/device lease references stay '-'.
+
+Accept at most the two ordered distinct ready slots of slot1 owner_offer_packet:
+its original authority/SSHSIG and/or locally owned host/Ed25519 slot. Validate
+every entry with existing typed FixedPacket rules, canonical bounded Base64,
+object ID, complete approved payload/descriptor/member/issuer/renewal/mode pins,
+exact public key/role/format and exact derived message. No arbitrary bytes,
+root/device/administrator/other slot/finalization signing, mixed intentions,
+duplicate roles, foreign host or changed profile/lifetime. Reuse the existing
+link CLI's typed original-slot validator; keep crypto/authority verification in
+the shared protocol types. The host role is never signed by this CLI.
+
+A typed partial host slot with an already valid original authority signature may
+report recorded read-only; no key use or submission. If no original slot/proof
+is available, one fresh public owner lookup may observe an already completed
+offer; otherwise report unavailable rather than poll/resume or guess possession.
+
+### Local key handling and submission
+
+Use only the exact approved original. Prefer the normal generated original when
+it holds that key; otherwise select that exact SSH-agent identity, even among
+multiple identities. No key import/copy/generation, fallback to another person,
+root/device provider, external subprocess signer or arbitrary message signing.
+A valid different generated key permits exact-agent selection. A present unsafe
+or malformed generated destination refuses; it is not silently bypassed.
+
+Generated-key reading is bounded, owner-only and non-creating: absolute lexical
+normal path, no '..' or symlink traversal, pin each directory by descriptor with
+no-follow, the same secure ancestor/private final-directory checks as explicit
+creation, then open only the normal person_ed25519 leaf no-follow/nonblocking.
+Require owner-owned regular file with no group/other permissions and at most
+64KiB, parse via the existing OpenSSH parser and match the exact public key.
+Missing path/parents are absence, with no mkdir/permission repair/sidecar/temp
+file. Do not use the broad discovery/path-based fallback to reopen unvalidated
+files. Existing explicit-creation behavior and conformance remain preserved.
+
+After selecting the signer, recheck parent, host, exact owner review and live
+request immediately before key use. Produce exactly one SSHSIG for the typed
+authority slot, locally verify it with the same FixedPacket, then recheck again
+immediately before a single POST to the existing /signed endpoint with exactly
+that intent and one {slot_id:1,role:"authority",signature}. No automatic retry,
+extra signature batches or later original F work. Generated and agent operations
+run off the async executor. Each local daemon HTTP operation has a5s timeout;
+there is no polling loop. The next native caller may bound the whole process,
+including the existing agent timeouts, and must recover unknown outcomes by read.
+
+The ordinary daemon atomically revalidates/retains that signature and may perform
+its already-approved host-owned work, exact single-offer selection and encrypted
+offer publication. This is not new administrator or requester consent. Backend
+request expiry/cancellation remain enforced. Local key use, metadata changes and
+signature submission are not one SQLite transaction: rechecks precede dispatch;
+leaving/changing context after dispatch cannot retract a signature already used
+or retained. Do not claim cancellation of an already-dispatched key operation.
+No original key bytes ever reach the daemon. Returned provider errors/paths,
+agent comments, templates/messages, signatures, pairing secrets and seeds never
+reach stdout/stderr diagnostics, activity or another persistence journal.
+
+### Public result, idempotence and limits
+
+A success returns exactly section16's public owner wrapper plus
+`original_signature:{state:"recorded"}`. It means the exact original authority
+signature is durably recorded (or already was), not which frontend signed it,
+a completed owner offer, active powers, admission, agent access, requester final
+commit, reachability or model receipt. Preserve the exact original review/hash.
+Filter ordinary signing responses; never return their raw signing material.
+After successful submission, a fresh public lookup must verify the same review
+and completed offer before success; otherwise report controlled outcome unknown.
+
+All failures are controlled nonzero CLI results with no raw provider/daemon/key
+path diagnostics and no automatic retry. Missing/unavailable signer, expired or
+cancelled request, wrong review/parent/host/intent/slot and changed terms refuse.
+An uncertain POST may have committed; a subsequent exact invocation first reads
+its already recorded offer and returns without signing again. No new durable
+signature attribution is created. CLI starts no daemon/state; no new adapter,
+peer or bootstrap endpoint. Native/modal signing and final installed/manual
+acceptance stay separate.
+
+### Verification
+
+A separate contract-only author adds owner_signing, a compact under2min suite.
+Preserve owner_onboarding6, join_onboarding14, all232 native cases and155 Rust tests.
+No implementer tests and no fabricated protocol/authority rows.
+
+1. Real approved pending request + matching private generated original: one exact
+   original SSHSIG, daemon-verifiable original possession/offer; fixed review,
+   no key mutation/creation/agent contact, later admin/commit/access still separate.
+2. Exact SSH-agent choice among multiple identities with a different valid
+   generated key; missing/wrong keys and unsafe/symlink/traversal/insecure/oversized/
+   nonregular destinations refuse without fallback/writes. Existing creation
+   and original owner/join suites remain intact.
+3. Strict CLI64KiB/typed decision/refs/context/duplicates/unknown/private/path/
+   template inputs and no-daemon behavior. Unapproved/mismatched/expired/changed
+   state refuses before key use and signature submission; no secret diagnostics.
+4. Controlled owner-local socket proxy may replay/alter authentic captured public
+   views and signing templates for response-fault tests. Mutated review/digest/
+   pins/provider/root/role/slot/intent/descriptor/message/key/format/profile/time,
+   duplicates and later F slots refuse with zero original signing/submission.
+   These are response faults, not fabricated database authority rows.
+5. Bounded dispatch/delay fixtures cover changed parent/request/deadline across
+   key use and before submission where public fixtures permit. Lost submission
+   response + exact retry recovers once, without another original signature.
+   Missing/pruned/corrupt evidence and narrow final-read/POST race intervals stay
+   explicit source/fault coverage when no authentic public fixture exists.
+6. Existing advanced administrator/F/commit finishes the same request/intent;
+   this command's exact complete-offer retry stays pure through later application,
+   expiry/detachment/restart, with absent keys/agent and no later signing/resume.
+
+Final head runs all17 slim suites, Rust gates and unchanged native232. Record
+source/binary/results and limits. Do not retry rejected terminal actions or an
+unchanged quota-refused model probe; physical/installed two-machine/distinct-person,
+actual native signing and schema23-to27 upgrade/recovery acceptance remain open.
+
+Selected: one explicit local typed original owner-offer signature with fixed
+existing consent and pure exact replay. Discarded: broad link CLI automation,
+combined approval/signing, original F batches in this command, key copying/import,
+unsafe discovery fallback, daemon key handling, new schema/API/journals, poll/
+resume loops and historical consent as proof of original possession/readiness.
+
+## 19. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
