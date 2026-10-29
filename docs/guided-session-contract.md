@@ -1486,13 +1486,15 @@ Validate existing task contracts at the native boundary:
   grant/policy/self citation, and optional `origin,artifacts,delegation`, with
   no unknown fields. Use section7's citation/origin and UTF-8 text bounds.
   A queued handoff requires a future deadline and `adopted:false`; an adopted
-  running task remains valid after its acceptance deadline. No final-state
+  running task requires `adopted:true` and remains valid after its acceptance
+  deadline. No final-state
   task is submitted. `redelivered`/`delegable`/`adopted` are booleans; progress
   is null or nonempty text of at most65,536 UTF-8 bytes; person fields follow
   section7 and originator person is null or a typed person ID.
 - Optional artifacts follow the existing manifest shape and bounds in the
   artifact contract (up to64 exact name/size/sha256/media_type entries, unique
-  names/digests). Validate metadata only. Optional delegation follows the
+  names/digests; an empty adapter manifest means none). Validate metadata only.
+  Optional delegation follows the
   existing strict Link fields/types/bounds (1..3 links, index/depth/principals,
   timestamps, IDs and canonical64-byte Base64 signature); bind its last task,
   issuer/audience and deadline to this handoff. The host verifies signatures,
@@ -1574,6 +1576,9 @@ Identical tool retries do not inflate evidence. Counts belong to the runtime
 and survive task retries, but reset on a new connection/reload. A queued prompt,
 host running/final status or readiness proof alone never counts a model receipt
 or completed local execution. Keep peer exchange not verified.
+
+Task and cancellation submitted counts/deduplication use separate Delivery.id
+sets: a cancellation for an already submitted task can still be offered once.
 
 ### Verification
 
