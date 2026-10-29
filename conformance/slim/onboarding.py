@@ -9,6 +9,8 @@ for the bounded no-write check; protocol records are never changed.
 Snapshot atomicity has indirect black-box coverage. Legacy history has no public
 creation fixture here. Real existing-session model receipt, cross-machine
 reachability and the future interactive frontend require separate live checks.
+Each automatic return uses an independent inviter with one invitation; concurrent
+return contention and transport retry behavior require separate transport checks.
 """
 import hashlib
 import http.client
@@ -23,7 +25,7 @@ import subprocess
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from harness import (Adapter, Suite, check, create_network, invite, join_new_person,
+from harness import (Adapter, Failure, Suite, check, create_network, invite, join_new_person,
                      join_request, rfc3339, ssh_key, wait_for)
 
 suite = Suite("onboarding", __doc__)
@@ -112,6 +114,36 @@ def matches_status(host, view):
             if session["connection"] is not None:
                 session["connection"] = session["connection"]["state"]
     check(agents == status["agents"], "agent/session inclusion or public metadata differs from status")
+
+
+def public_request_diagnostics(host):
+    """Read only named public fields; never print CLI output, packets or display codes."""
+    try:
+        status, body = host.api("GET", "/v2/link/requests", timeout=3)
+        result = {"host": host.name, "requests_http_status": status}
+        if status == 200 and isinstance(body, list):
+            fields = ("request_id", "role", "state", "network_id", "completed", "attention", "next",
+                      "selection_approved", "commit_approved")
+            result["requests"] = [{key: record[key] for key in fields if key in record} for record in body]
+        status, body = host.api("GET", "/v2/status", timeout=3)
+        result["status_http_status"] = status
+        if status == 200 and isinstance(body, dict):
+            result["attention"] = body.get("attention")
+        return result
+    except OSError as error:
+        return {"host": host.name, "unavailable": type(error).__name__}
+
+
+def automatic_return(inviter, requester, request_id):
+    # The public automatic-return attempt is bounded at 30 seconds (spec 8.1).
+    # This fixture supplies one invitation and no competing mailbox conversation.
+    try:
+        wait_for(lambda: request_id in {r["request_id"] for r in get(inviter, "/v2/link/requests")},
+                 timeout=30, message=f"automatic introduction return to {inviter.name}")
+    except Failure as error:
+        diagnostics = {"expected_request_id": request_id,
+                       "observations": [public_request_diagnostics(host) for host in (inviter, requester)]}
+        raise Failure(f"{error}; public observations: {json.dumps(diagnostics, sort_keys=True)}") from error
 
 
 def logical_records(host):
@@ -235,21 +267,22 @@ def _():
 @suite.case("pending_requests_and_terminal_history", "guided onboarding verification 3, 6")
 def _():
     (networks,) = need("networks")
-    # A complete public join also supplies a genuinely admitted caller for the peer boundary check.
-    joined = join_new_person(a, b, "bob", ssh_key(b.root, "bob"), networks[0]["id"])
-    state["joined"] = joined
+    # Mailbox GETs share a 1/s actual-source/key bucket across locators. Observe
+    # each normal return on an inviter with one invitation, before adding traffic.
+    other_inviter = suite.host("other-inviter")
+    introductions = [(a, networks[0]),
+                     (other_inviter, create_network(other_inviter, "onboarding-other", "dana"))]
     key = ssh_key(c.root, "carol")
     pending = []
-    for network in networks:
-        made = invite(a, "carol", network["id"])
+    for inviter, network in introductions:
+        made = invite(inviter, "carol", network["id"])
         secrets.append(made["invitation"])
         request = join_request(c, made["invitation"], key)
         secrets.append(request.get("display_code"))
         pending.append(request["request_id"])
+        automatic_return(inviter, c, request["request_id"])
     state["pending"] = pending
-    wait_for(lambda: set(pending) <= {r["request_id"] for r in get(a, "/v2/link/requests")},
-             timeout=20, message="pending introductions through their normal return paths")
-    for host in (a, b, c):
+    for host in (a, other_inviter, c):
         before = get(host, "/v2/link/requests")
         view = observation(host)
         check(view["requests"] == before, "observation differs from retained public request records")
@@ -257,16 +290,15 @@ def _():
         for _ in range(3):
             check(observation(host)["requests"] == before, "reading selected, approved or resumed a request")
         check(get(host, "/v2/link/requests") == before, "reading changed public request records")
-        if host in (a, b):
-            check(any(r["request_id"] == joined and r["state"] == "linked" for r in view["requests"]),
-                  "completed membership history was omitted")
-        if host in (a, c):
-            check(all(r["role"] == ("approver" if host is a else "requester")
-                      for r in view["requests"] if r["request_id"] in pending), "pending request role changed")
+        check(all(r["role"] == ("requester" if host is c else "approver")
+                  for r in view["requests"] if r["request_id"] in pending), "pending request role changed")
     check(get(c, "/v2/networks") == [], "reading pending introductions adopted a network")
     requests = observation(c)["requests"]
-    check({r["network_id"] for r in requests if r["request_id"] in pending} == {n["id"] for n in networks},
+    check({r["network_id"] for r in requests if r["request_id"] in pending}
+          == {network["id"] for _, network in introductions},
           "pending introductions for different networks were merged")
+    check(all(r["state"] == "pending" for r in requests if r["request_id"] in pending),
+          "both introductions were not retained simultaneously as pending")
     check(all(not r["selection_approved"] and not r["commit_approved"] for r in requests),
           "reading pending requests granted consent")
     status, _ = c.api("POST", f"/v2/link/requests/{pending[0]}/cancel", {})
@@ -275,6 +307,14 @@ def _():
     check(final == get(c, "/v2/link/requests"), "terminal history differs from public request API")
     check(any(r["request_id"] == pending[0] and r["state"] == "cancelled" for r in final),
           "cancelled request was removed from the observation")
+    # Only now add a complete public join for completed history and an admitted peer caller.
+    joined = join_new_person(a, b, "bob", ssh_key(b.root, "bob"), networks[0]["id"])
+    state["joined"] = joined
+    for host in (a, b):
+        view = observation(host)
+        check(view["requests"] == get(host, "/v2/link/requests"), "completed history differs from public request API")
+        check(any(r["request_id"] == joined and r["state"] == "linked" for r in view["requests"]),
+              "completed membership history was omitted")
 
 
 @suite.case("owner_local_boundary", "guided onboarding verification 7")
