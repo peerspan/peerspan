@@ -347,7 +347,7 @@ async function messageCurrent($, active, attempt, ready = false) {
   return true;
 }
 async function messageRequest($, active, attempt, operation, body, id) {
-  if (!await messageCurrent($, active, attempt) || !await runtimeInspect($, active) ||
+  if (!await messageCurrent($, active, attempt) || !await inspectMessageAuthorization($, active, attempt) ||
       !await messageCurrent($, active, attempt)) throw new Error('Unavailable message context');
   let url;
   if (operation === 'ready') url = 'http://peerspan/adapter/v1/ready';
@@ -368,6 +368,16 @@ async function messageRequest($, active, attempt, operation, body, id) {
     return JSON.parse(response.text);
   } finally { deadline?.cancel(); }
 }
+async function inspectMessageAuthorization($, active, attempt) {
+  try { return await runtimeInspect($, active); }
+  catch {
+    if (runtime === active && active.messages === attempt) {
+      stopRuntime('Adapter: authorization unavailable. Reopen the project review to reconnect.');
+      $.ui.invalidate('ui.render');
+    }
+    throw new Error('Unavailable message authorization');
+  }
+}
 async function enableMessages($, active, epoch) {
   if (runtime !== active || epoch !== generation || active.phase !== 'connected' ||
       ['starting', 'waiting', 'ready'].includes(active.messages?.state)) return;
@@ -377,7 +387,7 @@ async function enableMessages($, active, epoch) {
   active.messageClaims ??= new Set();
   $.ui.invalidate('ui.render');
   try {
-    if (!await runtimeInspect($, active) || !await messageCurrent($, active, attempt)) return;
+    if (!await inspectMessageAuthorization($, active, attempt) || !await messageCurrent($, active, attempt)) return;
     for (const spec of messageTools) {
       if (!registeredMessageTools.has(spec.name)) {
         await $.tool.register(spec);
@@ -415,7 +425,7 @@ async function readyMessages($, event, next) {
     if (typeof args.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(args.nonce) || args.nonce !== attempt.nonce ||
         !await messageCurrent($, active, attempt)) return { deny: 'No current message delivery check.' };
     if (attempt.state === 'ready') {
-      if (!await runtimeInspect($, active) || !await messageCurrent($, active, attempt, true)) throw new Error('Changed message context');
+      if (!await inspectMessageAuthorization($, active, attempt) || !await messageCurrent($, active, attempt, true)) throw new Error('Changed message context');
       return { result: { ready: true } };
     }
     if (attempt.state !== 'waiting') return { deny: 'No current message delivery check.' };
