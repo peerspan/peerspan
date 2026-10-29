@@ -7,8 +7,8 @@ project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
 Native invitation review and explicit private code reveal are available.
 Private recipient invitation inspection and explicit join-request publication
-with an existing local original identity are available. New identity creation,
-participant admission, sharing permissions and live model acceptance remain
+with an existing or explicitly created local original identity are available.
+Participant admission, sharing permissions and live model acceptance remain
 later work. Owner actions stay in the human pane; no model setup tool is added.
 
 ## Try the entry
@@ -112,7 +112,7 @@ Old contact hints may remain useful inside a live invitation; their expiry is
 shown independently. An old invitation without automatic return is identified.
 
 This inspection pane is read-only; use the separate **Join a network** action
-for an existing local identity and explicit request-publication consent.
+for explicit identity choice and request-publication consent.
 Inspection itself creates no person key or request and proves no key
 possession, membership or access.
 This preview has no Join/Approve control. **Inspect another invitation** starts an empty draft.
@@ -122,7 +122,7 @@ files or sent to the model; your terminal or screenshots may retain displayed
 input. The inviter's retained reviews and existing connected delivery runtimes
 are separate from this private recipient view.
 
-## Join using an existing original identity
+## Join a network
 
 After attachment, press **Join a network**. Peerspan first reads any recorded
 review/outcome. A new attempt starts an empty **Private invitation for joining**
@@ -135,10 +135,26 @@ stores it in plugin files.
 
 Choose explicitly among original Ed25519 identities from the normal local
 Peerspan-generated person file or your SSH agent. No identity is selected by
-default, created, copied, imported or used to sign ownership. A pinned
+default, copied, imported or used to sign ownership. A pinned
 introduction only permits its matching key; all available keys and their sources
-remain visible. No available or matching identity is an unavailable state;
-new identity creation and connecting another computer are separate later work.
+remain visible. A missing pinned key requires the original machine and its
+device-linking ceremony; a random new identity cannot match that pin.
+
+When there are no available local identities and the invitation is unpinned,
+**Create a new original identity** opens a review without generating a key.
+Review the effects, then explicitly **Create and save identity** or **Cancel
+identity creation**. Saving creates a new person on this computer; it does not
+link your existing person. The complete private key is saved at the normal
+original identity location without replacing an existing key. No request is
+prepared or published by this action.
+
+**New original identity saved** returns to the chooser. Review that public key
+explicitly; the separate request review and approval below still apply. The
+saved key survives Close, navigation and later request decline. Back it up
+privately through ordinary host administration. If creation times out or its
+response is lost, a key may still have been saved: reopen and inspect local
+identities with fresh private input. Peerspan does not automatically retry,
+erase the saved original or generate a second key.
 
 **Review identity KEY** prepares a public review, without publishing a request.
 Read the full network, invitation, person-key, expiry and effect terms. Only
@@ -158,9 +174,19 @@ attempt and does not cancel or revoke an earlier published request.
 
 Back, Close/Escape, Refresh, reload, expiry or context loss clear the private
 attempt. Ordinary pane navigation preserves an established adapter and delivery
-runtime. No native owner/model tool or person-key creation is added. Section13
-of the [contract](../../docs/guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
-defines exact bindings, privacy, recovery and remaining acceptance gates.
+runtime. No native owner/model tool is added. Sections13 and14 of the
+[contract](../../docs/guided-session-contract.md#14-explicit-new-original-identity-creation)
+define bindings, privacy, persistence, recovery and remaining acceptance gates.
+
+The creation command uses `$XDG_CONFIG_HOME/peerspan/person_ed25519`, falling back
+to `$HOME/.config/peerspan/person_ed25519`. It requires a private owner-controlled
+`peerspan` directory and refuses symlink/traversing/insecure destinations; it
+does not repair their permissions. The private file is0600 and the directory
+is0700. No `.pub` sidecar is written. A crash can leave private reserved
+`.person_ed25519.<random>.tmp` names in that directory. They are ignored by
+identity discovery. After stopping any active creation command, the owner can
+remove those temporary names; preserve `person_ed25519`. Never copy an original
+private key to another computer to link that computer.
 
 ## Review and connect the adapter
 
