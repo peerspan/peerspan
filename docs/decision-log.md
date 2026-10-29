@@ -2238,3 +2238,20 @@ for device linking, overwriting public sidecars, claiming filesystem/UI atomicit
 and automatic publication/retry/deletion. Section14 and independent verification
 precede implementation. This is an implementation decision, not a new owner
 confirmation. The unfinished section13 actual-terminal reopen gate stays open.
+
+
+## GU.impl15 — Exact public request progress (2026-10-29)
+
+Selected within the accepted guided flow: an explicit read-only progress snapshot
+of the exact published ordinary request, bound to its historical join review and
+project context. Derive next participant/action from durable protocol state;
+show requester consents and local application separately from current authority,
+access or readiness. No new schema, signing, peer polling or hidden protocol step.
+Participant approval controls remain subsequent small slices.
+
+Discarded: publication as a connected network, progress reads that call resume
+or consume incoming evidence, newest-request selection, automatic polling and
+fake approval controls. Exact snapshot, strict privacy/binding and independent
+verification are specified in section15 before implementation. Manual terminal
+creation/reopen, installed artifacts and final feature acceptance remain open;
+this is an implementation choice, not a new owner confirmation.
