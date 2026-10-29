@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-29",
+  "kind": "manual pinned native terminal with two distinct temporary hosts on one machine",
+  "claude_version": "2.1.303",
+  "source_heads": {
+    "native": "94ef152f1420b90e778075e5fa8d754b8617c8f0",
+    "rust_build": "9657e7bf8c58f0150a618cc3f9ee301b699fad37"
+  },
+  "binary_sha256": {
+    "peerspan-host": "34d37f2688beadc8b10ca3f3787b429c7ea57743d5e107eee6382349ca6555ba",
+    "peerspan-peer-probe": "c5ff49af3174453e3c33ee45d5cb12fa5eef323959344bfa2f074efca7b830ff",
+    "peerspan-helper": "3256f1e6363ec4de5df7f4b1384e7d67642ca569c33c4a31810a64a5ec84476b"
+  },
+  "fixture": {
+    "physical_machines": 1,
+    "distinct_host_states_and_keys": 2,
+    "coordinator_used": false,
+    "installed_bundle": false,
+    "inference_attempted": false,
+    "project_path_contained_spaces": true
+  },
+  "actions": [
+    "Create one network on the inviter through existing administration.",
+    "Attach the recipient project through the native exact metadata review; reuse its existing local agent after a failed manual fixture attempt.",
+    "Open Review an invitation and observe the empty private human field.",
+    "An external manual driver obtains one ordinary invitation through the documented owner-local mint API and pastes it directly into the native field without exposing it to tool output or disk.",
+    "Explicit Inspect clears the input and invokes onboarding invitation preview --stdin after exact parent/current-host checks.",
+    "Observe Invitation: signature verified, exact network/root/signer/invitation/member/pin/contact hints/times, no identity or link request and explicit authority/admission/access/readiness limits.",
+    "Compare every logical recipient table before/after the inspection; all unchanged.",
+    "Close, reload plugins, reopen the same project and Review an invitation; its input is empty and no preview is restored or repeated.",
+    "Close and exit Claude; inspect saved transcript without printing private contents; stop temporary daemons."
+  ],
+  "observations": {
+    "recipient_logical_database_unchanged_by_inspection": true,
+    "recipient_networks": 0,
+    "recipient_invitation_flows": 0,
+    "recipient_adapter_credentials": 0,
+    "recipient_agents": 1,
+    "recipient_sessions_after_fixture_setup": 2,
+    "recipient_project_flows_after_fixture_setup": 2,
+    "preview_cli_invocations": 1,
+    "native_transcripts": 1,
+    "assistant_messages": 0,
+    "private_code_prefixes_absent_from_transcript": true,
+    "flow_review_prefixes_absent_from_transcript": true,
+    "signature_verified_status_observed": true,
+    "reload_returned_empty_input": true
+  },
+  "privacy_of_manual_capture": "All terminal output was withheld before the private paste until after inspection cleared it. Ctrl-L then redrew only the public verified preview; no raw code was captured in tool output or this evidence. The driver held it only in memory and recorded no raw stdin/stdout.",
+  "fixture_corrections": "The first manual mint request incorrectly included expires_in; the host refused it without minting. The manual driver exited and its inference-free conversation was unavailable to --continue. A fresh conversation explicitly reused the same local agent and created a second metadata attachment. The corrected documented mint body yielded the one code used by the successful inspection. These setup attachments precede the read-only database snapshot.",
+  "limitations": [
+    "Two temporary hosts on one physical machine; no installed or physical two-machine acceptance.",
+    "No original-person selection/generation, join request, admission, access grant, peer exchange, readiness or model receipt was attempted.",
+    "The manual run is bound to the recorded source and build, not later changes.",
+    "Public native tests cannot retain old synchronous callbacks; those guards remain source/manual evidence. Pane switching is tested via reachable Back navigation.",
+    "Logical database purity was observed manually; private-file and network-I/O boundaries require the independent real-host cases."
+  ]
+}

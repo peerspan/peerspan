@@ -273,6 +273,14 @@ Hide-only behavior is covered by the independent runtime fixtures rather than
 claimed as standalone manual evidence. This is the inviter side on one temporary
 host, not installed two-person admission/access or model acceptance.
 
+The [recipient smoke](../../docs/results/guided-native-recipient-smoke.json)
+uses two distinct temporary hosts on one physical machine. The real pane
+inspected a privately pasted signed introduction, displayed its public terms,
+left all recipient database records unchanged, and returned to an empty input
+after Close/reload. Its transcript has zero assistant messages and no code or
+flow/review prefixes. Exact earlier source/build and a corrected manual fixture
+attempt are recorded; no joining/admission/access or model receipt is claimed.
+
 Contract, decisions and independent cases:
 [guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
 
