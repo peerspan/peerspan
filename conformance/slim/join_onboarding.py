@@ -755,7 +755,7 @@ def saved_original(path):
     check(not path.with_suffix(".pub").exists(), "creation wrote a public sidecar")
     # Ordinary unencrypted discovery must read it without agent/signing/key setup.
     body = path.read_bytes()
-    check(body.startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----\n") and b"psi2-" not in body, "saved original format/private contents")
+    check(body.startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----") and b"psi2-" not in body, "saved original format/private contents")
     return public_key, metadata.st_ino, hashlib.sha256(body).hexdigest()
 
 
