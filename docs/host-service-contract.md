@@ -127,3 +127,10 @@ Task delegation between hosts, roadmap milestone 6, is specified in the [task de
 The `peerspan` name, the reduced root help, network defaulting, expiry defaults with renewable session credentials, and `status` (`GET /v1/status`), roadmap milestone 7, are specified in the [launch contract](launch-contract.md), together with the service installer and coordinator limits, team onboarding, the directory and addressing, and two relay protocol versions: version 2's `changed` notifications (slice 5) and version 3's `presence` notifications (slice 6).
 
 The guided `up` command composes installation, onboarding, and attachment as specified in the [guided setup contract](guided-setup-proposal.md), with installed-bundle recovery checks in `conformance/up_acceptance.py`.
+
+The isolated guided-onboarding feature starts with a read-only
+`GET /v1/onboarding` on the owner-local socket and the advanced `onboarding`
+CLI command. The [guided session contract](guided-session-contract.md#1-observation-slice-gu-01a--gu-02a)
+defines its coherent network/request snapshot, full public adapter connection
+evidence, purity and verification. It grants no approval or setup authority;
+the interactive flow remains subsequent work on that feature branch.

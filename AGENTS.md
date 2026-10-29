@@ -45,6 +45,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).
 - `capabilities`: sources, sharing, calls, approval, bounds, remote MCP servers and the built-in `gh` source.
 - `basics`: info, status, errors, storage and restart (spec 14 to 17).
+- `onboarding`: the owner-local guided-onboarding observation, request privacy,
+  adapter readiness and read-only behavior (guided session contract section 1).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
