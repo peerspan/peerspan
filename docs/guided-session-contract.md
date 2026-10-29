@@ -801,7 +801,7 @@ null or unknown field is invalid. It creates a private flow and returns201,
 or returns200 for an identical retained request. It creates no credential,
 session, agent, grant, connection or activity event. Each project attempt has
 one latest adapter attempt. The same request resumes that attempt without
-changing its IDs, terms or expiry, including terminal outcomes. A new attempt
+changing its IDs, terms or expiry, including terminal outcomes.
 An identical retained prepare after restart returns200 with the same immutable
 review and its derived invalidated state, even though the project is detached.
 Read-only inspection does not need a current attachment to show the retained
