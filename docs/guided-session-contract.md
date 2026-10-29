@@ -1635,7 +1635,195 @@ file access without its integration, blanket outward delegation, unsupported
 work claims, silent sender selection beyond the existing host contract and
 replay of uncertain input. This is an implementation choice under GU-OWN1/2.
 
-## 9. Remaining flow contract
+## 9. Exact contact-invitation review (GU-01e / GU-02f / GU-04a)
+
+This owner-local slice prepares and decides an invitation for a teammate. It
+uses the existing coordinator-free `psi2-` introduction and automatic return
+path. It creates no network, person, agent, session, membership or access grant,
+performs no participant approval, and exposes no native/model invitation tool.
+The native human controls and joining/admission/access flows follow separately.
+Use the current wire/spec invitation lifetime (one hour by default, 60 seconds
+through24 hours), not the earlier300-second contract draft.
+
+### Context and exact terms
+
+All routes live only on owner administration under
+`/v1/onboarding/invitation-flows`. Peer, bootstrap and credential-scoped routers
+refuse them. Reuse section5's exact `AdapterContext` as `context`, binding the
+latest attached project and its immutable review without needing an adapter
+credential or a ready model. An unknown project returns404; mismatched context
+or review returns409 `review_changed`.
+
+Prepare takes exactly `{context,network_id,member,expected_person_public_key,
+replace_flow_id?}`. Network ID must be an explicit lowercase `net_` plus64 hex;
+never select the first network. Member follows the existing DEC label bounds:
+trimmed, nonempty, no control characters, at most128 UTF-8 bytes. Expected
+person is an exact canonical32-byte Base64 key or `"-"`; it pins identity only,
+never possession or admission. Unknown/null fields are invalid. Prepare returns
+201 for a new review,200 for an identical retained attempt. It signs nothing,
+generates no pairing secret, changes no contact sequence, and creates only a
+private flow row. It neither sends nor publishes an invitation.
+
+An identical retry resumes the original fixed terms and expiry, including a
+retained terminal result. A different proposal without explicit replacement
+returns409 `flow_conflict`; it cannot silently change the pending invitation.
+Lookup takes exactly `{context}` and returns200 exactly
+`{version:1,host_id,context,flow}` for the latest attempt for that exact project
+flow, or null. Inspection is `GET /{flow_id}`. Reads are coherent and logically
+read-only, including expiry/invalidation; no contact, guard, activity or secret
+cleanup is a read effect.
+
+Every flow view is exactly
+`{version:1,flow_id,state,review_id,review,invitation,next_action}`. Flow IDs use
+`flow_` plus32 hex; review IDs use `review_` plus64 hex. `review_id` is SHA256 of
+`peerspan-invitation-review-v1\n` plus canonical recursively key-sorted JSON of
+`review`, using the same canonicalization as section3. Review is exactly:
+
+- `version:1`, `kind:"create_contact_invitation"`, `flow_id`, `host_id`, `context`;
+- `agent`: the exact parent-reviewed `{id,name,owner,capabilities}`;
+- `network`: `{id,name,context_id,genesis_root_public_key}`, derived from the
+  verified current DEC network and exact owned host membership;
+- `inviter_host_public_key`: this actual owned host, never a substituted signer;
+- `member`, `expected_person_public_key`;
+- `transport`: exact current `{bootstrap_addresses,quic_addresses,relays,helpers}`
+  from configured connection hints, with existing bounded/sorted endpoint/key
+  forms. Helpers are optional. The subsequent code discloses these reviewed
+  public hints; transport success/reachability is not asserted;
+- `expires_at`: the fixed review deadline,15 minutes after preparation;
+- `invitation_expires_at`: a fixed deadline one hour after preparation, which
+  is not extended by later approval, export, retry or lookup;
+- `effects`: exactly `{create_contact_invitation:true,receive_join_requests:true,
+  grant_membership:false,grant_agent_access:false,approve_machine:false,
+  share_files:false,share_conversation:false,capability_calls:false}`.
+
+Invitation labels/pins/hints are human review terms, not adapter or peer
+permissions. Current own-host membership and descriptor/context are checked
+from verified state. No person, device, root or SSH signer is selected or called
+for a contact-only invitation. A network split, unavailable proof, expired or
+restricted own-host membership or incompatible network refuses new preparation.
+Changing reviewed identity, project, network context or connection hints before
+approval invalidates the review; never replace terms automatically. Ordinary
+authority renewal preserving these terms does not manufacture a new consent.
+
+### Decision, private handoff and restart
+
+`POST /{flow_id}/decision` takes exactly
+`{context,review_id,decision:"approve"|"decline"}`. Check the full retained
+binding, latest project attempt, current attached metadata and fixed review
+expiry before a first decision. Decline durably records only the outcome.
+Approval rechecks verified own-host membership and all exact network/transport
+terms, then atomically creates one ordinary invitation plus its automatic-return
+`dec_pending` row and records its public invitation ID in the flow. All these
+writes commit together. Failure rolls back contact sequence, return secret and
+flow decision. No half-issued review or second code on an identical decision.
+No other signing or membership/agent/session/activity mutation is included.
+
+The contact is signed at approval with current contact sequence/time; its
+address/helper content and the invitation's final expiry are the exact reviewed
+terms. The invitation can only be minted while its remaining lifetime satisfies
+the existing wire bounds. Existing advanced `/v2/.../invitations` semantics stay
+unchanged; it shares the same core creation path.
+
+A valid same-choice decision retry returns the retained outcome without minting
+or refreshing anything; an opposite decision conflicts. `review` becomes
+`issued` or `declined`. Unissued fixed expiry derives `expired`; changed parent/
+network/transport terms derive `invalidated`. An issued invitation derives
+`expired` at its own fixed deadline; it need not retain a live project session
+after restart, but its exact original context, verified current owned host and
+network/transport terms remain required for private retrieval. Missing retained
+return material invalidates retrieval; never recreate it.
+
+Public `invitation` is null before issuance, otherwise exactly
+`{invitation_id,expires_at}`. It never contains a token, return secret or signed
+contact bytes. `next_action` is `review`, `share_private_invitation` for issued,
+or `restart_review` for other outcomes. Inspection/lookup/decision/status and
+activity never return the code. An issued ID remains visible after expiry or
+invalidation, with its observed state, without claiming current usability.
+
+Only explicit `POST /{flow_id}/handoff` with exactly `{context,review_id}`
+returns200 exactly `{version:1,flow_id,review_id,network_id,context_id,
+invitation_id,invitation,expires_at}`. Require the still-usable issued outcome
+and return the same byte-for-byte `psi2-` code from the existing private
+return material. No new secret copy is stored in this flow table. Retrieving
+it changes no database records or expiry and publishes nothing. It is a private
+integration response: do not put it in model context, command arguments, routine
+status/logs or another conversation. Native private display/handoff is a later
+slice; a code is no evidence of reachability, admission, agent access or model
+receipt.
+
+An explicit new proposal may provide the exact latest `replace_flow_id` when
+that attempt is declined, expired, invalidated or already issued. This permits
+inviting another teammate without waiting an hour. Never supersede a pending
+review silently. A new invitation does not revoke an older exported introduction;
+it stays bounded by its original expiry and later explicit participant reviews.
+An older issued flow retains idempotent decision and exact private retrieval
+while usable, even after a newer invitation is prepared. A superseded undecided
+review has no decision authority. Do not invent global contact-token revocation.
+
+Validation uses existing host errors:400 `invalid`,404 `not_found`,409
+`review_changed`, `review_expired` or `flow_conflict` as appropriate. New
+preparation propagates current DEC authority/proof errors without fabricating
+membership. Logical current-state failures during view derivation give
+`invalidated`; internal/corrupt storage errors remain errors. Expired reviews
+return `review_expired` on a first decision. Declining also requires the exact
+current, unexpired pending review; there is no implicit owner mutation.
+
+Advanced integration commands are `peerspan onboarding invitation lookup`,
+`prepare`, `decide`, `handoff`, each requiring `--stdin`, and
+`inspect FLOW_ID`. For decide/handoff, stdin additionally carries `flow_id`
+which the CLI removes before the exact route call. Input is at most64 KiB;
+reject malformed/extra/null JSON without echoing it. This client starts no
+daemon or state directory. Only handoff success prints secret JSON; the other
+commands have public/private owner views without a token. None accepts a code
+or approval in a positional argument.
+
+### Storage and verification
+
+Schema26 adds only `onboarding_invitation_flows`, with ordered TEXT columns
+`flow_id,project_flow_id,request,review,review_id,state,created_at,expires_at,
+invitation_id,decided_at`. The first eight are NOT NULL; the last two are nullable.
+`flow_id` is primary key; `project_flow_id` references the project flow.
+State CHECK is `review`, `issued` or `declined`. No foreign key to expiring return
+material; expired invitation metadata remains inspectable. Upgrade through25
+atomically adds this table, preserving all existing identity, DEC, registry,
+project/adapter flows and events. Reserved-name collisions at an earlier
+version, malformed current schema and future versions refuse without mutation.
+
+A separate author writes one focused `invitation_onboarding` slim suite from
+this contract and existing public APIs, never production code. Original native
+128 cases stay unchanged; no new native test is needed before controls exist.
+Update old migration fixtures only to represent the new additive table and
+move the future-version boundary to27; preserve their existing assertions.
+Keep suites under two minutes. No implementer-written unit tests.
+
+1. Explicit network/context/label/pin review, canonical digest, fixed deadlines,
+   prepare/lookup/inspect retry/resume and coherent read-only snapshots. Preparing
+   signs/returns no code and changes only its private flow table.
+2. Exact approval atomically mints one usable ordinary introduction and return
+   material; public views contain no code/secret; repeated/concurrent approval
+   returns the same public result, and private retrieval is byte-identical and
+   read-only. Use the existing public joining path to establish code validity
+   without claiming complete admission or granting agent access.
+3. Decline, changed review/context/project/transport, expiration, malformed/
+   extra/null input and missing/legacy network cannot mint. Cover fixed-deadline
+   races and rollback after mint work if a flow update fails. No secret in errors.
+4. Explicit replacement and another teammate; no silent draft change, old-token
+   revocation or replayed old pending decision. Retained issued retrieval after
+   host restart does not resurrect a project attachment or duplicate invitation.
+5. CLI parity, private stdin and bounds, unavailable daemon with no state writes;
+   owner-only routing refusal on peer/bootstrap/scoped interfaces.
+6. Additive schema25→26, preserved records, reserved table/view/index/trigger,
+   malformed-current and future27 refusal. Keep schema24/25 gates intact.
+
+Selected: exact durable contact-only review, current own-host signing, fixed
+expiry, one atomic return-path publication intent, private explicit retrieval
+and explicit additional invitations. Discarded: first-network defaulting,
+contact possession as membership/access, hidden admin/root signing, auto-refresh
+of consent, showing codes through status/model tools, duplicating plaintext
+secrets in a new flow table and pretending a newer invitation revokes an old one.
+These are implementation choices under the accepted GU experience.
+
+## 10. Remaining flow contract
 
 Teammate/device admission, private handoff, native adapter data tools/events and exact permission
 grants remain future sections. Section 2's live verification and the complete
