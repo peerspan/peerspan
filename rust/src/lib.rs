@@ -33,6 +33,7 @@ pub mod model;
 pub mod network;
 pub mod oauth;
 pub mod onboarding;
+pub mod onboarding_adapter;
 pub mod peer;
 pub mod peer_store;
 pub mod persons;

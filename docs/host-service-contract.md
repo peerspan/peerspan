@@ -148,3 +148,13 @@ use a read-only private context lookup before agent selection. Its owner-local
 POST and stdin CLI return current flow/agent choices in one snapshot. Native
 callbacks inspect and submit the exact reviewed context; model tools retain
 no owner-decision operation. Schema24 and the attachment effects are unchanged.
+
+The [exact guided adapter review](guided-session-contract.md#5-exact-local-adapter-authorization-gu-01d--gu-02d)
+adds a separate owner-local review for the existing project's scoped credential.
+Approval issues one fixed-expiry authorization with no directory access,
+outbound routes or capability calls. Private exact credential retrieval is
+separate from public flow observations and decision responses, and supports
+lost-response recovery without plaintext token storage. Schema25 adds one
+private child-flow table; schema24 project rows and DEC authority are unchanged.
+This host API does not establish a connection, channel verification or model
+receipt. The native pane still requires its next adapter connection slice.
