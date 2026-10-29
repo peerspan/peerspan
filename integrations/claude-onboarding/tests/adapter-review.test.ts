@@ -605,10 +605,15 @@ for (const leave of ['Close', 'Back to Peerspan']) {
   test(`${leave} cancels a pending initial connection and its late response cannot create renewal`, async ($, on) => {
     const w = fixture(on); w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
     const normal = w.fetch
-    w.fetch = async e => { const response = clone(await normal(e)); await w.clock.sleep(1000); return response }
+    let signalConnectStarted!: () => void
+    const connectStarted = new Promise<void>(resolve => { signalConnectStarted = resolve })
+    w.fetch = async e => {
+      const response = clone(await normal(e)), delay = w.clock.sleep(1000)
+      signalConnectStarted(); await delay; return response
+    }
     const ui = await open($, w)
     const pending = ui.press({ key: await key(ui, 'Connect adapter') }); void pending.catch(() => undefined)
-    await w.clock.settle(); expect(w.httpCalls.length).toBe(1)
+    await connectStarted; await w.clock.settle(); expect(w.httpCalls.length).toBe(1)
     await press(ui, leave)
     if (leave === 'Close') await ui.unmount()
     await w.clock.advance(1000); await pending
