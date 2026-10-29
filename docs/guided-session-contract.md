@@ -2212,6 +2212,10 @@ completion. The ordinary request inspection supplies later state. Next actions
 are respectively `approve_join_request`, `none`, `await_participant_reviews`,
 `review_replacement`, `review_replacement`, `review_replacement`.
 
+Validate exact parent context before proposal lookup/resume. After that check,
+a different key/code proposal conflicts before new invitation/pin verification;
+pin-refusal fixtures use a fresh binding.
+
 One latest flow per project binding is resumed: identical prepare returns200
 and the retained view, never extends time or regenerates anything; a different
 proposal without explicit replacement returns409/flow_conflict. A first prepare

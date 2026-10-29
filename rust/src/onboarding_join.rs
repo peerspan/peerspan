@@ -249,6 +249,9 @@ impl Store {
         let mut c = self.connection()?;
         let tx = c.transaction()?;
         let now = now()?;
+        // Reject a substituted review/conversation before comparing proposals.
+        // A detached historical parent may still inspect its recorded outcome.
+        proposal.context.project(&tx, now)?;
         match (
             latest(&tx, &proposal.context.project_flow_id)?,
             &request.replace_flow_id,
