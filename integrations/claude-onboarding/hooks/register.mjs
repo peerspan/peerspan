@@ -883,18 +883,20 @@ async function recipientCurrent($, running, epoch) {
 }
 async function inspectRecipientParent($, running, epoch) {
   if (!await recipientCurrent($, running, epoch)) return false;
-  const observed = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
-  if (!await recipientCurrent($, running, epoch)) return false;
-  if (observed.exitCode !== 0) throw new Error('Unavailable recipient host');
-  observation(observed.stdout);
-  if (JSON.parse(observed.stdout).host_id !== running.host) throw new Error('Changed recipient host');
   const raw = await projectRun($, ['inspect', running.parent.flow_id]);
   if (!await recipientCurrent($, running, epoch)) return false;
   const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
   if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
       !same(parent.review, running.parent.review)) throw new Error('Changed recipient project');
+  // Observe daemon identity after the parent read, before sending private input.
+  const observed = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await recipientCurrent($, running, epoch)) return false;
+  if (observed.exitCode !== 0) throw new Error('Unavailable recipient host');
+  observation(observed.stdout);
+  if (JSON.parse(observed.stdout).host_id !== running.host) throw new Error('Changed recipient host');
   return true;
 }
+
 function recipientFailure($, running, epoch) {
   if (recipient !== running || epoch !== generation) return;
   recipientExpiry?.cancel();
