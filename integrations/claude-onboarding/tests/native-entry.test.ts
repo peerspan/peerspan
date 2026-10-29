@@ -284,6 +284,37 @@ test('empty and populated observations keep counts, safe names and conversation 
   noUnexpectedEffects(w)
 })
 
+test('all seven private token formats are redacted after terminal and bidi decoration is removed', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const ui = await enter($)
+  const prefixes = ['psi2-', 'psl2-', 'peerspan-invite-v1.', 'peerspan-member-invite-v1.',
+    'peerspan-person-invite-v1.', 'token_', 'instance_']
+  for (const [index, prefix] of prefixes.entries()) {
+    const plainSecret = `q${index}secret`
+    const decoratedSecret = `z${index}secret`
+    const split = Math.floor(prefix.length / 2)
+    const plain = prefix + plainSecret
+    const decorated = prefix.slice(0, split) + '\x1b[31m\u202e' + prefix.slice(split)
+      + '\u202c\x1b[0m' + decoratedSecret
+    // Both complete labels are shorter than the 80-character display bound;
+    // a clipped prefix cannot make a missed redaction look like a passing case.
+    expect(plain.length < 80 && decorated.length < 80).toBe(true)
+    w.run = () => ({ value: { exitCode: 0, stdout: JSON.stringify({ ...empty(),
+      networks: [network('1', plain), network('2', decorated)] }), stderr: '' } })
+    await press(ui, 'Refresh')
+    const shown = await text(ui, w)
+    expect(shown).toContain('Host: running')
+    expect(shown).toMatch(/Networks:\s*2\b/)
+    expect(shown).not.toContain(prefix)
+    expect(shown).not.toContain(plainSecret)
+    expect(shown).not.toContain(decoratedSecret)
+    expect(shown).not.toMatch(/[\x1b\u202a-\u202e\u2066-\u2069]/)
+  }
+  expect(w.prompts).toEqual([])
+  noUnexpectedEffects(w)
+})
+
 test('failed, denied, malformed, unsupported and invalid reads invalidate a successful host view', async ($, on) => {
   const w = world(on)
   await start($)
