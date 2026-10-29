@@ -2015,3 +2015,25 @@ first-agent/name-based adoption, copied frontend state as host truth, truncated
 or redacted consent, silently substituted terms and automatic decision retries.
 Section4 of the guided session contract records concrete race/privacy and real
 native-host verification. This is an implementation choice under GU scope.
+
+## GU.impl5 — Exact guided adapter authorization (2026-10-29)
+
+Selected within GU-OWN1/2: a second immutable owner-local review for issuing one
+scoped credential to the already attached project session. The first guided
+credential expires at a fixed reviewed time, 24 hours after preparation, without
+renewal. It handles work already authorized for that agent and gets no
+directory, outbound-route or capability-call power. Existing grants and local
+harness permissions continue to govern work and files.
+
+Selected recovery: retain the approved outcome and derive its private token
+with domain-separated HMAC-SHA256 under the host seed. Store only the normal
+token hash; a separate exact owner-local retrieval recovers that same current
+credential after a lost response. Normal issuance remains random. Schema25 adds
+one child-flow table; the project and DEC contracts stay intact.
+
+Discarded: credential issuance during metadata approval, blanket send/call
+power, automatic replacement of an offline or unbound adapter, silently renewed
+consent, plaintext token persistence and one-shot secrets lost on interruption.
+Section5 specifies the fields, recovery, invalidation, schema allocation and
+independent cases. Native connection and real model receipt remain subsequent
+gates. This is an implementation choice, not another owner confirmation.

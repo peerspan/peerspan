@@ -4,7 +4,7 @@ Status: feature plan. The owner accepted the experience below on 2026-10-28.
 Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
 local delivery check, owner-local project review backend and native human
-project review controls. The full interactive
+project review controls, plus an owner-local adapter review. The full interactive
 flow and its installed/live-session validation remain pending.
 
 ## Accepted experience
@@ -156,6 +156,16 @@ or invalidation. It reports attachment metadata separately from the still-pendin
 adapter connection. Existing startup detaches metadata sessions,
 so an approved flow becomes invalidated after host restart and cannot be
 silently resurrected. Pending reviews and declined outcomes remain resumable.
+
+GU-01d/GU-02d adds the separate [exact adapter authorization](guided-session-contract.md#5-exact-local-adapter-authorization-gu-01d--gu-02d)
+for an attached project's existing session. Approval issues a fixed 24-hour
+credential to handle already authorized work, with no directory access,
+outbound routes or capability calls. Read-only flow views contain no secret;
+an exact private retrieval can recover the approved credential after a lost
+response without another approval or plaintext token storage. Schema25 adds
+one child-flow table. The advanced `onboarding adapter` stdin interface is for
+integration work; native credential review/connection and the scoped data path
+remain next. Issuance is separate from a lease, channel proof or model receipt.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.

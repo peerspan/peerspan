@@ -49,6 +49,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   adapter readiness and read-only behavior (guided session contract section 1).
 - `project_onboarding`: exact local project reviews, atomic metadata attachment,
   replay/replacement and schema24 boundaries (guided session contract section3).
+- `adapter_onboarding`: exact guided adapter authorization, private credential
+  recovery, scope/replacement boundaries and additive schema25 (section5).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

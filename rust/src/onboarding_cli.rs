@@ -25,6 +25,36 @@ pub enum OnboardingCommand {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Review a scoped credential for an already attached guided project
+    Adapter {
+        #[command(subcommand)]
+        command: AdapterCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum AdapterCommand {
+    /// Read the current attempt for an exact project binding from stdin
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare or resume an exact credential review from stdin
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Inspect retained terms without retrieving any secret
+    Inspect { flow_id: String },
+    /// Submit an exact owner decision from stdin
+    Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Privately retrieve an approved credential; output contains a secret
+    Credential {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
@@ -63,6 +93,12 @@ fn input() -> Result<Value> {
     serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid project review input"))
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
+    if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Adapter { command }),
+    }) = command
+    {
+        return adapter_command(command, socket).await.map(Some);
+    }
     let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Project { command }),
     }) = command
@@ -104,4 +140,55 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+
+async fn adapter_command(command: &AdapterCommand, socket: &Path) -> Result<Value> {
+    use peerspan_host::onboarding_adapter::{AdapterContext, CredentialRequest, Decision, Prepare};
+    let local = Local(socket);
+    let base = "/v1/onboarding/adapter-flows";
+    match command {
+        AdapterCommand::Lookup { .. } => {
+            let value = input()?;
+            let _: AdapterContext = serde_json::from_value(value.clone())
+                .map_err(|_| anyhow::anyhow!("invalid adapter review input"))?;
+            local.post(format!("{base}/lookup"), value).await
+        }
+        AdapterCommand::Prepare { .. } => {
+            let value = input()?;
+            let _: Prepare = serde_json::from_value(value.clone())
+                .map_err(|_| anyhow::anyhow!("invalid adapter review input"))?;
+            local.post(base.into(), value).await
+        }
+        AdapterCommand::Inspect { flow_id } => {
+            local.get(format!("{base}/{}", encoded(flow_id))).await
+        }
+        AdapterCommand::Decide { .. } | AdapterCommand::Credential { .. } => {
+            let mut value = input()?;
+            let flow_id = value
+                .as_object_mut()
+                .and_then(|v| v.remove("flow_id"))
+                .and_then(|id| id.as_str().map(str::to_owned))
+                .filter(|id| {
+                    id.strip_prefix("flow_").is_some_and(|suffix| {
+                        suffix.len() == 32
+                            && suffix
+                                .bytes()
+                                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                    })
+                })
+                .ok_or_else(|| anyhow::anyhow!("invalid adapter review input"))?;
+            let operation = if matches!(command, AdapterCommand::Decide { .. }) {
+                let _: Decision = serde_json::from_value(value.clone())
+                    .map_err(|_| anyhow::anyhow!("invalid adapter review input"))?;
+                "decision"
+            } else {
+                let _: CredentialRequest = serde_json::from_value(value.clone())
+                    .map_err(|_| anyhow::anyhow!("invalid adapter review input"))?;
+                "credential"
+            };
+            local
+                .post(format!("{base}/{}/{operation}", encoded(&flow_id)), value)
+                .await
+        }
+    }
 }

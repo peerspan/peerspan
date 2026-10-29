@@ -76,7 +76,7 @@ pub enum AgentChoice {
     Existing { id: String },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectContext {
     pub project_root: String,
@@ -151,7 +151,7 @@ fn invalid() -> Error {
     Error::Invalid("invalid project review request".into())
 }
 
-fn validate_context(root: &str, native: &str, integration: &str) -> Result<(), Error> {
+pub(crate) fn validate_context(root: &str, native: &str, integration: &str) -> Result<(), Error> {
     if !root.starts_with('/')
         || root.len() > 4096
         || root.chars().any(char::is_control)
@@ -315,6 +315,31 @@ fn view(connection: &Connection, f: &Flow, now: DateTime<Utc>) -> Result<Value, 
         "attachment":f.session_id.as_ref().map(|id|json!({"agent_id":f.review["agent"]["id"],"session_id":id})),
         "next_action":match state { "review"=>"review", "attached"=>"continue_adapter_setup", _=>"restart_review" }}),
     )
+}
+
+/// Bind a child authorization to the exact project review, without renewing or
+/// resurrecting its metadata attachment. Caller holds the shared transaction.
+pub(crate) fn project_attachment(
+    connection: &Connection,
+    id: &str,
+    review_id: &str,
+    context: &ProjectContext,
+    now: DateTime<Utc>,
+) -> Result<(Value, bool), Error> {
+    let f = load(connection, id)?;
+    if review_id != f.review_id
+        || context.project_root != f.proposal.project_root
+        || context.native_session_id != f.proposal.native_session_id
+        || context.integration != f.proposal.integration
+    {
+        return Err(coded(
+            "review_changed",
+            "project review or conversation changed",
+        ));
+    }
+    let current = latest(connection, &f.proposal)?.as_deref() == Some(id)
+        && current_state(connection, &f, now)? == "attached";
+    Ok((f.review, current))
 }
 
 impl Store {
