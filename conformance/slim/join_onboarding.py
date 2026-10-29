@@ -343,9 +343,15 @@ def _():
     helper = {"address": "127.0.0.1:9", "public_key": source()["signer"].public}
     legacy = source()["signer"].invitation(original, change=lambda p: p.update(helpers=[helper]))
     existing = reuse.cli("join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
-    check(existing.ok and existing.json and existing.json.get("request_id"),
+    # Runtime contract: join publishes a flat pending LINK_VIEW and exits
+    # nonzero until linking actually completes. Publication is not admission.
+    check(not existing.ok and existing.json and existing.json.get("request_id") and existing.json.get("state") == "pending",
           f"ordinary advanced CLI exit {existing.code}, JSON fields {sorted(existing.json) if isinstance(existing.json, dict) else []}, code {existing.json.get('code') if isinstance(existing.json, dict) else None}")
-    rid2 = existing.json["request_id"]; frozen = request_fingerprint(reuse, rid2)
+    rid2 = existing.json["request_id"]
+    listed = get(reuse, "/v2/link/requests")
+    check(len(listed) == 1 and listed[0]["request_id"] == rid2 and not listed[0]["selection_approved"] and not listed[0]["commit_approved"],
+          "ordinary pending CLI did not publish exactly one unapproved request")
+    frozen = request_fingerprint(reuse, rid2)
     reviewed = prepare(reuse, p2, legacy, selected); outcome = decide(reuse, reviewed, legacy)
     check(outcome["outcome"]["request_id"] == rid2 and request_fingerprint(reuse, rid2) == frozen, "guided approval failed exact existing-request reuse")
     check(reviewed["review"]["invitation"]["helpers"] == [helper] and
