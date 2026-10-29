@@ -2131,3 +2131,25 @@ returning codes through status or model tools, partial issuance across separate
 commits, and copying a return secret into another durable flow table. Schema26
 is additive; earlier flow/DEC tables and semantics remain intact. Contract
 section9 settles external fields and independent verification before code.
+
+## GU.impl10 — Native invitation consent and private reveal (2026-10-29)
+
+Selected under the accepted GU experience: an explicit attached-project human
+intent, read-only resume before choosing a network, no default network, and an
+exact contact-only review before issuance. Display the public network/context
+and key terms to distinguish identities while keeping flow/native-session
+references internal. Validate the canonical review digest and captured terms.
+
+Selected handoff: separate explicit native reveal, with exact host/parent/flow
+inspection, public response binding and fixed expiry; keep the code only in
+current UI memory. Hide, Refresh, navigation, context/surface changes and expiry
+remove it. The user may select terminal text. Existing established delivery
+runtimes survive ordinary pane navigation. Retrying reveal retrieves the same
+code; explicit additional invitations do not revoke old exports.
+
+Discarded: first-network selection, automatic approve/export/copy, model owner
+tools or secret prompts, clipboard writes, new files/plugin storage, a second
+frontend cryptographic verifier, hidden recipient admission/access, and calling
+an introduction proof of reachability or receipt. Section10 precedes code and
+settles independent native checks. Joining and participant permissions remain
+separate working slices, not completed by this inviter control.

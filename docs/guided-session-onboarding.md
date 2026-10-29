@@ -203,9 +203,17 @@ introduction and its automatic return path atomically. Codes are retrieved only
 through the private handoff operation; inspection/decision/status contain no
 code. Fixed expiry, explicit additional invitations and exact retry preserve
 consent. Schema26 adds a private flow table and no membership/access authority.
-Native invitation controls, joining identity review, participant approval and
-agent-access review remain subsequent slices. This backend is not the complete
+Native invitation controls are added by GU-03f/GU-04b below. Joining identity
+review, participant approval and agent-access review remain subsequent slices. This backend is not the complete
 Invite someone flow or evidence of peer/model readiness.
+
+GU-03f/GU-04b adds the [native invitation pane](guided-session-contract.md#10-native-invite-someone-review-and-private-reveal-gu-03f--gu-04b).
+After attachment, explicitly choose a network, label and optional person-key
+pin; review every public identity/hint/effect, then approve or decline exactly.
+A separate explicit reveal retrieves the retained code only into the private
+human pane. Hide/navigation/Refresh/context change/expiry clear it; no model
+turn, clipboard, file or plugin storage is involved. This is the inviter side;
+recipient import, admission and access reviews remain later slices.
 
 The observation suite isolates each automatic invitation return from previous
 joins and other invitations, then checks two retained pending requests together.

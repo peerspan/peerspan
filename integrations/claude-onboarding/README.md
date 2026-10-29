@@ -5,8 +5,8 @@ Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
 host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
-Native invitation controls, sharing permissions and live model acceptance
-remain later work. The advanced owner-local invitation-review backend is
+Native invitation review and explicit private code reveal are available.
+Joining/admission, sharing permissions and live model acceptance remain later work. The advanced owner-local invitation-review backend is
 available for integration development; it adds no model invitation tool.
 
 ## Try the entry
@@ -60,6 +60,38 @@ attachments under the existing host contract. Managed Claude installations may
 suppress the directory-change event for user-installed plugins: stale controls
 are then invalidated on the next action, which always rechecks the native
 project/conversation before sending a decision.
+
+## Invite someone
+
+After attaching the project, press **Invite someone**. No connected adapter or
+model turn is needed. An existing invitation review/outcome resumes first.
+Otherwise explicitly choose a network, enter an invitee label and optionally
+pin the expected person's public key (`-` means unpinned). A listed network may
+still lack current invitation authority; the host checks that when preparing.
+An empty list requires creating a network through existing host administration.
+
+Press **Review invitation**, check the full identity, connection hints, fixed
+expiries and effects, then **Approve invitation** or **Decline invitation**.
+Approval creates one contact-only introduction; it adds no membership, agent
+access, machine approval, files, conversation sharing or capability permission.
+It does not send the invitation or demonstrate connectivity.
+
+On an issued invitation, **Reveal private invitation** privately retrieves the
+original code and shows it in this terminal pane. Select/copy it through your
+terminal and share privately with the intended person. **Do not paste it into
+this or another agent conversation.** Peerspan does not put it in model context,
+clipboard, files or plugin storage. **Hide private invitation**, Refresh, Back,
+Close, context changes and expiry clear the displayed code. Terminal scrollback
+or screenshots you make may retain what you displayed.
+
+Refresh checks the retained result without replaying a decision or creating a
+new invitation. After a lost decision response it resolves the unknown outcome.
+Reveal again retrieves the same code with its original expiry. **Invite another
+person** explicitly starts another choice and review; it does not revoke an
+older exported invitation. Declined, expired or invalidated outcomes similarly
+require an explicit replacement review. An introduction is not admission or
+agent access: the recipient's guided join and each participant's permissions
+are subsequent slices. There is no recipient import control in this preview.
 
 ## Review and connect the adapter
 
