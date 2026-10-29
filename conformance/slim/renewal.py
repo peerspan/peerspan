@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Slim suite 2, renewal: grant lifetimes, automatic renewal, retention, warnings and expiry.
 
-Four independent networks run side by side, each with its own debug test clock, so each renewal window gets
-the full time the spec allows (hosts check every 60 seconds, spec 7.1) without the suite taking four times as
-long. In each, alice creates the network (her host holds the root seed) and bob joins. Written from
+Independent networks run side by side, each with its own debug test clock, so each renewal window gets
+the full time the spec allows (hosts check every 60 seconds, spec 7.1). Alice creates each network and bob
+joins; separate networks exercise a delegated admin, an original person key and an external SSH root. Written from
 docs/decentralized-spec.md sections 4.4, 5, 7 and 16, and the wire appendix sections 4 and 5.
 """
+import base64
+import hashlib
+import json
+import subprocess
 import threading
 import traceback
 
-from harness import (Clock, Failure, Suite, attention, check, create_network, join_new_person, members, parse_time, ssh_key,
-                     statements, timedelta, wait_for)
+from harness import (Clock, Failure, Suite, attention, check, create_network, join_new_person, link_machine, members,
+                     parse_time, rfc3339, ssh_key, ssh_public_base64, statements, timedelta, wait_for)
 
 DAY, HOUR = 86400, 3600
 WINDOW = 75  # one 60-second renewal pass plus the 10-second sync jitter and bounded sync (spec 7.1, 10)
@@ -79,6 +83,244 @@ def outcome(world, name):
         raise w.errors[name]
     check(name in w.results, f"step {name} did not run")
     return w.results[name]
+
+
+def statement_id(envelope):
+    """The public statement ID formula (appendix 3.2), independent of its proof/signature."""
+    digest = hashlib.sha256(base64.b64decode(envelope["payload_base64"])).hexdigest()
+    message = "\n".join(("peerspan-decentralized-statement-v1", envelope["kind"], envelope["context_id"], digest))
+    return "ds_" + hashlib.sha256(message.encode()).hexdigest()
+
+
+def original_provider(host, net, person):
+    status, body = host.api("POST", f"/v2/networks/{net}/provider", {
+        "provider_id": person, "person_public_key": person, "host_public_key": host.public_key, "approve": True})
+    check(status == 200 and body["provider"]["kind"] == "original_person",
+          f"{host.name}: selecting the original key: {status} {body}")
+
+
+def agent_key(host, key):
+    """Expose only this fixture's identity through an isolated OpenSSH agent inherited by the daemon."""
+    sock = host.root / "ssh-agent.sock"
+    log = (host.root / "ssh-agent.log").open("ab")
+    suite.spawn(["ssh-agent", "-D", "-a", str(sock)], stdout=log, stderr=log)
+    log.close()
+    wait_for(sock.exists, timeout=5, message=f"{host.name} ssh-agent")
+    host.extra_env["SSH_AUTH_SOCK"] = str(sock)
+    added = subprocess.run(["ssh-add", str(key)], env=host.env, capture_output=True, timeout=10)
+    check(added.returncode == 0, f"{host.name}: ssh-add: {added.stderr.decode()}")
+    host.restart()
+
+
+def root_renew(host, net, kind, **subject):
+    """Give the admin fixture later parents using the public typed action, keeping its live children (7.2)."""
+    records = [(statement_id(e), p) for _, e, p in statements(host, net)
+               if "not_after" in p and parse_time(p["not_after"]) > host.now()]
+    candidates = [(statement_id(e), p) for _, e, p in statements(host, net, kind)
+                  if all(p["subject"].get(k) == v for k, v in subject.items())]
+    old_id, old = max(candidates, key=lambda record: record[1]["sequence"])
+    kept = {old_id}
+    while True:
+        more = {sid for sid, p in records if any(parent["id"] in kept for parent in p.get("parents", []))}
+        if more <= kept:
+            break
+        kept.update(more)
+    now = host.now().replace(microsecond=0)
+    payload = dict(old, operation_id="-", sequence=old["sequence"] + 1, predecessors=[old_id], resolves=[],
+                   retained_statement_ids=sorted(kept), issuer={"kind": "root", "person_public_key": "-"}, parents=[],
+                   issued_at=rfc3339(now), not_before=rfc3339(now), not_after=rfc3339(now + timedelta(days=7)))
+    status, body = host.api("POST", f"/v2/networks/{net}/actions", {
+        "kind": kind, "provider_id": "network_root", "signature_format": "ed25519",
+        "payload_base64": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode(),
+        "approve": True})
+    check(status == 200 and body.get("committed"),
+          f"preparing {kind} parent: status={status}, committed={body.get('committed')}, "
+          f"pending roles={[r['role'] for r in body.get('signing_requests', [])]}, error={body.get('error')}")
+
+
+class DelegatedWorld(World):
+    def setup(self):
+        super().setup()
+        self.clock.set(DAY)
+        person = self.a.api("GET", f"/v2/networks/{self.net}")[1]["person_public_key"]
+        for kind, subject in (("admin_lease", {"person_public_key": person}),
+                              ("person_lease", {"person_public_key": person}),
+                              ("host_lease", {"host_public_key": self.a.public_key})):
+            root_renew(self.a, self.net, kind, **subject)
+        # The original owner path lets the new device use these later parent deadlines.
+        original_provider(self.a, self.net, person)
+        self.admin = suite.host("delegated-admin", clock=self.clock)
+        link_machine(self.a, self.admin, self.net, person, key=self.a.home / ".config/peerspan/person_ed25519")
+        status, body = self.admin.api("POST", f"/v2/networks/{self.net}/sync", {})
+        check(status == 200 and self.b.public_key in members(self.admin, self.net),
+              f"the delegated admin did not learn bob before the root stopped: {status} {body}")
+        self.admin_provider = self.admin.api("GET", f"/v2/networks/{self.net}/provider")[1]
+        check(self.admin_provider["kind"] == "device" and self.admin_provider["scopes"] == 15,
+              f"delegated admin provider {self.admin_provider}")
+        self.target, self.target_person, self.target_member = self.b, self.bob_person, "bob"
+        self.initial_person = self.newest("person_lease", person_public_key=self.bob_person)["sequence"]
+        self.initial_deadlines = {"person_lease": self.newest("person_lease", person_public_key=self.target_person)["not_after"],
+                                  "host_lease": self.newest("host_lease", host_public_key=self.target.public_key)["not_after"]}
+        # Root seeds are never transferred by linking (spec 3, 8). Neither root nor target participates below.
+        self.a.stop()
+        self.b.stop()
+
+
+class OriginalAdminWorld(World):
+    def setup(self):
+        super().setup()
+        self.clock.set(DAY)
+        root_renew(self.a, self.net, "person_lease", person_public_key=self.bob_person)
+        self.a.ok("network", "delegate-admin", "--network", self.net, "--person", "bob",
+                  "--signer", "network_root", "--approve")
+        agent_key(self.b, self.bob_key)
+        original_provider(self.b, self.net, self.bob_person)
+        self.bob_key.unlink()
+        status, body = self.b.api("POST", f"/v2/networks/{self.net}/sync", {})
+        check(status == 200, f"the original-key admin could not learn its delegation: {status} {body}")
+        self.admin = self.b
+        self.admin_provider = self.admin.api("GET", f"/v2/networks/{self.net}/provider")[1]
+        self.target, self.target_member = self.a, "alice"
+        self.target_person = self.a.api("GET", f"/v2/networks/{self.net}")[1]["person_public_key"]
+        self.initial_person = self.newest("person_lease", person_public_key=self.target_person)["sequence"]
+        self.initial_deadlines = {"person_lease": self.newest("person_lease", person_public_key=self.target_person)["not_after"],
+                                  "host_lease": self.newest("host_lease", host_public_key=self.target.public_key)["not_after"]}
+        self.a.stop()
+
+
+class OriginalWorld(World):
+    def setup(self):
+        net = create_network(self.a, "renewal-original", "alice")
+        self.net = net["id"]
+        key = ssh_key(self.b.root, "bob")
+        agent_key(self.b, key)
+        # A scope-1 device cannot renew a binding or any device grant; the original key must do both.
+        join_new_person(self.a, self.b, "bob", key, self.net, scopes=1,
+                        not_after=rfc3339(self.now() + timedelta(days=2)))
+        self.bob_person = ssh_public_base64(key)
+        self.b.ok("allow", "alice", "--person-key", key)
+        self.start = {k: dict(v) for k, v in members(self.a, self.net).items()}
+        self.initial_policy = self.policy_version()
+        self.initial_deadlines = {}
+        for kind in ("binding_lease", "device_lease", "policy"):
+            rows = [p for _, _, p in statements(self.b, self.net, kind)
+                    if p["issuer"]["person_public_key"] == self.bob_person]
+            self.initial_deadlines[kind] = max(rows, key=lambda p: p["sequence"])["not_after"]
+        original_provider(self.b, self.net, self.bob_person)
+        key.unlink()  # the daemon has only SSH_AUTH_SOCK, not a configured or default private-key file
+        check(not (self.b.home / ".config/peerspan/person_ed25519").exists(),
+              "the original-key fixture accidentally has a default private-key file")
+
+
+class ExternalRootWorld(World):
+    def setup(self):
+        super().setup()
+        key = ssh_key(self.a.root, "external-root")
+        self.root_key = ssh_public_base64(key)
+        agent_key(self.a, key)
+        self.a.ok("network", "rotate-root", self.net, "--to-ssh", "--root-key", key,
+                  input="yes\n", tty=True, timeout=90)
+        key.unlink()  # rotation retired the raw seed; the external key remains usable only through the agent
+        view = self.a.api("GET", f"/v2/networks/{self.net}")[1]
+        check(view["root_public_key"] == self.root_key and view["root_epoch"] == 1,
+              "the root did not move to the external SSH identity")
+        self.initial = {kind: self.newest(kind)["sequence"]
+                        for kind in ("admin_lease", "person_lease", "host_lease")}
+
+
+def delegated_world(w):
+    def renews():
+        w.clock.set(5 * DAY + 17 * HOUR)
+        w.admin.ok("network", "group", "set", "--network", w.net, "--group", "operators", "--person", w.target_member, "--approve")
+        initial = w.admin.api("GET", f"/v2/networks/{w.net}/access-versions")[1]["groups"][0]["version"]
+        initial_group = max([p for _, _, p in statements(w.admin, w.net, "group")], key=lambda p: p["sequence"])
+        w.initial_deadlines["group"] = initial_group["not_after"]
+        w.clock.set(6 * DAY + 8 * HOUR + 30 * 60)  # 8.5 hours left on the group
+        check(w.admin.api("GET", f"/v2/networks/{w.net}/access-versions")[1]["groups"][0]["version"] == initial,
+              "the delegated admin renewed a group before 8 hours remained")
+        # Clear the delegated device's ranked turn even though the original-key/root host is offline (DEC-Q11).
+        w.clock.set(6 * DAY + 16 * HOUR + 10 * 60)  # group: 50 min left; bob's person and host: 7 h 50 min
+
+        def done():
+            people = [p for _, _, p in statements(w.admin, w.net, "person_lease")
+                      if p["subject"]["person_public_key"] == w.target_person]
+            groups = w.admin.api("GET", f"/v2/networks/{w.net}/access-versions")[1]["groups"]
+            hosts = members(w.admin, w.net)
+            return (max([p["sequence"] for p in people] or [0]) > w.initial_person
+                    and hosts.get(w.target.public_key, {}).get("host_lease_id", "-") not in ("-", w.start[w.target.public_key]["host_lease_id"])
+                    and any(g["name"] == "operators" and g["version"] > initial for g in groups))
+        wait_for(done, timeout=WINDOW, interval=1, message="the delegated admin to renew the offline target and group without the root")
+        for kind, subject in (("person_lease", {"person_public_key": w.target_person}),
+                              ("host_lease", {"host_public_key": w.target.public_key}), ("group", {})):
+            rows = [(e, p) for _, e, p in statements(w.admin, w.net, kind)
+                    if all(p.get("subject", {}).get(k) == v for k, v in subject.items())]
+            envelope, payload = max(rows, key=lambda row: row[1]["sequence"])
+            check(payload["sequence"] >= 2 and payload["operation_id"] == "-", f"{kind} did not renew outside a link")
+            original = w.admin_provider["kind"] == "original_person"
+            signer = w.admin_provider["person_public_key"] if original else w.admin_provider["device_public_key"]
+            check(payload["issuer"]["kind"] == ("person" if original else "device")
+                  and payload["issuer"]["person_public_key"] == w.admin_provider["person_public_key"],
+                  f"{kind} was not renewed through the delegated admin's selected path")
+            check([(s["role"], s["public_key"], s["format"]) for s in envelope["signatures"]]
+                  == [("issuer", signer, "sshsig" if original else "ed25519")],
+                  f"{kind} renewal required a signer other than the delegated admin")
+            parents = {"issuer_person", "issuer_admin"} | (set() if original else {"issuer_device"})
+            check({p["role"] for p in payload["parents"]} == parents,
+                  f"{kind} did not pin its administrator authority")
+            check(parse_time(payload["not_after"]) > parse_time(w.initial_deadlines[kind]),
+                  f"{kind} got a new generation without extending its deadline")
+            records = {statement_id(e): p for _, e, p in statements(w.admin, w.net) if "not_after" in p}
+            check(all(parse_time(payload["not_after"]) <= parse_time(records[p["id"]]["not_after"])
+                      for p in payload["parents"]), f"{kind} renewal exceeded an administrator parent")
+            if kind == "group":
+                before = json.loads(base64.b64decode(initial_group["body_base64"]))
+                after = json.loads(base64.b64decode(payload["body_base64"]))
+                check(after["members"] == before["members"], "group renewal changed its membership")
+    name = "original_admin_renews_person_host_and_group_without_root" if w.tag == "original-admin" else "delegated_admin_renews_person_host_and_group_without_root"
+    w.step(name, renews)
+
+
+def original_world(w):
+    def renews():
+        w.clock.set(16 * HOUR + 10 * 60)
+        before = w.start[w.b.public_key]
+        wait_for(lambda: (lambda m: m.get("binding_lease_id", "-") not in ("-", before["binding_lease_id"])
+                         and m.get("device_lease_id", "-") not in ("-", before["device_lease_id"]))(members(w.b, w.net).get(w.b.public_key, {}))
+                 and w.policy_version() > w.initial_policy, timeout=WINDOW, interval=1,
+                 message="bob's agent-only original key to renew his binding, device and policy automatically")
+        for kind in ("binding_lease", "device_lease", "policy"):
+            rows = [(e, p) for _, e, p in statements(w.b, w.net, kind)
+                    if p["issuer"]["person_public_key"] == w.bob_person]
+            envelope, payload = max(rows, key=lambda row: row[1]["sequence"])
+            check(payload["sequence"] >= 2 and payload["issuer"]["kind"] == "person" and payload["operation_id"] == "-",
+                  f"{kind} was not automatically renewed with the original key")
+            check([(s["role"], s["public_key"], s["format"]) for s in envelope["signatures"]]
+                  == [("issuer", w.bob_person, "sshsig")], f"{kind} renewal is not issuer-only SSHSIG")
+            check(parse_time(payload["not_after"]) > parse_time(w.initial_deadlines[kind]),
+                  f"{kind} got a new generation without extending its deadline")
+        check(w.b.api("GET", f"/v2/networks/{w.net}")[1]["authority"]["state"] == "usable",
+              "bob lost usable authority after the original-key renewals")
+        check("person_device_signer_unavailable" not in {k for k, _ in attention(w.b)[0]},
+              "an available original signer still raises person_device_signer_unavailable")
+    w.step("original_key_agent_renews_binding_device_and_policy", renews)
+
+
+def external_root_world(w):
+    def renews():
+        w.clock.set(3 * DAY + HOUR)
+        kinds = ("admin_lease", "person_lease", "host_lease")
+        wait_for(lambda: all((lambda p: p and p["sequence"] > w.initial[kind]
+                             and w.left(p["not_after"]) > 6 * DAY)(w.newest(kind)) for kind in kinds),
+                 timeout=WINDOW, interval=1, message="the daemon's SSH-agent root to renew its root-signed grants")
+        for kind in kinds:
+            renewed = w.newest(kind)
+            envelope = next(e for _, e, p in statements(w.a, w.net, kind) if p == renewed)
+            check(renewed["issuer"]["kind"] == "root" and renewed["operation_id"] == "-",
+                  f"{kind} renewal did not use the external root")
+            check([(s["role"], s["public_key"], s["format"]) for s in envelope["signatures"]]
+                  == [("issuer", w.root_key, "sshsig")], f"{kind} renewal did not use issuer-only SSHSIG root proof")
+        check("network_root_unreachable" not in {k for k, _ in attention(w.a)[0]}, "the usable external root is reported unreachable")
+    w.step("external_root_agent_renews_root_signed_grants", renews)
 
 
 def policy_world(w):
@@ -262,10 +504,11 @@ def expiry_world(w):
 def _():
     for tag in ("policy", "root", "device", "expiry"):
         worlds[tag] = World(tag)
+    worlds["delegated"] = DelegatedWorld("delegated")
+    worlds["original-admin"] = OriginalAdminWorld("original-admin")
+    worlds["original"] = OriginalWorld("original")
+    worlds["external"] = ExternalRootWorld("external")
     in_parallel([lambda w=w: w.step("setup", w.setup) for w in worlds.values()])
-    for w in worlds.values():
-        if "setup" in w.errors:
-            raise w.errors["setup"]
     w = worlds["root"]
     for member in members(w.a, w.net).values():
         check(6 * DAY < w.left(member["not_after"]) <= 7 * DAY, f"{member['member']} lasts {w.left(member['not_after'])}s")
@@ -274,9 +517,14 @@ def _():
             life = (parse_time(payload["not_after"]) - parse_time(payload["issued_at"])).total_seconds()
             limit = DAY if kind in ("policy", "group") else 7 * DAY
             check(0 < life <= limit, f"a {kind} lasts {life:.0f}s, over {limit}s")
-    # The timed steps of the three networks run now, side by side.
-    in_parallel([lambda: policy_world(worlds["policy"]), lambda: root_world(worlds["root"]),
-                 lambda: device_world(worlds["device"]), lambda: expiry_world(worlds["expiry"])])
+    # Every independent timed window gets its full bound; one fixture failure does not suppress the others.
+    work = (("policy", policy_world), ("root", root_world), ("device", device_world), ("expiry", expiry_world),
+            ("delegated", delegated_world), ("original-admin", delegated_world),
+            ("original", original_world), ("external", external_root_world))
+    in_parallel([lambda w=worlds[tag], f=function: f(w) for tag, function in work if "setup" not in worlds[tag].errors])
+    for w in worlds.values():
+        if "setup" in w.errors:
+            raise w.errors["setup"]
 
 
 CASES = [
@@ -295,6 +543,14 @@ CASES = [
     ("root", "root_offline_countdown", "spec 7.3 (DEC-Q12); 20 item 25",
      None),
     ("expiry", "expiry_stops_access", "spec 4.4, 5 (accepted work), 7.1, 16",
+     None),
+    ("delegated", "delegated_admin_renews_person_host_and_group_without_root", "spec 7.1, 7.2; 20 items 18, 21, 22",
+     None),
+    ("original-admin", "original_admin_renews_person_host_and_group_without_root", "spec 7.1, 7.2; 20 items 18, 21, 22",
+     None),
+    ("original", "original_key_agent_renews_binding_device_and_policy", "spec 7.1; 20 items 18, 21, 27",
+     None),
+    ("external", "external_root_agent_renews_root_signed_grants", "spec 7.3; 20 item 25",
      None),
 ]
 for _world, _name, _spec, _known in CASES:

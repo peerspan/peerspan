@@ -15,8 +15,8 @@ pub(crate) struct CeremonyPrefix<'a> {
     pub now: &'a str,
     pub staging: Option<&'a Projection>,
     /// The folded admin stage (spec 8.2, DEC-S7, DEC-Q4): the owner's own
-    /// admin path signed this new host grant, with the request ID as its
-    /// `operation_id`, and there is no administrator packet.
+    /// admin path or explicitly approved local root seed signed this new host
+    /// grant, with the request ID as its `operation_id`, and no admin packet.
     pub folded_host: Option<&'a Statement>,
 }
 
@@ -590,8 +590,21 @@ impl Projection {
     }
     /// Authority of a folded host grant (spec 8.2): issued through the
     /// owner's own path (the owner offer's issuer grants) plus that person's
-    /// current admin grant, by the same signer as the owner packets.
+    /// current admin grant, by the same signer as the owner packets; or by
+    /// the explicitly approved root seed independently of the owner signer.
     pub(crate) fn folded_authority(&self, owner: &Packet, host: &Statement) -> Result<()> {
+        if text(host.issuer()?, "kind")? == "root" {
+            check(
+                host.parents()?.is_empty()
+                    && text(&host.payload, "root_state_id")?
+                        == text(&owner.payload, "root_state_id")?,
+            )?;
+            self.check_prepared_grant(host, &BTreeMap::new(), None)?;
+            return require(
+                text(&host.payload, "not_after")? <= text(&owner.payload, "not_after")?,
+                "forbidden",
+            );
+        }
         self.grant_packet_issuer(host, owner)?;
         let issuers: BTreeMap<String, String> = host
             .parents()?

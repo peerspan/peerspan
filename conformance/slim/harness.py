@@ -619,14 +619,19 @@ def join_request(joiner, invitation, key):
     return result.json
 
 
-def join_new_person(inviter, joiner, member, key, network_id):
+def join_new_person(inviter, joiner, member, key, network_id, *, scopes=None, not_after=None):
     """The whole seven-stage join of a new person (spec 8.1, 8.2), driven to `linked` on both sides."""
     code = invite(inviter, member, network_id)["invitation"]
     request = join_request(joiner, code, key)
     rid, reply = request["request_id"], request.get("display_code")
     check(reply, "join printed no request code")
+    terms = []
+    if scopes is not None:
+        terms += ["--scopes", str(scopes)]
+    if not_after is not None:
+        terms += ["--not-after", not_after]
     joiner.ok_incomplete("link", "approve", "--network", network_id, "--person-key", key, "--code-stdin",
-                         "--approve", input=reply + "\n")
+                         "--approve", *terms, input=reply + "\n")
     view = pull_until(joiner, rid, "owner_offer_id")
     select(joiner, view)
     view = link_view(joiner, rid)
