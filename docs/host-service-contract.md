@@ -133,4 +133,7 @@ The isolated guided-onboarding feature starts with a read-only
 CLI command. The [guided session contract](guided-session-contract.md#1-observation-slice-gu-01a--gu-02a)
 defines its coherent network/request snapshot, full public adapter connection
 evidence, purity and verification. It grants no approval or setup authority;
-the interactive flow remains subsequent work on that feature branch.
+the interactive flow remains subsequent work on that feature branch. The
+[native Claude entry](guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a)
+reads that observation and offers a local conversation check. Its model tool
+only acknowledges a challenge; it acquires no owner administration authority.

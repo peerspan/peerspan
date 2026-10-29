@@ -39,6 +39,21 @@ Contents:
 
 ## Full entries
 
+### GU.impl2: native frontend in the existing Claude conversation (2026-10-29)
+
+- **Authority:** implementation choice within GU-OWN1 and GU-OWN2; not an
+  additional owner decision.
+- **Selected:** Claude's native mod interface for commands and human controls,
+  with a bounded local prompt/tool challenge that preserves the current native
+  conversation. The first entry is read-only; authority review callbacks and
+  the agent data path remain later work.
+- **Rationale and discarded options:** section 2 of the
+  [guided onboarding contract](guided-session-contract.md). Channel startup
+  flags, lifecycle-only hooks and model polling loops are not the default.
+  A model-authored approval is not an owner decision.
+- **Validation boundary:** Claude 2.1.303 native runtime; real-model receipt
+  remains outstanding because the live attempt hit the account's weekly limit.
+
 ### GU.impl1: one owner-local onboarding observation (2026-10-28)
 
 - **Authority:** implementation choice within the accepted GU-OWN1 experience
