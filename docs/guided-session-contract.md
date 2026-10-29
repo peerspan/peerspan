@@ -3495,6 +3495,10 @@ all252 native case assertions, owner_signing6/owner6/join14 and155 Rust/2ignored
 
 1. Two real hosts/persons with an automatic-return invitation, genuine original
    owner signature and selected offer produce an incoming retained admin request.
+   Automatic return establishes the request, not delivery of every later packet.
+   A public test driver may explicitly resume that retained incoming request
+   to fetch/validate its owner and selection during setup, before inspection or
+   purity snapshots. It must not use admissions preview or import/preparation.
    Exact response/digest/public identities/profile/fixed times/effects and known
    adopted network/root agree with ordinary public views. Stable pure retry:
    settle transport, compare logical DB/schema/key files before/after, no new

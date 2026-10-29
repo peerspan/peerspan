@@ -2403,3 +2403,15 @@ signing, later ceremony and pure-history checks. This isolates the intended
 CLI-generated signature stimulus without a product change. Discarded: weakening
 the one-submission assertion, treating global recorded evidence as frontend
 attribution, disabling owned host work or rerunning until the race disappears.
+
+### GU.impl20b — Retain the selected prefix before measuring inspection
+
+Selected: the independent fixture explicitly resumes its already returned
+incoming request during setup until ordinary public observation confirms the
+exact owner/selection prefix, then stops the remote and settles transport before
+inspection purity snapshots. Automatic invitation return delivered the request
+but did not itself retain the later packets. All first-run cases stopped before
+an inspection assertion at that missing-prefix setup; shared dependents must
+report setup failure rather than recreate the same project name. Discarded:
+calling admissions preview/import, fetching from the inspection route, invented
+authority rows and accepting an unverified/missing selected prefix.
