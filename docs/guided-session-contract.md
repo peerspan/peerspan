@@ -4148,7 +4148,8 @@ it is neither a signature, requester commit, adopted powers, access nor readines
 
 Malformed input400 invalid, unknown flow404, non-requested flow409 state_conflict,
 wrong context/join/owner digest409 review_changed, detached/changed parent409
-review_changed, expired request409 review_expired, pruned ordinary request409
+review_changed, expired request (signed deadline or ordinary10min stage
+inactivity)409 review_expired, pruned ordinary request409
 request_unavailable. Other unsupported/missing/invalid evidence or incompatible
 consent409 finalization_inspection_unavailable. Do not recreate evidence/history.
 Only owner-local administration exposes this route; scoped adapters, peers and
