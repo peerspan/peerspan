@@ -5779,7 +5779,9 @@ No new SQL/schema, intent kind, template, consent, policy generation or evaluato
 
 - `POST /v1/onboarding/access-consent/signing`: exactly
   `{context,network_id,person_public_key,access_id,access_review_id}`. Read only,
-  with no signer discovery/probe, authority refresh or state repair.
+  with no external signer discovery/probe, authority refresh or state repair.
+  Preserve section31's read-only access-state projection for unapproved receipts;
+  its existing retained local provider reads do not authorize signer IO.
 - `POST /v1/onboarding/access-consent/sign`: exactly those five fields plus
   `decision:"sign_project_agent_access"`. One explicit bounded signing attempt,
   never approve, publish, apply or retry. Both section31 receipt AND its exact
