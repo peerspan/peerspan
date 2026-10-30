@@ -1,0 +1,175 @@
+{
+  "status": "Local verification complete. Final evidence-head CI and fresh bot/root review must be recorded on PR79/35 without changing this evidence commit.",
+  "base": "2a362108647baea9cb16ec91759d1b29b75a7c0c",
+  "pr": "https://github.com/peerspan/peerspan/pull/79",
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "contract_before_implementation": "49c9c5bf7b2b3f5a952008279dbabf3b932a996d",
+  "contract_clarifications": [
+    "0f1427bd0eea6472bc186957adecb2a639f7a950",
+    "386b6a2d6a3298804840e14aa5173ecc8b93e885",
+    "f9405ebac9a3fb3790d9d08f42ff78cb786a850c",
+    "ca221e63de039bd9a6d903a60989666d0b6f7740"
+  ],
+  "initial_production": "6aeafbdd00e6885b95ff2a4ba37f0d5375e52c9a",
+  "frozen_production": "fc8cdf40f0027c1dde3dcfd513222edaf842aef5",
+  "frozen_rust_tree": "4bae7a6284aba04a11f3bc0a140e1a143ebfecad",
+  "source_review_fix": "Close damaged project-metadata lookup errors at the signing boundary, preserving genuine requested-project404 and review_changed. No conformance was executed against the initial implementation.",
+  "required_gates": {
+    "initial": {
+      "fmt": "pass",
+      "rust": "155 passed / 2 ignored",
+      "clippy": "pass",
+      "shipped_bins": "pass",
+      "logs": {
+        "test": {
+          "path": "/dev/shm/g32/rust-test-first.log",
+          "sha256": "667e9706e411c9c5404218c8a413b4c28ff05545bdf1416dfd69aa1b87093148"
+        },
+        "clippy": {
+          "path": "/dev/shm/g32/rust-clippy-first.log",
+          "sha256": "36cb131b5be2d90e1a0d3e6c1c4cb08ce536d89af5ea39f426718a01bb654504"
+        },
+        "build": {
+          "path": "/dev/shm/g32/rust-build-first.log",
+          "sha256": "cb255dbb6d1cf6e840caf4c122479b2233549872820887a93235713c9d0a48a9"
+        }
+      }
+    },
+    "frozen": {
+      "fmt": "pass",
+      "rust": "155 passed / 2 ignored",
+      "clippy": "pass",
+      "shipped_bins": "pass",
+      "logs": {
+        "test": {
+          "path": "/dev/shm/g32/rust-test-final.log",
+          "sha256": "66180b83d0f788e7d6ed0491b8a6be1cb02986b6a09d4c9df9eb94fc127284b1"
+        },
+        "clippy": {
+          "path": "/dev/shm/g32/rust-clippy-final.log",
+          "sha256": "1506deca0ac9847d9c88d10481e84b453394988b8707118ec7321b13f0223c39"
+        },
+        "build": {
+          "path": "/dev/shm/g32/rust-build-final.log",
+          "sha256": "1647a3ad605fc717712d2e95b7d2f0434d3dcc8b2c8cc6d76ee754214964793f"
+        }
+      }
+    }
+  },
+  "independent_source": {
+    "author": "Separate contract-only author. No production reads/diffs/imports or builds/runtime. Suite must be committed before root execution.",
+    "integrated": "c3c89c4370a01546b94e5f986e3f51ebbd97bde7",
+    "cases": 6,
+    "lines": 1171,
+    "initial_commit": "5e9d0b4ec6f0e0906c01632966a3f43c0ea9f9e1",
+    "initial_sha256": "07bc32d5d98dd803ff877ef115aee55286e21d278fbe55f9d6e9e61c354083b9",
+    "correction_commit": "63d0a23ae5fdf3c9ac2f8a0924a30dbe3137101a",
+    "correction_integrated": "ddc2b3512220b64ec2f8f0c5fcc00d551d0473e0",
+    "final_sha256": "2e169b0f8ed5d0c23c6b583e6292aa44e066382cd995efa8899bf347a94c897c",
+    "preservation_audit": "Independent and root static audits pass: restoring the one timestamp regex literal recreates all original frozen source bytes and AST exactly. Every other assertion/action/delay/timeout/capture is unchanged. All60 base slim/helper/native files remain byte-identical. No suite import/runtime by its author."
+  },
+  "preservation": {
+    "base_tracked_slim_helper_and_native_files": 60,
+    "changed": [],
+    "new_schema_tables_dependencies_or_native_changes": false
+  },
+  "local_runs": [
+    {
+      "label": "native-version",
+      "exit": 0,
+      "seconds": 0.01,
+      "log": "/dev/shm/g32/native-version-first.log",
+      "sha256": "d4986f1082ce2754694f97ceb54fb0c0dd3a49ec43a2031ea9c39648fabd5e1b"
+    },
+    {
+      "label": "native-validate",
+      "exit": 0,
+      "seconds": 0.74,
+      "log": "/dev/shm/g32/native-validate-first.log",
+      "sha256": "0e4bf992a3af7ef5083967b0c2b493a2c4f035d57c2f6f3e72737318afa3b9d0"
+    },
+    {
+      "label": "native-test",
+      "exit": 0,
+      "seconds": 50.27,
+      "log": "/dev/shm/g32/native-test-first.log",
+      "sha256": "a76e1cdbf07bf90f9ff1fa6e59c6853985774157a5af4bcc179a3e90841fa60c"
+    },
+    {
+      "label": "access-consent",
+      "exit": 0,
+      "seconds": 90.7,
+      "log": "/dev/shm/g32/access-consent-first.log",
+      "sha256": "f7edc83a4742a918e0d4568964d0aca9a3681b6a06088ae5db79e659340189da"
+    },
+    {
+      "label": "access-signing",
+      "exit": 1,
+      "seconds": 45.98,
+      "log": "/dev/shm/g32/access-signing-first.log",
+      "sha256": "7448ad137f64cd27e0815c3fabb5641f18d4759fda2f1639e95a1c1a1ad979d2"
+    },
+    {
+      "label": "access-signing-canonical",
+      "exit": 0,
+      "seconds": 109.17,
+      "log": "/dev/shm/g32/access-signing-canonical.log",
+      "sha256": "02e8c4e3b8a67b354d24c5e88c5e259419bb2aa6ebe0f517150e519c74dec171"
+    }
+  ],
+  "initial_failures": [
+    {
+      "run": "access-signing-first",
+      "result": "1 passed,5 failed in45.98s",
+      "source": "5e9d0b4ec6f0e0906c01632966a3f43c0ea9f9e1",
+      "production": "fc8cdf40f0027c1dde3dcfd513222edaf842aef5",
+      "cause": "Cases1/2/3 use an impossible fourth colon-separated observation time component; cases5/6 fail their genuine completed-signature prerequisites. Case4 passes.",
+      "correction_contract": "ca221e63de039bd9a6d903a60989666d0b6f7740",
+      "correction": "Independent63d0a23 fixes only the impossible fourth time component. Root restoration byte/AST audit passes; frozen production unchanged. Corrected full run6/6 in109.17s."
+    }
+  ],
+  "ci_before_implementation": {
+    "head": "49c9c5bf7b2b3f5a952008279dbabf3b932a996d",
+    "conformance": 41133996377,
+    "pull_request_checks": 41133996386,
+    "both": "success"
+  },
+  "root_source_review": [
+    "Exact input decision plus dual approval and timestamp equality are required before new key use.",
+    "One policy issuer slot derives key/format/message from immutable ordinary template. No caller-selected provider or key path.",
+    "Device signs under held current-authority transaction; original lookup/signing release the database and fresh guards run before and after IO.",
+    "Only ordinary action signature/completed and monotonic clock are written atomically. No application/publication/outbox/event/receipt changes.",
+    "Verified signed replay bypasses current provider/authority/key lookup and makes no write.",
+    "Public marker reports policy application, peer delivery and connection readiness as not_verified."
+  ],
+  "limits": [
+    "Signature storage only; publication/local application and native access controls follow separately.",
+    "An external signer call may outlive HTTP timeout; fresh budget guards refuse late persistence. No external IO retraction guarantee.",
+    "Full ninety-second timeout, precise crash/lost-response/overlap windows and complex authority/quota/overflow are source-review limits unless independent runtime evidence below says otherwise.",
+    "Installed/physical-machine/actual-model/schema23-to27 upgrade/full-state recovery and final combined feature acceptance remain open; PR35 stays unmerged.",
+    "No genuine broken selected-device seed, complex fork/member/lease/incomplete/unsettled sibling or quota/u64/edit overflow exhaustion was fabricated.",
+    "No valid unsafe/oversized frozen response, aggregate capacity boundary, foreign-owned file or exact file-open syscall count was isolated.",
+    "No actual terminal/native control, installed bundle, physical machine or model call was exercised by this host-only slice."
+  ],
+  "binaries": {
+    "peerspan-host": "7f2f69a23f641f0fd78642dda9c8651dc1ee20eb94d668c609dae33a424c9276",
+    "peerspan-peer-probe": "799a1a08810447a044d93f5a1bf4dd75db2d96c094f1f1b95ecfc53d81740f9c",
+    "peerspan-helper": "0e83680db1f486f62753916faee0bcdfc7ea669f7d6527358c3a1fcf9e19363b"
+  },
+  "binary_directory": "/dev/shm/peerspan-gu-sign-fc8cdf4-bin",
+  "runner": {
+    "TMPDIR": "/dev/shm/g32",
+    "primary_work": "serialized local compiler/runtime gates; no overlapping root compiler or local suite",
+    "native_version": "2.1.303",
+    "native_config": "isolated RAM configuration",
+    "native_updates_and_nonessential_traffic": "disabled"
+  },
+  "verified_boundaries": [
+    "Genuine two-person/two-host public admission and exact project consent; selected-device signature externally verifies over frozen message.",
+    "Genuine configured original file and actual two-identity ssh-agent; exact key/preimage and one signature, no possession signature; eight unsafe/missing file variants and wrong-agent-key refusal.",
+    "Dual approval/latest/context/person/project/provider/head/expiry/raw rollback guards; actual held agent lookup allows ordinary provider change, held signature allows ordinary detach; no late acceptance.",
+    "Real wrong-role/key/message/format/signature agent result faults and separate late signature/clock SQLite ABORT preserve all prior state.",
+    "Signed device/file/agent replay after expiry, provider/policy/consent/project change, detach, restart and missing/broken signer: whole schemas/DB/state/home, BOTH bootstrap TCP and every enabled UDP counter pure; no agent probe.",
+    "Closed bounded input/privacy/argv/method/no-daemon/owner-router isolation, restored genuine receipt/reference/signature/completed corruption."
+  ]
+}
