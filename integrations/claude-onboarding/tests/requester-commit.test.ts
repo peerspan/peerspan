@@ -481,7 +481,8 @@ async function ownerRecord(w: World, options: any = {}) {
     host_public_key: request.host_public_key, device_public_key: request.device_public_key,
     proposed_owner_offer_id: id64('dpk', 61), scopes: 7,
     not_after: stamp(Date.parse(request.created_at) + 7 * 86_400_000),
-    expires_at: stamp(Math.floor((options.expires ?? (state === 'expired' ? NOW - 1000 : NOW + 900_000)) / 1000) * 1000), effects: clone(ownerEffects) }
+    expires_at: stamp(Math.floor(Math.min(options.expires ?? (state === 'expired' ? NOW - 1000 : NOW + 900_000),
+      Date.parse(request.expires_at)) / 1000) * 1000), effects: clone(ownerEffects) }
   return { review_id: await digest('peerspan-onboarding-original-owner-review-v1', review), review, state,
     next_action: state === 'review' ? 'approve_owner_intent' : state === 'approved'
       ? request.owner_offer_id === '-' ? 'provide_original_signature' : 'follow_join_progress' : 'inspect_join_progress' }
@@ -841,16 +842,18 @@ test('authoritative parent host flow root native and terminal are reread after p
   const w = fixture(on); let ui = await commitEligible($, w); const normal = w.run
   const saved = { parent: clone(w.parent), joining: clone(w.joining), owner: clone(w.ownerValue) }
   for (const [index, mode] of ['parent', 'host', 'flow', 'root', 'native', 'terminal'].entries()) {
+    let changedFlow: any
     if (index) {
       w.parent = clone(saved.parent); w.joining = clone(saved.joining); w.ownerValue = clone(saved.owner); w.commitValue = null
       w.host = HOST; w.root = ROOT; w.native = NATIVE; w.surface = 'terminal'; w.surfaces = ['terminal']; w.run = normal
       ui = await enter($, w); await joinEntry(w, ui); await reviewOwner(ui)
     }
     w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e)
+      if (kind === 'join.inspect' && changedFlow) return changedFlow
       if (kind === COMMIT_PREPARE) {
         if (mode === 'parent') w.parent.state = 'invalidated'
         if (mode === 'host') w.host = 'host_' + '9'.repeat(64)
-        if (mode === 'flow') w.joining = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested', n: 99 })
+        if (mode === 'flow') changedFlow = await joinFlow(w.parent, await previewResponse(w), KEY, { state: 'requested', n: 99 })
         if (mode === 'root') w.root = '/different-committing-root'
         if (mode === 'native') w.native = 'different-native-conversation'
         if (mode === 'terminal') { w.surface = null; w.surfaces = [] }
