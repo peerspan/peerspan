@@ -2703,3 +2703,15 @@ stay private transport bindings. Leave returns to published joining outcome
 with both review controls cleared; reopening is explicit. Discarded: exposing
 internal digest/intent references as user choices, preserving stale review
 controls after Leave or attributing global F to this pane.
+
+### GU.impl26b — Isolate the signing suite's own live inspection transport
+
+Initial local existing owner_finalization_signing5/6 in93s stopped case3 at a
+pure inspection baseline: one added zero-byte connection on each relay. Selected:
+independent author adapts the documented25e consumed-ClientHello/same-live-held-
+generation setup to this suite's separate Relay/quiet helpers, preserving every
+original assertion/delay/timeout and strict bothcarrier/DB/state/home category.
+The exact earlier per-connection cause is unclassified. No product changes or
+unchanged rerun; native20 is committed separately before execution. Discarded:
+assuming invitation expiry/quiet gaps isolate requester polling, filtering any
+counter/category, disabling workers, row edits and retry-until-green.
