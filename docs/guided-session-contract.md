@@ -6106,7 +6106,13 @@ unclassified failures; it identifies missing fixture prerequisites.
 
 For this new suite only, before its history clock advance/restart, observe actual
 retirement of the latest genuine policy generation AFTER the ordinary new-head
-operation. Earlier quiescence cannot settle newly queued work. After restart and
+operation. Earlier quiescence cannot settle newly queued work. If current
+mutual hints are already expired at this earlier stage, establish the same
+ordinary signed counted handoffs/import/retained GET before observing that
+policy generation's actual outbox/journal retirement. Its invitation secrets
+may remain until the later shared cleanup; do not label that intermediate
+stage whole-transport retirement or take a pure baseline there. Include every
+such actual invitation deadline in the final cleanup target. After restart and
 expiry, establish genuine mutually retained current counted contact hints using
 ordinary short signed handoffs and authenticated peer import/retained GET. Retire
 those actual short invitation windows with one bounded synchronized clock step
