@@ -714,12 +714,23 @@ def _():
     # immediate post-application traffic attribution is not claimed here.
     modes(f, "pass")
     advance_to(a, parse_time(f["initial"]["expires_at"]) + timedelta(seconds=1))
-    # Retirement is ordinary explicit work, not a promise about a periodic
-    # cleanup interval. Both real participants/carriers remain available for
-    # this one documented terminal-publication/cleanup pass.
-    actual, terminal = a.api("POST", "/v2/link/requests/" + rid + "/resume", {}, timeout=35)
-    check(actual == 200 and terminal.get("state") == "linked", f"ordinary deadline-retirement driver HTTP {actual}, linked={terminal.get('state') == 'linked'}")
-    public(terminal, f["code"], f["reply"])
+    # Fresh request creation runs ordinary pending-capacity/expiry maintenance;
+    # neither a periodic interval nor successful terminal resume promised that
+    # cleanup. This genuine unrelated unapproved request is immediately cancelled.
+    # Its own-device/nonce/secret work all precedes the historical purity baseline.
+    spare_key = ssh_key(suite.work, "retirement-spare-original")
+    spare_person = ssh_public_base64(spare_key)
+    actual, spare = a.api("POST", "/v2/link/requests", {
+        "mode": "new", "network_id": "-", "person_public_key": spare_person,
+        "migration_proposal_id": "-", "contact_invitation": "-", "helpers": []})
+    check(actual == 201 and spare.get("request_id") != rid and spare.get("role") == "requester" and
+          spare.get("person_public_key") == spare_person and spare.get("selection_approved") is False and spare.get("commit_approved") is False,
+          f"unapproved ordinary maintenance fixture HTTP {actual}")
+    actual, cancelled = a.api("POST", "/v2/link/requests/" + spare["request_id"] + "/cancel", {})
+    check(actual == 200 and cancelled.get("request_id") == spare["request_id"] and cancelled.get("state") == "cancelled" and
+          cancelled.get("selection_approved") is False and cancelled.get("commit_approved") is False,
+          f"ordinary maintenance fixture cancellation HTTP {actual}")
+    public(cancelled, f["code"], f["reply"])
     def terminal_transport_retired():
         with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
             row = db.execute("SELECT record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
