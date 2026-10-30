@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-29",
+  "kind": "manual real native terminal and temporary owner-local host",
+  "claude_version": "2.1.303",
+  "source_heads": {
+    "initial_review_approval_connect_close_renewal_stop": "db4685f259e18a5733c54696b7d3d7dd43213d07",
+    "reload_explicit_reconnect_and_stop": "a4da052503289daf891017f9871a5c4015c120ed",
+    "rust_binaries": "db4685f259e18a5733c54696b7d3d7dd43213d07"
+  },
+  "source_difference": "Before reconnect, changes were documentation and native presentation: summarize completed attachment while the child is open or connected, and remove stale connection-is-next text. A later independent fixture found that session end cleared runtime without invalidating cached UI; commit 75e2f2a adds that invalidation and passes all 83 native runtime cases. The manual lifecycle run predates that UI fix. Rust binaries were unchanged.",
+  "fixture": {
+    "native_claude_process": true,
+    "temporary_single_host": true,
+    "project_path_contained_spaces": true,
+    "state_path_contained_spaces": false,
+    "adapter_socket_utf8_bytes": 71,
+    "coordinator_used": false,
+    "physical_machines": 1,
+    "installed_bundle": false,
+    "inference_attempted": false
+  },
+  "actions": [
+    "Open /peerspan in the existing native conversation.",
+    "Connect this project; review a new local agent and approve its metadata attachment.",
+    "Review adapter connection; inspect full identity, fixed expiry and effects; approve adapter.",
+    "Press Connect adapter; observe connected, incoming delivery not verified, peer exchange not verified.",
+    "Close the pane; two database samples seven seconds apart show last_seen advancement and a live lease.",
+    "Reopen the pane; Stop adapter; samples seven seconds apart show renewal stopped without revocation.",
+    "Reload plugins; reopen /peerspan; no automatic connection, live adapters zero after the previous lease expires.",
+    "Connect this project and resume the same authorized child; explicitly Connect adapter; the original bound instance is accepted.",
+    "Observe renewed lease, condensed completed-parent presentation and unverified delivery statuses.",
+    "Stop adapter again; samples six seconds apart show no renewal; close and exit Claude; stop the temporary daemon."
+  ],
+  "observations": {
+    "agents": 1,
+    "sessions": 1,
+    "project_flows": 1,
+    "adapter_flows": 1,
+    "adapter_credentials": 1,
+    "networks": 0,
+    "events": {
+      "agent.registered": 1,
+      "session.attached": 1,
+      "adapter.created": 1,
+      "adapter.connected": 2
+    },
+    "renewal_advanced_after_explicit_reconnect": true,
+    "renewal_stopped_after_stop": true,
+    "channel_verified": false,
+    "protocol": "claude-mod-v1",
+    "native_transcript_found": true,
+    "assistant_messages_in_transcript": 0,
+    "private_flow_and_review_ids_absent_from_transcript": true,
+    "credential_and_instance_prefixes_absent_from_transcript": true
+  },
+  "limitations": [
+    "This is a source-loaded terminal plugin and temporary single-host check, not installed two-machine acceptance.",
+    "No model prompt, adapter ready call, work consumption, task execution or peer exchange was attempted.",
+    "A scoped lease and native conversation check do not establish model-observed incoming delivery.",
+    "No stale synchronous Stop closure was invoked: the public native test kit exposes current drawing controls only; captured-runtime and generation guards are source reviewed."
+  ]
+}

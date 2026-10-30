@@ -174,10 +174,22 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=23).contains(&version) {
+        if !(0..=27).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
+        if version < 27 {
+            crate::onboarding_join::check_namespace(&tx)?;
+        }
+        if version < 26 {
+            crate::onboarding_invitation::check_namespace(&tx)?;
+        }
+        if version < 25 {
+            crate::onboarding_adapter::check_namespace(&tx)?;
+        }
+        if version < 24 {
+            crate::onboarding::check_namespace(&tx)?;
+        }
         if version < 23 {
             crate::decentralized::storage::check_migration_namespace(&tx)?;
         }
@@ -250,6 +262,22 @@ impl Store {
         if version < 23 {
             tx.execute_batch(crate::decentralized::storage::SCHEMA)?;
         }
+        if version < 24 {
+            tx.execute_batch(crate::onboarding::SCHEMA)?;
+        }
+        if version < 25 {
+            tx.execute_batch(crate::onboarding_adapter::SCHEMA)?;
+        }
+        if version < 26 {
+            tx.execute_batch(crate::onboarding_invitation::SCHEMA)?;
+        }
+        if version < 27 {
+            tx.execute_batch(crate::onboarding_join::SCHEMA)?;
+        }
+        crate::onboarding_join::check_schema(&tx)?;
+        crate::onboarding::check_schema(&tx)?;
+        crate::onboarding_adapter::check_schema(&tx)?;
+        crate::onboarding_invitation::check_schema(&tx)?;
         crate::decentralized::storage::check_schema(&tx)?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")

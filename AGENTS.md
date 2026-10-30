@@ -45,7 +45,35 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).
 - `capabilities`: sources, sharing, calls, approval, bounds, remote MCP servers and the built-in `gh` source.
 - `basics`: info, status, errors, storage and restart (spec 14 to 17).
+- `onboarding`: the owner-local guided-onboarding observation, request privacy,
+  adapter readiness and read-only behavior (guided session contract section 1).
+- `project_onboarding`: exact local project reviews, atomic metadata attachment,
+  replay/replacement and schema24 boundaries (guided session contract section3).
+- `adapter_onboarding`: exact guided adapter authorization, private credential
+  recovery, scope/replacement boundaries and additive schema25 (section5).
+- `invitation_onboarding`: exact contact-invitation reviews, atomic issuance,
+  private handoff/recovery and additive schema26 (section9), plus read-only
+  recipient signed-invitation inspection and privacy boundaries (section11).
+- `join_onboarding`: exact recipient public-key/publication consent, atomic
+  ordinary join-request creation, replay/privacy and additive schema27 (section12).
+
+- `owner_onboarding`: exact new-original owner review, ordinary-intent atomic
+  approval, rollback/history and consent boundaries (guided session contract section16).
+- `owner_signing`: bounded local original owner-offer signing, exact generated/
+  SSH-agent selection, typed-slot faults and pure replay (section18).
+- `admission_onboarding`: read-only incoming new-original request/owner/selection
+  inspection before administrator consent, purity and privacy (section20).
+- `admission_consent`: exact durable root administrator intent preparation/approval,
+  atomic rollback, public privacy and pure historical recovery (section21).
+- `incoming_progress`: explicit bounded pinned GET/atomic incoming original and
+  selection evidence retention, before/after IO guards and no consent (section22).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
 Packaging changes require `conformance/installed_bundle.py` against a freshly packaged bundle (Python 3.12 or newer; the Draft Linux release workflow runs it) and `conformance/test_package_release.py`. Live runs with real models are separate manual checks.
+
+- `owner_finalization`: pure original finalization eligibility/administrator
+  root/P/H snapshot, exact original consent and privacy (guided section24).
+
+- `owner_finalization_signing`: bounded original B/D/F signing under exact
+  original consent/verified administrator parents and key/privacy (section25).

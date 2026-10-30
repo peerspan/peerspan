@@ -744,6 +744,32 @@ fn revalidate(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<
     Ok(terms)
 }
 pub(crate) fn owner(store: &Store, input: &Obj) -> Result<Vec<u8>> {
+    let (request_id, new, approval) = {
+        let mut c = store.connection().map_err(|_| Error::new("internal"))?;
+        let tx = c.transaction().map_err(db)?;
+        let result = owner_in(store, &tx, input, |_| Ok(()))?;
+        tx.commit().map_err(db)?;
+        result
+    };
+    if new {
+        controls::barrier(store, "dec.intent.after_commit", &request_id)?;
+    }
+    if approval {
+        controls::barrier(store, "dec.approval.after_commit", &request_id)?;
+    }
+    if input["approve"] == true {
+        resume(store, &request_id)?;
+    }
+    get(store, &request_id)
+}
+/// Caller owns the transaction; validate an additional exact public proposal
+/// before any approval write. Ordinary callers impose no onboarding binding.
+pub(crate) fn owner_in(
+    store: &Store,
+    tx: &Connection,
+    input: &Obj,
+    check_proposal: impl FnOnce(&Value) -> Result<()>,
+) -> Result<(String, bool, bool)> {
     fields(
         input,
         "code network_id person_public_key provider_id signature_format scopes not_after expected_host_public_key expected_device_public_key approve",
@@ -770,148 +796,167 @@ pub(crate) fn owner(store: &Store, input: &Obj) -> Result<Vec<u8>> {
     let approved = input["approve"]
         .as_bool()
         .ok_or_else(|| Error::new("invalid"))?;
-    let (request_id, new, approval) = {
-        let mut c = store.connection().map_err(|_| Error::new("internal"))?;
-        let tx = c.transaction().map_err(db)?;
-        let existing = match requests::load(&tx, &code.request_id) {
-            Ok(p) => Some(p),
-            Err(e) if e.code == "not_found" => None,
-            Err(e) => return Err(e),
-        };
-        let mut pending = if let Some(p) = existing {
-            require(
-                p.record.request_packet_base64 == encode(&code.request_packet)
-                    && p.secret == Some(code.secret),
-                "operation_conflict",
-            )?;
-            p
-        } else {
-            let snapshot = Snapshot::load(&tx, network, &store.identity().public_key)?;
-            let count: i64 = tx
-                .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
-                .map_err(db)?;
-            require(count < 4096, "quota_exceeded")?;
-            let mut q = tx
-                .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*'")
-                .map_err(db)?;
-            let ids = q
-                .query_map([], |r| r.get::<_, String>(0))
-                .map_err(db)?
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(db)?;
-            drop(q);
-            let active = ids
-                .iter()
-                .map(|id| requests::load(&tx, id))
-                .collect::<Result<Vec<_>>>()?
-                .into_iter()
-                .filter(|p| matches!(p.record.terminal.as_str(), "-" | "migration_prepared"))
-                .count();
-            require(active < 8, "quota_exceeded")?;
-            from_code(&code, &snapshot.descriptor)?
-        };
-        let t = terms(
-            &tx,
-            store,
-            &pending,
-            network,
-            person,
-            text(input, "provider_id")?,
-            text(input, "signature_format")?,
-            num(input, "scopes")?,
-            text(input, "not_after")?,
-        )?;
-        let mut new = false;
-        let mut i = if pending.record.owner_intent_id != "-" {
-            let i = owner_intent(&tx, &pending)?;
-            // Later dependency materialization changes the public stage/review,
-            // while the original offer and reviewed terms remain immutable.
-            let first = i
-                .objects(&t.descriptor)?
-                .remove(0)
-                .ok_or_else(|| Error::new("state_conflict"))?;
-            require(
-                Packet::read_template(first.bytes())?.id
-                    == Packet::read_template(&offer(&pending, &t)?)?.id
-                    && i.record.provider.kind == t.provider.kind
-                    && i.record.provider.signer_public_key == t.provider.signer_public_key
-                    && i.record.provider.lease_id == t.provider.lease_id,
-                "operation_conflict",
-            )?;
-            i
-        } else {
-            new = true;
-            let count: i64 = tx
-                .query_row("SELECT COUNT(*) FROM dec_intents", [], |r| r.get(0))
-                .map_err(db)?;
-            let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_intents WHERE json_extract(record,'$.terminal')='-' AND json_extract(record,'$.completed')=0",[],|r|r.get(0)).map_err(db)?;
-            require(count < 4096 && active < 64, "quota_exceeded")?;
-            let now = t.time.clone();
-            let template = offer(&pending, &t)?;
-            FixedObject::read(&t.descriptor, "owner_offer_packet", &template)?;
-            Intent {
-                id: id()?,
-                network_id: network.into(),
-                context_id: t.descriptor.context_id(),
-                kind: "owner".into(),
-                secret: None,
-                record: intents::Record {
-                    format: 1,
-                    operation_id: pending.id.clone(),
-                    approved: false,
-                    approved_at: "-".into(),
-                    review_base64: encode(&bytes(&t.review)?),
-                    provider: t.provider.clone(),
-                    root_state_id: field(&t.review, "root_state_id")?.into(),
-                    person_public_key: person.into(),
-                    host_public_key: pending.record.host_public_key.clone(),
-                    device_public_key: pending.record.device_public_key.clone(),
-                    scopes: num(input, "scopes")?,
-                    not_after: text(input, "not_after")?.into(),
-                    created_at: now,
-                    expires_at: pending.deadline.clone(),
-                    templates: initial_templates(&tx, store, &pending, &t, &template)?,
-                    signatures: Vec::new(),
-                    completed: false,
-                    terminal: "-".into(),
-                    result_base64: "-".into(),
-                },
-            }
-        };
-        let approval = approved && !i.record.approved;
-        if approval {
-            i.record.approved = true;
-            i.record.approved_at = t.time.clone();
-        }
-        if !pending.record.roles.iter().any(|r| r == "owner") {
-            pending.record.roles.push("owner".into());
-            pending.record.roles.sort_by_key(|r| match r.as_str() {
-                "requester" => 0,
-                "owner" => 1,
-                _ => 2,
-            });
-        }
-        pending.record.descriptor_base64 = encode(&bytes(&t.descriptor)?);
-        pending.record.owner_intent_id = i.id.clone();
-        if let Some(catalog) = t.catalog {
-            pending.record.catalog_base64 = encode(&catalog);
-        }
-        i.save(&tx)?;
-        requests::save(&tx, &pending)?;
-        controls::remember_decision(&tx, network, &t.time)?;
-        tx.commit().map_err(db)?;
-        (pending.id, new, approval)
+    let existing = match requests::load(tx, &code.request_id) {
+        Ok(p) => Some(p),
+        Err(e) if e.code == "not_found" => None,
+        Err(e) => return Err(e),
     };
-    if new {
-        controls::barrier(store, "dec.intent.after_commit", &request_id)?;
-    }
+    let mut pending = if let Some(p) = existing {
+        require(
+            p.record.request_packet_base64 == encode(&code.request_packet)
+                && p.secret == Some(code.secret),
+            "operation_conflict",
+        )?;
+        p
+    } else {
+        let snapshot = Snapshot::load(tx, network, &store.identity().public_key)?;
+        let count: i64 = tx
+            .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
+            .map_err(db)?;
+        require(count < 4096, "quota_exceeded")?;
+        let mut q = tx
+            .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*'")
+            .map_err(db)?;
+        let ids = q
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(db)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db)?;
+        drop(q);
+        let active = ids
+            .iter()
+            .map(|id| requests::load(tx, id))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|p| matches!(p.record.terminal.as_str(), "-" | "migration_prepared"))
+            .count();
+        require(active < 8, "quota_exceeded")?;
+        from_code(&code, &snapshot.descriptor)?
+    };
+    let t = terms(
+        tx,
+        store,
+        &pending,
+        network,
+        person,
+        text(input, "provider_id")?,
+        text(input, "signature_format")?,
+        num(input, "scopes")?,
+        text(input, "not_after")?,
+    )?;
+    let mut new = false;
+    let mut i = if pending.record.owner_intent_id != "-" {
+        let i = owner_intent(tx, &pending)?;
+        // Later dependency materialization changes the public stage/review,
+        // while the original offer and reviewed terms remain immutable.
+        let first = i
+            .objects(&t.descriptor)?
+            .remove(0)
+            .ok_or_else(|| Error::new("state_conflict"))?;
+        require(
+            Packet::read_template(first.bytes())?.id
+                == Packet::read_template(&offer(&pending, &t)?)?.id
+                && i.record.provider.kind == t.provider.kind
+                && i.record.provider.signer_public_key == t.provider.signer_public_key
+                && i.record.provider.lease_id == t.provider.lease_id,
+            "operation_conflict",
+        )?;
+        i
+    } else {
+        new = true;
+        let count: i64 = tx
+            .query_row("SELECT COUNT(*) FROM dec_intents", [], |r| r.get(0))
+            .map_err(db)?;
+        let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_intents WHERE json_extract(record,'$.terminal')='-' AND json_extract(record,'$.completed')=0",[],|r|r.get(0)).map_err(db)?;
+        require(count < 4096 && active < 64, "quota_exceeded")?;
+        let now = t.time.clone();
+        let template = offer(&pending, &t)?;
+        FixedObject::read(&t.descriptor, "owner_offer_packet", &template)?;
+        Intent {
+            id: id()?,
+            network_id: network.into(),
+            context_id: t.descriptor.context_id(),
+            kind: "owner".into(),
+            secret: None,
+            record: intents::Record {
+                format: 1,
+                operation_id: pending.id.clone(),
+                approved: false,
+                approved_at: "-".into(),
+                review_base64: encode(&bytes(&t.review)?),
+                provider: t.provider.clone(),
+                root_state_id: field(&t.review, "root_state_id")?.into(),
+                person_public_key: person.into(),
+                host_public_key: pending.record.host_public_key.clone(),
+                device_public_key: pending.record.device_public_key.clone(),
+                scopes: num(input, "scopes")?,
+                not_after: text(input, "not_after")?.into(),
+                created_at: now,
+                expires_at: pending.deadline.clone(),
+                templates: initial_templates(tx, store, &pending, &t, &template)?,
+                signatures: Vec::new(),
+                completed: false,
+                terminal: "-".into(),
+                result_base64: "-".into(),
+            },
+        }
+    };
+    let mut proposal = owner_proposal(&pending, &i)?;
+    proposal["decision_time"] = json!(t.time);
+    check_proposal(&proposal)?;
+    let approval = approved && !i.record.approved;
     if approval {
-        controls::barrier(store, "dec.approval.after_commit", &request_id)?;
+        i.record.approved = true;
+        i.record.approved_at = t.time.clone();
     }
-    if approved {
-        resume(store, &request_id)?;
+    if !pending.record.roles.iter().any(|r| r == "owner") {
+        pending.record.roles.push("owner".into());
+        pending.record.roles.sort_by_key(|r| match r.as_str() {
+            "requester" => 0,
+            "owner" => 1,
+            _ => 2,
+        });
     }
-    get(store, &request_id)
+    pending.record.descriptor_base64 = encode(&bytes(&t.descriptor)?);
+    pending.record.owner_intent_id = i.id.clone();
+    if let Some(catalog) = t.catalog {
+        pending.record.catalog_base64 = encode(&catalog);
+    }
+    i.save(tx)?;
+    requests::save(tx, &pending)?;
+    controls::remember_decision(tx, network, &t.time)?;
+    Ok((pending.id, new, approval))
+}
+/// Stable public proposal from the immutable first owner template, even after
+/// the intent's later mutable review has become owner_finalization.
+fn owner_proposal(p: &Pending, i: &Intent) -> Result<Value> {
+    let first = i
+        .record
+        .templates
+        .first()
+        .ok_or_else(|| Error::new("state_conflict"))?;
+    check(first.object_type == "owner_offer_packet")?;
+    let offer = Packet::read_template(&b64(&first.template_base64, MAX_OBJECT)?)?;
+    let r = &i.record;
+    let possession_only = r.provider.kind == "original"
+        && r.provider.signature_format == "sshsig"
+        && r.provider.signer_public_key == r.person_public_key
+        && r.provider.lease_id == "-"
+        && text(&offer.payload, "root_state_id")? == "-"
+        && text(&offer.payload, "person_lease_id")? == "-"
+        && array(&offer.payload, "issuer_lease_ids")?.is_empty();
+    check(text(&offer.object, "request_id")? == p.id)?;
+    Ok(
+        json!({"intent_id":i.id,"created_at":r.created_at,"expires_at":r.expires_at,
+        "approved":r.approved,"terminal":r.terminal,"possession_only":possession_only,
+        "network_id":i.network_id,"context_id":i.context_id,"member":text(&offer.payload,"member")?,
+        "person_public_key":r.person_public_key,"host_public_key":r.host_public_key,
+        "device_public_key":r.device_public_key,"owner_offer_id":offer.id,
+        "scopes":r.scopes,"not_after":r.not_after}),
+    )
+}
+pub(crate) fn stored_owner_proposal(c: &Connection, p: &Pending) -> Result<Value> {
+    owner_proposal(p, &owner_intent(c, p)?)
 }
 pub(crate) fn get(store: &Store, request: &str) -> Result<Vec<u8>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;

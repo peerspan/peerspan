@@ -127,3 +127,181 @@ Task delegation between hosts, roadmap milestone 6, is specified in the [task de
 The `peerspan` name, the reduced root help, network defaulting, expiry defaults with renewable session credentials, and `status` (`GET /v1/status`), roadmap milestone 7, are specified in the [launch contract](launch-contract.md), together with the service installer and coordinator limits, team onboarding, the directory and addressing, and two relay protocol versions: version 2's `changed` notifications (slice 5) and version 3's `presence` notifications (slice 6).
 
 The guided `up` command composes installation, onboarding, and attachment as specified in the [guided setup contract](guided-setup-proposal.md), with installed-bundle recovery checks in `conformance/up_acceptance.py`.
+
+The isolated guided-onboarding feature starts with a read-only
+`GET /v1/onboarding` on the owner-local socket and the advanced `onboarding`
+CLI command. The [guided session contract](guided-session-contract.md#1-observation-slice-gu-01a--gu-02a)
+defines its coherent network/request snapshot, full public adapter connection
+evidence, purity and verification. It grants no approval or setup authority;
+the interactive flow remains subsequent work on that feature branch. The
+[native Claude entry](guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a)
+reads that observation and offers a local conversation check. Its model tool
+only acknowledges a challenge; it acquires no owner administration authority.
+
+The [exact local project review](guided-session-contract.md#3-exact-local-project-review-gu-01c--gu-02b)
+adds owner-local prepare/inspect/decision routes and advanced stdin-only CLI
+mutations. Schema24 adds private durable review rows. Approval records local
+agent/session metadata atomically; it issues no adapter credential or access.
+
+The [native project review controls](guided-session-contract.md#4-native-project-selection-and-human-review-gu-02c--gu-03b)
+use a read-only private context lookup before agent selection. Its owner-local
+POST and stdin CLI return current flow/agent choices in one snapshot. Native
+callbacks inspect and submit the exact reviewed context; model tools retain
+no owner-decision operation. Schema24 and the attachment effects are unchanged.
+
+The [exact guided adapter review](guided-session-contract.md#5-exact-local-adapter-authorization-gu-01d--gu-02d)
+adds a separate owner-local review for the existing project's scoped credential.
+Approval issues one fixed-expiry authorization with no directory access,
+outbound routes or capability calls. Private exact credential retrieval is
+separate from public flow observations and decision responses, and supports
+lost-response recovery without plaintext token storage. Schema25 adds one
+private child-flow table; schema24 project rows and DEC authority are unchanged.
+This host API does not establish a connection, channel verification or model
+receipt.
+
+The [native adapter review and lease](guided-session-contract.md#6-native-credential-review-and-scoped-lease-gu-02e--gu-03c)
+adds exact human consent and explicit connection in the existing Claude pane.
+Its private stdin `onboarding adapter transport` wrapper derives the original
+instance and selects the sibling adapter socket after exact credential retrieval;
+it adds no API, schema or write. Native renewal uses the existing scoped connect
+route. A live lease remains separate from incoming delivery and peer receipt.
+
+The [native incoming-message path](guided-session-contract.md#7-native-incoming-messages-and-exact-model-acknowledgment-gu-03d)
+explicitly enables a current-conversation readiness challenge before using the
+existing scoped ready/next/forwarded/seen/reply routes. It adds no API/schema or
+access grant. A saved host channel is insufficient for the current native
+attempt; submission, model acknowledgment and peer receipt remain distinct.
+
+The [native assigned-task path](guided-session-contract.md#8-native-assigned-tasks-and-cancellation-gu-03e)
+explicitly enables existing scoped task/cancellation claims and lifecycle
+routes under the current native readiness proof. It changes no host API/schema
+or grant. Submitted prompts, successful model lifecycle calls and peer result
+retrieval remain separate. Task file transfer and outward delegation are not
+provided by this frontend slice.
+
+The [exact contact-invitation review](guided-session-contract.md#9-exact-contact-invitation-review-gu-01e--gu-02f--gu-04a)
+adds owner-local prepare/lookup/inspect/decision and explicit private handoff
+operations for an attached guided project. Schema26 adds only the durable
+invitation-flow table. Approval atomically mints one ordinary coordinator-free
+introduction and return-path state; ordinary views never return its private
+code. Membership, machine approval, agent access and native human controls
+remain separate. Existing advanced invitation semantics are preserved.
+
+The [recipient invitation preview](guided-session-contract.md#11-recipient-invitation-inspection-gu-01f--gu-02g--gu-04c)
+adds owner-local `POST /v1/onboarding/invitation-preview` and private stdin
+`onboarding invitation preview`. It verifies the core signed introduction and
+returns only exact public review terms for the attached project. It retains no
+code, writes no state, creates no identity/request and performs no network I/O.
+Schema26 and existing invitation/linking behavior remain unchanged. The native
+private input is separate from chat; signature validity grants no authority.
+
+
+The [recipient join-request review](guided-session-contract.md#12-exact-recipient-join-request-consent-backend)
+adds owner-local prepare/lookup/inspect/decision routes and private stdin
+`onboarding join` commands. Explicit consent binds one supplied person public
+key and verified invitation; request/device/frame state and its public outcome
+commit atomically. Schema27 adds public join-flow state only. Person-key
+selection, creation/persistence and native controls use the separate local
+commands described below; publication never establishes possession, membership,
+agent access or receipt.
+
+
+The [native existing-identity join flow](guided-session-contract.md#13-native-joining-with-an-existing-local-original-identity)
+adds a read-only local `onboarding join identities --stdin` CLI inventory and
+explicit native public-key choice/request review. It reuses the section12 API
+without a new endpoint/schema. Original private keys/agent sockets never reach
+the daemon. New-key creation uses separate explicit consent below; participant
+authority and readiness remain separate. Outcome recovery never automatically
+retries publication.
+
+
+[Explicit local original creation](guided-session-contract.md#14-explicit-new-original-identity-creation)
+adds owner-invoked `onboarding join create-identity --stdin` and separate native
+creation consent for empty, unpinned identity choices. Local private filesystem
+persistence completes atomically without replacing an existing key, before public
+identity choice and request approval. No new API/schema or person signature;
+unknown outcomes recover through normal read-only inventory, never auto-retry.
+
+
+[Published-request progress](guided-session-contract.md#15-read-only-published-request-progress)
+adds private owner-local `POST /v1/onboarding/join-flows/{id}/progress` and
+`onboarding join progress --stdin`. It binds the historical requested flow,
+review/context/outcome and exact validated ordinary request in one read snapshot,
+with guarded observation time and derived next participant/action. Native Check
+is explicit. No schema, key, signature, authority mutation, peer poll or resume;
+local application remains separate from current authority/access/readiness.
+
+
+[New-original owner consent](guided-session-contract.md#16-exact-new-original-owner-consent-backend)
+adds private owner-local `POST /v1/onboarding/join-flows/{id}/owner/{prepare,lookup,approve}`
+and `onboarding join owner prepare|lookup|approve --stdin`. Exact context-bound
+public terms reuse the ordinary unapproved owner intent and atomically record
+its approval, with a fixed profile7 and seven-day proposed lifetime. No new
+schema, code export, original-key handling or original signature collection.
+Recorded approval and later signature/finalization remain separate from admission,
+requester commit, agent access and readiness.
+[Native exact consent](guided-session-contract.md#17-native-exact-owner-consent)
+uses the existing owner CLI with explicit Review/Approve/Leave and pure lookup
+recovery. It collects no original signature.
+[Bounded local signing](guided-session-contract.md#18-bounded-local-original-owner-offer-signing)
+adds `onboarding join owner sign --stdin`: one exact approved owner-offer
+authority SSHSIG from the safe normal generated key or exact SSH-agent identity,
+submitted through the existing ordinary typed signature endpoint. It accepts
+only flow/context/join-review/owner-review references and the explicit
+`sign_original_owner_offer` decision. No key path or signing bytes are accepted.
+Fresh parent/host/request checks bound key use and one submission; no poll,
+automatic retry, later finalization, new route or schema. A public recorded result
+is signature evidence only. Exact completed-offer replay avoids key/agent IO,
+including historical detached/expired flows.
+[Native bounded signing](guided-session-contract.md#19-native-bounded-original-owner-offer-signing)
+uses that exact CLI after an explicit human Sign action and fresh bindings, with
+one45s process bound. It validates the same public review plus recorded marker,
+keeps partial signature evidence separate from completed offer/admission/access,
+and recovers by pure owner lookup without signing or automatic retry. No new
+host API/schema or frontend key handling.
+
+[Incoming admission inspection](guided-session-contract.md#20-read-only-incoming-administrator-admission-inspection)
+adds private owner-local `POST /v1/onboarding/admission-inspection` and
+`onboarding admission inspect --stdin` with exactly context/request_id. One
+read snapshot binds the current attached project and verifies an already retained
+incoming original owner/selection prefix against its adopted network. The closed
+public review and digest create no intent, signer choice, signature, clock update,
+import, poll or authority mutation; schema27 is unchanged. Native admission,
+administrator consent/signing and manual incoming-code import follow separately.
+
+Guided administrator consent (guided session contract section21) uses owner-local
+POST /v1/onboarding/admission-consent/{lookup,prepare,approve} and matching
+`onboarding admission lookup|prepare|approve --stdin`. Preparation fixes the
+current locally owned network-root ed25519 provider and ordinary P/H drafts;
+exact approval is atomic with the ordinary administrator intent. Approval may
+permit background root/host signing and publication; original F and requester
+commit remain separate. Lookup and exact historical retries are read-only.
+No new schema, native control, key/provider fallback or peer/scoped route.
+
+Guided explicit incoming proof progress (guided session contract section22) is
+owner-local POST /v1/onboarding/incoming-progress and private-stdin
+`onboarding admission progress --stdin`. One bounded pinned carrier GET pass
+retains only validated incoming request/original/selection/proofs, atomically
+under rechecked context/request/root/time pins. Cached complete-prefix retry is
+pure; this never prepares consent, signs protocol packets, learns endpoints or
+invokes the ordinary resume/action engine. No schema/native control is added.
+
+
+Guided original finalization inspection (guided session contract section24) adds
+owner-local POST /v1/onboarding/join-flows/{id}/owner/finalization/inspect and
+`onboarding join owner finalization inspect --stdin`, binding exact context,
+join_review_id and approved owner_review_id. One read snapshot reuses ordinary
+cryptographic administrator/owner preparation over retained root/P/H evidence,
+returns a closed public review/digest and never fetches, creates drafts, selects
+a provider, signs, commits or adopts membership. Restart retains consent history
+but follows existing project detach. No schema/native/peer/scoped API change.
+
+
+Guided bounded original finalization signing (guided session contract section25)
+adds private-stdin `onboarding join owner finalization sign --stdin`, bound to
+exact section16 consent and section24 inspection digest. It signs only remaining
+original B/D issuers then F authority through existing typed private signing
+interfaces, at most2 submissions/3 signatures, with fresh context/terms rechecks.
+Existing approved requester-worker progress supplies evidence/drafts. No new
+HTTP/schema, broader resume, signer fallback, agent grant or requester commit.
+Already-completed F refuses Sign purely; existing owner lookup/progress recovers.

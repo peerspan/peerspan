@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-29",
+  "kind": "contract-derived exact new-original owner consent backend verification",
+  "contract_commits": [
+    "69a41b6",
+    "29f4fe6",
+    "0996cb4",
+    "6b5c2c7"
+  ],
+  "production_source_commit": "c054610cb8a17a09d5baaf5ae198ded548274961",
+  "independent_test_source_commit": "be159acdd6d70ba39213cdcc3e227fdcd5e13c6b",
+  "binary_sha256_observed_after_local_checks": "aaa3660bf3135ad01a21344a3b2d70079fb865348a65398260ee53a796f83eef",
+  "native_runtime": "Claude Code 2.1.303; updates disabled; no inference",
+  "local_results": {
+    "owner_onboarding": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 51,
+      "full_ceremony_seconds": 42.5
+    },
+    "rust": {
+      "passed": 155,
+      "ignored": 2,
+      "failed": 0
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "native_strict_validation": "pass",
+    "join_onboarding": {
+      "passed": 14,
+      "failed": 0,
+      "seconds": 52,
+      "all_case_bodies_unchanged": true
+    },
+    "native_before_synchronization": {
+      "passed": 212,
+      "failed": 0,
+      "seconds": 28.25,
+      "all_cases_and_files_unchanged": true
+    },
+    "native": {
+      "passed": 212,
+      "failed": 0,
+      "seconds": 24.21,
+      "all_case_assertions_preserved": true,
+      "product_source_unchanged": true,
+      "existing_fixture_synchronization_only": 1,
+      "target_case_milliseconds": 646.45,
+      "runs_after_correction": 1
+    }
+  },
+  "coverage": [
+    "Exact API/CLI public review/digest, profile7, fixed request.created_at+7d, review expiry and effects; pure lookup/retained preparation",
+    "Same ordinary unapproved intent, no original key or signature, completed offer, authority, network, registry, access or duplicate secret store",
+    "Atomic ordinary approval, discarded response-body recovery, approved retry/restart/detachment/expiry history; no frontend approval-attribution mirror",
+    "Exact context/review/hash, parent, cancellation/expiry, incompatible valid scopes1 preparation, post-adoption fresh preparation refusal",
+    "Schema-only ABORT trigger on false-to-true ordinary intent update proves approval rollback; exact retry then succeeds",
+    "64KiB/duplicates/unknown/private fields, methods, CLI no-daemon behavior and real scoped/authenticated-peer/bootstrap separation",
+    "Two temporary hosts and independently held original SSH key: existing advanced signing/admin/F/commit completes the same intent; mutable ordinary F review changes but guided original digest/history remains stable through application/restart"
+  ],
+  "fixture_correction": "Initial new full-ceremony fixture assumed every ordinary ready slot was an original SSHSIG slot. Corrected independent fixture validates the same intent/object and exact original-authority or locally owned host role, submits only original SSHSIG slots and uses explicit ordinary resume for host-owned slots. No guided assertions relaxed.",
+  "observed_native_timing_limit": "The existing late-old-progress navigation fixture intermittently timed out at5000ms locally and in CI job123739286191 on978b220, while also passing a full unchanged run. Its real asynchronous digest could outlive virtual-clock settling, allowing navigation before delay registration. Contract GU.impl16a and the independent author add a deferred started signal after registering the original1000ms sleep; all212 cases, original assertions/privacy checks and5s timeout stay intact. One corrected full run passes212/212 in24.21s. No native product source change or retry-until-green.",
+  "limits": [
+    "Recorded consent is not original possession, admission, access, requester final commit or readiness; no original signature is collected by these routes",
+    "Recovery discards a successful HTTP response body after200 headers; process loss inside the after-commit barrier and sub-transaction deadline crossing remain source/fault coverage, not claimed live probes",
+    "Missing/pruned/corrupt retained evidence refusal branches are source-reviewed; no fabricated protocol/authority rows",
+    "Native owner review/signing controls remain the next slice; all212 case assertions stay intact, with one independently corrected deterministic delayed-response fixture",
+    "No actual terminal progress/creation/outcome-reopen, installed two-machine/distinct-person, real-model or schema23-to27 upgrade/recovery acceptance claimed",
+    "No rejected terminal action or unchanged quota-refused inference retried",
+    "Final-head CI and fresh bot review are recorded in PR53 and tracking PR35"
+  ],
+  "native_fixture_source_commit": "b739e79"
+}

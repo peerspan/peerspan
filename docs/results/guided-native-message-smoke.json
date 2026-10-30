@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-29",
+  "kind": "manual real native terminal and temporary host; inference refused",
+  "claude_version": "2.1.303",
+  "frontend_source": "ac5378dbdf2e1da13ed444c6ec1d45f3d560247d",
+  "rust_binary_source": "db4685f259e18a5733c54696b7d3d7dd43213d07",
+  "later_source_change": "The later exact-authorization inspection failure fix is checked by independent runtime fixtures. This manual run does not cover a changed or unavailable authorization.",
+  "fixture": {
+    "temporary_hosts": 1,
+    "physical_machines": 1,
+    "native_conversation": true,
+    "source_loaded_plugin": true,
+    "installed_bundle": false,
+    "project_path_contained_spaces": true,
+    "state_path_contained_spaces": false,
+    "adapter_socket_utf8_bytes": 55,
+    "coordinator_used": false,
+    "setup": "Exact project and adapter reviews were prepared and approved by the fixture through the owner CLI for the UUID used by the actual native conversation. This run tests message enable, not native approval controls."
+  },
+  "actions": [
+    "Open /peerspan in the real pinned terminal; resume the prepared project/adapter authorization.",
+    "Explicitly Connect adapter; observe a live lease and incoming delivery not verified.",
+    "Press Enable incoming messages beside the model-allowance explanation.",
+    "Observe the actual plugin-attributed fixed readiness prompt in the same conversation and Incoming delivery waiting for model.",
+    "Claude refuses inference with the account weekly usage limit; no adapter_ready call occurs.",
+    "Cancel Claude's provider-level automatic continuation; do not wait for or schedule a later model turn.",
+    "Close and reopen the pane; the lease remains live and delivery unverified.",
+    "Observe the 60-second challenge expire and Retry incoming messages offered, with no automatic second prompt.",
+    "Stop adapter, close the pane, exit Claude and stop the temporary host."
+  ],
+  "observations": {
+    "native_transcript_found": true,
+    "fixed_readiness_prompt_present": true,
+    "assistant_records": 1,
+    "assistant_api_error_records": 1,
+    "provider_error": "rate_limit",
+    "model_input_tokens": 0,
+    "model_output_tokens": 0,
+    "adapter_ready_tool_calls": 0,
+    "host_channel_verified": false,
+    "host_delivery_records": 0,
+    "lease_live_while_waiting": true,
+    "protocol": "claude-mod-v1",
+    "challenge_expired_observed": true,
+    "automatic_provider_continuation_cancelled": true,
+    "private_flow_review_ids_absent_from_transcript": true,
+    "token_instance_prefixes_absent_from_transcript": true
+  },
+  "limitations": [
+    "No model-observed readiness, incoming message, seen call or reply was established.",
+    "The quota refusal is a provider/account limit, not a passing model acceptance result.",
+    "Deterministic native runtime cases and existing host suites remain separate evidence.",
+    "Actual model receipt/reply and installed two-machine exchange remain required tracking-PR acceptance gates."
+  ]
+}

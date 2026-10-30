@@ -332,7 +332,13 @@ class Adapter:
             headers = {"Authorization": f"Bearer {self.token}", "X-Peerspan-Instance": self.instance}
             if payload is not None:
                 headers["Content-Type"] = "application/json"
-            conn.request(method, path, body=payload, headers=headers)
+            try:
+                conn.request(method, path, body=payload, headers=headers)
+            except BrokenPipeError:
+                # A router may answer404 and close before a rejected body is
+                # sent. Read that actual response; never retry or accept a
+                # transport error in place of the caller's status assertions.
+                pass
             response = conn.getresponse()
             data = response.read()
         finally:

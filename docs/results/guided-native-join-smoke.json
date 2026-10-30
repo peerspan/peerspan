@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-29",
+  "runtime": {
+    "product": "Claude Code",
+    "version": "2.1.303",
+    "surface": "actual interactive terminal"
+  },
+  "native_source_commit": "353dd9e8580cb68916dc79ed4b29816ebec94c04",
+  "rust_source_commit": "b297642b2c7105434b24e53acdbb3b7ba41443f7",
+  "host_sha256": "0ad0f351cb6d67969c59e1c9ca377914d8a303ae7b67828f9fdd544681ef42eb",
+  "fixture": {
+    "physical_machines": 1,
+    "distinct_hosts": 2,
+    "distinct_original_people": 2,
+    "coordinator": false,
+    "installed_bundle": false,
+    "recipient_original": "independently generated fixture key present before native entry; no copy from inviter",
+    "parent_attachment": "public owner API fixture before native entry, exact actual native conversation UUID and project; existing attachment resumed"
+  },
+  "completed": [
+    "Open actual /peerspan, resume attached project, enter Join a network and observe empty private input",
+    "Paste invitation directly from the inviter owner API into the verified private native Input; suppress output while input is drawn",
+    "Explicit Review joining identities performs core invitation preview and read-only local key inventory",
+    "Public terminal shows exact network/signer/pin/contact/expiry terms, original key/provenance and authority limits",
+    "Explicit highlighted Review identity prepares one public join review; no request exists before the decision",
+    "Public terminal shows exact review and separately highlighted Approve join request",
+    "Explicit approval shows Join request: publication recorded and its authority/readiness limits",
+    "Close pane; reopen /peerspan and existing project attachment without another preparation or decision"
+  ],
+  "observed": {
+    "recipient_join_flows": 1,
+    "flow_state": "requested",
+    "ordinary_recipient_requests": 1,
+    "prepare_calls": 1,
+    "decision_calls": 1,
+    "initial_join_lookup_calls": 1,
+    "original_key_bytes_and_mode_unchanged": true,
+    "recipient_networks": 0,
+    "adapter_credentials": 0,
+    "owner_offer_present": false,
+    "requester_selection_approved": false,
+    "requester_commit_approved": false,
+    "same_request_nonce_device_and_packet_after_close": true,
+    "same_device_key_count_after_close": true,
+    "model_check_or_prompt_submission_invoked": false,
+    "saved_transcript_available": false
+  },
+  "privacy": {
+    "private_code_in_tool_output": false,
+    "private_code_in_argv": false,
+    "native_code_retention": "volatile joining attempt only; cleared on successful decision and Close",
+    "capture": "private terminal output withheld from before paste until preview/inventory completed and drawn input was cleared; later only public redraws inspected",
+    "key_material": "fixture private keys never copied into evidence; evidence contains no raw code, key seed, signed packet or native conversation reference"
+  },
+  "approval_review": {
+    "coordinate_actions": "unverified coordinate/input-focus and Enter actions were rejected by automatic approval review; they were not executed",
+    "verified_actions": "read-only redraw and keyboard focus inspection established the native Input, identity-review and approval controls before allowed actions",
+    "remaining_block": "after Close/reopening the parent, automatic review refused the final Join a network activation because it could not independently verify focus; no further submission attempted"
+  },
+  "remaining_manual_gate": "Complete the final native Join a network re-entry and observe the recorded outcome through lookup, without private input/inventory/preparation/decision; not claimed here",
+  "independent_coverage": "22 new native cases cover lookup-only outcome recovery, code re-entry, public Refresh, replacement, uncertainty and lifecycle races; host suite covers durable replay separately",
+  "not_claimed": [
+    "completed final native outcome re-entry",
+    "plugin reload or daemon restart in this smoke",
+    "new original identity creation",
+    "participant owner/admin approval",
+    "membership or agent access",
+    "current peer reachability",
+    "model receipt",
+    "installed or physical two-machine acceptance"
+  ],
+  "cleanup": "native driver exited and both isolated temporary host shutdowns requested; fixture data remains temporary",
+  "later_source_changes": "later commits change test fixtures/docs only; final-head CI re-runs native, Rust and every slim suite"
+}

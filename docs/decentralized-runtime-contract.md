@@ -668,12 +668,13 @@ root-transitions API continues to require the caller's exact explicit set.
 ### Contact-invitation minting
 
 `POST /v2/networks/{id}/invitations` is exactly
-`{member,expected_person_public_key}` and returns201 exactly
+`{member,expected_person_public_key,expires_at?}` and returns201 exactly
 `{network_id,context_id,invitation_id,invitation,expires_at}`. Expected person is
 an exact original key or `"-"`. Use the actual owned host and independently
 current own-host membership/context; no person/device/root signing endpoint is
-called. Generate the bounded current signed contact and psi2 introduction using
-its fixed300s lifetime. An unavailable own host key refuses; no replacement key.
+called. Generate a bounded signed contact with at most300s lifetime. The psi2
+introduction defaults to3600s, or uses the explicit canonical expires_at within
+the wire60s..24h bounds; its expiry is separate from the contact hint window. An unavailable own host key refuses; no replacement key.
 The intro claims no admin power, so minting it cannot bypass later current admin
 approval; it is not a legacy invite signature/grant/consumption. Exact bytes
 are shown only through this explicit owner-local action, not activity/status.
@@ -730,6 +731,10 @@ precommit cancellation uses fresh nonce/secret and an unrevoked owned key as
 allowed by the bootstrap contract. Success is201 flat LINK_VIEW plus exactly
 `display_code`; exact live creation retry200 same view/code. This route grants
 no context adoption or requester consent.
+Fresh ordinary requester creation performs capacity/expiry maintenance first,
+including retirement of expired pending transport frames, secrets and terminal
+read capabilities under storage section8. This does not approve or apply any
+request. Pure history reads and terminal publication retry are not cleanup APIs.
 
 `POST /v2/link/requests/{id}/resume` takes exactly `{}`. It advances only approved
 intents, verified incoming evidence, exact publication retries and application.

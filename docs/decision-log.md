@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
@@ -37,6 +38,53 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### GU.impl2: native frontend in the existing Claude conversation (2026-10-29)
+
+- **Authority:** implementation choice within GU-OWN1 and GU-OWN2; not an
+  additional owner decision.
+- **Selected:** Claude's native mod interface for commands and human controls,
+  with a bounded local prompt/tool challenge that preserves the current native
+  conversation. The first entry is read-only; authority review callbacks and
+  the agent data path remain later work.
+- **Rationale and discarded options:** section 2 of the
+  [guided onboarding contract](guided-session-contract.md). Channel startup
+  flags, lifecycle-only hooks and model polling loops are not the default.
+  A model-authored approval is not an owner decision.
+- **Validation boundary:** Claude 2.1.303 native runtime; real-model receipt
+  remains outstanding because the live attempt hit the account's weekly limit.
+
+### GU.impl1: one owner-local onboarding observation (2026-10-28)
+
+- **Authority:** implementation choice within the accepted GU-OWN1 experience
+  and GU-OWN2 feature-branch delivery model; not a new owner decision.
+- **Selected:** one read-only owner-local snapshot of existing network,
+  session, adapter-connection and pending-request views, with an advanced CLI
+  command. Preserve live-lease and verified-delivery observations separately.
+- **Rationale and discarded options:** recorded under **Implementation choices**
+  in the [guided onboarding contract](guided-session-contract.md).
+- **Scope:** GU-01a/GU-02a only. This does not implement flow mutations, reviews,
+  the plugin or the complete accepted experience.
+
+### GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery (2026-10-28)
+
+- **Authority:** owner's confirmation and follow-up instruction in the guided
+  onboarding discussion, 2026-10-28.
+- **GU-OWN1, chosen experience:** "Connect this project" from inside the existing
+  agent session; "Invite someone" or "connect my other computer"; each
+  participant reviews the relevant identity and permissions in their own guided
+  flow; Peerspan completes the intermediate steps and shows actual connection
+  readiness.
+- **GU-OWN2, delivery instruction:** "start a fresh branch completely separate
+  from main - with a tracking PR. We want to break this down into small pieces
+  and eventually merge one large feature PR into main, after some level of
+  testing."
+- **Options:** alternative options not recorded in the owner's instructions.
+- **Plan:** [guided session onboarding](guided-session-onboarding.md) records the
+  accepted scope, integration branch, small implementation slices, authority
+  boundaries, merge gates and implementation recommendations with discarded
+  options. This is a plan; implementation and validation remain pending.
+- **Tracking PR:** [#35](https://github.com/peerspan/peerspan/pull/35).
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
@@ -1932,3 +1980,703 @@ omitted only after independent current evaluation; their retained maxima stay.
 The separate author derives exact-byte/purity, missing/fork/expiry and native
 unavailable-key controls after reviewed merge. No implementation or runtime
 success is claimed by this contract.
+
+## GU.impl3 — Exact local project reviews (2026-10-29)
+
+Selected within the accepted guided-onboarding scope: start orchestration with
+an immutable review of one local project/native conversation and explicitly
+chosen agent. Preparation stores only the review; approval atomically records
+the reviewed agent/session metadata. Existing startup detachment invalidates
+a committed metadata attachment; replay never resurrects it. Pending reviews
+and decline decisions survive restart. Exact retries preserve terms and expiry;
+replacement is explicit and retains the old review. Schema24 adds one private
+flow table without changing DEC authority. The native human callback is the
+selected next frontend; no model approval tool is added.
+
+Discarded: speculative credential issuance during preview, name-based adoption,
+fresh default expiry on retry, rewriting reviewed terms, metadata as readiness,
+and model output as human consent. Teammate/device admission, permission grants
+and adapters remain separate reviewed paths. See guided session contract
+section3 for concrete fields, races, migration and independent cases. This is
+an implementation choice, not an additional decision attributed to the owner.
+
+## GU.impl4 — Native project selection and exact decisions (2026-10-29)
+
+Selected: a private context lookup and native project picker/review controls
+that retain exact host flow references. A read resumes the actual retained
+choice; explicit new/existing selection prepares terms; native human callbacks
+inspect the captured review and recheck the current root/conversation before
+submitting an exact decision. Close/reload clears callback authority while
+durable host state remains observable. This records metadata; adapter setup
+and permission grants remain later separately reviewed steps.
+
+Discarded: model approval tools or slash-argument consent, preparing on entry,
+first-agent/name-based adoption, copied frontend state as host truth, truncated
+or redacted consent, silently substituted terms and automatic decision retries.
+Section4 of the guided session contract records concrete race/privacy and real
+native-host verification. This is an implementation choice under GU scope.
+
+## GU.impl5 — Exact guided adapter authorization (2026-10-29)
+
+Selected within GU-OWN1/2: a second immutable owner-local review for issuing one
+scoped credential to the already attached project session. The first guided
+credential expires at a fixed reviewed time, 24 hours after preparation, without
+renewal. It handles work already authorized for that agent and gets no
+directory, outbound-route or capability-call power. Existing grants and local
+harness permissions continue to govern work and files.
+
+Selected recovery: retain the approved outcome and derive its private token
+with domain-separated HMAC-SHA256 under the host seed. Store only the normal
+token hash; a separate exact owner-local retrieval recovers that same current
+credential after a lost response. Normal issuance remains random. Schema25 adds
+one child-flow table; the project and DEC contracts stay intact.
+
+Discarded: credential issuance during metadata approval, blanket send/call
+power, automatic replacement of an offline or unbound adapter, silently renewed
+consent, plaintext token persistence and one-shot secrets lost on interruption.
+Section5 specifies the fields, recovery, invalidation, schema allocation and
+independent cases. Native connection and real model receipt remain subsequent
+gates. This is an implementation choice, not another owner confirmation.
+
+## GU.impl6 — Native adapter consent and scoped lease (2026-10-29)
+
+Selected within GU-OWN1/2: native human review of the complete immutable child
+authorization and its attached project, then a separate explicit Connect.
+The private stdin transport wrapper reproduces the original instance using
+domain-separated HMAC under the credential and returns the selected local
+adapter socket. The frontend keeps secrets in memory, renews a bounded scoped
+lease and stops on context, authorization or transport failure. Close retains
+an established runtime; Stop halts renewal; reload requires explicit reconnect.
+
+Selected delivery scope: first make consent and the local lease reviewable.
+Keep incoming work and model acknowledgment as the next independently verified
+slice. Display connected, incoming delivery and peer exchange separately.
+
+Discarded: implicit connect on approval/reload, storing plaintext transport
+files, random replacement instances on reload, owner API calls over the adapter
+socket, model approval tools, interpreting a saved verified channel or a live
+lease as receipt, and hidden retry after an uncertain decision. Native HTTP has
+no abort/timeout option in the pinned runtime; use a logical five-second
+deadline, ignore late responses and never reschedule stale work. An already
+sent request can still complete once. Section6 records the contract and
+independent cases; real terminal evidence records its exact source heads.
+This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl7 — Explicit native incoming messages (2026-10-29)
+
+Selected within GU-OWN1/2: enable messages explicitly after lease connection,
+because this starts a model turn using the current allowance. A fresh nonce
+and current main-engine acknowledgment precede scoped host readiness and any
+claim. Register only readiness, seen and reply tools on enable; owner powers,
+outbound destinations and local harness permissions remain unchanged. Poll
+messages first, leaving unsupported task/update work on the host.
+
+Selected failure behavior: one60-second challenge with explicit retry, bounded
+single-flight handoffs, no replay of uncertain content, lease renewal separate
+from message-attempt failure, and separate submitted/seen/replied evidence.
+Native runtime checks and a quota-refused real terminal attempt are recorded
+separately from actual model receipt and installed two-machine acceptance.
+
+Discarded: automatic model turns on connection/reload, automatic second hello,
+saved channel status as current proof, queue acceptance as model receipt,
+claiming unsupported task work, owner/admin tools in model context, new broad
+send/call permission and automatic replay after an uncertain submission. The
+explicit enable is an implementation choice under the accepted scope, not a
+new decision attributed to the owner. Contract section7 defines exact fields,
+timers, scope and independent verification before implementation.
+
+## GU.impl8 — Explicit native assigned tasks (2026-10-29)
+
+Selected within GU-OWN1/2: enable assigned tasks separately under the already
+verified current native message route. Reuse that delivery proof without
+another verification model turn. Register only five scoped lifecycle tools;
+the host still owns held-task selection, acceptance authorization, idempotency,
+running-task adoption and cancellation semantics. Task input remains external
+data under existing local harness permissions.
+
+Selected failure and evidence boundaries: separate task/cancellation polling,
+message polling and lease renewal; stop task authority when its native proof
+or context changes; allow a task-only failure/Stop without cancelling host work
+or messages. Deduplicate offered delivery IDs, count submitted prompts separately
+from successful model lifecycle calls, and never replay uncertain input. The
+existing real-model quota refusal is not task acceptance evidence.
+
+Discarded: consuming tasks automatically on message-ready, auto-accept/cancel,
+a second readiness prompt, forwarding unsupported task-update notifications,
+new outbound destinations, interpreting artifact metadata as local file access,
+and rechecking a revoked peer grant to override an already accepted task. File
+transfer and outward delegation remain separate integration work. Section8
+records exact shapes, scoped operations and independent cases before code.
+This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl9 — Exact contact-invitation review (2026-10-29)
+
+Selected within the accepted four-step experience: an explicit attached-project
+review of a named network, member label, optional person-key pin, current public
+connection hints and fixed expiry before creating a contact-only introduction.
+Use the existing owned host signer and ordinary invitation/return protocol;
+keep membership, machine powers and agent access as later distinct decisions.
+No native/model owner tool is added by this backend slice.
+
+Selected durability: record the review before signing; mint contact/return state
+and the issued flow result in one transaction; retrieve the exact retained code
+only on a private explicit handoff. The flow stores no additional plaintext
+secret. Retrying or inspecting cannot extend expiry or mint another invitation.
+An explicit additional invitation can coexist with an older exported code;
+contact introductions have no global revocation claim.
+
+Discarded: selecting the first network, using introduction possession as an
+access grant, hidden person/device/root signing, automatic renewed consent,
+returning codes through status or model tools, partial issuance across separate
+commits, and copying a return secret into another durable flow table. Schema26
+is additive; earlier flow/DEC tables and semantics remain intact. Contract
+section9 settles external fields and independent verification before code.
+
+## GU.impl10 — Native invitation consent and private reveal (2026-10-29)
+
+Selected under the accepted GU experience: an explicit attached-project human
+intent, read-only resume before choosing a network, no default network, and an
+exact contact-only review before issuance. Display the public network/context
+and key terms to distinguish identities while keeping flow/native-session
+references internal. Validate the canonical review digest and captured terms.
+
+Selected handoff: separate explicit native reveal, with exact host/parent/flow
+inspection, public response binding and fixed expiry; keep the code only in
+current UI memory. Hide, Refresh, navigation, context/surface changes and expiry
+remove it. The user may select terminal text. Existing established delivery
+runtimes survive ordinary pane navigation. Retrying reveal retrieves the same
+code; explicit additional invitations do not revoke old exports.
+
+Discarded: first-network selection, automatic approve/export/copy, model owner
+tools or secret prompts, clipboard writes, new files/plugin storage, a second
+frontend cryptographic verifier, hidden recipient admission/access, and calling
+an introduction proof of reachability or receipt. Section10 precedes code and
+settles independent native checks. Joining and participant permissions remain
+separate working slices, not completed by this inviter control.
+
+## GU.impl11 — Recipient inspection before identity selection (2026-10-29)
+
+Selected within the accepted GU flow: verify and display an incoming contact
+introduction before choosing/generating an original person or publishing any
+request. Reuse the signed-wire verifier, exact attached-project binding and a
+read transaction. Return exact public network/signer/pin/contacts/hints/expiry
+terms and their canonical digest, with no secret or signed blob. Contact
+sequence is a decimal u64 string, preserving its full range through JavaScript.
+Legacy no-return introductions remain inspectable; signature possession does
+not establish signer membership or authority.
+
+Selected native input: explicit human-only paste into a volatile terminal pane,
+then a separate Inspect action. The pinned Input supports visible text; no
+masking is claimed. Clear the code before asynchronous inspection; keep it out
+of model context, argv, storage and diagnostics. Refresh/navigation/context
+loss/reload/expiry discard the recipient view. Identity consent and joining
+remain real subsequent work; no inert Join button is offered.
+
+Discarded: automatic key generation/import or joining on paste/inspection,
+model owner tools, persistent secret copies, clipboard/file import, a second
+frontend cryptographic verifier, contact validity as authority/readiness, and
+new schema/state just for read-only inspection. Section11 and independent
+verification cases precede code. No new owner confirmation is attributed.
+
+
+## GU.impl12 — Exact recipient request publication (2026-10-29)
+
+Selected under the accepted guided flow: a durable public review binds the exact
+verified invitation, selected person public key and attached project before one
+explicit request-publication decision. Selection is not possession proof. This
+backend does not discover, create or import a person key; native identity and
+key persistence remain the next slice. Machine linking retains its separate
+ceremony and never requires copying an original key.
+
+Selected atomicity: reuse ordinary request creation inside the same transaction
+as the recorded decision/outcome. Retain a public review and token digest only;
+the ordinary protocol remains the sole durable store of pairing material.
+Replay returns the historical outcome and never republishes after cancellation
+or expiry. Schema27 is additive; installed upgrade/recovery remains a main
+merge gate.
+
+Discarded: hidden key generation, a public key as proof of ownership, implicit
+admission/access/selection, separate commits for request and decision, duplicate
+secret stores and a second pairing protocol. Section12 settles shapes and
+independent verification before code. These are implementation choices within
+the accepted scope, not new owner confirmations.
+
+
+## GU.impl13 — Native existing-identity request consent (2026-10-29)
+
+Selected under the accepted guided experience: explicitly choose among existing
+local generated/SSH-agent original public identities, then review and approve
+one exact join request in the human terminal. No first-key default or key
+creation on paste/inspection. New original identity creation and same-person
+machine linking are separate slices. An empty inventory is an honest limit.
+
+Selected privacy/recovery: one joining-specific volatile private input across
+exact preview/choice/approval; durable state remains the existing public review
+and protocol request. Read-only outcome lookup after uncertainty/reload never
+replays an approval. Existing private inspection retains its pure behavior.
+
+Discarded: arbitrary key-path imports, implicit key generation/copy, treating
+public selection as owner proof, silent pin filtering, stored raw codes, hidden
+participant/access approval and request publication as connection readiness.
+Section13 and independent verification precede code. No new owner confirmation
+is attributed and no full-feature acceptance gate is closed by this slice.
+
+
+## GU.impl14 — Explicit local original creation (2026-10-29)
+
+Selected under the accepted guided flow: an empty unpinned local identity chooser
+may review and explicitly approve creation of a new original on this computer.
+Persist the complete0600 key atomically without replacement before offering its
+public key for separate request consent. Normal inventory recovers uncertain
+writes; no new schema, owner API or secret journal. Use pinned directory handles,
+private temporary files and no-replacement hard links; unsupported filesystems
+refuse. Private orphan temporary names after crashes require owner cleanup.
+
+Discarded: hidden generation on invitation inspection, replacing an existing
+original/SSH-agent choice, creating against a person pin, copying an original
+for device linking, overwriting public sidecars, claiming filesystem/UI atomicity,
+and automatic publication/retry/deletion. Section14 and independent verification
+precede implementation. This is an implementation decision, not a new owner
+confirmation. The unfinished section13 actual-terminal reopen gate stays open.
+
+
+## GU.impl15 — Exact public request progress (2026-10-29)
+
+Selected within the accepted guided flow: an explicit read-only progress snapshot
+of the exact published ordinary request, bound to its historical join review and
+project context. Derive next participant/action from durable protocol state;
+show requester consents and local application separately from current authority,
+access or readiness. No new schema, signing, peer polling or hidden protocol step.
+Participant approval controls remain subsequent small slices.
+
+Discarded: publication as a connected network, progress reads that call resume
+or consume incoming evidence, newest-request selection, automatic polling and
+fake approval controls. Exact snapshot, strict privacy/binding and independent
+verification are specified in section15 before implementation. Manual terminal
+creation/reopen, installed artifacts and final feature acceptance remain open;
+this is an implementation choice, not a new owner confirmation.
+
+
+## GU.impl16 — Reuse exact new-original owner consent (2026-10-29)
+
+Selected under the accepted guided experience: first implement owner consent
+for a new original person's own request, reusing the existing durable unapproved
+protocol owner intent. Bind the complete public proposal to its join context
+and compare before atomically recording ordinary approval. Fixed profile7 and
+request-created+7d avoid new default-expiry drift; original signature and native
+controls follow separately. Lookup/retry recover existing global protocol
+approval without attributing it to a new frontend or copying a secret.
+
+Discarded: a schema28 duplicate approval journal, importing/copying originals,
+signing in the daemon, widening to15/admin8, device/root fallback and approval
+as membership/access/commit/readiness. Section16 and independent verification
+precede code. All installed/actual-terminal/model and final main gates stay open.
+
+
+### GU.impl16a — Synchronize an existing delayed-progress test
+
+Selected: the separate contract-only test author will make the existing
+late-progress navigation fixture wait for the old effect to enter its delayed
+response before navigating and advancing virtual time. The case repeatedly
+hit its five-second timeout locally and in PR53 CI while also passing unchanged;
+its asynchronous response construction can outlive a virtual-clock settle.
+Preserve the late completion, newer confirmation and privacy assertions and
+all212 cases. No production/native behavior change is inferred from this fixture
+failure. Discarded: timeout inflation, deleting assertions, repeated CI reruns
+until green, and modifying product behavior to satisfy a scheduling assumption.
+
+
+### GU.impl17 — Native owner consent before original signing
+
+Selected within the accepted guided-onboarding scope: explicit native Review
+owner powers and exact Approve owner powers, using section16's durable ordinary
+intent and owner-only private stdin CLI. Recovery is pure lookup; Leave changes
+no protocol state. Display all powers, finite terms and bounded later effects;
+historical ordinary approval does not attribute frontend consent or active
+membership/access. Native volatile callback/expiry authority follows project,
+conversation and host boundaries. No new Rust/API/schema or signer handling.
+
+The following slice will add a bounded local original-signing action. Discarded:
+combining review/approval/key use in one opaque action, broad link CLI automation,
+a daemon key provider, automatic preparation/retry/decline and metadata as grant.
+Section17 defines independent native cases, existing212 preservation and final
+all16 suite gates; actual terminal/installed/model/upgrade recovery remains open.
+
+
+### GU.impl17a — Establish the pending connection in its cancellation fixture
+
+Selected: the independent test author will explicitly await the existing
+initial adapter connect HTTP dispatch/delay registration before pressing Close or Back
+in its shared pending-connection cancellation fixture. Original212 passed in the first
+full run; the next run passed all20 new owner cases but this old case observed
+zero HTTP calls where its fixture assumed one. The same scheduling failure has
+occurred in earlier slices. Preserve all original semantic assertions, delay
+and timeout; establish the intended in-flight stimulus deterministically.
+Discarded: product changes to force a request after cancellation, weakening the
+HTTP/no-renewal assertions, timeout inflation and retrying until green.
+
+
+### GU.impl18 — One bounded local original owner-offer signature
+
+Selected: an advanced private-stdin owner sign command with an explicit
+sign_original_owner_offer decision, exact approved section16 review/intent and
+one typed authority SSHSIG slot. Use existing FixedPacket/PersonSigner/link
+validation, secure non-creating normal-key reads or exact SSH-agent selection,
+fresh project/host/request checks and one ordinary signature submission. Complete
+offer retries are read-only; ordinary host-owned selection/publication remain
+bounded by existing consent. No new schema/API or signature attribution store.
+
+Native signing control follows after independent CLI conformance. Discarded:
+combining approval/key use, broad signing/resume loops or later F work, unsafe
+path/discovery fallback, daemon key handling/copy/import, auto retry and treating
+historical approval as possession or connection readiness. Section18 pins faults,
+recovery and all17 suite gates; key use/context changes/POST are not one atomic
+transaction and cannot retract an already-dispatched signature.
+
+### GU.impl18a — Preserve ordinary stage expiry in the signing fixture
+
+Selected: the independent author removes an invalid fresh-signing stimulus
+that waited beyond the approved fifteen-minute review window after an ordinary
+resume. Spec8 expires a still-unoffered request after ten minutes without a new
+recorded stage; resume does not extend that boundary. The real ceremony must
+sign while eligible, then exercise actual expired-history pure replay. The
+client's review-expiry distinction remains a source-coverage limit where the
+ordinary stage rule prevents a truthful fresh-success fixture. Discarded:
+fabricating authority rows, changing protocol expiry, or relabeling a rewritten
+public review as the daemon's retained exact consent.
+
+### GU.impl18b — Establish the old invitation handoff before navigation
+
+Selected: the independent author synchronizes the existing late-old-reveal
+fixture on its old handoff having captured the authentic response and registered
+the original1000ms delay before Back and the new invitation. Final CI passed231
+of232 cases but timed out in this fixture: clock.settle alone can leave the old
+handoff undispatched, so the new reveal becomes the first delayed response while
+the test awaits it before advancing time. Preserve the first-response flag,
+delay, all old/new-code privacy and no-decision assertions and default5000ms
+timeout. This establishes the intended pending old response; no native product
+change. Discarded: timeout inflation, removing assertions, forcing product work
+after navigation and rerunning unchanged until green.
+
+### GU.impl19 — Explicit native original owner-offer signing
+
+Selected: one human Sign original owner offer action after exact approved owner
+consent, reusing section18's bounded private-stdin CLI. Fresh parent/host/join/
+review/request/time checks precede one literal45s command; strict returned public
+evidence stays separate from completed offer/admission/access/readiness. Pure
+Check never invokes sign, including uncertain partial-signature recovery. Request
+expiry bounds new key use; the approved review's old15min window is historical.
+Leave/navigation clears volatile callback authority without promising retraction.
+
+Discarded: combined approval/key use, frontend key inventory/selection, hidden
+sign-as-read recovery, broad link/resume/finalization automation, new API/schema/
+persistence, automatic retries and historical evidence as current permissions.
+Section19 pins independent native cases and original232/all17 CI preservation;
+terminal/installed/physical/model/schema23-to27 recovery acceptance stays open.
+
+### GU.impl20 — Inspect the incoming original/selection prefix before admission
+
+Selected: a pure owner-local admission inspection of an already retained incoming
+new-original request. Reuse ordinary typed request/owner/selection and adopted
+network projection validators, bind the exact attached project and expose only
+closed public identities/terms/effects with a stable digest. No signer choice,
+intent creation or authority mutation. Administrator consent/signing and native
+controls follow in separate reviewable slices.
+
+Ordinary admissions preview imports/polls and creates durable intent state, so it
+cannot serve as an observation. Discarded: calling it from a read action, manual
+code import here, automatic provider/approval/signing, new schema/secret journal,
+and interpreting original possession or incoming role as admission/access.
+Section20 defines independent admission_onboarding and final all18/native252
+verification while retaining existing manual/installed/model/recovery gates.
+
+### GU.impl20a — Isolate the CLI signer in the existing signing fixture
+
+Selected: the separate author explicitly configures both owner_signing daemon
+constructors with an absent --person-key-file path and no person agent, while
+the CLI retains its genuine normal generated key. Its existing full-ceremony
+case observed zero CLI submissions after the approved original authority/host
+signatures were already retained: the documented daemon fallback can read keys
+created after startup and fulfill approved work before the explicit CLI runs.
+Retain all six case bodies, one-submission/proof/privacy assertions, host-owned
+signing, later ceremony and pure-history checks. This isolates the intended
+CLI-generated signature stimulus without a product change. Discarded: weakening
+the one-submission assertion, treating global recorded evidence as frontend
+attribution, disabling owned host work or rerunning until the race disappears.
+
+### GU.impl20b — Retain the selected prefix before measuring inspection
+
+Selected: the independent fixture explicitly resumes its already returned
+incoming request during setup until ordinary public observation confirms the
+exact owner/selection prefix, then stops the remote and settles transport before
+inspection purity snapshots. Automatic invitation return delivered the request
+but did not itself retain the later packets. All first-run cases stopped before
+an inspection assertion at that missing-prefix setup; shared dependents must
+report setup failure rather than recreate the same project name. Discarded:
+calling admissions preview/import, fetching from the inspection route, invented
+authority rows and accepting an unverified/missing selected prefix.
+
+### GU.impl20c — Redact rejected admission arguments at the parser boundary
+
+Selected: keep typed Clap parsing and its normal help/exit behavior, but emit a
+fixed error for failed invocations containing the literal onboarding admission
+command path. Clap's default unknown-argument diagnostic echoed a rejected
+positional request ID before the private stdin handler ran. Inspecting argv here
+selects only the error redaction policy; it never accepts arguments, routes a
+command or performs IO. All admission values still require strict private stdin.
+Discarded: accepting a positional ID, removing the no-echo conformance assertion,
+filtering selected secret prefixes, and changing unrelated command diagnostics.
+
+### GU.impl21 — Exact durable root administrator consent
+
+Selected: explicit prepare/lookup/approve over the existing ordinary
+administrator intent, fixed network_root ed25519 using the current locally owned
+root seed. One transaction binds exact attached context, verified selected new
+original, current root and P/H drafts and approval digest; pure history reports
+global protocol consent without frontend attribution. No schema or second
+approval journal. Approval permits ordinary background root/host signatures and
+publication; original F/requester commit remain separate. Section21 defines
+independent admission_consent6 and all19 CI, keeping existing gates intact.
+Discarded: automatic provider choice, original/device fallback, external key
+handling, separate frontend consent storage, hidden signing/polling/import and
+claiming an approved administrator intent is membership/access/readiness.
+
+### GU.impl21a — Refuse local time before fresh consent creation
+
+Selected: fresh administrator preparation/first approval checks raw local time
+as well as ordinary guarded time against request/intent/stage creation, again
+before commit. An independent stale-clock case observed approval because the
+ordinary five-minute rollback allowance clamped a two-minute-old local clock to
+the retained intent's creation. Pin this stricter first-write bound explicitly;
+keep shared protocol clock smoothing and pure approved-history recovery intact.
+Discarded: accepting the clamped value as proof of fresh local consent time,
+changing all ordinary clocks, disabling historical recovery or weakening the
+independent stale-clock refusal assertion. No new test stimulus or timeout.
+
+### GU.impl21b — Use the existing ordinary code form in negative setup
+
+Selected: reconcile a stale wire-format claim that ordinary admission HTTP
+accepts code:- plus request_id. The runtime contract/table and shipped endpoint
+use the exact code-based body; retained request IDs are resolved privately by
+the CLI. A genuine negative SSH-root fixture reached HTTP400 on that extra
+field, so the independent author uses its real private reply code and omits
+request_id before measuring guided refusal. All retained-provider/purity
+assertions remain. Discarded: treating this malformed setup as provider
+validation, weakening the negative case, or expanding an unrelated ordinary
+HTTP API as part of the guided-consent backend.
+
+### GU.impl22 — Explicit bounded incoming proof progress
+
+Selected: one owner-local explicit fetch of already returned incoming original/
+selection evidence, using retained pinned carriers and ordinary validation, then
+one atomic pending-only retention under rechecked parent/request/root/time pins.
+Cached complete-prefix retry is pure. No authority, intent, consent/signature,
+publication, endpoint learning or new persistence. A pre-retention test barrier
+with no held DB lock permits genuine cancellation/context/deadline checks.
+Section22 defines independent incoming_progress6 and all20 final CI.
+Discarded: implicit polling in inspection, calling broad resume/observer engines,
+automatic provider/approval/selection/commit, external endpoint inputs, contact
+learning, partial failed retention and another schema/journal.
+
+### GU.impl22a — Validate each carrier's encrypted frames before union
+
+Selected: reject an endpoint's complete snapshot if any frame fails ordinary
+decryption/plaintext validation, before combining it with healthy responses.
+The initial review found that outer-envelope validation alone let one invalid
+encrypted snapshot block another carrier's valid prefix. Keep the later atomic
+retention, context/proof validation and cross-snapshot ambiguity checks.
+Discarded: letting arrival order choose a carrier, dropping individual invalid
+frames from a snapshot, weakening atomic retention or changing ordinary polling.
+
+### GU.impl22b — Use public parent replacement and approved-work drivers
+
+Selected: the independent in-flight parent fixture first detaches the existing
+parent, then explicitly replaces and approves it, as section3 requires. The
+completion fixture may use ordinary explicit resume only after the new action
+has independently fetched the prefix and exact guided consent is approved.
+Initial local4/6 and CI2/6 stopped on forbidden attached replacement and an
+unpromised passive root-publication deadline. Preserve the zero-retention and
+same-request F/commit/history assertions. Discarded: allowing attached metadata
+replacement, administrator resume to obtain the missing prefix, hidden signing
+inside progress, longer passive waits or retrying unchanged failed fixtures.
+
+### GU.impl23 — Native incoming proof and administrator review controls
+
+Selected: explicit paged incoming request choice, lookup-first recovery, separate
+bounded proof fetch, verified inspection then explicit review preparation and
+exact durable root consent approval. Native authority is volatile and rechecked
+against project/host/request/review/time before each action. Existing host APIs
+own verification, approval and later protocol work. Section23 defines20 new
+independent native cases with original252 preserved, existing real-host suites
+and all20 CI gates. Discarded: auto-selection/poll/prepare/approve, inputting raw
+IDs/codes, frontend keys/signatures, broad resume, approval mirrors and consent
+as membership/access/readiness. This is an implementation choice under the
+accepted guided flow; no additional owner confirmation is attributed.
+
+### GU.impl23a — Recheck returned views and expire request actions
+
+Selected: before displaying an incoming response, re-inspect the authoritative
+host-side parent and host identity. Null-consent/fetched-prefix views also carry
+the signed request deadline, including across in-flight work; expired views keep
+only historical Check/Leave. Initial review found cached-only post-IO checks
+could restore stale review controls and null consent had no expiry timer.
+Discarded: relying only on the next approval guard, dispatching expired progress/
+preparation and using a fresh review window to extend the signed request.
+
+### GU.impl23b — Navigate explicitly and settle terminal delivery in fixtures
+
+Selected: re-enter incoming selection after Leave and choose the adapter's
+specific Back to project when preserving an attached project. First native
+run270/272 stopped on absent choices after Leave and a generic Back matcher
+leaving the parent project. Separately, real-host incoming5/6 stopped on carrier
+traffic after local application while the genuine terminal outcome still had
+zero delivery acknowledgments. Drain ordinary terminal publication with both
+participants/carriers available before no-IO purity measurements. Preserve every
+old/new assertion, timeout and strict DB/file/zero-IO check. Discarded: retaining
+hidden native selection, changing parent Back semantics, counting linked as
+delivery completion, weakening purity or rerunning unchanged failed fixtures.
+
+### GU.impl23c — Use documented terminal deadline retirement for purity setup
+
+Selected: after full genuine application, use the test clock past the signed
+request deadline and observe ordinary background retirement of frames, secret,
+terminal read capability and outbound delivery before measuring pure completed
+history. The acknowledgment-drain attempt still ended5/6 in115s, timing out at
+35s; its transport return was not retained, so its exact transport cause remains
+unclassified. Live cached no-IO and live post-intent refusal remain separate
+assertions, and every historical DB/file/zero-IO assertion stays. Immediate
+post-application scheduling attribution remains an explicit coverage limit.
+Discarded: longer acknowledgment waits, assumed guaranteed delivery, disabling
+background work, editing authority/storage rows or weakening measured purity.
+
+### GU.impl23d — Isolate invitation return polling and drive terminal cleanup
+
+Selected: use the genuine minimum60s invitation, then move both fixture clocks
+together past its deadline only after automatic return and genuine remote
+original/selection publication, while its independent3600s request stays live.
+Observe return-row retirement before measuring strict carrier counters. At the
+later request deadline, explicitly drive ordinary terminal resume/cleanup once
+before observing retirement; no periodic cleanup interval was promised.
+The preceding run4/6 in78s exposed case3's combined purity diagnostic and a
+5s wait for undriven cleanup. Separate strict DB/file versus carrier assertions
+with safe category names/numeric counts, keeping both checks. The exact earlier
+case3 failure category is unclassified because its before values were discarded.
+Discarded: attributing every carrier connection to the measured route, counting
+only one saved carrier, longer quiet gaps, disabling workers or editing rows.
+
+### GU.impl23e — Drive expiry maintenance through ordinary fresh creation
+
+Selected: after the full original ceremony and its request deadline, one genuine
+fresh unsigned requester creation plus immediate public cancellation drives
+ordinary capacity/expiry maintenance before the historical purity baseline.
+It has a fresh fixture person pin, no invitation/helpers or participant approval;
+its device/secret/cancellation setup is outside measured calls. The isolated
+run5/6 in99s passed all five live/strict/atomic cases, but terminal resume returned
+HTTP200 linked without the awaited retirement. Do not claim that retry drives
+cleanup or infer its exact underlying cause. Periodic and terminal-resume
+retirement remain explicit limits. Discarded: manual row deletion, speculative
+nonterminal-resume cleanup, larger timeouts, authority fabrication or weakening
+the original historical digest/DB/file/zero-IO assertions.
+
+
+### GU.impl24 — Inspect verified original finalization parents before signing
+
+Selected: a pure owner-local snapshot for the exact approved new-original intent,
+reusing ordinary full administrator/owner preparation checks over retained
+evidence. Bind the original immutable consent, selected owner, root/P/H, approving
+writer/signer and fixed profile/lifetime without creating timestamped B/D/F
+drafts. Keep explicit proof transport, bounded original signing, requester commit
+and native controls as following slices. This makes each dependency reviewable
+while the feature branch remains isolated. Discarded: broad resume as observation,
+new signing/consent journals, key use on inspection, silently approving final
+commit and treating pending administrator statements as adopted membership.
+
+
+### GU.impl24a — Preserve project detach on daemon restart
+
+Contract-only author review identified ambiguous restart-success wording.
+Selected: repeat live inspections keep a stable digest; after restart settles
+the existing detached parent causes a pure review_changed refusal, with immutable
+section16 consent and ordinary evidence preserved. Created_at is the signed
+request creation time. Materialized ordinary drafts during explicit setup are
+allowed; inspection changes none. Discarded: resurrecting the original attachment
+through approval replay/reconnect or rebinding an old published flow to a fresh
+context. Startup mutations stay outside the measured pure-inspection baseline.
+
+
+### GU.impl25 — Reuse requester progress and bound original finalization signing
+
+Selected: existing approved requester/approver worker fetches retained mailbox
+evidence and materializes its already authorized host-side work. Add one explicit
+CLI action, bound to original consent and exact section24 digest, for at most
+B/D issuer batch then F authority batch (three original signatures total).
+Record source-derived progress evidence: requests_io::approver_worker already
+polls unfinished requester operations. No duplicate proof-fetch endpoint is
+needed. Keep pure inspection/history and separate requester commit. Already
+completed F refuses Sign purely rather than claiming the caller's unverified
+finalization digest was signed. Discarded: extra fetch API, a protocol-driving
+loop, per-slot UI prompts, new consent/signature journal, original-key fallback
+and automatic final commit. This recommended adjustment follows source evidence.
+
+
+### GU.impl25a — Bounded recovery after partial original finalization
+
+Contract-only author clarified asynchronous dependent readiness and lost results.
+Selected: lost first B/D response ends that invocation before F key use/second
+POST. A genuine fixture may prove B/D retention, explicitly wait for ordinary F
+readiness and issue one later explicit F-only decision, with original operation
+caps preserved. Initial completed-F refusal is pure regardless of a different
+well-typed inspection digest; it makes no historical attribution. Discarded:
+retry-until-green signing, assuming immediate dependent host work or silently
+continuing after an uncertain first mutation.
+
+
+### GU.impl25b — State the signing deadline at its actual cancellation boundary
+
+Selected:90s asynchronous orchestration deadline ends further work/submissions;
+already queued/dispatched blocking key/agent operations cannot be retracted and
+may delay process shutdown. Abandoned key results cannot submit another batch.
+The future native caller sets a separate process bound. This clarifies40fe2c3's
+whole-command wording before conformance assertions. Discarded: claiming Tokio
+future cancellation kills blocking work or retracts a dispatched signature POST.
+
+
+### GU.impl25c — Isolate independent requester polling during read purity
+
+Initial CI old finalization inspection5/6 in31s counted one extra connection on
+each relay and zero added bytes during case3; local old signing5/6 in48s changed
+dec_outbox and a rollback-journal path at its terminal historical check. Selected:
+independent diagnosis and a public setup/observed in-flight transport barrier
+that keeps ordinary requester background polling outside each measured read,
+while preserving all logical DB/file/bothcarrier assertions. Invitation return
+expiry alone does not stop unfinished requester polling. The terminal outbox/
+journal cause remains unclassified pending evidence. Discarded: unmeasured quiet
+gaps as proof of no worker activity, filtering one carrier or storage category,
+editing protocol rows, disabling workers, longer timeouts or retry-until-green.
+
+
+### GU.impl25d — Order eager test helpers and share genuine agent recovery setup
+
+Independent first new signing suite5/6 in121s reached a test NameError in case3: 
+pure mutation helper declared after an eagerly executed Suite.case. Selected:
+move helpers before cases; share the genuine successful exact multi-identity
+agent/valid different generated-key stimulus with lost-B/D/F-only recovery,
+retaining all original three-signature/exact-key/batch/home/no-replacement and
+privacy assertions. Five other cases passed; lost firstB/D caps passed before
+the helper failure. No product assertion failed. Discarded: larger timeouts,
+dropping key-source checks, re-running unchanged or accepting a partial run.
+
+
+### GU.impl25e — Confirm live TLS hold and actual terminal outbox retirement
+
+Selected independent fixture proposal: consume/count a real ClientHello, hold
+server bytes outsideDB, and verify the same actually live held generation both
+before/after each pure read while retaining every original bothcarrier/wholeDB/
+state/home assertion and original delay/timeout. Do not assume parallel endpoint
+polls. For terminal history keep both genuine peers online through explicit
+pinned peer registration and one ordinary sync each, then observe actual empty
+outboxes/absent rollbackjournal before issuer stop and the unchanged historical
+checks. Sync acknowledgment is observed, not inferred. The retained failure
+fixture later had empty queues/no journal on both hosts, which cannot establish
+its earlier change direction/cause. Discarded: stale hold flags, row edits,
+worker disabling, dropping queue/journal/counter checks or larger timeouts.
