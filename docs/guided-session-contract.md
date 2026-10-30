@@ -5027,6 +5027,24 @@ setup and the lifecycle/outbox/explicit-repair expectations clarified above,
 retaining every timeout, private corpus, cryptographic check and rollback/purity
 category. No unchanged rerun or production change is inferred from this failure.
 
+Corrected section28 CI c686831 passed5/6 in88s. Historical setup completed the
+explicit requester repair, actual recipient application, both pinned peer
+registrations and both sync calls with200/unavailable=[], then its unchanged5s
+outbox/journal quiescence wait failed. The failed category and cause are unknown;
+the runner discarded retained state. Runtime retry eligibility can be scheduled
+up to60s ahead; a successful bounded catalog sync is not proof of queued ACK.
+Before changing setup, independently add failure-only diagnostics at this wait:
+fixed participant role, total outbox count and journal-present boolean; documented
+outbox records project only kind enum, attempts, due-now/seconds-until-next,
+whitelisted public error code (otherwise unknown), and a boolean indicating
+whether the target is the other participant. Reuse existing sync responses for
+attempted/unavailable counts. Never emit raw rows, targets/keys, locators, paths,
+bodies, signatures, error detail or private state. Diagnostic exceptions must
+preserve/rethrow the original failure. Run once locally with retained fixtures
+against the frozen binary; preserve all original actions/assertions/timeouts and
+strict DB/file/BOTH-carrier categories. Classify only actual retained evidence.
+No timeout increase, manual queue edit, worker disabling or unchanged CI retry.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
