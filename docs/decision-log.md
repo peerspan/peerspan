@@ -2563,3 +2563,17 @@ with safe category names/numeric counts, keeping both checks. The exact earlier
 case3 failure category is unclassified because its before values were discarded.
 Discarded: attributing every carrier connection to the measured route, counting
 only one saved carrier, longer quiet gaps, disabling workers or editing rows.
+
+### GU.impl23e — Drive expiry maintenance through ordinary fresh creation
+
+Selected: after the full original ceremony and its request deadline, one genuine
+fresh unsigned requester creation plus immediate public cancellation drives
+ordinary capacity/expiry maintenance before the historical purity baseline.
+It has a fresh fixture person pin, no invitation/helpers or participant approval;
+its device/secret/cancellation setup is outside measured calls. The isolated
+run5/6 in99s passed all five live/strict/atomic cases, but terminal resume returned
+HTTP200 linked without the awaited retirement. Do not claim that retry drives
+cleanup or infer its exact underlying cause. Periodic and terminal-resume
+retirement remain explicit limits. Discarded: manual row deletion, speculative
+nonterminal-resume cleanup, larger timeouts, authority fabrication or weakening
+the original historical digest/DB/file/zero-IO assertions.
