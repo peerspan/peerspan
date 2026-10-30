@@ -576,7 +576,7 @@ def terminal_timing_summary(captured, participant):
                 completion_count += 1
         if kind != 'peer':
             continue
-        if route == '/peer/v1/agents':
+        if route is not None and re.fullmatch(r'/peer/v1/networks/net_[0-9a-f]{64}/agents', route):
             route_class = 'directory'
         elif route is not None and re.fullmatch(r'/peer/v2/networks/net_[0-9a-f]{64}/contacts?', route):
             route_class = 'contact'
