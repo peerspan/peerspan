@@ -5325,7 +5325,8 @@ or duplicate fields, nulls, wrong types, trailing JSON and inputs over 65,536
 bytes. `peerspan onboarding access inspect --stdin` sends the same closed input
 over the private Unix socket and prints the same public JSON. No positional
 payload, signer override, implicit network, label resolution or invitation is
-accepted. Missing daemon fails nonzero. CLI errors never echo input. Adapter
+accepted. Missing daemon fails nonzero. CLI errors never echo input, including
+parse errors when normal global flags occur between command words. Adapter
 credentials and peer routes cannot invoke this owner administration API.
 
 ### Current verified terms
@@ -5370,7 +5371,9 @@ review_id,review,next_action:"review_agent_access"}`. The closed review contains
   host/binding/device lease IDs and finite `not_after`;
 - `participant:{person_public_key,member,person_lease_id,not_after,hosts}`;
 - `policy:null`, or exactly `{statement_id,proof_id,body,enforced_content,
-  valid_until}`. `body` is the verified PolicyBody inside the signed statement;
+  valid_until}`. `body` preserves the complete verified JSON object inside the
+  signed statement, including explicitly present optional/default fields such
+  as `max_artifact_bytes:0`; it is not a normalized serialization of that body;
   `enforced_content` is exactly `{rules,capability_rules,trusted_hosts}`, the
   ordinary Content after pending local withdrawals (empty collections remain
   present);
@@ -5401,7 +5404,8 @@ genuine ordinary operations and real attached projects:
    detached or changed context, unknown network/person and malformed keys fail
    closed without creating a project, identity or request.
 3. Real absent policy returns null; message/task/capability/trusted-host terms
-   remain complete. A real pending withdrawal changes enforced content without
+   remain complete, including explicitly signed zero/default field presence.
+   A real pending withdrawal changes enforced content without
    rewriting the signed body. Reads retain the digest; a new policy changes it.
    Record source-only gaps where genuine absent/unsettled states cannot be
    reached through public operations; never fabricate authority/storage rows.

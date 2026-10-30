@@ -2981,3 +2981,11 @@ GU.impl30a — Before independent assertions, clarify Content's closed public
 shape as rules/capability_rules/trusted_hosts, retaining empty arrays. An
 unknown selected person is unavailable authority (409); only an absent network
 is 404. These settle the contract author's questions without adapting to runs.
+
+
+GU.impl30b — Preserve signed policy JSON field presence exactly, including an
+explicit zero artifact bound; typed policy normalization belongs only to the
+enforced-content projection. Independent case 3 must compare the signed JSON
+object, not a normalized CLI display. Also make stdin-only CLI parse-error
+privacy explicit when normal global flags separate command words. These
+clarifications precede source fixes and independent regression assertions.
