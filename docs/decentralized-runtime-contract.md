@@ -731,6 +731,10 @@ precommit cancellation uses fresh nonce/secret and an unrevoked owned key as
 allowed by the bootstrap contract. Success is201 flat LINK_VIEW plus exactly
 `display_code`; exact live creation retry200 same view/code. This route grants
 no context adoption or requester consent.
+Fresh ordinary requester creation performs capacity/expiry maintenance first,
+including retirement of expired pending transport frames, secrets and terminal
+read capabilities under storage section8. This does not approve or apply any
+request. Pure history reads and terminal publication retry are not cleanup APIs.
 
 `POST /v2/link/requests/{id}/resume` takes exactly `{}`. It advances only approved
 intents, verified incoming evidence, exact publication retries and application.

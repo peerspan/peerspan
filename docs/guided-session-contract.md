@@ -3889,9 +3889,13 @@ No implementer tests or invented protocol/authority rows.
    assertions. Deadline setup does not establish immediate post-application
    scheduling attribution; live cached retry and live post-intent refusal are
    separately measured before that history check.
-   After advancing past request expiry, an ordinary explicit terminal resume
-   may drive documented cleanup before observing retirement. Do not assume a
-   periodic cleanup interval that the public contract does not specify.
+   After advancing past request expiry, one genuine ordinary unsigned requester
+   creation followed immediately by its public cancellation may drive ordinary
+   capacity/expiry maintenance before the original retirement observation.
+   Use a fresh fixture person pin, no contact invitation/helper or approval;
+   all spare device/secret/cancellation setup precedes the measured baseline.
+   Do not assume periodic or terminal-resume cleanup; those intervals remain
+   explicit coverage limits. No manual protocol rows or timeout extension.
 
 Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
 exact source/binary/results and all failures/limits. Earlier signing historical
