@@ -216,6 +216,11 @@ class Relay:
                     if upstream:
                         upstream.close()
         self.server = Server(("127.0.0.1", 0), Handler)
+        while self.server.server_address[1] == target[1]:
+            # The real host has reserved its port logically but has not yet
+            # started; avoid a relay ever binding its own upstream address.
+            self.server.server_close()
+            self.server = Server(("127.0.0.1", 0), Handler)
         self.address = "127.0.0.1:" + str(self.server.server_address[1])
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": .02}, daemon=True)
         self.thread.start()
@@ -527,7 +532,7 @@ def _():
             check(response.status == 404, f"bootstrap exposed progress: HTTP {response.status}")
     peer.stop(); bootstrap.stop()
     req = prepared_pair("req"); req["a"].stop(); req["a"].relay.mode = "drop"
-    rec_before = snapshot(req["b"])
+    settled(req["b"]); rec_before = snapshot(req["b"])
     actual, denied = req["b"].api("POST", BASE, {"context": context(req["remote_parent"]), "request_id": req["rid"]})
     check(actual == 409 and denied.get("code") == "incoming_progress_unavailable", "requester role entered incoming proof action")
     check(snapshot(req["b"]) == rec_before, "requester refusal changed protocol/authority state"); public(denied)
