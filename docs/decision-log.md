@@ -2487,3 +2487,15 @@ encrypted snapshot block another carrier's valid prefix. Keep the later atomic
 retention, context/proof validation and cross-snapshot ambiguity checks.
 Discarded: letting arrival order choose a carrier, dropping individual invalid
 frames from a snapshot, weakening atomic retention or changing ordinary polling.
+
+### GU.impl22b — Use public parent replacement and approved-work drivers
+
+Selected: the independent in-flight parent fixture first detaches the existing
+parent, then explicitly replaces and approves it, as section3 requires. The
+completion fixture may use ordinary explicit resume only after the new action
+has independently fetched the prefix and exact guided consent is approved.
+Initial local4/6 and CI2/6 stopped on forbidden attached replacement and an
+unpromised passive root-publication deadline. Preserve the zero-retention and
+same-request F/commit/history assertions. Discarded: allowing attached metadata
+replacement, administrator resume to obtain the missing prefix, hidden signing
+inside progress, longer passive waits or retrying unchanged failed fixtures.

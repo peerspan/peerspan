@@ -3862,11 +3862,16 @@ No implementer tests or invented protocol/authority rows.
    while IO was in flight causes zero local retention. Schema-only ABORT on
    pending update after fetched frame insertion proves the entire transaction
    rolls back, followed by one exact retry after removing the trigger.
+   Parent replacement first detaches through the public session API, then uses
+   section3's explicit replacement/approval; attached replacement is forbidden.
 6. Same exact fetched prefix proceeds through existing explicit consent and
    ordinary root offer/F/requester commit; progress refuses after a local intent
    or later stage rather than signing/resuming/recreating history. Existing
    administrator lookup remains pure. Broader fresh concurrency/root-rotation/
    corrupt-retention intervals remain explicit source/fault limits if needed.
+   After the new action alone obtains the prefix and guided consent is approved,
+   the ordinary explicit resume driver may advance that already-approved root
+   work. No passive completion deadline or new automatic signing is promised.
 
 Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
 exact source/binary/results and all failures/limits. Earlier signing historical
