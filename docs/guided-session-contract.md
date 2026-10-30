@@ -5099,7 +5099,12 @@ and all earlier bootstrap hold/barrier cases, configure supported daemon
 transport/restart with real advertised normal peer QUIC paths through transparent
 counting UDP proxies. Preserve exact identities and original state; before
 relying on delivery, observe genuine authenticated peerspan-peer/1 catalog200
-in both directions. Retain the existing two peer registrations, both syncs,
+in both directions. Exchange genuine signed current contacts through the
+documented authenticated participant contact routes so each participant actually
+retains the other's newly advertised counted path before retry alignment;
+an isolated direct probe200 is not evidence that queued delivery knows that
+path. Bounded setup exchanges are outside the historical baseline and never
+create authority or replace a host key. Retain the existing two peer registrations, both syncs,
 one bounded retry alignment and unchanged5s strict all-outbox/journal wait.
 Ordinary workers must actually acknowledge and retire every queued category.
 Keep all earlier transport actions effective. Append all newly enabled UDP
