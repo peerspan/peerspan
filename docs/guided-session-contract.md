@@ -4972,6 +4972,17 @@ exact source/binary/test/log provenance, failed runs/corrections and limitations
 Retain the earlier section 27 delivery timeout as unclassified; do not erase it
 or weaken its assertions/timeouts. No unchanged retry to hide a failure.
 
+Independent clarification: inject the application fault with a temporary
+BEFORE INSERT ON dec_operations ABORT trigger for this canonical request_id.
+Its failure occurs late enough to prove the preceding application writes roll
+back in the same transaction; do not edit networks or authority rows. If another
+already authorized participant application wins while a guided command waits
+at an existing barrier, exact retained application takes historical precedence
+and may return200 purely despite a subsequently changed parent/time. It is not
+evidence of guided application after that change. A guarded-refusal case must
+establish no prior application; otherwise report the competing-work source
+limit. Do not disable workers or fabricate an unapplied fixture.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
