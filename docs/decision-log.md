@@ -311,6 +311,18 @@ These are choices the [conversations proposal](conversations-proposal.md) left o
 - **DEC.impl72. The adapter marks people not yet joined.** The events' `Participants:` line shows such a person as `LABEL (person, invited)` or `LABEL (person, inviting)`, and the `conversation_start` description mentions people. Discarded: leaving them out of the line.
 - **Implemented in:** [PR #71](https://github.com/peerspan/peerspan/pull/71).
 
+### DEC-impl: settled by the implementer in conversations C4, [PR #72](https://github.com/peerspan/peerspan/pull/72) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C4 contract section](conversations-contract.md#c4-catch-up). The owner may revisit any of them.
+
+- **DEC.impl73. A sync on request.** `POST /v1/conversations/{id}/sync` and `conversation sync ID` (not listed in the root help, CONV-24) run one sync now and report each host as `synced`, `failed`, `complete` or `unsynced`. Tests use it instead of waiting 10 minutes. Discarded: a debug-only trigger, which the owner could not use.
+- **DEC.impl74. Acks report refusals.** Each `acks` entry carries `refused: [{seq, code}]`, so the author's host learns that a fetched message was refused, and its target becomes `refused` with that code. Every other record up to `through_seq` becomes `delivered`, including one refused at a push and accepted later by a fetch. Discarded: acks that only mark `delivered`, which would leave refused targets `stopped` forever.
+- **DEC.impl75. Acks ride on syncs.** A recipient sends acks after each gap fetch and in each sync; a failed ack is sent again at the next sync, not kept in its own retry queue. Discarded: a separate durable ack queue.
+- **DEC.impl76. The fetch answer.** `GET .../messages` answers `{messages: [{message, prev_seq}], more}`, so the recipient can check the chain. Discarded: bare messages, which would hide `prev_seq`.
+- **DEC.impl77. Serving after close.** After a close, `GET .../messages` serves a target only while one of its outbound records is neither `delivered` nor `refused`, and for at most 30 days. `heads` stays served, so the requester can confirm it is complete. Discarded: serving closed conversations forever.
+- **DEC.impl78. No current policy waits.** A fetched message for an agent whose owner has no current policy statement here (and no self access or grant) is not refused; it waits for the next sync. A pushed message in the same position gets 503 `unavailable` as before. Discarded: refusing it, which a lapsed policy would turn into lost messages.
+- **DEC.impl79. Roster pushes stop after 24 hours too.** As for messages; the host gets the roster at its next sync, which always fetches the roster first. Leaves and declines are still retried until home answers. Discarded: pushing rosters without a time limit.
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -1253,7 +1265,7 @@ These points were left open by the proposal and were settled by the implementer 
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
 - **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership), [C3](conversations-contract.md#c3-people). Not yet a roadmap milestone.
-- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72).
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72), C4 [PR #72](https://github.com/peerspan/peerspan/pull/72) (DEC.impl73 to DEC.impl79).
 - **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".

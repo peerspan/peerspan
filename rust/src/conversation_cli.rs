@@ -1,5 +1,5 @@
-//! `conversations` and `conversation start|say|show|add|remove|close|leave|join|decline`
-//! (conversations contract, C1 to C3). Unlisted in the root help until C6 (CONV-24).
+//! `conversations` and `conversation start|say|show|add|remove|close|leave|join|decline|sync`
+//! (conversations contract, C1 to C4). Unlisted in the root help until C6 (CONV-24).
 use crate::{
     admin::Local,
     cli::{Command, ConversationCommand},
@@ -192,6 +192,14 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                     .await?,
             )
         }
+        Command::Conversation(ConversationCommand::Sync { id }) => {
+            let id = resolve(&local, &id).await?;
+            print(
+                &local
+                    .post(format!("/v1/conversations/{id}/sync"), json!({}))
+                    .await?,
+            )
+        }
         Command::Conversation(ConversationCommand::Say {
             id,
             text: content,
@@ -373,8 +381,8 @@ fn readable(conversation: &Value, messages: &Value, reader: Option<&str>) {
         for t in m["targets"].as_array().into_iter().flatten() {
             match text(&t["state"]) {
                 "delivered" => {}
-                "sending" => println!(
-                    "         not yet received by {} (sending)",
+                state @ ("sending" | "stopped") => println!(
+                    "         not yet received by {} ({state})",
                     text(&t["label"])
                 ),
                 state => println!(
