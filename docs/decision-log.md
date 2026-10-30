@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
@@ -37,6 +38,15 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### DEC-OWN11: next feature after the coordinator-free work (2026-10-30)
+
+- **Authority:** owner decision, 2026-10-30.
+- **Question:** with the coordinator-free work on `main`, which feature comes next?
+- **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
+- **Chosen:** conversations.
+- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit are listed for the owner as CQ-1 to CQ-4 in its [open questions](conversations-proposal.md#open-questions-after-the-coordinator-free-work). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
+- **Recorded in:** the conversations refresh PR.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
@@ -1191,6 +1201,7 @@ These points were left open by the proposal and were settled by the implementer 
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
 - **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
 - **Implementing PRs:** none yet.
+- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; questions where they no longer fit as written are CQ-1 to CQ-4 in the proposal, not yet decided.
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
