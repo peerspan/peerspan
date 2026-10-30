@@ -2896,3 +2896,17 @@ at that exact wait, followed by one retained local run. Keep all original waits,
 assertions and purity categories. Discarded: assuming a future retry or wrong
 target without evidence, increasing the timeout, dropping queued categories,
 editing authority/queue rows, disabling workers or repeating unchanged CI.
+
+### GU.impl28g — Make a recorded retry eligible before historical measurement
+
+Final candidate ec4d63d CI passed 5/6 in 95s. Closed diagnostics identify one
+requester proof-outbox row targeting the actual issuer, attempts=4, due_now=false,
+eight seconds until retry; issuer outbox empty and both journals absent. This
+classifies that run as a premature fixture baseline, without classifying the
+earlier runner's missing evidence. Selected: after real repair/application/peer
+registration/sync, read documented retry timestamps and advance both debug test
+clocks once to their maximum/current time plus one second, within the runtime's
+60s retry horizon and live protocol bounds. Then retain the original five-second
+strict retirement wait and full historical purity measurements. Independent
+author commits before one corrected run. Discarded: sleeping longer, retry loops,
+queue edits, force-ACK/worker controls or a production change for test timing.

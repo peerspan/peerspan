@@ -5045,6 +5045,29 @@ against the frozen binary; preserve all original actions/assertions/timeouts and
 strict DB/file/BOTH-carrier categories. Classify only actual retained evidence.
 No timeout increase, manual queue edit, worker disabling or unchanged CI retry.
 
+The diagnostic-source final candidate ec4d63d failed historical setup5/6in95s.
+Its closed evidence identifies requester outbox_count=1: kind=proofs, attempts=4,
+target_is_other_participant=true, due_now=false, seconds_until_next=8. Issuer
+outbox_count=0 and both journal_present=false; both prior sync calls attempted
+one peer with zero unavailable. Thus that run's five-second baseline wait ended
+before the documented ordinary retry was eligible. The previous CI runner's
+missing category remains unclassified; the passing local run is not a fix.
+
+For this terminal fixture only, after genuine repair/participant application,
+peer registration and both existing bounded sync calls, read the documented
+next_attempt_at timestamps from all retained outbox rows on both participants.
+Outside any measured purity baseline, set both existing debug clocks once to
+the maximum of current participant times and retained retry timestamps, plus
+one second. Validate the target is no more than the documented60s retry horizon
+plus that one-second margin ahead of current shared time and remains before the
+live request/authority bounds. Do not filter out rows/categories, change queued
+records, reset attempts, force ACK, disable workers or introduce protocol calls,
+clock/poll retry loops, sleeps or larger waits. The ordinary worker must actually
+acknowledge and retire every outbox row; preserve the original5s quiescence wait,
+closed failure observer, all complete DB/state/home/BOTH-counter assertions and
+every original action/delay/timeout. Independently commit this setup before one
+corrected full local run against unchanged frozen production.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
