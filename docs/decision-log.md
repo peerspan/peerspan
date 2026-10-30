@@ -2781,3 +2781,11 @@ Route-only no-signature/transport/apply stays source-reviewed absent genuine
 public synchronization; fixture application is a separate explicit action.
 Discarded: asserting global post-response absence, claiming an after-commit
 barrier is globally unobserved, or adding worker-disabling test endpoints.
+
+### GU.impl27c — Distinguish early local time from elapsed approval
+
+Selected independent clarification: raw time before request/stage/intent
+creation returns commit_review_unavailable even within ordinary rollback clamp;
+actual elapsed review/signed/fixed/stage bounds return review_expired. Both are
+pure refusals. Discarded: accepting clamped time as fresh human consent or
+changing shared protocol clock smoothing and historical approval recovery.
