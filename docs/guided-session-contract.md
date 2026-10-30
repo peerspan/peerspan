@@ -3729,6 +3729,8 @@ and sections20/21's retained owner/selection evidence. It is explicit transport
 work, not a read-only observation. No native control, manual code import,
 administrator intent/provider choice, approval, local signature, publication,
 finalization, requester commit, authority adoption or new schema/journal.
+Ordinary pinned TLS authentication is transport work; it does not create a new
+protocol signing intent, stage signature, consent or publication.
 
 ### Private API and CLI
 
