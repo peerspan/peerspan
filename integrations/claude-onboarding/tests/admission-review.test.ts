@@ -766,7 +766,7 @@ test('administrator navigation preserves established adapter messages and tasks 
   const tools = w.tools.map(tool => tool.name), prompts = w.prompts.length
   const count = (path: string) => w.httpCalls.filter(call => call.url.endsWith(path)).length
   const readyCount = count('/adapter/v1/ready')
-  await press(ui, 'Back to Peerspan'); await press(ui, 'Connect this project')
+  await press(ui, 'Back to project')
   await begin(w, ui); await choose(w, ui); await review(ui); await press(ui, 'Approve administrator consent'); await leave(ui)
   await press(ui, 'Back to Peerspan'); await press(ui, 'Close')
   const messages = count('/adapter/v1/next'), tasks = count('/adapter/v1/tasks/next'), leases = count('/adapter/v1/connect')
