@@ -402,6 +402,22 @@ pub(crate) fn incoming_prefix(
     p: &mut Pending,
     now: &str,
 ) -> Result<()> {
+    // A request-only snapshot may not yet have an owner descriptor. Validate
+    // every proof component against its already adopted, pinned context anyway;
+    // unknown-context components must not disappear into the private cache.
+    let snapshot = Snapshot::load(
+        c,
+        &p.record.expected_network_id,
+        &store.identity().public_key,
+    )?;
+    let secret = p.secret.ok_or_else(|| Error::new("recovery_required"))?;
+    for frame in requests::frames(c, p)? {
+        let plain = frame.open(&secret, now)?;
+        let raw = text(object(&plain)?, "catalog_base64")?;
+        if raw != "-" {
+            Catalog::read(&snapshot.descriptor, &b64(raw, MAX_CATALOG)?)?;
+        }
+    }
     let evidence = Evidence::read(c, p, now)?;
     let owners: Vec<_> = evidence
         .packets
