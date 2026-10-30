@@ -2693,3 +2693,13 @@ Section26 defines independent native coverage with all old272 and host22
 preserved. Discarded: new backend/progress APIs, approval as key-use consent,
 frontend keys/templates, implicit signing/retries, automatic requester commit
 and more onboarding persistence. This continues the accepted four-step flow.
+
+### GU.impl26a — Keep internal review bindings private in native terms
+
+Contract-only author clarified presentation/navigation before tests/code freeze.
+Selected: recorded F uses the literal Original finalization: recorded plus its
+public packet reference; internal flow/review/intent/session/native identifiers
+stay private transport bindings. Leave returns to published joining outcome
+with both review controls cleared; reopening is explicit. Discarded: exposing
+internal digest/intent references as user choices, preserving stale review
+controls after Leave or attributing global F to this pane.
