@@ -87,3 +87,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `access_onboarding`: pure exact project-bound selected-person membership and
   signed/enforced policy inspection before agent-access consent (section30).
+
+- `access_consent`: exact project/person policy-action review, nonsigning receipt,
+  atomic ordinary-action approval, replacement/history and privacy (section31).
