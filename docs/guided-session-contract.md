@@ -5092,6 +5092,8 @@ finalization pane and owner pane; no original-signature/finalization action
 implicitly prepares, approves or completes requester consent. Ordinary entry,
 join progress, owner Check, Refresh/reload and original approval/signing remain
 inert with respect to these new actions.
+Recorded F may expose this explicit entry for expired/cancelled historical
+requests as well; only null consent with exact live eligibility can prepare.
 
 An explicit Review checks native terminal/root/conversation, authoritative exact
 attached project and host, immutable published join flow/outcome and pure owner
@@ -5206,6 +5208,9 @@ model events. Check may report **Requester consent: recorded** and **Local
 application: recorded** from exact global public history, without attributing
 the approving/completing interface or inventing an old completion marker/digest.
 Only a valid explicit completion reply confirms its exact section28 marker.
+Both sources may display the literal Local application: recorded and its public
+manifest/activation/outcome references. Marker-specific prose stays truthful
+to the source; no historical marker/digest attribution is invented by Check.
 Neither recorded approval nor application establishes current powers, participant
 delivery, agent access, files/conversation/capabilities, connection or model
 readiness. Absent application evidence does not prove earlier work is absent.
@@ -5213,7 +5218,9 @@ readiness. Absent application evidence does not prove earlier work is absent.
 **Leave requester review** remains available during preflight/pending mutations.
 It clears volatile review/digest/error/confirmation and callback/timer authority,
 returns to the published join outcome, and does not cancel/decline/revoke
-protocol consent. Back/Close/Refresh/project/root/conversation/host/parent/surface/
+protocol consent. Leave clears owner, finalization and requester panes together;
+later owner/requester review is explicit again.
+Back/Close/Refresh/project/root/conversation/host/parent/surface/
 session changes invalidate old callbacks likewise. Late reads/results/timers
 cannot restore a departed pane or disable a newer pane. No new journal/recovery
 store, adapter credential, prompt, model tool or message/task/lease change.
