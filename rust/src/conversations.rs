@@ -3055,7 +3055,7 @@ impl Store {
         if let Some(person) = self.conversation_person(&tx)?
             && let Some(pending) = self.pending_opt(&tx, id, &person)?
             && pending.joining
-            && pending.state == "pending"
+            && pending.current()
         {
             let me = format!("person:{own}/{person}");
             if let Some(p) = roster.joined(&me) {
@@ -4653,7 +4653,7 @@ impl Store {
             }
             let id_text = p.id.clone().unwrap_or_default();
             let joining = rows.iter().find(|(person, pending)| {
-                pending.joining && id_text == format!("person:{own}/{person}")
+                pending.joining && pending.current() && id_text == format!("person:{own}/{person}")
             });
             match joining {
                 Some((person, _)) if admit.is_none() => {
