@@ -1028,6 +1028,29 @@ def _():
         h.stop(kill=True)
         with closing(sqlite3.connect(database)) as db, db:
             db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
+    # A canonical absent ordinary-action reference is corrupt retained metadata,
+    # unlike a caller's unknown access ID. Edit only this genuine receipt and
+    # restore its exact original bytes; never manufacture the referenced action.
+    missing_action_intent = "dint_" + "f" * 32
+    with closing(sqlite3.connect(database)) as db, db:
+        check(db.execute("SELECT record FROM dec_intents WHERE intent_id=?", (iid,)).fetchone()[0] == original,
+              "earlier receipt fault was not restored byte-for-byte")
+        check(db.execute("SELECT 1 FROM dec_intents WHERE intent_id=?", (missing_action_intent,)).fetchone() is None,
+              "broken-reference fixture does not name an actually absent intent")
+        corrupt = json.loads(original)
+        corrupt_review = json.loads(base64.b64decode(corrupt["review_base64"], validate=True))
+        corrupt_review["intent_id"] = missing_action_intent
+        corrupt["review_base64"] = base64.b64encode(canonical(corrupt_review)).decode()
+        db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (compact(corrupt).decode(), iid))
+    try:
+        h.start()
+        directory(f)
+        pure(f, h, parent, f["alice"], "lookup", status=409, code="access_review_unavailable")
+        pure(f, h, parent, f["alice"], "approve", prepared, status=409, code="access_review_unavailable")
+    finally:
+        h.stop(kill=True)
+        with closing(sqlite3.connect(database)) as db, db:
+            db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
     print("LIMIT unexecuted_bounds: aggregate256/16MiB receipts,4096 intents,64 unsigned actions,1MiB valid output and deterministic first-action collision not constructed", flush=True)
     print("LIMIT unsafe_projection: no genuine section30 digest for an unsafe/oversized public review; strict private-input refusal is exercised instead", flush=True)
 
