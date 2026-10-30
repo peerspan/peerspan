@@ -9,6 +9,7 @@ test clock follow. Its own suite (and CI job) so the conversations job stays und
 docs/conversations-contract.md, section C3 (cited as "C3 <part>"), only.
 """
 import os
+import re
 from datetime import datetime, timedelta
 
 from harness import (Suite, api_error, check, create_network, departed_of, find_message, in_future, join_new_person,
@@ -117,7 +118,7 @@ def _():
     status, network = b.api("GET", f"/v2/networks/{net['id']}")
     check(status == 200, f"bob: network: {status} {network}")
     state["bob_public"] = network["person_public_key"]
-    link_machine(b, b2, net["id"], state["bob_public"], key=key)
+    link_machine(b, b2, net["id"], state["bob_public"], key=key, admin=a)  # bob is not an administrator
 
     def knows_bob2():
         for host in (b2, a):
@@ -126,10 +127,7 @@ def _():
         seen = members(a, net["id"])
         return seen if b2.public_key in seen and b.public_key in seen else None
     seen = wait_for(knows_bob2, timeout=40, interval=1, message="alice to list bob2 as a member")
-    state["bob_person"] = seen[b.public_key]["person_id"]
-    check((state["bob_person"] or "").startswith("person_") and len(state["bob_person"]) == 71,
-          f"bob's person_id {seen[b.public_key]}")
-    check(seen[b2.public_key]["person_id"] == state["bob_person"],
+    check(seen[b2.public_key]["person_public_key"] == seen[b.public_key]["person_public_key"] == state["bob_public"],
           f"bob2 is not bound to bob's person on alice: {seen[b2.public_key]}")
     status, ada = a.api("POST", "/v1/agents", {"name": "ada", "owner": "alice"})
     check(status in (200, 201), f"alice: register ada: {status} {ada}")
@@ -139,9 +137,13 @@ def _():
 @suite.case("invite_bound_hosts", "C3 Starting and adding people (resolution, persist and invite, invite outcome), "
                                   "Pending invites, Views, CLI conversations --invites")
 def _():
-    (bob_person,) = need("bob_person")
+    need("bob_public")
     conv, outcome, view = start_person("person:bob", "--title", "T")
     state["conv"] = conv
+    # The person ID (C3 Words) comes from the outcome's `participant`, `person:PERSON_ID` while not joined.
+    bob_person = (outcome.get("participant") or "").split(":", 1)[-1]
+    check(re.match(r"^person_[0-9a-f]{64}$", bob_person), f"outcome participant {outcome.get('participant')}")
+    state["bob_person"] = bob_person
     alice_p = view["created_by"]
     state["alice_p"], state["alice_person"] = alice_p, alice_p.split("/", 1)[1]
     check_invited(outcome, "person:bob")
