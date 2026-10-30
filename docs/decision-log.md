@@ -40,6 +40,14 @@ Contents:
 
 ## Full entries
 
+### DEC-OWN12: no host name in default agent names (2026-10-31)
+
+- **Authority:** owner decision, 2026-10-31.
+- **Question:** the conversations live run (`docs/results/conversations-live.json`) found that a default agent name such as `claude-HOSTNAME` carries the machine's host name, which every host in the network can see, while `attach --help` says the default is `claude`. Should the default change?
+- **Options:** (a) drop the host name: `BASE`, then `BASE-PROJECT` if used on this host, or `BASE-HHHH` if used only on another host; (b) keep it and correct the help text.
+- **Chosen:** (a). The owner asked to fix the host name in the default name; the suffix rules were the implementer's choice, keeping the existing project and host ID rules.
+- **Consequence:** existing agents keep their names. `-PROJECT` still puts the workspace's base name in a name the network can see; this decision does not change that.
+
 ### DEC-OWN11: next feature after the coordinator-free work (2026-10-30)
 
 - **Authority:** owner decision, 2026-10-30.
