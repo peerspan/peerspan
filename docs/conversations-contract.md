@@ -786,3 +786,190 @@ Spec-only cases, written from this section by the separate author, in `conforman
 - **30 days** (last). Conversation Z between alice's and carol's persons; carol stops; alice closes Z; the test clock moves 30 days and 1 second; `conversation sync Z` on alice reports carol's host `unsynced`, and alice's `GET /v1/conversations/{Z}?participant=ALICE_PERSON_PARTICIPANT` has `unsynced` `[CAROL_HOST]`. The `participant` parameter is needed because alice's binding grant has lapsed by then, so she has no default person participant.
 
 **Node adapter.** No change in C4; no new adapter tests.
+
+## C5: session context
+
+C5 gives an agent's session what it needs to follow a conversation across sessions: the handoff authorization recheck, seen tracking, returning and redelivering notifications, coalesced catch-up, `pending_work.conversations`, `conversation_history`, and the `conversation_undelivered` event. Everything in C1 to C4 stays as written unless this section changes it. Not in C5: rate limits, `addressed_to` from local surfaces, the read cursor, the event log, `forget`, and `home_unavailable` (C6). CONV-24 still holds: nothing below is listed in the root help, the README or the quick start.
+
+**Words.** P is a local agent participant. A *session* is one adapter authorization of P; it *ends* when replaced by a new attachment of the agent, when it expires, or when it is revoked or detached (live delivery slice 2). A notification is *held* by the session that claimed it. *Message notification* means `kind` `message`.
+
+### The handoff recheck
+
+A message notification is the only way a remote author's message becomes visible to P. C1's acceptance is not enough: **the recheck** evaluates, against this host's records at that moment, exactly the authorization of C4's [fetched-message](#fetched-messages) step 6 for an agent T, for the message's author and P. It has three outcomes:
+
+| Outcome | When | Effect |
+| --- | --- | --- |
+| **pass** | Self access, the recipient owner's current policy, or a current grant allows `message.append` from the author, and the block list does not apply. A message from an author on this host always passes (self access, decision 18). | The message may be shown. |
+| **fail** | Step 6's final refusal (`not_authorized`). | Not shown. At a claim, the notification becomes `blocked`. |
+| **wait** | Step 6's non-final case: this host holds no current policy statement of P's owner in any network both hosts share, and neither self access nor a grant allows it. | Not shown, not counted and not claimed now. It is evaluated again at each later claim and read. |
+
+**Blocked is final.** Only a claim records it. A notification whose recheck fails at a claim becomes `blocked`, in the claim's transaction, and is skipped: the claim goes on to the next notification. A blocked notification is never offered, listed or counted, and its message is never shown to P on any surface, even after the owner allows the author again (a final refusal stays final, DEC.impl76). Reads record nothing: a message hidden by a failing recheck at a read, whose author is allowed again before any claim, is claimed normally.
+
+The author's target stays `delivered`; blocking creates no `conversation_undelivered` event and tells the author's host nothing, as for a blocked one-to-one message. There is no peer request, new code or changed acceptance step in C5.
+
+**What an agent may see.** This replaces C1's [Who may see what](#who-may-see-what) for agent participants. A message is visible to P only when:
+1. P authored it; or
+2. P has a message notification for it that is not blocked, and at least one of these holds: it is seen; a session of P whose authorization has not ended holds it; or the recheck passes now.
+
+A message with an accepted inbound target but no such notification (for example, one withdrawn when P left, C2) is not visible, including after P is added again. Being in the roster shows nothing else. Messages already handed to a session that has not ended, and seen ones, are not withdrawn when the author loses access.
+
+This rule applies to every agent surface: `conversation_history`, the event `window` on first events and catch-up, `pending_work` and `GET /v1/sessions/{id}/pending`, `unseen`, `last_message_at`, and the owner's reads with an `agent:` `participant` (`GET /v1/conversations/{id}`, `.../messages`, `conversation show --as AGENT`). Person participants are unchanged: their authorization is checked at acceptance only.
+
+### Notification life
+
+| State | Meaning | Offered by the claim route | Counted in `unseen` |
+| --- | --- | --- | --- |
+| unclaimed | No session has held it. | Yes, after the recheck for messages. | When the recheck passes. |
+| held | Claimed by a session, not seen. | No. | Yes. |
+| returned | Its holder ended while it was unseen. | Yes, after the recheck for messages. | When the recheck passes. |
+| exhausted | Its holder ended, and it was already redelivered 3 times. | No. Stays unseen. | No. |
+| seen | Reported seen by its holder. | No. | No. |
+| blocked | The recheck failed at a claim. | No. | No. |
+
+**Unseen.** `unseen`, in the agent summary and the claim's `conversation`, is the number of P's message notifications in the conversation that are held by a session that has not ended, or are unclaimed, returned, or held by an ended session and under the limit with a passing recheck. This replaces C1's "not yet forwarded": `forwarded` no longer changes `unseen`. `GET /adapter/v1/conversations` keeps a closed conversation while its `unseen` is above 0.
+
+**Seen.** A notification is seen when the session holding it:
+- gets a 200 from `POST /adapter/v1/conversations/{id}/messages` (a repeat counts), `GET /adapter/v1/conversations/{id}/messages` or `POST /adapter/v1/conversations/{id}/manage`: all notifications of any kind that this session holds in that conversation at that moment become seen. A refused call marks nothing. `POST /adapter/v1/conversations`, `GET /adapter/v1/conversations`, and owner routes (including `--as`) mark nothing;
+- names it in `POST /adapter/v1/seen` (below).
+
+**Returning.** When a verified session of P claims work on any work route or calls `GET /adapter/v1/pending`, each unseen notification held by an ended session of P changes, in that transaction:
+- a message notification for a conversation in which P is no longer joined here is withdrawn, as C2 withdraws an unclaimed one;
+- otherwise, with fewer than 3 redeliveries, it becomes returned;
+- otherwise it becomes exhausted.
+
+Roster and `undelivered` notifications return and exhaust the same way, also after P left. A notification that arrives while P has no verified session stays unclaimed, and is not redelivered when claimed.
+
+### Claiming
+
+`POST /adapter/v1/conversation-notifications/next` with `{}`. C1's verified-channel and directory rules hold. In one transaction:
+1. Return notifications as above.
+2. Take the oldest (by creation) notification of P that is unclaimed or returned. For a message notification, run the recheck: on fail, block it and repeat this step; on wait, leave it and repeat this step with the next.
+3. **Unclaimed:** claim it for this session as C1 and C2 do, with `redelivered` false and `catch_up` false.
+4. **Returned, not a message notification:** claim it for this session, adding 1 to its redeliveries, with `redelivered` true, `catch_up` false, and C2's empty lists.
+5. **Returned message notification (catch-up):** gather every returned message notification of P in the same conversation; block any that fails the recheck and leave any that waits. Claim the rest together for this session, adding 1 to the redeliveries of each. The newest of them in display order is the new message.
+
+No notification is claimable: 200 `null`.
+
+**Claim:** C1's and C2's, gaining `catch_up` and `coalesced`: `{notification, conversation, messages, window, window_total, catch_up, coalesced, redelivered}`.
+- `notification` is the claimed one, for catch-up the new message's. It gains `seen_at` (null until seen) and `redeliveries`. `kind` may also be `undelivered`.
+- `messages` is exactly the new message (never cut), `[]` for roster and `undelivered` claims.
+- `catch_up` is true only for step 5. `coalesced` lists the IDs of the other notifications claimed with it, in display order of their messages, and is otherwise `[]`.
+- `window` and `window_total` follow C1's rule (at most the newest 10 messages and 16,384 bytes of cut content, each cut at 2,048 bytes), counted over the messages visible to P that sort before the new one. They are filled on the session's first message claim in the conversation **and on every catch-up**, and `[]` and 0 otherwise. So a catch-up window holds the other coalesced messages, and earlier visible ones as context, newest kept. A coalesced message that does not fit stays held, is counted in `unseen`, and is reachable with `conversation_history`.
+- `redelivered` is true for steps 4 and 5.
+
+**`forwarded`** works as in C1; called with a catch-up's notification ID, it also marks those in its `coalesced`. It answers for the notification named. Forwarding does not mean seen, and an item counts as handed to its session from the claim, even if its forwarding is never confirmed.
+
+Messages that became unclaimed while P had no session are separate events. For example, with m1 returned and m2 and m3 unclaimed, a new session's claims are a catch-up with m1 (`unseen` 3), then m2, then m3, each of the last two with `redelivered` false and no window.
+
+### `conversation_undelivered`
+
+When an outbound target of a message authored by a local agent P becomes `refused`, `unsupported` or `stopped`, in the same transaction, this host creates one notification with `kind` `undelivered`, `message_id` that message and the field below. There is at most one per (message, target): `stopped` followed by `refused` makes no second one, and `stopped` followed by `delivered` makes no correction. No notification is created when P is no longer joined here, for a person author, for a target that becomes `delivered`, or for a refused invite. Target states and answer tables are unchanged.
+
+`notification.undelivered` is `{participant, label, state, code, error, preview}`, with the target view's first five fields at that moment, and `preview` the first 200 characters of the message. It is null for other kinds. It counts toward no `unseen` and is not in `pending_work`.
+
+### `pending_work`
+
+`GET /adapter/v1/pending`, and `GET /v1/sessions/{id}/pending` with the same object, gain `conversations`, beside `deliveries`, `replies`, `tasks` and `calls`:
+
+```json
+{"conversation_id": "conv_…", "title": "Flaky checkout test", "unseen": 2, "addressed": true,
+ "latest": {"message_id": "cmsg_…", "author_label": "alice", "preview": "first 200 characters"}}
+```
+
+- There is one entry per conversation in which P is joined here and has at least one message notification this session holds or could claim: held by this session, or unclaimed, returned, or held by an ended session and under the limit, with the recheck passing for all but those held by this session. Those held by another session that has not ended are not listed. Roster and `undelivered` notifications are not listed.
+- `unseen` counts exactly those notifications, and `addressed` is true when any of their messages has `addressed` true. `latest` is the newest of their messages in display order. `title` is null when there is none. The list is ordered oldest first, by when the earliest of those messages reached this host.
+- A credential without directory access gets `conversations` `[]`.
+- Both routes record nothing about a recheck. The adapter route returns notifications first when its session is verified, as today; the owner route does not, and gives the same list.
+
+### Adapter routes
+
+`POST /adapter/v1/conversation-notifications/next`, `.../{id}/forwarded`, `GET /adapter/v1/pending` and `POST /adapter/v1/seen` change as above and below. New:
+
+| Route | Query | Answer |
+| --- | --- | --- |
+| `GET /adapter/v1/conversations/{id}/messages` | `before=MESSAGE_ID`, `limit=N` (both optional; `limit` 1 to 50, default 20) | 200 `{messages, next_before_message_id, participants}` |
+
+It works before the channel is verified. Checks, in order:
+1. No directory access: 403 `no_directory`.
+2. Malformed `id`, `before` or `limit`, or an unknown query parameter: 400 `invalid`.
+3. A conversation this host does not hold (a pending invite alone does not count): 404 `not_found`.
+4. P not joined here: 403 `{code: "not_participant", error: "This participant is not in that conversation."}`. A closed conversation P was joined in at the close stays readable.
+5. A `before` that is not visible to P, whether unknown or hidden, is 400 `invalid`, with the same text.
+
+**Page.** Starting with the newest message visible to P that sorts before `before` (or the newest overall), the route takes messages going back in display order until it has `limit`, or until the next would take the total `content` bytes above 262,144. The first message taken is never left out: if it alone is above the budget, its content is cut to the budget at a UTF-8 boundary. `messages` are returned in display order. Each is the adapter message view (C1) with `targets` (the target views when `mine`, otherwise null), `truncated` (a boolean) and, when cut, `content_bytes`. `next_before_message_id` is the oldest returned message's ID when older visible messages exist, otherwise null. `participants` are the agent summary's.
+
+**`POST /adapter/v1/seen`** (`{ids}`, 1 to 100) also takes:
+- a `cmsg_` ID: every notification this session holds with that `message_id`, and, for a catch-up's new message, those in its `coalesced`. It is held when this session holds at least one.
+- a `conv_` ID: every notification of any kind that this session holds in that conversation. It is held when this session holds at least one.
+
+As today, the answer is 200 `{seen: [ids]}` naming the IDs that changed something, an already seen ID is ignored, and any ID not held is 404 with nothing marked. A notification P's other session holds, or an unclaimed one, is not held. A value with no accepted prefix is 400 `invalid` with `ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs`.
+
+### Local API and CLI
+
+No new conversation command or `/v1` route. Reads with an `agent:` `participant` follow [What an agent may see](#the-handoff-recheck), with the same errors as C1 and without changing any state; the person participant's are unchanged.
+
+`peerspan session pending [--json | --hook]` (exit 0, and nothing printed with no attachment here, as today):
+- `--json`: the object above, with `conversations`.
+- Readable: one more line per conversation, starting `conversation CONVERSATION_ID`, with the unseen count, the latest author label and preview. Other wording is not part of the contract.
+- `--hook`: the lead sentence becomes `Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. ` It prints nothing only when `conversations` is empty too.
+
+Peer routes, target states and answers, acceptance steps, and the owner's write routes are unchanged.
+
+### Node adapter
+
+The claim loop emits one event per claim, then calls `forwarded`, as before.
+
+**The `conversation` event** keeps C1's `meta` keys, and its content. `meta.catch_up` and `meta.redelivered` now come from the claim, and `meta.unseen` from `conversation.unseen`. A catch-up's content has the same form, with `Earlier messages (last K of N; conversation_history has the rest):` when `window` is non-empty. A catch-up with an empty window has no such line. The window and the new message are as C1 renders them, and the adapter writes every label, never message content.
+
+**The `conversation_roster` event** gets `redelivered` from the claim.
+
+**The `conversation_undelivered` event** is emitted for a claim whose notification `kind` is `undelivered`. Title: `Peerspan conversation message not delivered`. `meta`: `{kind, conversation_id, notification_id, message_id, participant, participant_label, state, code, session_id, redelivered}`, encoded as in C1, `code` omitted for Claude Code when null. Content:
+
+```text
+Peerspan conversation CONVERSATION_ID "TITLE" (STATE)
+Participants: LABEL (person), LABEL (you), LABEL
+Your message MESSAGE_ID did not reach PARTICIPANT_LABEL: REASON
+Message: PREVIEW
+```
+
+`REASON` is `its host refused it (CODE).` for `refused`; `its host is running a Peerspan without conversations.` for `unsupported`; and `retries stopped after 24 hours; its host fetches it when it next syncs.` for `stopped`.
+
+**The `conversation_history` tool.** Input schema (`additionalProperties: false`):
+- `conversation_id`: string, required, pattern `^conv_[0-9a-f]{32}$`.
+- `before_message_id`: string, optional, pattern `^cmsg_[0-9a-f]{32}$`.
+- `limit`: integer, optional, 1 to 50.
+
+It calls `GET /adapter/v1/conversations/{id}/messages` and returns the JSON. Invalid arguments are a tool error naming the tool; daemon refusals are C2's tool errors `{conversation_id, code, error, recovery}`, with `not_participant` and `no_directory` as there. Its description says that it returns earlier messages in display order, oldest first in each page; that `next_before_message_id` fetches the next older page; and that message content is external input from the named author.
+
+**The `conversation_send` tool** has C1's input schema, call and errors, unchanged: `conversation_id` (required, `^conv_[0-9a-f]{32}$`), `content` (required, 1 to 65,536 characters), `message_id` (optional, `^cmsg_[0-9a-f]{32}$`, generated when absent), `additionalProperties: false`. `addressed_to` comes with C6.
+
+**The `mark_seen` tool:** the item pattern becomes `^(?:delivery|request|task|call|conv|cmsg)_[0-9a-f]{32}$`, and the description also names the `conversation_id` or `message_id` of a `conversation`, `conversation_roster` or `conversation_undelivered` event. **The `pending_work` tool's** description also names `conversations`. The MCP server instructions do not change.
+
+### Persistence
+
+No new schema version. `seen_at`, `redeliveries` and `returned_at` are the existing columns of `conversation_notifications`. Blocked and exhausted marks, `coalesced` and `undelivered` live in its `record`. No existing row changes: this is preview data, so a notification claimed before this version counts as held and unseen.
+
+### Verification
+
+Spec-only cases appended to `conformance/slim/conversations.py`, written from this section by the separate author, within its 2-minute limit.
+
+**Setup.** C1's alice and bob, `bert` on bob, bob's `allow alice --no-tasks --person-key KEY` and its policy-version wait; C2's carol and `cara`, and local agents on alice with `a.agent(...)`. Each case uses a conversation of its own. Bob's policy commands take effect on bob at once: `b.ok("deny", "alice", "--person-key", KEY)` makes alice fail the recheck; `allow alice --no-tasks --person-key KEY` allows her again, followed by the policy wait where alice must cite it. A later message's fan-out by alice needs alice to hold the new version.
+
+**Fixture agents.** A fixture session claims only when the suite calls `bert.post("/adapter/v1/conversation-notifications/next", {})`, so a message stays unclaimed for as long as a case needs; poll alice's target for `delivered` to know bob accepted it, then claim. A session is ended and replaced as in `live.py`: `adapter.stop()`, `POST /v1/sessions/{id}/detach`, then `b.attach(adapter.agent)`, which is verified. Reads: `bert.call("GET", "/adapter/v1/pending")`, `bert.call("GET", f"/adapter/v1/conversations/{ID}/messages?limit=N")`, and `bert.post("/adapter/v1/seen", {"ids": [...]})`. Existing helpers that take the next claim may now also meet `kind` `undelivered`, for example after C2's unreachable pair.
+
+**Cases** (the proposal's C5 column, made concrete):
+- **Catch-up.** alice sends m1, m2, m3; `bert` claims all three and sees none. After replacing the session, the first claim has `catch_up` true, `redelivered` true, `messages` exactly m3, `window` m1 and m2 in display order, `window_total` 2, `coalesced` two IDs, and `conversation.unseen` 3. The next claim is `null`.
+- **Pending until seen.** Before that claim, `GET /adapter/v1/pending` lists the conversation with `unseen` 3, `latest` m3's ID, `author_label` `alice` and preview; `GET /v1/sessions/ID/pending` is the same object. After that claim, and then a send by `bert` through the adapter route: `unseen` 0 and `conversations` `[]`, on the owner route too, and replacing the session again gives `null` from the claim.
+- **Other seen paths.** `GET .../messages` marks held notifications seen, as does `manage`, and a refused send does not. `POST /adapter/v1/seen` with the catch-up's new message ID marks every coalesced notification; with the `conv_` ID marks the rest; with an ID this session does not hold is 404 and marks none (including a batch with one valid ID); with a malformed ID is 400. An ID held only by an ended session is 404.
+- **Redelivery limit.** One message claimed and unseen by four sessions in turn: claims 2, 3 and 4 have `redelivered` true and `notification.redeliveries` 1, 2, 3. A fifth session's claim is `null`, `pending_work` does not list it, and `unseen` is 0. `conversation_history` still lists it. Once seen by the first session, a message is not redelivered.
+- **Late arrival.** With `bert`'s session stopped and detached and no new one, alice sends m. The next session's claim has m with `redelivered` false and `catch_up` false, and its window as a first claim.
+- **Never offered.** alice sends s1, delivered, unclaimed. After `deny alice` on bob: the claim is `null`; `pending_work` has no entry for it; `GET .../messages` and `conversation show --as bert --json` on bob do not list s1; `GET /adapter/v1/conversations` has `unseen` 0 and `last_message_at` not from s1; `GET .../messages?before=S1` is 400; alice's target stays `delivered`. After `allow alice` and the policy wait, the claim is still `null` and s1 still appears nowhere; alice's new s2 is claimed with a `window` and `window_total` that do not include s1.
+- **Hidden, then allowed, before any claim.** alice sends r1, delivered. After `deny alice`, `pending_work` and history hide it; after `allow alice` with no claim between, they show it and the claim returns it.
+- **Blocked on return.** `bert` claims t1, unseen; after `deny alice`, `conversation show --as bert --json` on bob still lists t1, since a live session holds it (not `conversation_history`, which would mark it seen). After replacing the session with the deny still in place, the claim is `null`, and `conversation_history` no longer lists t1.
+- **Undelivered.** alice runs `block bob`; `bert` sends u1 in a conversation with alice's person: the target becomes `refused`, and `bert`'s claim has `notification.kind` `undelivered`, `message_id` u1, `undelivered` with the participant, `state` `refused`, `code` `not_authorized` and the preview; the next claim is `null`, so there is exactly one; `unseen` is unchanged; `unblock bob` afterwards. A second target that was `delivered` produces no notification. Replacing the session before seeing it redelivers it with `redelivered` true.
+- **History pages.** `ada` and a person on alice exchange 5 messages of 65,536 bytes and a short one. `GET .../messages` without `limit`: the newest messages within the budget (the short one and 3 large, or 4 large when the short one is older), in display order, total content at most 262,144 bytes, `next_before_message_id` the oldest returned. Following it pages through all of them with no repeats. `limit=2`, `limit=0` and `limit=51`, an unknown parameter, and an unknown `before` behave as above. `participants` lists the participants. After leaving, the route is 403 `not_participant`; on an unknown conversation, 404; without directory access, 403 `no_directory`. A closed conversation stays readable.
+- **`stopped`** (last, after C2's unanswered case; carol is stopped). `ada`, a local agent in a conversation with `cara` started before carol stopped, sends a message; its target stays `sending`. The test clock moves 24 hours and 1 second; within 20 seconds the target is `stopped`, and a new session from `a.attach(ada.agent)` (the old one's 2-hour authorization has expired) claims one `undelivered` notification with `state` `stopped`.
+
+**Rust.** A `cargo test` unit test checks the `--hook` lead sentence, and that the hook prints output when only `conversations` is non-empty; the slim suite cannot create an `attach` profile.
+
+**Node adapter** (`node --test` in `integrations/shared`, as in C1 and C2): a catch-up claim's `meta` (`catch_up`, `redelivered`, `unseen`) and content with and without a window; `forwarded` after it; the `conversation_undelivered` event's `meta` and content for `refused`, `unsupported` and `stopped`; `conversation_history` input validation, its daemon call with `before` and `limit`, and the `not_participant` tool error; `mark_seen` accepting `conv_` and `cmsg_` IDs.
