@@ -316,6 +316,10 @@ struct LocalState {
     /// Local participants that left on this host, with when.
     #[serde(default)]
     left: BTreeMap<String, String>,
+    /// The last name each agent participant had in a roster, for labels
+    /// of departed participants.
+    #[serde(default)]
+    names: BTreeMap<String, String>,
 }
 
 /// A conversation as this host holds it: home's roster and the local state.
@@ -486,6 +490,13 @@ fn parse_held(text: String, own: &str) -> Result<Held, Error> {
     Ok(Held { roster, local })
 }
 fn save_held(conn: &Connection, held: &Held) -> Result<(), Error> {
+    let mut held = held.clone();
+    for p in &held.roster.participants {
+        if let (Some(id), Some(name)) = (&p.id, &p.name) {
+            held.local.names.insert(id.clone(), name.clone());
+        }
+    }
+    let held = &held;
     let roster = &held.roster;
     conn.execute(
         "INSERT INTO conversations (id, home_host, roster_version, state, record) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET roster_version = excluded.roster_version, state = excluded.state, record = excluded.record",
@@ -619,13 +630,16 @@ impl Store {
         let Some((kind, host, local)) = participant_parts(id) else {
             return Ok(id.to_owned());
         };
+        let name = self
+            .held_opt(conn, &roster.conversation_id)?
+            .and_then(|h| h.local.names.get(id).cloned());
         let p = Participant {
             id: Some(id.into()),
             kind: kind.into(),
             host_id: Some(host.into()),
             person_id: None,
             agent_id: (kind == "agent").then(|| local.to_owned()),
-            name: None,
+            name,
             state: "joined".into(),
             added_by: None,
             added_at: String::new(),

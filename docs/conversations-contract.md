@@ -418,7 +418,7 @@ Body `{participant}`, from a participant's host to home. `participant` is an `ag
 - The first acceptance admits the agent and creates an `added` notification for it, with the invite's `note`. A repeat for the same `(home, conversation_id, target)` whose roster gives the target the same `added_at` answers `{state: "joined", name}` again with no new notification while the agent is joined here, and 403 `not_participant` after it left or was removed. A repeat with a later `added_at` (a re-add) is a new invite.
 - The receiver stores the invite's roster when it holds none or a lower version.
 
-**`POST /peer/v1/conversations/{id}/messages`:** step 4 fetches the roster as above, and the new closed step comes before authorization. "Joined" for the target means joined here.
+**`POST /peer/v1/conversations/{id}/messages`:** step 4 fetches the roster as above, and the new closed step comes before authorization. "Joined" for the target means joined here. As in C1's persist step, a message whose author and `seq` this host already holds under another `message_id` is 409 `conflict`: an author's host never numbers two messages alike.
 
 ### Notifications and adapter routes
 
