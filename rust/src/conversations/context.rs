@@ -33,7 +33,7 @@ const HISTORY_LIMIT: i64 = 50;
 const PREVIEW: usize = 200;
 
 /// The outcome of the handoff recheck (contract C5).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Recheck {
     Pass,
     Fail,
@@ -163,7 +163,7 @@ pub(crate) fn return_notifications(
     let me = format!("agent:{}/{agent}", store.identity().id);
     for mut row in rows(
         tx,
-        "agent_id = ?1 AND session_id IS NOT NULL AND seen_at IS NULL AND returned_at IS NULL",
+        "agent_id = ?1 AND session_id IS NOT NULL AND seen_at IS NULL AND returned_at IS NULL AND json_extract(record, '$.blocked_at') IS NULL AND json_extract(record, '$.exhausted_at') IS NULL",
         &[agent],
     )? {
         if !row.open() || !holder_ended(tx, &row, ended)? {
@@ -411,10 +411,13 @@ impl Store {
         crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         let at = now();
         let mut claim = None;
-        for mut row in rows(&tx, "agent_id = ?1", &[&ss.agent_id])? {
-            if !row.claimable() {
-                continue;
-            }
+        // Only what could be claimed: seen notifications are kept for good,
+        // and this route is polled.
+        for mut row in rows(
+            &tx,
+            "agent_id = ?1 AND seen_at IS NULL AND (session_id IS NULL OR returned_at IS NOT NULL) AND json_extract(record, '$.blocked_at') IS NULL AND json_extract(record, '$.exhausted_at') IS NULL",
+            &[&ss.agent_id],
+        )? {
             if row.kind == "message" {
                 match self.recheck_row(&tx, &row, &ss.agent_id)? {
                     Recheck::Pass => {}
@@ -778,4 +781,137 @@ pub(super) async fn adapter_next(
     Ok(Json(
         blocking(store, move |s| s.claim_conversation_notification(&auth)).await?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Held, LocalState, Message, Roster, save_held};
+    use super::*;
+    use crate::adapter_outbound::tests::connected_adapter;
+
+    const CONVERSATION: &str = "conv_00000000000000000000000000000001";
+    const MESSAGE: &str = "cmsg_00000000000000000000000000000001";
+
+    /// A store with one local agent joined in a conversation.
+    fn setup(temporary: &tempfile::TempDir) -> (Store, String, String) {
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let auth = connected_adapter(&store, "a");
+        let agent = store.adapter_session(&auth).unwrap().agent_id;
+        let me = format!("agent:{}/{agent}", store.identity().id);
+        let mut local = LocalState::default();
+        local.admitted.insert(me.clone(), now());
+        let roster = Roster {
+            conversation_id: CONVERSATION.into(),
+            home_host_id: store.identity().id.clone(),
+            version: 1,
+            title: None,
+            state: "open".into(),
+            created_by: me.clone(),
+            created_at: now(),
+            participants: Vec::new(),
+            departed: Vec::new(),
+        };
+        save_held(&*store.connection().unwrap(), &Held { roster, local }).unwrap();
+        (store, agent, me)
+    }
+    fn message(store: &Store, author: &str) -> Stored {
+        let stored = Stored {
+            message: Message {
+                message_id: MESSAGE.into(),
+                conversation_id: CONVERSATION.into(),
+                author: author.into(),
+                seq: 1,
+                clock: 1,
+                roster_version: 1,
+                sent_at: now(),
+                content: "hello".into(),
+                addressed_to: None,
+                origin: None,
+            },
+            received_at: now(),
+            sender_host: "host_x".into(),
+        };
+        store.connection().unwrap().execute(
+            "INSERT INTO conversation_messages (conversation_id, message_id, author, seq, clock, local_seq, record) VALUES (?1, ?2, ?3, 1, 1, 1, ?4)",
+            params![CONVERSATION, MESSAGE, author, serde_json::to_string(&stored).unwrap()],
+        ).unwrap();
+        stored
+    }
+    fn undelivered(store: &Store) -> i64 {
+        store
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM conversation_notifications WHERE kind = 'undelivered'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+    fn target(state: &str) -> Outbound {
+        Outbound {
+            participant: "person:host_y/person_y".into(),
+            state: state.into(),
+            code: (state == "refused").then(|| "not_authorized".into()),
+            error: None,
+            attempts: 1,
+            next_attempt_at: None,
+        }
+    }
+
+    #[test]
+    fn a_host_with_no_current_policy_waits_and_shows_nothing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (store, agent, me) = setup(&temporary);
+        let host = format!("host_{}", "e".repeat(store.identity().id.len() - 5));
+        let author = format!("person:{host}/person_{}", "f".repeat(64));
+        let stored = message(&store, &author);
+        let conn = store.connection().unwrap();
+        store
+            .notify(&conn, CONVERSATION, &agent, "message", Some(MESSAGE), None)
+            .unwrap();
+        assert_eq!(store.recheck(&conn, &stored, &agent).unwrap(), Recheck::Wait);
+        assert!(store.visible(&conn, CONVERSATION, &me).unwrap().is_empty());
+        assert_eq!(store.unseen(&conn, CONVERSATION, &agent).unwrap(), 0);
+        // Nothing was recorded: it stays claimable for a later recheck.
+        let found = rows(&conn, "kind = 'message'", &[]).unwrap();
+        assert!(found.len() == 1 && found[0].claimable());
+    }
+
+    #[test]
+    fn one_undelivered_notification_per_message_and_target() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (store, _, me) = setup(&temporary);
+        message(&store, &me);
+        let conn = store.connection().unwrap();
+        store
+            .note_undelivered(&conn, CONVERSATION, MESSAGE, &target("stopped"))
+            .unwrap();
+        drop(conn);
+        assert_eq!(undelivered(&store), 1);
+        let conn = store.connection().unwrap();
+        for state in ["delivered", "refused"] {
+            store
+                .note_undelivered(&conn, CONVERSATION, MESSAGE, &target(state))
+                .unwrap();
+        }
+        drop(conn);
+        assert_eq!(undelivered(&store), 1);
+    }
+
+    #[test]
+    fn no_undelivered_notification_after_the_author_left() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (store, _, me) = setup(&temporary);
+        message(&store, &me);
+        let conn = store.connection().unwrap();
+        let mut held = store.held(&conn, CONVERSATION).unwrap();
+        held.local.left.insert(me, now());
+        save_held(&conn, &held).unwrap();
+        store
+            .note_undelivered(&conn, CONVERSATION, MESSAGE, &target("refused"))
+            .unwrap();
+        drop(conn);
+        assert_eq!(undelivered(&store), 0);
+    }
 }
