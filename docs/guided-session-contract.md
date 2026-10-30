@@ -5751,6 +5751,10 @@ Separate contract-only author supplies six compact real-binary cases:
    UDP counter purity after genuinely observed setup retirement/startup work.
    Preserve every old case/assertion/delay/timeout and record any unexecuted
    complex fork/unsettled/multi-machine/limit prerequisite honestly.
+   Failed strict purity checks report only already captured public category
+   metadata: changed table names/counts, state/home file category counts and
+   deltas for every original TCP and enabled UDP carrier. Preserve the same
+   complete comparisons and fail; no reset, filtering, extra wait or retry.
 6. Strict bounded/duplicate/null/trailing/private stdin corpus and argv redaction,
    unsupported methods, unavailable daemon, owner/adapter/peer isolation, unsafe
    public values/output/capacity/type corruption refusal. Existing schema27 and
