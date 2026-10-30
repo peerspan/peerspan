@@ -358,13 +358,14 @@ def _():
     conv, bob_person, alice_p = need("pending", "bob_person", "alice_p")
     check(conv in invites(b), "no invite pending on bob before moving the clock")
     suite.set_offset(suite.offset + WEEK + 1)
+    # Home's side first: it does not depend on bob still being bound once every grant is outdated.
+    wait_view(a, conv, alice_p, lambda v: person_entry(v, bob_person) is None,
+              "the expired invite dropped on alice", timeout=20)
     check(invites(b) == {}, f"bob still lists pending invites 7 days later: {sorted(invites(b))}")
     readable = b.cli("conversations", "--invites")
     check(readable.ok and "No pending conversation invites." in readable.stdout,
           f"readable --invites with none: {readable.stdout!r}")
     refused(b.cli("conversation", "join", conv), "not_found", NO_INVITE)
-    wait_view(a, conv, alice_p, lambda v: person_entry(v, bob_person) is None,
-              "the expired invite dropped on alice", timeout=20)
 
 
 suite.finish()
