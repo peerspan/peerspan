@@ -1069,8 +1069,9 @@ export function createAdapter({
       }
     }
     if (name === 'list_conversations' || name === 'conversation_start' || name === 'conversation_manage') {
-      if (!validArguments(name, name === 'list_conversations' ? (args ?? {}) : args))
-        return errorResult(`Invalid ${name} arguments.`);
+      // list_conversations takes no arguments; a client may omit the object.
+      if (name === 'list_conversations') args = args ?? {};
+      if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
       const conversationId = args.conversation_id ?? null;
       if (name === 'conversation_manage') {
         const needs = args.action === 'add' || args.action === 'remove';
