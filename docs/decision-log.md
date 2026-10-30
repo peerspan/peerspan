@@ -2665,3 +2665,18 @@ retaining all original three-signature/exact-key/batch/home/no-replacement and
 privacy assertions. Five other cases passed; lost firstB/D caps passed before
 the helper failure. No product assertion failed. Discarded: larger timeouts,
 dropping key-source checks, re-running unchanged or accepting a partial run.
+
+
+### GU.impl25e — Confirm live TLS hold and actual terminal outbox retirement
+
+Selected independent fixture proposal: consume/count a real ClientHello, hold
+server bytes outsideDB, and verify the same actually live held generation both
+before/after each pure read while retaining every original bothcarrier/wholeDB/
+state/home assertion and original delay/timeout. Do not assume parallel endpoint
+polls. For terminal history keep both genuine peers online through explicit
+pinned peer registration and one ordinary sync each, then observe actual empty
+outboxes/absent rollbackjournal before issuer stop and the unchanged historical
+checks. Sync acknowledgment is observed, not inferred. The retained failure
+fixture later had empty queues/no journal on both hosts, which cannot establish
+its earlier change direction/cause. Discarded: stale hold flags, row edits,
+worker disabling, dropping queue/journal/counter checks or larger timeouts.

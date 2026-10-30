@@ -4380,6 +4380,32 @@ multi-identity agent / valid different generated-key stimulus may share case3
 three-signature, batching, no-replacement/home and privacy assertion. Unsafe/
 malformed/key-failure cases remain separate; no timeout or assertion is relaxed. No repeated native/host/build load overlap is allowed during diagnosis.
 
+### Confirmed transport and terminal baseline setup
+
+For the section24 live read fixture, the relay may consume/count the genuine TLS
+ClientHello and withhold server bytes. Capture an actually live held connection
+and its generation before the purity baseline, and require that same generation
+to remain live/held after the read. This is outside every DB transaction, without
+TLS impersonation/decryption or worker disabling. Refresh/release only outside
+measurement. Preserve the exact whole-DB/state/home and BOTH relay counter
+assertions, original delays/timeouts; any independent attempt still fails those
+assertions. Do not assume all endpoints poll concurrently or treat a stale held
+flag as a barrier. A bounded hold that expires before measurement ends is not
+valid isolation or passing evidence.
+
+For the section18 terminal fixture, after both participants actually apply keep
+both peers online, explicitly register their genuine independently pinned peer
+endpoints if needed and attempt one bounded ordinary network sync on each.
+Observe actual dec_outbox retirement and absence of the rollback journal before
+stopping the issuer and capturing the historical-read baseline. Sync success
+alone does not prove acknowledgment. No queued category/journal is omitted and
+no original offline/keyless/history assertion, delay or timeout is weakened.
+The retained failed fixture later had zero outboxes/journals on both hosts; that
+final observation does not identify the earlier baseline change direction or
+its exact cause. Preserve unclassified failure attribution and instantaneous
+scheduler/source limits. Every changed fixture is independently authored and
+committed before its one corrected full run against the same frozen binary.
+
 ## 26. Remaining flow contract
 
 Teammate/device admission, remaining
