@@ -3722,7 +3722,157 @@ auto/original/device fallback, hidden signing as preparation, raw admission
 preview/import, external key flows, profile15 for the new original, native
 controls in this backend slice and consent as membership/access/readiness.
 
-## 22. Remaining flow contract
+## 22. Explicit incoming original/selection proof progress
+
+This backend action closes the gap between an automatically returned request
+and sections20/21's retained owner/selection evidence. It is explicit transport
+work, not a read-only observation. No native control, manual code import,
+administrator intent/provider choice, approval, local signature, publication,
+finalization, requester commit, authority adoption or new schema/journal.
+
+### Private API and CLI
+
+`POST /v1/onboarding/incoming-progress` and
+`peerspan onboarding admission progress --stdin` accept exactly
+{context,request_id}, using section20's strict64KiB private stdin/JSON,
+duplicate/unknown/null/type/typed-ID/context rules. No codes, files, keys,
+endpoints, helpers, provider, deadline or approval input. Validate locally before
+IO, use one literal5s owner-local request, start no daemon/state, and keep parser/
+daemon/transport errors static and redacted. Only the private owner router;
+alternate methods405, absent from scoped adapter/authenticated peer/bootstrap.
+
+Successful200 response is exactly:
+
+```
+{version:1,host_id,context,observed_at,request,next_action}
+```
+
+Request is the ordinary public LINK_VIEW, observed_at canonical guarded
+whole-second UTC. Next_action is wait_for_original_owner while owner_offer_id is
+absent, wait_for_requester_selection while selection_id is absent, otherwise
+review_administrator_consent only after the entire section20 inspection prefix
+verifies. No endpoint/contact/code/seed/frame/catalog/template/signature/signing
+request/provider inventory or raw error is returned. Apply section20's recursive
+control/decorated private-prefix protection to the full public result. This
+indicates a pending consent step, never membership/access/connection/model readiness.
+Unknown request/project404; malformed400 invalid; changed/detached parent409
+review_changed; unsupported/expired/cancelled/clock/ambiguous/invalid proof,
+transport failure or timeout409 incoming_progress_unavailable. A changed exact
+request/root/parent pin during IO409 review_changed. No partial local proof
+retention on failure, including public-redaction or schema-only abort failures.
+Timeout/response loss cannot prove that an earlier complete retention did not
+commit; explicit retry rechecks the real current state.
+
+### Eligibility, bounded fetch and atomic retention
+
+Preflight in one SQLite read snapshot on a blocking worker: exact current
+attached AdapterContext/agent, incoming administrator role and no requester
+role, new/nonmigration, no owner/administrator/selection/commit local intents,
+no approved selection/commit, no administrator/F/commit/manifest/activation/outcome
+result, live request and ordinary ten-minute stage bound. Raw local and effective
+guarded time must be no earlier than signed request/latest stage creation.
+Require exact adopted network/context/person pins, target person not already
+admitted, and an external requesting host. Verify the signed ordinary request
+and current adopted descriptor/projection; no signer/key availability check.
+Capture immutable request/private operation record, parent/agent and current
+root-state pins for recheck. Unsupported paths refuse before network IO.
+
+If owner+selection are already retained and section20 verifies, return the exact
+current public result without network IO, logical DB/file/event/clock writes,
+intent creation or another stage timestamp. It is a pure cached retry, including
+when a previously used carrier is unavailable. Do not bypass eligibility after
+administrator consent has been prepared: use its existing lookup/history instead.
+
+Otherwise perform one bounded GET pass over at most8 already retained pinned
+carrier endpoints for this exact request/locator/read capability. Reuse the
+ordinary pinned bootstrap transport, mailbox envelope and exact signed/encrypted
+frame validators. At most one GET per saved endpoint, no automatic retry,
+resource creation/append, helper registration, new discovery or contact learning.
+Fetch endpoints concurrently under one3s monotonic transport budget; retain only
+responses completed within it. A valid response can succeed despite another
+unreachable/invalid endpoint. No successful valid endpoint means unavailable;
+no empty-success claim when there are no carriers. Do not update the ordinary
+poll cache. No database connection/transaction is held over network awaits.
+
+After fetch, one blocking-worker writer transaction rechecks the exact attached
+parent/agent, request/private operation and current root-state pins, raw/guarded
+time and all eligibility. Check a4s monotonic retention deadline before writing
+and again before commit; queued/expired work cannot write after that last check.
+No detached mutating async task or timer. Existing test controls may pause at
+`dec.incoming_progress.before_retain` after IO and before opening this transaction,
+with no database lock held, to prove context/time/deadline invalidation.
+
+Atomically merge exact request/owner/selection/proofs frames into existing
+private pending storage with its ordinary limits (64 frames/32MiB ciphertext),
+never administrator/F/commit/outcome frames. Unsupported later-stage frame roles
+make that carrier snapshot unusable rather than silently advancing it. Contacts
+inside frames are not learned or used as new endpoints. Decode/verify retained
+proofs with the ordinary Evidence/Offer and requester-selection validators.
+An unpinned owner needs exactly one valid offer; ambiguous owners or selections
+refuse, with no default/arrival-order choice. A previously retained owner is
+immutable. Require original_person possession-only SSHSIG, exact target tuple/
+invitation/descriptor/member pins, profile7 and request.created_at+7day not_after,
+no root/person/issuer/renewed-device authority. Cache only its verified ordinary
+owner and exact externally signed selection prefix. Receiving selection is not
+a local selection-approved event; preserve all consent/approval booleans false.
+No ordinary observe/resume/action engine that may advance later stages.
+
+An honest mailbox may still contain only the request or owner: retain the valid
+partial evidence and return the corresponding wait action. Newly verified
+owner/selection stages may advance the existing pending stage timestamp once;
+no clock-guard advancement, intents, events, peer contacts, registry or adopted
+catalog/authority changes. Existing frames are deduplicated; unchanged repeat
+cannot extend stage life. All frames, pending references, stage change and safe
+public response pass validation before commit; any failure rolls all of it back.
+No cross-request cleanup or pairing material reconstruction/export.
+
+### Verification
+
+A separate contract-only author adds incoming_progress6 under2min, preserving
+all existing suites/native252/Rust155/2ignored and initial source assertions.
+No implementer tests or invented protocol/authority rows.
+
+1. Genuine two-host/two-person automatic incoming request, actual signed original
+   and selected offer remain remote; new action alone fetches and verifies the
+   exact prefix without ordinary link resume/admissions preview/import as setup
+   on the administrator. Section20 inspection/section21 consent then use it.
+   Exact public request/action; no administrator intent/approval/signature,
+   authority/access/registry/event/new schema/key or secret journal. One frozen
+   cached retry with remote stopped proves complete-prefix purity/no IO.
+2. Request-only and genuine owner-only mailbox produce waiting actions; repeated
+   identical evidence does not renew stage timestamp or create authority. Exact
+   retained request remains the same; no endpoint/contact learning or POSTs.
+3. Strict CLI/API/64KiB/private-input/method/missing-daemon and scoped adapter/
+   authenticated peer/bootstrap isolation; wrong/detached context/unknown IDs,
+   requester/renewal/later-intent/cancelled/expired paths refuse without effects.
+4. Genuine unsupported profile/lifetime and unavailable/mismatched/ambiguous
+   proof fail closed with full rollback. Offline carrier/timeout stays bounded
+   and redacted; no false successful progress. Bounded genuine invalid/ambiguous
+   carrier fixtures preferred; otherwise explicit source/fault limits, not
+   invented authority rows or private-key replacement.
+5. Debug pre-retention barrier proves parent replacement/cancellation/deadline
+   while IO was in flight causes zero local retention. Schema-only ABORT on
+   pending update after fetched frame insertion proves the entire transaction
+   rolls back, followed by one exact retry after removing the trigger.
+6. Same exact fetched prefix proceeds through existing explicit consent and
+   ordinary root offer/F/requester commit; progress refuses after a local intent
+   or later stage rather than signing/resuming/recreating history. Existing
+   administrator lookup remains pure. Broader fresh concurrency/root-rotation/
+   corrupt-retention intervals remain explicit source/fault limits if needed.
+
+Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
+exact source/binary/results and all failures/limits. Earlier signing historical
+purity intermittence remains documented. Actual native/terminal/physical/
+installed/model/schema23-to27 full-state acceptance remains open; do not retry
+previous rejected terminal actions or unchanged quota-refused model probes.
+
+Selected: one explicit bounded fetch and atomic verified pending-prefix retention,
+with exact parent/request/root checks before and after IO. Discarded: hidden
+network polling in read APIs, broad link-resume/observer/signing engines,
+automatic provider/approval/selection/commit, arbitrary new endpoints/contact
+learning, arrival-order choice, half-retained failed results or a new schema.
+
+## 23. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
