@@ -3874,9 +3874,15 @@ No implementer tests or invented protocol/authority rows.
    work. No passive completion deadline or new automatic signing is promised.
    Before terminal no-IO purity measurements, keep genuine participants/carriers
    available and explicitly drain pending final publication to its ordinary
-   storage acknowledgment. Linked state alone does not prove transport is
-   quiescent. Public attention and documented outbound-storage observations may
-   establish that setup; do not weaken the measured zero-IO/DB/file assertions.
+   storage acknowledgment, or use the documented signed-request-deadline
+   retirement boundary with the genuine debug clock after completing the whole
+   ceremony. Wait for ordinary background frame/secret/capability retirement
+   before measuring expired completed history. Linked state alone does not prove
+   transport is quiescent. Public attention and documented outbound-storage
+   observations may establish that setup; do not weaken measured zero-IO/DB/file
+   assertions. Deadline setup does not establish immediate post-application
+   scheduling attribution; live cached retry and live post-intent refusal are
+   separately measured before that history check.
 
 Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
 exact source/binary/results and all failures/limits. Earlier signing historical
