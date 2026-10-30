@@ -4452,6 +4452,10 @@ batches/three original signatures. It creates/copies/imports no key. It records
 binding/device/finalization evidence, with requester commit, adopted powers,
 agent access, files/conversation sharing, capabilities and readiness separate.
 Leaving cannot retract already dispatched signatures or submissions.
+Internal flow/review/intent/session/native identifiers remain private transport
+bindings rather than displayed terms. Public network/context, participant keys,
+packet/root/P/H references are displayable. Show original consent as the exact
+already recorded person/machine/powers, without displaying its internal digest.
 
 ### One explicit bounded signing action
 
@@ -4506,6 +4510,8 @@ failed/denied/timed-out/malformed signing result, report outcome unknown, clear
 actionable terms, preserve publication and offer Check; another sign requires
 a freshly displayed review and another explicit press. Never echo raw process
 stdout/stderr, templates/messages/signatures/paths/agent comments or private data.
+Use **Original finalization: recorded** for that global public evidence and
+display its public F packet reference; this does not identify the signing UI.
 
 **Leave finalization review** remains available during preflight and pending
 signing, clearing volatile review/digest/error/confirmation and callback
@@ -4516,6 +4522,8 @@ adapter/message/task/lease runtime and inviter invariants remain unchanged;
 no new prompt, hello, tool or frontend storage. Actual terminal/installed/
 physical-machine/model/schema23-to27 acceptance remains separate. Previous
 rejected terminal actions and unchanged quota-refused probes are not retried.
+Leave returns to the published joining outcome with no retained owner or
+finalization review controls. A later owner/finalization review is explicit.
 
 ### Verification
 
