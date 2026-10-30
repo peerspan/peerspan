@@ -105,6 +105,12 @@ pub enum ConversationCommand {
         #[arg(value_name = "ID")]
         id: String,
     },
+    /// Catch up a conversation now: fetch its roster from home, then
+    /// what other participants' hosts sent here that this host lacks
+    Sync {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
     /// Show a conversation and its latest messages
     Show {
         #[arg(value_name = "ID")]

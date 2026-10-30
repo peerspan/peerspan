@@ -1,6 +1,6 @@
-//! Conversations, PRs C1 to C3 (docs/conversations-contract.md): people
-//! and agents start conversations, send, change membership, and invite
-//! people, who join on one of their hosts.
+//! Conversations, PRs C1 to C4 (docs/conversations-contract.md): people
+//! and agents start conversations, send, change membership, invite
+//! people, who join on one of their hosts, and catch up (`sync`).
 //!
 //! Each host keeps the messages it authored and those it accepted. The home
 //! host orders roster versions; messages go directly from the author's host
@@ -34,6 +34,8 @@ use std::{
     time::Duration,
 };
 use tokio::sync::watch;
+
+mod sync;
 
 /// Every table of feature slice 1 (proposal, Persistence), added at once.
 pub(crate) const SCHEMA: &str = r#"
@@ -361,6 +363,10 @@ struct LocalState {
     /// of departed participants.
     #[serde(default)]
     names: BTreeMap<String, String>,
+    /// When this host first stored the conversation as closed (contract C4,
+    /// After close).
+    #[serde(default)]
+    closed_at: Option<String>,
 }
 
 /// A conversation as this host holds it: home's roster and the local state.
@@ -406,6 +412,9 @@ struct Push {
     attempts: u32,
     error: Option<String>,
     next_attempt_at: Option<String>,
+    /// When this push began: it stops 24 hours later (contract C4).
+    #[serde(default)]
+    created_at: Option<String>,
 }
 
 /// A leave's peer body, with the declined invite's `added_at` it names.
@@ -563,6 +572,9 @@ fn save_held(conn: &Connection, held: &Held) -> Result<(), Error> {
         if let (Some(id), Some(name)) = (&p.id, &p.name) {
             held.local.names.insert(id.clone(), name.clone());
         }
+    }
+    if held.roster.state == "closed" && held.local.closed_at.is_none() {
+        held.local.closed_at = Some(now());
     }
     let held = &held;
     let roster = &held.roster;
@@ -849,7 +861,7 @@ impl Store {
     /// The messages `reader` may see, in display order.
     fn visible(&self, conn: &Connection, id: &str, reader: &str) -> Result<Vec<Stored>, Error> {
         let mut statement = conn.prepare(
-            "SELECT m.record FROM conversation_messages m WHERE m.conversation_id = ?1 AND (m.author = ?2 OR EXISTS (SELECT 1 FROM conversation_targets t WHERE t.conversation_id = m.conversation_id AND t.message_id = m.message_id AND t.direction = 'in' AND t.target = ?2)) ORDER BY m.clock, m.author, m.seq",
+            "SELECT m.record FROM conversation_messages m WHERE m.conversation_id = ?1 AND (m.author = ?2 OR EXISTS (SELECT 1 FROM conversation_targets t WHERE t.conversation_id = m.conversation_id AND t.message_id = m.message_id AND t.direction = 'in' AND t.state = 'accepted' AND t.target = ?2)) ORDER BY m.clock, m.author, m.seq",
         )?;
         let rows = statement
             .query_map(params![id, reader], |r| r.get::<_, String>(0))?
@@ -980,6 +992,7 @@ impl Store {
             "participants": self.participant_views(conn, &participants)?,
             "departed": self.departed_views(conn, roster, &departed)?,
             "last_message_at": Self::last_message_at(&messages),
+            "unsynced": self.unsynced(conn, &roster.conversation_id)?,
         }))
     }
 
@@ -1361,6 +1374,9 @@ impl Store {
             }
         }
         self.sync_pending(conn, &new)?;
+        if new.version > held.roster.version {
+            sync::due_now(&new.conversation_id);
+        }
         held.roster = new;
         Ok(())
     }
@@ -1432,6 +1448,7 @@ impl Store {
             attempts: 0,
             error: None,
             next_attempt_at: Some(now()),
+            created_at: Some(now()),
         };
         for host in hosts {
             conn.execute(
@@ -1998,6 +2015,7 @@ impl Store {
                 attempts: 0,
                 error: None,
                 next_attempt_at: Some(now()),
+                created_at: Some(now()),
             };
             tx.execute(
                 "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
@@ -2219,6 +2237,12 @@ impl Store {
             params![id, message],
             |r| r.get::<_, String>(0),
         )?)?;
+        if sync::push_window_over(&stored.message.sent_at) {
+            sync::stop(&mut out);
+            self.save_outbound(&tx, id, message, &out)?;
+            tx.commit()?;
+            return Ok(None);
+        }
         let (kind, host, local) = participant_parts(target).ok_or(Error::NotFound)?;
         let host = host.to_owned();
         let (grant_id, policy, self_access) = if kind == "agent" {
@@ -2259,7 +2283,9 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (mut out, _) = self.outbound_record(&tx, id, message, target)?;
-        if out.state != "sending" {
+        // An attempt in flight when the 24 hours passed may still settle it.
+        let settles = !matches!(outcome, Outcome::Retry(_));
+        if out.state != "sending" && !(out.state == "stopped" && settles) {
             return Ok(());
         }
         out.attempts += 1;
@@ -2289,18 +2315,19 @@ impl Store {
                 out.error = Some(error);
                 out.next_attempt_at = None;
             }
-            Err(Outcome::Retry(error)) => {
+            Err(Outcome::Retry(error)) if out.state == "sending" => {
                 out.error = Some(error);
                 out.next_attempt_at = Some(rfc3339(
                     crate::clock::now() + backoff(out.attempts, jitter()),
                 ));
             }
-            Err(Outcome::Answer(_)) => {
+            Err(Outcome::Answer(_)) if out.state == "sending" => {
                 out.error = Some("invalid peer answer".into());
                 out.next_attempt_at = Some(rfc3339(
                     crate::clock::now() + backoff(out.attempts, jitter()),
                 ));
             }
+            Err(_) => return Ok(()),
         }
         self.save_outbound(&tx, id, message, &out)?;
         tx.commit()?;
@@ -2485,10 +2512,12 @@ impl Store {
             };
         // A receiver behind the cited policy version answers 503 before
         // anything else, so an older version never decides.
-        match check(cited.0, cited.1, cited.2) {
-            Ok(_) => return Ok(()),
-            Err(Error::Forbidden) => {}
-            Err(e) => return Err(e),
+        if cited != (None, None, None) {
+            match check(cited.0, cited.1, cited.2) {
+                Ok(_) => return Ok(()),
+                Err(Error::Forbidden) => {}
+                Err(e) => return Err(e),
+            }
         }
         if let (Some(person), _) = crate::adapter::sender_person(self, conn, sender)? {
             let s = SelfRef { person_id: person };
@@ -2529,6 +2558,18 @@ impl Store {
         id: &str,
         r: MessageRequest,
     ) -> Result<Receipt, Error> {
+        self.accept_inbound(sender, id, r, false)
+    }
+    /// Message acceptance, for a pushed message and (`fetched`, contract C4)
+    /// one fetched from its author's host, which carries no citation and
+    /// passes exactly the same steps.
+    fn accept_inbound(
+        &self,
+        sender: &str,
+        id: &str,
+        r: MessageRequest,
+        fetched: bool,
+    ) -> Result<Receipt, Error> {
         let own = self.identity().id;
         let m = &r.message;
         let target = participant_parts(&r.target);
@@ -2539,6 +2580,7 @@ impl Store {
             r.self_access.as_ref(),
         );
         let citation_ok = match target {
+            _ if fetched => cited == (None, None, None),
             Some(("agent", _, _)) => one_authorization(cited.0, cited.1, cited.2),
             Some(_) => cited == (None, None, None),
             None => false,
@@ -2579,7 +2621,7 @@ impl Store {
         let tx = conn.transaction()?;
         let previous: Option<String> = tx
             .query_row(
-                "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND peer = ?4",
+                "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'accepted' AND peer = ?4",
                 params![id, m.message_id, r.target, sender],
                 |row| row.get(0),
             )
@@ -2627,14 +2669,23 @@ impl Store {
             return Err(closed());
         }
         if target_kind == "agent" {
-            self.conversation_authorize(
+            let authorized = self.conversation_authorize(
                 &tx,
                 sender,
                 cited,
                 target_local,
                 m.content.len(),
                 m.origin.as_ref(),
-            )?;
+            );
+            // A fetch with no current policy of the owner here waits for
+            // the next sync instead of refusing (contract C4).
+            if fetched
+                && matches!(authorized, Err(Error::Forbidden))
+                && !self.own_policy_current(&tx, sender)?
+            {
+                return Err(unavailable("this host holds no current policy"));
+            }
+            authorized?;
         } else {
             let person = self.conversation_person(&tx)?;
             if person.as_deref() != Some(target_local)
@@ -2699,6 +2750,11 @@ impl Store {
             prev_seq: r.prev_seq,
             receipt: receipt.clone(),
         };
+        // A refusal recorded at an earlier fetch gives way to an acceptance.
+        tx.execute(
+            "DELETE FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'refused'",
+            params![id, m.message_id, r.target],
+        )?;
         tx.execute(
             "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
             params![id, m.message_id, r.target, sender, r.prev_seq, serde_json::to_string(&inbound)?],
@@ -4127,6 +4183,7 @@ impl Store {
                     attempts: 0,
                     error: None,
                     next_attempt_at: Some(now()),
+                    created_at: Some(now()),
                 };
                 tx.execute(
                     "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
@@ -4173,6 +4230,7 @@ impl Store {
                             attempts: 0,
                             error: None,
                             next_attempt_at: Some(now()),
+                            created_at: Some(now()),
                         };
                         tx.execute(
                             "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
@@ -4985,6 +5043,10 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
         if ticks.is_multiple_of(8) {
             let _ = blocking(store.clone(), |s| s.expire_invites()).await;
             let _ = blocking(store.clone(), |s| s.expire_person_invites()).await;
+            let _ = blocking(store.clone(), |s| s.stop_overdue()).await;
+        }
+        if ticks.is_multiple_of(20) {
+            sync::schedule(&store).await;
         }
         let Ok(due) = blocking(store.clone(), |s| {
             s.due_conversation_attempts(crate::clock::now())
@@ -5100,11 +5162,17 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/conversations/{id}/messages", get(page).post(say))
         .route("/v1/conversations/{id}/manage", post(manage))
         .route("/v1/conversations/{id}/leave", post(leave))
+        .route("/v1/conversations/{id}/sync", post(sync::local_sync))
 }
 pub(crate) fn peer_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/peer/v1/conversations/invites", post(peer_invite))
-        .route("/peer/v1/conversations/{id}/messages", post(peer_message))
+        .route(
+            "/peer/v1/conversations/{id}/messages",
+            post(peer_message).get(sync::peer_fetch),
+        )
+        .route("/peer/v1/conversations/{id}/heads", get(sync::peer_heads))
+        .route("/peer/v1/conversations/{id}/acks", post(sync::peer_acks))
         .route(
             "/peer/v1/conversations/{id}/roster",
             get(peer_get_roster).post(peer_roster),
@@ -5751,6 +5819,7 @@ async fn peer_message(
 ) -> Result<Json<Receipt>, Error> {
     let r: MessageRequest = decode(body)?;
     let version = r.message.roster_version;
+    let gap = (r.message.author.clone(), r.target.clone(), r.prev_seq);
     let (s2, i) = (sender.clone(), id.clone());
     let result = blocking(store.clone(), move |s| {
         s.accept_conversation_message(&s2, &i, r)
@@ -5761,6 +5830,8 @@ async fn peer_message(
         if let Ok(Some(home)) = blocking(store.clone(), move |s| Ok(s.behind(&i, version))).await {
             tokio::spawn(fetch_roster(store, id, home));
         }
+    } else if result.is_ok() {
+        sync::after_push(store, id, sender, gap);
     }
     Ok(Json(result?))
 }

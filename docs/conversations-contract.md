@@ -697,7 +697,7 @@ C4 lets a participant whose host was offline, or missed a message, catch up from
 
 Each host keeps, per conversation, remote author A and local participant T joined here, a *chain head*: the highest `seq` of A's messages it has *resolved* for T with no gap before it. A message is resolved for T when this host accepted it for T (pushed or fetched), or refused it for T at a fetch with a final code (below). A refusal of a pushed message is not recorded and resolves nothing, so a later fetch may still accept that message under the checks of that moment.
 
-- The chain head starts at 0 when T is admitted here, and again when T is admitted after a departure.
+- The chain head starts at 0 when T is first admitted here. A participant admitted again keeps its chain, and `prev_seq` continues across its departure.
 - A message for T whose `prev_seq` is absent (the first message to T since T joined), or equals the chain head, moves the chain head to its `seq`, and then on through any resolved messages whose `prev_seq` continues the chain.
 - A message for T accepted (step 6) with a `prev_seq` above the chain head reveals a **gap**. The host stores the message as usual, answers the push with its receipt, and at once (without waiting for its answer) fetches A's messages to T after the chain head from A's host (`GET .../messages`, below), page by page, applying [fetched-message acceptance](#fetched-messages) to each, then sends `acks` to A's host. At most one gap fetch per (conversation, author host, T) runs at a time; a gap the fetch could not close (no answer, or a non-final outcome) waits for the next sync.
 - A `prev_seq` at or below the chain head that is not resolved, or that names a `seq` this host never saw, changes nothing beyond the push's own acceptance.
@@ -725,15 +725,15 @@ A recipient acks `through_seq` = its chain head for (A, T), and lists in `refuse
 #### Fetched messages
 
 The recipient applies to each fetched entry exactly the acceptance steps of a pushed message, with the host it fetched from as the authenticated sender and no citation:
-1. **Shape**, as C1. The entry not for the requested author, a `seq` not above the chain head, or `seq`s out of order end the processing of that page as `invalid`, and every entry of the page not yet resolved is left for the next sync.
+1. **Shape**, as C1. An entry not for the requested author, a `seq` not above the requested `after`, or `seq`s out of order end the processing of that page, and every entry of the page not yet resolved is left for the next sync. An entry this host already resolved for T (accepted, or refused at a fetch) is skipped.
 2. **Author's host**: `message.author`'s host is the host fetched from; otherwise the page is processed no further.
-3. **Repeat**: a `(author host, message_id, T)` this host already accepted is resolved when the stored message and `prev_seq` are identical, and refused `conflict` when they differ.
+3. **Repeat**: a `(author host, message_id, T)` this host already resolved is skipped and never overwritten. Another `message_id` with a `seq` this host holds from that author is refused `conflict`.
 4. **Roster**: a `roster_version` above the version held, after the sync's roster fetch, stops processing of this author's entries until the next sync (not final). T not joined here, or the author not `joined` in the held roster, is refused `not_participant`.
 5. **Closed** (C2 step 5): refused `closed`, except a message whose `roster_version` is below the version of the closed roster held.
 6. **Authorization**, as for a push (C1, C3), evaluated against this host's records at the time of the fetch: self access, the recipient owner's current policy, or a current grant allows `message.append` from the author for an agent T; for a person T, the author's host and person are not blocked here. A failure is refused `not_authorized`. When this host holds no current policy statement of T's owner in any network both hosts share, and neither self access nor a grant allows it, the entry is not final: processing of this author's entries stops until the next sync (as C1's 503 `unavailable`).
 7. **Persist**, as C1 step 6: the message (stored once per host), the inbound target record, the clock raise, and, for an agent T, one `message` notification for that agent, exactly as for a pushed message (the claim, its `window` rule, and the `conversation` event are unchanged).
 
-An entry refused with a final code is resolved for T: it is not stored, never shown to T, never fetched again, and reported in the next `acks`. Nothing a sync fetches is accepted on any weaker terms than a push: no step is skipped, and a message is fetched only from its author's host.
+An entry refused with a final code is resolved for T: its content is not stored (only its author, `seq`, `prev_seq` and code), never shown to T, never fetched again, and reported in the next `acks`. Nothing a sync fetches is accepted on any weaker terms than a push: no step is skipped, and a message is fetched only from its author's host.
 
 A recipient answers a push of a message it has already accepted by fetch with the saved receipt (C1 step 3), so the author's record becomes `delivered` either way.
 
