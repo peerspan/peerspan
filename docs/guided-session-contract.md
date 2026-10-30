@@ -5456,6 +5456,29 @@ Removing the diagnostic helper/wrappers restores the exact prior source/AST.
 Commit before one retained diagnostic full run; preserve all six cases and
 all old suites. A passing diagnostic run leaves the earlier category unknown.
 
+GU.impl30e fixture isolation: the diagnostic local run passed DB/state/home
+comparison but failed the unchanged BOTH-bootstrap-carrier assertion (5/6in73s).
+Its specific traffic source remains unidentified; the earlier aggregate category
+remains unidentified too. Source/spec audit finds a concrete prerequisite error:
+the shared fixture's1800s offset is before the ordinary3600s invitation/request
+deadlines. A0.3s quiet sample does not retire their pollers. The preceding
+revocation also introduces independent authorized delivery work.
+
+Before the purity baseline, retain the actual genuine invitation and signed
+request expiry bounds. Advance both debug clocks once beyond their maximum
+plus one second, checking the target stays before the measured local person's,
+host's and policy's verified effective bounds. Observe ordinary invitation
+return-secret and request-frame/read-cap retirement and actual delivery/journal
+settlement within the original five-second setup bound. Do not infer retirement
+from a quiet interval. Isolate the expiry/revocation stimuli in their own genuine
+two-person fixture so they cannot enqueue work in the purity fixture. Retain
+every existing case, assertion, refusal, restart, delay and timeout. All enabled
+transport paths must be counted, preserving both original bootstrap counters;
+genuine additional peer paths require additional counters, never an unmeasured
+bypass. No manufactured storage, authority/queue edit, forced ACK, worker control,
+sleep increase or clock/retry loop. An independent author commits the corrected
+setup before one retained run against frozen production.
+
 Selected: verified public terms, exact project binding and ordinary enforced
 policy before separate explicit grant consent. Discarded: membership as access,
 copied frontend policy as authority, label selection, a second policy evaluator,
