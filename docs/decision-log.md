@@ -2770,3 +2770,14 @@ mapping. Historical key absence covers original/agent sources; unavailable
 owned-device seed remains source/fault coverage absent a public deletion API.
 Discarded: treating mocks as protocol evidence, deleting secret/authority rows
 to invent a public failure path, or weakening rollback/privacy assertions.
+
+### GU.impl27b — Separate atomic consent evidence from concurrent owned work
+
+Independent author clarification selected: a coherent intent/request snapshot
+proves durable atomic approval; preapproval purity and SQL rollback remain
+strict. Approved worker signatures/publication may already appear before the
+HTTP response and cannot be attributed to this route from global counters.
+Route-only no-signature/transport/apply stays source-reviewed absent genuine
+public synchronization; fixture application is a separate explicit action.
+Discarded: asserting global post-response absence, claiming an after-commit
+barrier is globally unobserved, or adding worker-disabling test endpoints.

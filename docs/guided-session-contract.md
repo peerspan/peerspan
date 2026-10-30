@@ -4729,6 +4729,14 @@ mock mapper that invents manifest at that stage does not override real protocol
 evidence. Keyless history may use absent original generated/agent sources with
 the external original never installed; unavailable owned-device seed lacks a
 public deletion operation and remains an explicit source/fault limit.
+After-commit worker work may precede the HTTP response; verification must not
+assert global post-response signatures/publication are absent or attribute
+their creation to the route. A coherent ordinary-intent/request snapshot proves
+atomic approval, strict preapproval absence and SQL rollback remain mandatory,
+and route-only no-signature/transport/application is a source boundary without
+genuine public synchronization. Do not add a pause-worker endpoint to force it.
+Ordinary explicit completion/application may follow approval in the fixture;
+no automatic local application by this review route is claimed.
 
 ### Verification
 
