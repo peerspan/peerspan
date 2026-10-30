@@ -5266,6 +5266,28 @@ primary-owned builds/native/host runs; record external overlap, every failure/
 correction, exact source/binary/test/log provenance and source/manual limits.
 No weakened assertions/timeouts or unchanged retries until green.
 
+Initial PR73 CI also repeated section24's earlier final historical-purity
+failure:5/6in60s, changed table dec_contacts, no state/home paths changed and
+relay_changed=false. All23 other suites and PR checks passed; Rust is unchanged.
+The runner discarded retained state, so cause remains unclassified. A separate
+contract-only author may add a failure-only observer immediately before the
+existing whole-snapshot assertion in section24 inspect, reusing only its already
+captured before/after snapshots and carrier counters. Preserve the original
+assertion/verdict and every action/delay/timeout/category. Project only fixed
+metadata: before/after contact counts; added/removed/changed primary-key counts;
+for changed existing rows, sequence-changed, whether the row matches this known
+network/context and whether the host is the known other participant; closed
+documented record-field changed booleans for format/message_hashes/conflicted/
+contacts_base64 plus list lengths and boolean conflicted values when canonical.
+Use fixed unknown for malformed diagnostics. Never emit primary keys, record
+contents, hashes, contact bytes, locators/addresses, paths, labels, private data
+or diagnostic exceptions; no new DB/file/transport calls, writes, waits or retry.
+Diagnostic errors cannot mask the existing failure. Independently commit before
+one retained first local diagnosis against unchanged merged69 binaries. The
+observer is the only permitted old-host-test change; normalized original source
+and all original strict DB/files/BOTH-carrier assertions remain identical.
+Neither another pass nor this table name alone proves a cause or product fix.
+
 Selected: compose existing exact backends through separate native review,
 approval and completion with pure lookup-first recovery. Discarded: combining
 consent and completion, blanket agent access, frontend signing/provider choice,
