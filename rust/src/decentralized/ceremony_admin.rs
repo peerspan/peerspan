@@ -22,6 +22,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 const INPUT: &str = "code network_id person_public_key provider_id signature_format owner_offer_id selection_id expected_host_public_key expected_device_public_key approve";
+mod consent;
+pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
 
 pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
     fields(input, INPUT)?;

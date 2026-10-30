@@ -63,6 +63,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   SSH-agent selection, typed-slot faults and pure replay (section18).
 - `admission_onboarding`: read-only incoming new-original request/owner/selection
   inspection before administrator consent, purity and privacy (section20).
+- `admission_consent`: exact durable root administrator intent preparation/approval,
+  atomic rollback, public privacy and pure historical recovery (section21).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 

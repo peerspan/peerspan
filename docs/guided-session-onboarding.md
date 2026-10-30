@@ -350,3 +350,9 @@ from the intended main-branch merge base.
 - [Live delivery](live-delivery-contract.md)
 - [Delta's Claude plugin flow](https://delta.dev/docs/cli/claude-code)
 - [Claude channel startup and opt-in](https://code.claude.com/docs/en/channels)
+
+Administrator consent backend (section21) adds private-stdin lookup, prepare and
+approve commands for one exact retained incoming new-original request. The
+review pins the current owned network root and ordinary person/host drafts.
+Approval authorizes background administrator signing/publication, not requester
+finalization/commit or agent access. Native administrator controls follow later.

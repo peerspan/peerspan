@@ -268,3 +268,12 @@ incoming original owner/selection prefix against its adopted network. The closed
 public review and digest create no intent, signer choice, signature, clock update,
 import, poll or authority mutation; schema27 is unchanged. Native admission,
 administrator consent/signing and manual incoming-code import follow separately.
+
+Guided administrator consent (guided session contract section21) uses owner-local
+POST /v1/onboarding/admission-consent/{lookup,prepare,approve} and matching
+`onboarding admission lookup|prepare|approve --stdin`. Preparation fixes the
+current locally owned network-root ed25519 provider and ordinary P/H drafts;
+exact approval is atomic with the ordinary administrator intent. Approval may
+permit background root/host signing and publication; original F and requester
+commit remain separate. Lookup and exact historical retries are read-only.
+No new schema, native control, key/provider fallback or peer/scoped route.

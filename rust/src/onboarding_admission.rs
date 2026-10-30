@@ -54,7 +54,7 @@ pub fn decode_input(bytes: &[u8]) -> Result<Inspect, Error> {
     input.validate()?;
     Ok(input)
 }
-fn safe(v: &Value) -> bool {
+pub(crate) fn safe(v: &Value) -> bool {
     match v {
         Value::String(s) => {
             if s.chars().any(char::is_control) {

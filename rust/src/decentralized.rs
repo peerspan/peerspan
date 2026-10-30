@@ -42,6 +42,7 @@ mod views;
 pub(crate) use capability_claim::{apply_capability_claim, check_capability_claim};
 pub use catalog::{Catalog, Proof};
 pub(crate) use ceremony_admin::inspect_original as inspect_original_admission;
+pub(crate) use ceremony_admin::{consent_in, consent_live, consent_proposal};
 pub use codec::{Error, Result, decision_clock};
 pub use controls::local_decision_time;
 pub use migration::{migration_inherited_bans, migration_person_labels};
