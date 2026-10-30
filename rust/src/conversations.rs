@@ -408,6 +408,9 @@ struct Push {
     next_attempt_at: Option<String>,
 }
 
+/// A leave's peer body, with the declined invite's `added_at` it names.
+type LeaveRequestBody = (Vec<u8>, Option<String>);
+
 /// A leave a participant's host sends to home until home answers.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Leave {
@@ -3255,16 +3258,16 @@ impl Store {
         id: &str,
         peer: &str,
         participant: &str,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<LeaveRequestBody>, Error> {
         let conn = self.connection()?;
         let kind = format!("leave:{participant}");
         match self.outbound_row::<Leave>(&conn, id, peer, &kind)? {
             Some(leave) if leave.state == "sending" => {
                 let mut body = json!({ "participant": participant });
-                if let Some(at) = leave.added_at {
+                if let Some(at) = &leave.added_at {
                     body["added_at"] = json!(at);
                 }
-                Ok(Some(serde_json::to_vec(&body)?))
+                Ok(Some((serde_json::to_vec(&body)?, leave.added_at)))
             }
             _ => Ok(None),
         }
@@ -3274,6 +3277,7 @@ impl Store {
         id: &str,
         peer: &str,
         participant: &str,
+        generation: Option<String>,
         outcome: Outcome,
     ) -> Result<(), Error> {
         let kind = format!("leave:{participant}");
@@ -3283,6 +3287,11 @@ impl Store {
             let Some(mut leave) = self.outbound_row::<Leave>(&tx, id, peer, &kind)? else {
                 return Ok(());
             };
+            // An answer to a decline since replaced by a newer one settles
+            // nothing: the newer decline is still to be sent.
+            if leave.added_at != generation {
+                return Ok(());
+            }
             leave.attempts += 1;
             let mut roster = None;
             match outcome {
@@ -4878,7 +4887,8 @@ async fn attempt(store: Arc<Store>, kind: String, key: String) {
             return;
         };
         let (i, h, p) = (id.clone(), peer.clone(), participant.clone());
-        let Ok(Some(body)) = blocking(store.clone(), move |s| s.prepare_leave(&i, &h, &p)).await
+        let Ok(Some((body, generation))) =
+            blocking(store.clone(), move |s| s.prepare_leave(&i, &h, &p)).await
         else {
             return;
         };
@@ -4890,7 +4900,10 @@ async fn attempt(store: Arc<Store>, kind: String, key: String) {
         )
         .await;
         let (i, h, p) = (id.clone(), peer.clone(), participant.clone());
-        let _ = blocking(store, move |s| s.finish_leave(&i, &h, &p, outcome)).await;
+        let _ = blocking(store, move |s| {
+            s.finish_leave(&i, &h, &p, generation, outcome)
+        })
+        .await;
     } else {
         let [id, participant] = &parts[..] else {
             return;
