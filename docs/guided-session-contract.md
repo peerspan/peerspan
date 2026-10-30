@@ -3981,6 +3981,11 @@ it does not attribute approval/signatures to this interface. Malformed, failed,
 lost or late results hide approval and show outcome unknown; Check only reads.
 
 Local review expiry removes approval and invalidates in-flight local authority.
+Null-consent and fetched-prefix views also expire their Fetch/Review authority
+at the signed request deadline. Check remains available for pure history. Before
+installing any delayed response view, freshly inspect the authoritative attached
+parent and re-observe host identity; cached native parent/host values alone do
+not establish that host-side binding still exists after IO.
 Back, Leave, Close/Escape, Refresh, terminal/root/conversation/host/parent loss,
 session end and reload clear selection/review/timers and reject stale callbacks
 or completions. No persisted frontend approval/journal. Opening another flow
