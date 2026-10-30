@@ -36,8 +36,14 @@ impl Store {
         if proposal["approved"] != true || proposal["terminal"] != "-" {
             return Err(unavailable());
         }
-        let e = crate::decentralized::inspect_original_finalization(&tx, self, &p)
-            .map_err(|_| unavailable())?;
+        let e =
+            crate::decentralized::inspect_original_finalization(&tx, self, &p).map_err(|e| {
+                if e.code == "expired" {
+                    coded("review_expired")
+                } else {
+                    unavailable()
+                }
+            })?;
         let observed = time(field(&e, "observed_at")?)?;
         let (parent, attached) = f.proposal.context.project(&tx, observed)?;
         if !attached || parent["agent"] != f.review["agent"] {

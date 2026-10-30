@@ -228,6 +228,7 @@ pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Re
     let end = super::ceremony_admin::original_terms(p, &b.offer)?;
     check(i.record.scopes == 7 && i.record.not_after == end)?;
     let request = p.view(&b.now)?;
+    require(request["state"] != "expired", "expired")?;
     require(
         request["state"] == "needs_owner_finalization"
             && stamp(&b.now)? >= stamp(field(&request, "created_at")?)?
