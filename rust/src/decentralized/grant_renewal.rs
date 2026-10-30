@@ -467,8 +467,9 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
     // A compatible renewal fork (spec 7.1), of the renewed stream or of any
     // stream a child depends on, temporarily makes dependents fail `active`:
     // their parent lookup needs one head. Check every combination of the
-    // forked streams' branches as they stood before resolution. A child
-    // dropped by any branch must stay dropped; listing it cannot revive it.
+    // branches of the forks on the child's own authority path, as they stood
+    // before resolution. A child dropped by any branch must stay dropped;
+    // listing it cannot revive it.
     let forks: Vec<(&Vec<String>, &BTreeSet<String>)> = p
         .streams
         .values()
@@ -476,10 +477,6 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
         .filter(|s| p.renewable_heads(&s.key).is_ok())
         .map(|s| (&s.key, &s.heads))
         .collect();
-    let combinations = forks
-        .iter()
-        .try_fold(1usize, |n, (_, heads)| n.checked_mul(heads.len()))
-        .filter(|n| *n <= 64);
     let mut branch = (!forks.is_empty()).then(|| p.clone());
     for other in p.streams.values() {
         if other.key[0] == "root" || other.key == stream {
@@ -490,14 +487,20 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
             if !(lease(&child.kind) || matches!(child.kind.as_str(), "policy" | "group")) {
                 continue;
             }
-            let active = match (&mut branch, combinations) {
-                // With no fork, or too many simultaneous forks to check, keep
-                // only what is active as it stands.
-                (None, _) | (_, None) => p.active(id).is_ok(),
-                (Some(branch), Some(count)) => {
+            let path = forks_on_path(p, id, &forks)?;
+            let active = match &mut branch {
+                Some(branch) if !path.is_empty() => {
+                    // Too many forks on one child's path to check now: defer
+                    // the renewal rather than publish one that drops a known
+                    // child (spec 7.2); it is planned again on the next pass.
+                    let count = path
+                        .iter()
+                        .try_fold(1usize, |n, (_, heads)| n.checked_mul(heads.len()))
+                        .filter(|n| *n <= 64)
+                        .ok_or_else(|| Error::new("state_conflict"))?;
                     let mut all = true;
                     for mut index in 0..count {
-                        for (key, heads) in &forks {
+                        for (key, heads) in &path {
                             let head = heads.iter().nth(index % heads.len()).cloned();
                             index /= heads.len();
                             branch
@@ -511,8 +514,14 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
                             break;
                         }
                     }
+                    for (key, heads) in &path {
+                        if let Some(restored) = branch.streams.get_mut(*key) {
+                            restored.heads = (*heads).clone();
+                        }
+                    }
                     all
                 }
+                _ => p.active(id).is_ok(),
             };
             if !active {
                 continue;
@@ -543,6 +552,33 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
         }
     }
     Ok(kept.into_iter().collect())
+}
+/// The compatible renewal forks among `forks` whose streams hold a statement
+/// on the authority path of `id` (itself and the parents it names, followed
+/// transitively).
+fn forks_on_path<'a>(
+    p: &Projection,
+    id: &str,
+    forks: &[(&'a Vec<String>, &'a BTreeSet<String>)],
+) -> Result<Vec<(&'a Vec<String>, &'a BTreeSet<String>)>> {
+    let mut pending = vec![id.to_owned()];
+    let mut seen = BTreeSet::new();
+    let mut found = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current.clone()) || seen.len() > 4096 {
+            continue;
+        }
+        let Ok(node) = p.catalog.get(&current) else {
+            continue;
+        };
+        if let Some(key) = node.stream().ok().flatten()
+            && let Some(index) = forks.iter().position(|(k, _)| **k == key)
+        {
+            found.insert(index);
+        }
+        pending.extend(node.parents()?.into_values());
+    }
+    Ok(found.into_iter().map(|i| forks[i]).collect())
 }
 /// The signed renewal statement for `plan`, or `None` when it no longer
 /// applies.
