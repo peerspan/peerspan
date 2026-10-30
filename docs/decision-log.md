@@ -2789,3 +2789,12 @@ creation returns commit_review_unavailable even within ordinary rollback clamp;
 actual elapsed review/signed/fixed/stage bounds return review_expired. Both are
 pure refusals. Discarded: accepting clamped time as fresh human consent or
 changing shared protocol clock smoothing and historical approval recovery.
+
+### GU.impl27d — Null lookup observes absence without preparing consent
+
+Selected independent clarification: a valid published request with no ordinary
+commit intent returns pure commit:null even while F is absent; fresh prepare/
+approval still refuse missing F. Discarded: requiring fresh-prepare eligibility
+for a null observation or creating intent while reading. Final source review
+also retains raw lower/upper/stage/parent checks at the last observation before
+commit, rather than trusting an earlier clock read.

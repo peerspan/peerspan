@@ -4656,7 +4656,10 @@ Return exactly:
 ```
 
 Request is the exact public LINK_VIEW. Commit is null when no ordinary intent
-exists; otherwise exactly `{review_id,review,state,next_action}`. Review is:
+exists, including a valid published request with no F yet; lookup is not fresh
+preparation eligibility. Prepare/approve without that required F refuse
+commit_review_unavailable. Otherwise commit is exactly
+`{review_id,review,state,next_action}`. Review is:
 
 ```
 {version:1,kind:"approve_new_original_requester_commit",host_id,context,
