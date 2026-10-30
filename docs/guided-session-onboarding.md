@@ -424,3 +424,10 @@ over the two-minute target; its unchanged CI run meets it. The
 retains exact source/binary/test/log provenance, SQL rollback and worker/source
 limits. PR66 records final-head gates after that record commit. Agent access,
 observed readiness, device flow and full acceptance remain open.
+
+First final-head CI passed 22 suites, PR checks and fresh review but failed existing
+delivery 11/5 on inviter application timeout. One retained unchanged local delivery
+run passed 16/16 in 67s; the CI cause remains unclassified. GU.impl27f adds only
+independently authored bounded public diagnostics after the original wait fails,
+with every assertion/action/delay/timeout preserved. The verification record
+keeps both results and source limits; PR66 records subsequent exact-head gates.

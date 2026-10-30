@@ -2808,9 +2808,9 @@ Discarded: claiming 14 passing cases or adding duplicate tests to fit the label.
 
 ### GU.impl27f — Preserve actionable public delivery failure evidence
 
-Final-head CI9335093 passed all requester-commit cases, the other21 suites and
-standard PR checks, but existing delivery failed11/5 on inviter application
-timeout. The same runtime/test sources passed ondb7766e. Cause stays unclassified;
+Final-head CI 9335093 passed all requester-commit cases, the other 21 suites and
+standard PR checks, but existing delivery failed 11/5 on inviter application
+timeout. The same runtime/test sources passed on db7766e. Cause stays unclassified;
 the runner discarded retained state. Selected: independently authored bounded
 failure-only public diagnostics after the original wait, preserving every
 assertion/action/delay/timeout and rethrowing the original failure. Keep the
