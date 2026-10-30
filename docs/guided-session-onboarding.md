@@ -378,6 +378,19 @@ production `f34b100`, including same-request advanced original finalization and
 separate requester commit. Exact provenance, source/binary hashes and limits:
 [verification record](results/guided-owner-finalization-inspection-verification.json).
 
-The next original-finalization signing slice (section25) reuses the existing
-approved requester worker for proof progress. One exact explicit CLI decision
-bounds original B/D/F signing; requester final commit stays separate.
+Original-finalization signing (section25) reuses the existing approved requester
+worker for proof progress. One exact explicit CLI decision bounds original B/D/F
+signing under the captured section24 digest, using the existing local original
+key or exact SSH-agent identity. It permits at most two ordered batches and
+three original signatures; requester final commit stays separate. Native
+controls follow in another slice.
+
+Independent section25 verification passes all six real-host/fault cases on
+frozen production `40d3f7b`; corrected existing inspection and owner-signing
+regression suites also pass6/6 each with every original assertion, delay and
+timeout retained. The new suite took131s locally and49s in CI. The
+[verification record](results/guided-owner-finalization-signing-verification.json)
+retains the initial failures, independently authored fixture corrections,
+source/binary hashes and cancellation/attribution limits. PR62 records final
+combined-head CI and fresh review after that record commit. This is backend
+signing evidence; installed, physical-machine and actual-model gates remain open.
