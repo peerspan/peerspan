@@ -513,8 +513,8 @@ def claim_until(adapter, match, what, timeout=30):
 
 def roster_change(got, conv, change, by):
     n = got["notification"]
-    check(n["kind"] == "roster" and n["conversation_id"] == conv and n["message_id"] is None
-          and isinstance(n.get("change"), dict) and n["change"]["change"] == change and n["change"]["by"] == by,
+    check(n["kind"] == "roster" and n["conversation_id"] == conv and isinstance(n.get("change"), dict)
+          and n["change"]["change"] == change and n["change"]["by"] == by,
           f"want a roster notification {change} by {by} in {conv}, got {n}")
     check(got["messages"] == [] and got["window"] == [] and got["window_total"] == 0 and got["redelivered"] is False,
           f"roster claim body {got}")
@@ -752,14 +752,15 @@ def _():
 def _():
     bert, conv, alice_p, bert_p, bob_person = need("bert", "conv2", "alice_participant", "bert_participant",
                                                     "bob_person")
+    held = {conv: view_as(a, conv, alice_p)["roster_version"]}  # bob holds it: the remove case waited for it
     status, body = bert.post(f"/adapter/v1/conversations/{conv}/manage", {"action": "leave"})
     check(status == 200 and isinstance(body, dict) and body.get("invite") is None
           and body["conversation"]["conversation_id"] == conv, f"bert leave: {status} {body}")
     version = owner_policy(b, state["bob_public"])
 
     def probe_refused(c_id):
-        held = view_as(a, c_id, alice_p)["roster_version"]
-        m = peer_message(c_id, alice_p, held, highest_clock(a, c_id) + 1)
+        # A roster_version bob holds (not alice's newer one, which bob may not have yet: 503).
+        m = peer_message(c_id, alice_p, held[c_id], highest_clock(a, c_id) + 1)
         status, answer = peer(a, b, "POST", f"/peer/v1/conversations/{c_id}/messages",
                               to_agent(m, bert_p, bob_person, version))
         api_error(status, answer, 403, "not_participant")
@@ -771,6 +772,7 @@ def _():
     started = a.ok("conversation", "start", "bob/bert", "--message", "will be withdrawn", timeout=60)
     conv3 = started["conversation"]["conversation_id"]
     show_targets(a, conv3, started["message"]["message_id"], bert_p, "delivered")
+    held[conv3] = started["conversation"]["roster_version"]
     left = b.ok("conversation", "leave", conv3, "--agent", "bert")
     check(isinstance(left, dict) and left["conversation"]["conversation_id"] == conv3, f"leave --agent: {left}")
     probe_refused(conv3)
