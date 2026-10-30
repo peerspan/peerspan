@@ -472,3 +472,14 @@ failure-only observer provenance and exact source/binary/log/resource limits.
 Local consent/completion durations exceed the two-minute target. PR73 records
 fresh final-head all24 suites/PR checks/review after that record commit.
 Installed/physical/model/access-readiness/device/full-feature gates stay open.
+
+
+### Next slice: current project-bound access terms
+
+Section 30 / GU.impl30 adds a pure access inspection for the attached project,
+selected network and exact person. It returns verified current membership and
+the signed policy separately from ordinary enforced content, without opening a
+signer or treating membership as agent access. Exact grant consent/signing,
+native controls, observed readiness and other-computer flow remain later work.
+Independent conformance and reviewed PR evidence are required before this slice
+is described as implemented. Full feature acceptance remains incomplete.

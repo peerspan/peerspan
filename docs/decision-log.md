@@ -2962,3 +2962,16 @@ authoritative replacement, and bound original review expiry by signed request
 deadline before timing/lifecycle stimuli. Preserve every case/assertion/barrier/
 delay/timeout. Discarded: silently rebinding a click to new IDs, accepting invalid
 owner history or relaxing timing, privacy or exact-argv assertions.
+
+
+### GU.impl30 — Inspect project-bound agent-access terms before grant consent
+
+2026-10-30. Implementation choice under the accepted guided-onboarding scope.
+Section 30 precedes production and independent conformance. Select one pure
+owner-local snapshot of the exact attached project, verified network/local
+binding/selected person, signed policy and separately enforced content. Reuse
+ordinary projection and pending-withdrawal enforcement, with no provider probe.
+Discard membership as access, implicit label/network selection, copied frontend
+authority, a second authorization evaluator, new inspection storage and this
+read's digest as grant consent. Exact grant approval/signing, native controls and
+observed connection readiness follow separately; no full feature gate is complete.
