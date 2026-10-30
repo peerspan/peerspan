@@ -3197,3 +3197,11 @@ recorded time within current hint/authority bounds, not a larger timeout or
 forcedACK. Discard assuming prior quiescence settles new writes, treating
 refresh as a global fence, queue/authority edits and traffic filtering. Preserve
 both first logs, dependent cases, all old suites and frozen production.
+
+GU.impl33b clarification: earlier expired hints may also require genuine
+contact handoffs before the newly created policy generation's queue can settle.
+Observe that actual proof outbox/journal retirement without claiming that
+short invitation secrets have expired. Carry every real invitation deadline
+into the later shared cleanup before any strict history baseline. Discard
+assuming a manual address proves a current signed contact or forcing an
+intermediate whole-transport claim while a genuine invitation window is live.
