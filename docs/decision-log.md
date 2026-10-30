@@ -2921,3 +2921,13 @@ application/delivery/access/readiness evidence. No schema/Rust/protocol or
 frontend keys/model tools/journal. Discarded: a combined approve-and-complete
 press, hidden mutation during Check/reload, provider selection, automatic agent
 access and recorded local application as a verified connection.
+
+### GU.impl29a — Historical entry and explicit leave semantics
+
+Independent author clarifications: retained approved original/F permits explicit
+requester entry even for expired/cancelled history, never fresh preparation.
+Public Check and a validated completion reply may both say Local application:
+recorded with public references, without inventing marker/interface attribution.
+Leave clears owner/finalization/requester panes, requiring explicit reentry.
+Discarded: hidden prepare on historical recovery or retained actionable panes
+after Leave. These clarify section29 before production implementation.
