@@ -31,7 +31,7 @@ Contents:
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
   - [DEC-D1: replace the coordinator before launch](#dec-d1-replace-the-coordinator-before-launch-2026-10-26) (2026-10-26)
   - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
-  - [CONV-22 to CONV-26: conversations after the coordinator-free work](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
+  - [CONV-22 to CONV-27: conversations after the coordinator-free work](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
   - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
   - [LAUNCH-34: the `attach --no-start` sign-in check](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) (2026-10-24)
@@ -46,7 +46,7 @@ Contents:
 - **Question:** with the coordinator-free work on `main`, which feature comes next?
 - **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
 - **Chosen:** conversations.
-- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
+- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
 - **Recorded in:** [PR #65](https://github.com/peerspan/peerspan/pull/65), the conversations refresh.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
@@ -1286,7 +1286,7 @@ These points were left open by the proposal and were settled by the implementer 
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
 - **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership), [C3](conversations-contract.md#c3-people). Not yet a roadmap milestone.
 - **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72), C4 [PR #72](https://github.com/peerspan/peerspan/pull/72) (DEC.impl73 to DEC.impl79), C5 [PR #74](https://github.com/peerspan/peerspan/pull/74) (DEC.impl80 to DEC.impl89).
-- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
+- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
@@ -1469,7 +1469,7 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** The CLI is the only human surface today, and people in the conversation are the multiplayer case worth proving first.
 
-### CONV-22 to CONV-26: conversations after the coordinator-free work (2026-10-30)
+### CONV-22 to CONV-27: conversations after the coordinator-free work (2026-10-30)
 
 - **Date:** 2026-10-30.
 - **Area:** conversations, after the coordinator-free work (DEC-OWN11).
@@ -1524,6 +1524,16 @@ CONV-22 to CONV-25 were decided by accepting the question's recommendation. They
 - **Chosen:** (b), the owner's decision of 2026-10-30, not a recommendation of the proposal.
 - **Names chosen in the proposal** (none collides with an existing name in `rust/src`, `integrations/shared` or the contracts): field `message_id` with IDs `cmsg_` plus 32 hex digits; routes `/peer/v1/conversations/{id}/messages`, `/adapter/v1/conversations/{id}/messages` and `/v1/conversations/{id}/messages`; agent tool `conversation_send` (was `conversation_post`), `before_message_id`; table `conversation_messages` and index `conversation_messages_order`; activity kinds `conversation.message_sent`, `conversation.message_received`, `conversation.message_refused`; local event kinds `message_received`, `message_sent`; CLI `conversation say --message-id`. Event kinds (`conversation`, `conversation_roster`, `conversation_undelivered`), the `conv_` conversation ID, and the one-to-one message names (`send`, `reply`, `/peer/v1/messages`, `request_id`, the `message.*` activity kinds) are unchanged.
 - **Effect on earlier entries:** CONV-1 to CONV-25 keep their wording; a "post" there is a conversation message.
+
+#### CONV-27. Where the live run happens (refines CONV-25)
+
+- **Options:**
+  - (a) One machine with two separate hosts, each with its own state directory.
+  - (b) Restore access to the earlier second machine.
+  - (c) Provide a different second machine.
+- **Chosen:** (a), by the owner on 2026-10-30.
+- **Reason given:** None beyond accepting it; the earlier second machine refused SSH.
+- **Effect:** Changes only CONV-25's "across two machines"; CONV-25 keeps its wording. The one-machine run satisfies CONV-25 for C6. The owner added "we should also test multi machine": a multi-machine run is still wanted as a separate follow-up.
 
 ### LIVE-5: protocol_version from every adapter (2026-10-25)
 
