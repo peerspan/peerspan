@@ -47,7 +47,7 @@ Contents:
 - **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
 - **Chosen:** conversations.
 - **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
-- **Recorded in:** the conversations refresh PR.
+- **Recorded in:** [PR #65](https://github.com/peerspan/peerspan/pull/65), the conversations refresh.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
@@ -1390,7 +1390,7 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
 - **Date:** 2026-10-30.
 - **Area:** conversations, after the coordinator-free work (DEC-OWN11).
 - **Source:** [conversations-proposal.md, Questions resolved after the coordinator-free work](conversations-proposal.md#questions-resolved-after-the-coordinator-free-work), questions CQ-1 to CQ-4 of the refresh PR ([PR #65](https://github.com/peerspan/peerspan/pull/65)), and the owner's rename of "post".
-- **Recorded in:** this log and the proposal ([PR #65](https://github.com/peerspan/peerspan/pull/65)).
+- **Recorded in:** this log and the proposal ([PR #67](https://github.com/peerspan/peerspan/pull/67)).
 - **Contract section:** none yet; `docs/conversations-contract.md` is written by the implementing PRs C1 to C6.
 - **Implementing PRs:** none yet.
 
