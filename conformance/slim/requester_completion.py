@@ -914,7 +914,90 @@ def terminal_cleanup(f):
     check(status == 200 and cancelled['state'] == 'cancelled', 'maintenance request cancellation')
 
 
-def report_terminal_failure(h, issuer, sync_results):
+def terminal_diagnostic_capture(diagnostics, phase, local, h, issuer, rows):
+    """GU.impl28h: retain a closed generation projection in memory only."""
+    if diagnostics is None:
+        return
+    role = 'requester' if local is h else 'issuer' if local is issuer else 'unknown'
+    phases = {'before_alignment', 'after_alignment', 'failure'}
+    if phase not in phases or role == 'unknown':
+        return
+    unknown = 'unknown'
+    projected = {'outbox_count': unknown, 'outbox': unknown}
+    try:
+        codes = {'-', 'invalid', 'forbidden', 'authority_expired', 'device_revoked', 'not_yet_valid',
+                 'authority_would_be_invalidated', 'not_found', 'proof_required', 'state_conflict',
+                 'operation_conflict', 'version_exhausted', 'quota_exceeded', 'clock_rollback',
+                 'review_required', 'signer_unavailable', 'recovery_required', 'expired',
+                 'upgrade_required', 'rate_limited', 'internal', 'transport_unavailable'}
+        metadata = []
+        for next_attempt, row_id, kind, attempts, code, detail in rows:
+            due, seconds = unknown, unknown
+            try:
+                delta = (parse_time(next_attempt) - local.now()).total_seconds()
+                due, seconds = delta <= 0, max(0, math.ceil(delta))
+            except (ValueError, TypeError):
+                pass
+            transport = unknown
+            if detail in (None, '', '-'):
+                transport = 'none'
+            elif isinstance(detail, str):
+                text = detail.lower()
+                for category, markers in (
+                    ('timeout', ('timed out', 'timeout')),
+                    ('connection_refused', ('connection refused',)),
+                    ('connection_reset', ('connection reset', 'reset by peer')),
+                    ('tls', ('tls', 'certificate', 'handshake')),
+                    ('quic', ('quic',)),
+                    ('unreachable', ('unreachable', 'no route to host'))):
+                    if any(marker in text for marker in markers):
+                        transport = category
+                        break
+            opaque = hashlib.sha256(('peerspan-terminal-outbox-row-diagnostic-v1\n' + row_id).encode()).hexdigest() \
+                if isinstance(row_id, str) else unknown
+            metadata.append({'row_id_sha256': opaque,
+                'kind': kind if kind in ('proofs', 'activation', 'migration') else unknown,
+                'attempts': attempts if type(attempts) is int and 0 <= attempts <= 2**64 - 1 else unknown,
+                'due_now': due, 'seconds_until_next': seconds,
+                'error_code': code if code in codes else unknown, 'transport_category': transport})
+        projected = {'outbox_count': len(rows), 'outbox': sorted(metadata, key=lambda item: item['row_id_sha256'])}
+    except Exception:
+        pass
+    try:
+        diagnostics.setdefault(phase, {})[role] = projected
+    except Exception:
+        pass  # Diagnostic errors never change setup or the original verdict.
+
+
+def terminal_diagnostic_after_alignment(h, issuer, diagnostics):
+    """One bounded read-only capture, outside the original purity baseline."""
+    if diagnostics is None:
+        return
+    for local in (h, issuer):
+        rows = None
+        try:
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=2)) as db:
+                rows = db.execute("SELECT json_extract(record,'$.next_attempt_at'),delivery_id,"
+                                  "json_extract(record,'$.kind'),json_extract(record,'$.attempts'),"
+                                  "json_extract(record,'$.last_error_code'),json_extract(record,'$.last_error_detail') "
+                                  "FROM dec_outbox").fetchall()
+        except Exception:
+            pass
+        terminal_diagnostic_capture(diagnostics, 'after_alignment', local, h, issuer, rows)
+
+
+def terminal_diagnostic_report(diagnostics):
+    try:
+        if diagnostics is not None:
+            summary = {phase: {role: diagnostics.get(phase, {}).get(role, 'unknown')
+                              for role in ('requester', 'issuer')}
+                       for phase in ('before_alignment', 'after_alignment', 'failure')}
+            print('terminal_retry_generations_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass
+
+
+def report_terminal_failure(h, issuer, sync_results, diagnostics=None):
     """GU.impl28f: closed retry metadata only, never raw rows or error detail."""
     unknown = 'unknown'
     codes = {'-', 'invalid', 'forbidden', 'authority_expired', 'device_revoked', 'not_yet_valid',
@@ -932,8 +1015,12 @@ def report_terminal_failure(h, issuer, sync_results):
                 observed['sync_' + key + '_count'] = len(value[key]) if isinstance(value.get(key), list) else unknown
             with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=2)) as db:
                 rows = db.execute("SELECT target_key,json_extract(record,'$.kind'),json_extract(record,'$.attempts'),"
-                                  "json_extract(record,'$.next_attempt_at'),json_extract(record,'$.last_error_code') "
+                                  "json_extract(record,'$.next_attempt_at'),json_extract(record,'$.last_error_code'),"
+                                  "delivery_id,json_extract(record,'$.last_error_detail') "
                                   "FROM dec_outbox ORDER BY delivery_id").fetchall()
+            terminal_diagnostic_capture(diagnostics, 'failure', local, h, issuer,
+                                        [(row[3], row[5], row[1], row[2], row[4], row[6]) for row in rows])
+            rows = [row[:5] for row in rows]
             observed['outbox_count'] = len(rows)
             observed['journal_present'] = bool(list(local.state.glob('*-journal')))
             metadata = []
@@ -954,14 +1041,19 @@ def report_terminal_failure(h, issuer, sync_results):
             pass  # Never disclose a diagnostic exception or replace the original verdict.
         summary[role] = observed
     print('terminal_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    terminal_diagnostic_report(diagnostics)
 
 
-def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds):
+def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds, diagnostics=None):
     """One genuine clock advance before the purity baseline (GU.impl28g)."""
     retry_times = []
     for local in (h, issuer):
         with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
-            rows = db.execute("SELECT json_extract(record,'$.next_attempt_at') FROM dec_outbox").fetchall()
+            rows = db.execute("SELECT json_extract(record,'$.next_attempt_at'),delivery_id,"
+                              "json_extract(record,'$.kind'),json_extract(record,'$.attempts'),"
+                              "json_extract(record,'$.last_error_code'),json_extract(record,'$.last_error_detail') "
+                              "FROM dec_outbox").fetchall()
+        terminal_diagnostic_capture(diagnostics, 'before_alignment', local, h, issuer, rows)
         try:
             retry_times.extend(parse_time(row[0]) for row in rows)
         except (ValueError, TypeError):
@@ -979,17 +1071,19 @@ def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds):
     for local in (h, issuer):
         advance_to(local, target)
     check(all(max(h.now(), issuer.now()) < bound for bound in bounds), 'fixture clock advance crossed a live protocol bound')
+    terminal_diagnostic_after_alignment(h, issuer, diagnostics)
 
 
 def terminal_delivery_baseline(h, issuer, network_id, live_bounds):
     sync_results = []
+    terminal_diagnostics = {}
     for local, remote in ((h, issuer), (issuer, h)):
         local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', remote.peer_address)
     for local in (h, issuer):
         status, value = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
         check(status == 200 and value['unavailable'] == [], 'genuine terminal sync setup')
         sync_results.append(value)
-    make_terminal_retries_eligible(h, issuer, sync_results, live_bounds)
+    make_terminal_retries_eligible(h, issuer, sync_results, live_bounds, terminal_diagnostics)
     def retired():
         for local in (h, issuer):
             with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
@@ -1002,7 +1096,7 @@ def terminal_delivery_baseline(h, issuer, network_id, live_bounds):
         wait_for(retired, timeout=5, interval=.1, message='actual terminal outbox retirement and journal quiescence')
     except Exception:
         try:
-            report_terminal_failure(h, issuer, sync_results)
+            report_terminal_failure(h, issuer, sync_results, terminal_diagnostics)
         except Exception:
             pass
         raise

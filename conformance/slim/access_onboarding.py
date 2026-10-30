@@ -399,6 +399,29 @@ def snapshot(h):
     return records(h), files(h.state), files(h.home)
 
 
+def access_purity_diagnostic(actual, expected, phase):
+    """GU.impl30d: project only already captured counts on original failure."""
+    try:
+        if actual != expected:
+            phases = {"repeat_refusal", "post_startup_refusal", "post_restart_valid"}
+            summary = {"phase": phase if phase in phases else "unknown", "changed_tables": [],
+                       "state_entries": "unknown", "home_entries": "unknown"}
+            for name in sorted(set(expected[0]) | set(actual[0])):
+                before, after = expected[0].get(name, ()), actual[0].get(name, ())
+                if before != after:
+                    summary["changed_tables"].append({
+                        "name": name if name in ("$schema", "$version") or re.fullmatch(r"[a-z_]+", name) else "unknown",
+                        "before_count": len(before), "after_count": len(after)})
+            for index, category in ((1, "state_entries"), (2, "home_entries")):
+                before, after = expected[index], actual[index]
+                summary[category] = {"before_count": len(before), "after_count": len(after),
+                    "changed_count": sum(before.get(key) != after.get(key) for key in set(before) | set(after))}
+            print("access_purity_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # A diagnostic cannot replace the unchanged original verdict.
+    return actual
+
+
 def traffic(f):
     return f["a"].relay.counts(), f["b"].relay.counts()
 
@@ -567,14 +590,14 @@ def _():
         check(inspect(h, f["pa"], net, person)["review_id"] == first["review_id"], "unchanged terms changed digest")
     inspect(h, f["pa"], net, person, body={**payload(f["pa"], net, person), "context": {
         **context(f["pa"]), "native_session_id": "wrong-private-native"}}, status=409, code="review_changed")
-    check(snapshot(h) == before, "repeat/refusal changed aggregate schema/DB rows, state or home files")
+    check(access_purity_diagnostic(snapshot(h), before, "repeat_refusal") == before, "repeat/refusal changed aggregate schema/DB rows, state or home files")
     check(traffic(f) == counters, "repeat/refusal attempted IO on either configured carrier")
     h.restart(kill=True)
     quiet(f, h)
     before, counters = snapshot(h), traffic(f)
     inspect(h, f["pa"], net, person, status=409, code="review_changed")
     inspect(h, f["pa"], net, person, status=409, code="review_changed")
-    check(snapshot(h) == before and traffic(f) == counters, "post-startup historical refusals changed records/files/carriers")
+    check(access_purity_diagnostic(snapshot(h), before, "post_startup_refusal") == before and traffic(f) == counters, "post-startup historical refusals changed records/files/carriers")
     f["pa"] = project(h, "restart", old=f["pa"])
     quiet(f, h)
     before, counters = snapshot(h), traffic(f)
@@ -582,7 +605,7 @@ def _():
     result = h.cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
     check(result.ok, "fresh attached project CLI after restart failed")
     validate(h, f["pa"], net, person, result.json)
-    check(snapshot(h) == before and traffic(f) == counters, "post-restart valid API/CLI wrote rows/files or used a carrier")
+    check(access_purity_diagnostic(snapshot(h), before, "post_restart_valid") == before and traffic(f) == counters, "post-restart valid API/CLI wrote rows/files or used a carrier")
 
 
 @suite.case("closed_stdin_privacy_methods_unavailable_and_route_isolation", "guided30 verification6")
