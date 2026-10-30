@@ -4284,7 +4284,10 @@ has5s bound. After the first POST, obtain one fresh ordinary view for the depend
 F batch; the ordinary daemon may have already materialized/signed its approved
 host work. If F is not ready or any previous issuer entry reappears, refuse with
 controlled outcome-unknown recovery, never re-sign or advance it. An invocation
-starting directly at F makes at most one submission. Rechecks immediately before
+starting directly at F makes at most one submission. A lost first B/D POST result
+stops before any F key use or second POST, even if that batch committed. Initial
+already-F refusal applies even to a different well-typed finalization digest,
+without invoking section24; no historical digest attribution is made. Rechecks immediately before
 each key use and dispatch do not retract an already used key or committed batch.
 A failed/lost response may leave B/D or F recorded; recover through pure owner
 lookup/progress and a later explicit command signs only remaining typed slots.
@@ -4314,6 +4317,10 @@ contracts, without production imports or fabricated authority DB rows.
 1. Exact generated-original B/D then F signing under approved section16 and
    captured section24 digest; at most2 batches/3 signatures, same ordinary intent,
    exact profile/parents/fixed terms. No requester commit, access or new schema.
+   If genuine owned work lags, after one controlled unknown and public proof of
+   retained B/D the fixture may explicitly wait for ordinary F readiness, then
+   make one further explicit Sign for F only. No Sign retry loop or unclassified
+   first failure is accepted as setup; preserve per-invocation operation counts.
 2. Exact SSH-agent among multiple identities, absent/wrong/unsafe/malformed
    generated sources and agent failure; no original replacement or fallback.
    Full key-source boundary stimulus may reuse section18's independent helpers.
