@@ -811,7 +811,7 @@ mod tests {
             participants: Vec::new(),
             departed: Vec::new(),
         };
-        save_held(&*store.connection().unwrap(), &Held { roster, local }).unwrap();
+        save_held(&store.connection().unwrap(), &Held { roster, local }).unwrap();
         (store, agent, me)
     }
     fn message(store: &Store, author: &str) -> Stored {
@@ -870,7 +870,10 @@ mod tests {
         store
             .notify(&conn, CONVERSATION, &agent, "message", Some(MESSAGE), None)
             .unwrap();
-        assert_eq!(store.recheck(&conn, &stored, &agent).unwrap(), Recheck::Wait);
+        assert_eq!(
+            store.recheck(&conn, &stored, &agent).unwrap(),
+            Recheck::Wait
+        );
         assert!(store.visible(&conn, CONVERSATION, &me).unwrap().is_empty());
         assert_eq!(store.unseen(&conn, CONVERSATION, &agent).unwrap(), 0);
         // Nothing was recorded: it stays claimable for a later recheck.
