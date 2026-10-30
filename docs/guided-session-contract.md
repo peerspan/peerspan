@@ -5563,7 +5563,189 @@ policy before separate explicit grant consent. Discarded: membership as access,
 copied frontend policy as authority, label selection, a second policy evaluator,
 opening keys during inspection, new inspection storage and this digest as consent.
 
-## 31. Remaining flow contract
+## 31. Exact project agent-access consent (GU-01u / GU-02v / GU-04v)
+
+This slice prepares and approves one exact ordinary policy action. Signing,
+publication, application and native controls follow separately. Section30's
+inspection digest is an input pin, never consent by itself.
+
+### Fixed first grant profile
+
+The explicit profile adds the selected person to the attached agent's ordinary
+owner policy: actions exactly `message.append` and `task.submit`, message bound
+65536, artifact bound0 and allow_disconnected false. There is no delegation,
+capability call, trusted-host change, automatic file or conversation sharing.
+The principal is `person:` plus the ordinary person ID derived from the exact
+selected public key. Agent rules use the exact frozen agent NAME. Ordinary
+owner policies apply to that name across the owner's machines; this is not a
+host-exclusive or agent-ID permission. The review exposes
+`policy_scope:"owner_agent_name"`, the exact agent ID and name, so native consent
+can disclose this existing scope. No new authorization evaluator is introduced.
+
+Preserve the complete verified signed baseline policy JSON, including explicit
+optional/default presence and unrelated rules/capabilities/trust/edit entries.
+For a same-key rule (ordinary agent/settings equality), append the principal
+only if absent, preserving existing order/fields; otherwise append the exact
+profile rule. Do not remove or broaden another rule. Existing broader authority
+remains visible in the complete baseline. An existing identical grant may yield
+an ordinary new policy generation; no claim of newly absent permission follows.
+A truly absent policy starts with format2 and empty arrays. Refuse retained
+inactive/forked/incomplete policy or unsettled local edits; never auto-reapply.
+
+Use the actual selected original or scope1 owned-device provider, with its fixed
+ordinary signature format, no override/root fallback/provider change or external
+signer probe. Pin exact current root, person/host/binding/device, policy head,
+retained full-u64 maximum+1 and next local edit sequence. Proposed policy ends
+at the minimum of now+24h, operation-required scope1 provider/parent ceiling and
+selected-person effective lease bound. Refuse an unusable ceiling. Its complete
+ordinary typed policy payload and unsigned template remain immutable.
+
+### Private operations
+
+- `POST /v1/onboarding/access-consent/lookup`: exactly
+  `{context,network_id,person_public_key}`; returns latest matching local consent
+  or null, without preparation, provider probe or repair.
+- `POST /v1/onboarding/access-consent/prepare`: exactly those three fields plus
+  `inspection_review_id`, and optional non-null `replace_access_id`. Require the
+  exact current section30 review ID and attached project before fresh preparation.
+  First preparation atomically stores one unsigned ordinary policy action intent
+  and one nonsigning access-review receipt. No edit reservation, signature,
+  selected-provider mutation, policy/admission/maximum/outbox/event or clock save.
+- `POST /v1/onboarding/access-consent/approve`: exactly those three fields plus
+  `access_id` and `access_review_id`. Approve only the exact retained latest
+  receipt/action after current project/inspection/provider/ordinary policy-action
+  guards at one decision time. Atomically approve both records with the same
+  actual approved_at and save the ordinary clock guard. This never signs or
+  publishes. Original/device key availability is not probed.
+
+All requests are closed, duplicate/null/trailing/type checked and at most65536
+bytes. `access_id` and replacement IDs are canonical `dint_` IDs. CLI commands
+are `peerspan onboarding access {lookup,prepare,approve} --stdin`; exact same
+input/output, private Unix socket only,5s request bound, no argv payload or
+signer override, no input echoed even with interleaved global flags. Owner API
+only; adapter credentials and peer routes cannot invoke it.
+
+Prepare with no replacement reuses the latest exact matching inspection receipt,
+including expired/approved history, without refreshing its payload or time.
+A different inspection requires explicit replacement. Replacement names the exact
+latest receipt and is allowed only when its fresh work is expired/invalidated;
+a still-live review or approved action refuses. Repeating that exact replacement
+returns its retained successor, not another action. Keep old receipts/approval
+history immutable. After replacement, the earlier receipt cannot authorize new
+guided work. A preexisting ordinary action may not be adopted as fresh guided
+consent; require a genuinely new action when first linking a receipt. Advanced
+ordinary approval of a receipt's action without the exact guided receipt makes
+that receipt invalidated, never guided-approved by inference.
+
+### Existing schema27 private record extension
+
+No SQL/schema migration. Add kind `access_review` in existing `dec_intents`.
+It is a typed NONSIGNING exact public-review receipt referencing its separate
+ordinary `action` intent. Its normal Record has empty templates/signatures,
+completed true (no signatures required), secret NULL, terminal `-`, result_base64
+`-`, and original/device provider metadata copied from its exact ordinary action.
+Its operation_id is `arev_` plus SHA256 of
+`peerspan-project-access-key-v1\n` plus canonical JSON of exactly
+`{context,network_id,person_public_key}`. Its review_base64 is the canonical
+complete public review below, at most1MiB. Validate all duplicated IDs/provider/
+root/person/host/device/scopes/time fields and the exact referenced action and
+unsigned payload on every use. No access-review row can reach signing, action
+publication or provider selection. Approval is the atomic exact human receipt;
+only the referenced ordinary action can subsequently use its existing typed
+signing path and authority guards.
+
+At most256 access-review receipts and16MiB aggregate stored record bytes per
+host, each complete public response at most1MiB; preserve ordinary total4096
+intent/64 unsigned-action ceilings. Check capacity for both rows before writes.
+Never evict retained history to fit. Latest selection is by insertion order among
+this kind's exact operation_id/network key; it supplies local recovery only,
+never network authority. Lookup also validates the original parent context/agent
+terms. An approved receipt requires its action's matching approval timestamp;
+an unapproved receipt cannot inherit an advanced action's approval. Both receipt
+and ordinary intent must remain uncorrupted; a broken reference fails closed.
+
+### Closed public view and history
+
+Outer result is exactly `{version:1,host_id,context,observed_at,access}`.
+`access` is null or exactly `{access_id,review_id,review,state,next_action}`.
+Review is exactly:
+
+`{version:1,kind:"approve_project_agent_access",access_id,host_id,context,
+inspection_review_id,inspection,grant,action_id,intent_id,provider,statement,
+created_at,expires_at,effects}`.
+
+Inspection is the complete frozen section30 review. Grant is exactly
+`{policy_scope:"owner_agent_name",agent_id,agent_name,principal,
+actions:["message.append","task.submit"],max_message_bytes:65536,
+max_artifact_bytes:0,allow_disconnected:false}`. Provider is the ordinary frozen
+public PROVIDER_VIEW. Statement is exactly `{id,payload_sha256,payload}`;
+payload is the complete exact unsigned ordinary policy payload with its
+`body_base64` replaced by decoded `body` JSON, preserving every other field.
+Payload_sha256 pins its original encoded payload bytes. No template, signature,
+private key or base64 payload is returned. Created_at is the ordinary intent's
+actual creation time. Expires_at is the minimum of its fixed issued_at+300s
+expiry and the proposed policy bound; retries never refresh either timestamp.
+Effects are exactly approve_policy_intent, authorize_policy_signature,
+authorize_policy_publication, grant_agent_access_after_signatures true;
+grant_membership, delegate_tasks, share_files, share_conversation,
+capability_calls and allow_disconnected false.
+
+Review_id is `review_` plus SHA256 of
+`peerspan-project-access-consent-v1\n` plus canonical JSON of this entire review.
+Observation time remains outside the digest. Public values follow section20's
+privacy checks; unsafe/oversize reviews refuse atomically.
+
+State is review, approved, expired or invalidated. Next_action respectively is
+approve_policy_intent, follow_policy_action, inspect_agent_access,
+inspect_agent_access. Approved history remains exact and pure after expiry,
+policy/provider changes, detach/replacement/restart and absent original signer;
+it claims recorded consent, not current permission or delivery. No raw time
+before the original creation may yield misleading live history. Unapproved
+state reflects current liveness without mutation. Already-approved exact replay
+is pure and never updates approved_at/clock or invokes another signature.
+Unknown network/project/access IDs are404; malformed input400invalid; wrong
+context/digest or changed live terms409review_changed; elapsed review409
+review_expired; other unavailable authority/capacity/corrupt state409
+access_review_unavailable. Return no partial private state.
+
+### Verification
+
+Separate contract-only author supplies six compact real-binary cases:
+
+1. Genuine two people/two hosts, attached project and exact current inspection:
+   complete narrow profile and owner-wide name scope, raw signed baseline/default
+   fields and unrelated policy terms preserved, exact immutable ordinary payload,
+   next version/edit/provider/parents/expiry, digest and API/private-CLI parity.
+   Preparation records both unsigned rows atomically without granting permission.
+2. Context/native/project/agent/network/person/inspection exactness, lookup-null
+   purity, repeated preparation/recovery and explicit replacement boundaries;
+   never adopt an unrelated/advanced-approved ordinary action as guided consent.
+3. Late genuine SQLite INSERT/UPDATE fault rolls back both preparation or both
+   approvals/clock. Real approval changes only exact receipt/action/guard, leaves
+   all signatures/templates/policy/maximum/edit/outbox/provider/event evidence
+   untouched; exact approval replay is pure. Missing external original still
+   permits consent, broken selected device cannot fall back.
+4. Genuine stale policy/provider/root/member/lease/expiry/clock and unsettled
+   withdrawal refuse before approval/signature. Full-u64 max and local edit rules
+   use ordinary guards, no reapply/renewal or hidden refreshed generation.
+5. Approved/unapproved history after detach/replacement/restart/expiry and absent
+   signers; whole DB/schema/state/home and BOTH original TCP plus every enabled
+   UDP counter purity after genuinely observed setup retirement/startup work.
+   Preserve every old case/assertion/delay/timeout and record any unexecuted
+   complex fork/unsettled/multi-machine/limit prerequisite honestly.
+6. Strict bounded/duplicate/null/trailing/private stdin corpus and argv redaction,
+   unsupported methods, unavailable daemon, owner/adapter/peer isolation, unsafe
+   public values/output/capacity/type corruption refusal. Existing schema27 and
+   all old rows/intent kinds unchanged; new nonsigning kind never becomes a
+   signing/provider route. No fabricated authority for a passing fixture.
+
+Selected: exact nonsigning guided receipt plus atomic approval of the existing
+ordinary policy action. Discarded: a new SQL table/schema for metadata, a second
+signing mechanism, mutable payload refresh, automatic policy reapplication,
+root/provider fallback, silently host-exclusive name claims, broader default
+files/delegation/capability/offline access and combining consent with signing.
+
+## 32. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
