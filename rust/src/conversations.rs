@@ -4581,7 +4581,7 @@ impl Store {
         let mut items = Vec::new();
         for (id, person, record) in rows {
             let pending: Pending = json(record)?;
-            if !pending.current() || bound.as_ref().is_some_and(|b| *b != person) {
+            if !pending.current() || bound.as_ref() != Some(&person) {
                 continue;
             }
             let roster = &pending.roster;
