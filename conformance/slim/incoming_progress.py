@@ -39,7 +39,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, commit,
                      create_network, finalize, link_view, parse_time,
                      pull_until, rfc3339, select, ssh_key, ssh_public_base64,
-                     wait_for)
+                     wait_for, wait_linked)
 
 suite = Suite("incoming_progress", __doc__)
 BASE = "/v1/onboarding/incoming-progress"
@@ -583,7 +583,10 @@ def barrier_attempt(f, mode):
             wait_for(reached, timeout=4, interval=.02, message="actual fetched-proof pre-retention barrier")
             check(entered.read_text().strip() == f["rid"], "barrier captured another operation")
             if mode == "context":
-                change = pool.submit(project, a, "replaced", replace=f["parent"]["flow_id"], old=f["parent"])
+                def replace_parent():
+                    a.ok("session", "detach", f["parent"]["review"]["session_id"])
+                    return project(a, "replaced", replace=f["parent"]["flow_id"], old=f["parent"])
+                change = pool.submit(replace_parent)
                 change.result(timeout=1)  # A writer must finish while progress remains paused.
                 expected = "review_changed"
             elif mode == "cancel":
@@ -653,9 +656,10 @@ def _():
     actual, approved = a.api("POST", "/v1/onboarding/admission-consent/approve", {
         **payload(f), "admission_review_id": prepared["admission"]["review_id"]})
     check(actual == 200 and approved["admission"]["state"] == "approved", "explicit root approval failed")
-    # Only observe the administrator's allowed ordinary background publication;
-    # never call broad ordinary resume/preview/import from this suite on it.
-    wait_for(lambda: link_view(a, rid)["administrator_offer_id"] != "-", timeout=15, interval=.1, message="approved root/host offer publication")
+    # Explicit ordinary work is allowed AFTER progress alone fetched the exact
+    # prefix and guided consent approved this existing intent. Approval permits
+    # background signing; it does not promise passive completion within15s.
+    pull_until(a, rid, "administrator_offer_id", timeout=15)
     b.start()
     view = pull_until(b, rid, "administrator_offer_id", timeout=20)
     finalize(b, view, f["key"])
@@ -663,15 +667,9 @@ def _():
     check(view["state"] == "needs_commit" and not view["commit_approved"] and get(b, "/v2/networks") == [],
           "proof progress or root consent supplied original F/requester commit/adoption")
     commit(b, view)
-    # Existing helper drives BOTH peers with resume. Keep the administrator
-    # observer explicit instead: only requester resume is a permitted driver.
-    def linked():
-        remote, local = link_view(b, rid), link_view(a, rid)
-        if remote["state"] == local["state"] == "linked":
-            return True
-        b.cli("link", "resume", rid, timeout=15)
-        return None
-    wait_for(linked, timeout=25, interval=.2, message="same fetched request applied on requester and administrator")
+    # Both ordinary participants may explicitly finish the already approved
+    # ceremony. Neither driver supplied the original/selection progress setup.
+    wait_linked(b, a, rid, timeout=25)
     b.stop(); modes(f, "drop"); quiet_counts(f); settled(a)
     pure(f, status=409, code="incoming_progress_unavailable")
     before = snapshot(a)
