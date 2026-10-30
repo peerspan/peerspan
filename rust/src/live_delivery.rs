@@ -126,9 +126,10 @@ impl Ended {
 /// authorization of the agent holds, as a verified session of the agent
 /// claims work or lists its pending work. Items past the redelivery limit
 /// end instead: a message is blocked and a queued task fails.
-pub(crate) fn return_items(tx: &Transaction<'_>, agent: &str) -> Result<(), Error> {
+pub(crate) fn return_items(store: &Store, tx: &Transaction<'_>, agent: &str) -> Result<(), Error> {
     let at = now();
     let mut ended = Ended::default();
+    crate::conversations::return_notifications(store, tx, agent, &mut ended, &at)?;
     // Inbound deliveries, forwarded (claimed) but neither answered nor seen.
     let rows = {
         let mut stmt = tx.prepare("SELECT d.record, d.redeliveries FROM deliveries d JOIN sessions s ON s.id = d.session_id WHERE s.agent_id = ?1 AND d.seen_at IS NULL AND d.returned_at IS NULL AND json_extract(d.record, '$.state') IN ('unknown', 'forwarded') ORDER BY d.rowid")?;
@@ -288,6 +289,7 @@ pub struct Pending {
     pub replies: Vec<PendingReply>,
     pub tasks: Vec<PendingTask>,
     pub calls: Vec<crate::agent_calls::PendingCall>,
+    pub conversations: Vec<serde_json::Value>,
 }
 
 /// The items a session holds: by its session, and by its authorization
@@ -387,6 +389,7 @@ fn pending(conn: &Connection, session: &str, adapter: Option<&str>) -> Result<Pe
         replies,
         tasks,
         calls: crate::agent_calls::pending_calls(conn, session)?,
+        conversations: Vec::new(),
     })
 }
 
@@ -399,6 +402,9 @@ fn mark(
     id: &str,
     at: &str,
 ) -> Result<(bool, bool), Error> {
+    if id.starts_with("conv_") || id.starts_with("cmsg_") {
+        return crate::conversations::mark_seen_id(tx, session, id, at);
+    }
     if id.starts_with("delivery_") {
         let held: Option<(String, bool)> = rusqlite::OptionalExtension::optional(tx.query_row(
             "SELECT record, seen_at IS NOT NULL FROM deliveries WHERE id = ?1 AND session_id = ?2 AND returned_at IS NULL",
@@ -523,7 +529,7 @@ pub(crate) fn mark_updates(
 }
 
 fn valid_item(id: &str) -> bool {
-    ["delivery", "request", "task", "call"]
+    ["delivery", "request", "task", "call", "conv", "cmsg"]
         .iter()
         .any(|prefix| crate::peer_store::valid_id(id, prefix, 16))
 }
@@ -534,7 +540,7 @@ impl Store {
     pub fn mark_seen(&self, auth: &AdapterAuth, ids: &[String]) -> Result<Vec<String>, Error> {
         if ids.is_empty() || ids.len() > 100 || !ids.iter().all(|id| valid_item(id)) {
             return Err(Error::Invalid(
-                "ids must be 1 to 100 delivery, request, task, or call IDs".into(),
+                "ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs".into(),
             ));
         }
         let mut conn = self.connection()?;
@@ -561,17 +567,26 @@ impl Store {
         let tx = conn.transaction()?;
         let (a, ss) = authority(&tx, auth)?;
         if crate::adapter_connection::verified_authority(&tx, auth).is_ok() {
-            return_items(&tx, &ss.agent_id)?;
+            return_items(self, &tx, &ss.agent_id)?;
         }
-        let result = pending(&tx, &ss.id, Some(&a.id))?;
+        let mut result = pending(&tx, &ss.id, Some(&a.id))?;
+        result.conversations =
+            self.pending_conversations(&tx, &ss.id, &ss.agent_id, a.directory)?;
         tx.commit()?;
         Ok(result)
     }
     /// `GET /v1/sessions/{id}/pending`: the same object for the owner.
     pub fn session_pending(&self, id: &str) -> Result<Pending, Error> {
         let conn = self.connection()?;
-        crate::adapter::session(&conn, id)?;
-        pending(&conn, id, None)
+        let ss = crate::adapter::session(&conn, id)?;
+        let mut result = pending(&conn, id, None)?;
+        let directory: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM adapter_credentials WHERE session_id = ?1 AND json_extract(record, '$.directory') = 1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        result.conversations = self.pending_conversations(&conn, id, &ss.agent_id, directory)?;
+        Ok(result)
     }
 }
 

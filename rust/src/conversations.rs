@@ -6,7 +6,7 @@
 //! host orders roster versions; messages go directly from the author's host
 //! to each target's host, with one durable target record per recipient.
 use crate::{
-    adapter_connection::{authority, verified_authority},
+    adapter_connection::authority,
     api::{blocking, decode},
     directory::coded,
     model::Error,
@@ -35,7 +35,9 @@ use std::{
 };
 use tokio::sync::watch;
 
+mod context;
 mod sync;
+pub(crate) use context::{mark_seen_id, return_notifications};
 
 /// Every table of feature slice 1 (proposal, Persistence), added at once.
 pub(crate) const SCHEMA: &str = r#"
@@ -344,6 +346,19 @@ struct Notification {
     /// For `roster` notifications: `{change, by, by_label, note, roster_version}`.
     #[serde(default)]
     change: Option<Value>,
+    /// For `undelivered` notifications: the target view and a preview.
+    #[serde(default)]
+    undelivered: Option<Value>,
+    /// The authorization holding it, since it was claimed.
+    #[serde(default)]
+    adapter_id: Option<String>,
+    #[serde(default)]
+    blocked_at: Option<String>,
+    #[serde(default)]
+    exhausted_at: Option<String>,
+    /// The notifications a catch-up claimed together with this one.
+    #[serde(default)]
+    coalesced: Vec<String>,
 }
 
 /// Which local participants this host admitted itself (contract C2,
@@ -866,7 +881,13 @@ impl Store {
         let rows = statement
             .query_map(params![id, reader], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().map(json).collect()
+        let messages: Vec<Stored> = rows.into_iter().map(json).collect::<Result<_, _>>()?;
+        match participant_parts(reader) {
+            Some(("agent", host, agent)) if host == self.identity().id => {
+                self.visible_to_agent(conn, id, reader, agent, messages)
+            }
+            _ => Ok(messages),
+        }
     }
     fn targets(
         &self,
@@ -1306,6 +1327,11 @@ impl Store {
             claimed_at: None,
             forwarded_at: None,
             change,
+            undelivered: None,
+            adapter_id: None,
+            blocked_at: None,
+            exhausted_at: None,
+            coalesced: Vec::new(),
         };
         conn.execute(
             "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
@@ -1316,7 +1342,7 @@ impl Store {
     /// Withdraws a departed agent's unclaimed message notifications.
     fn withdraw(&self, conn: &Connection, conversation: &str, agent: &str) -> Result<(), Error> {
         conn.execute(
-            "DELETE FROM conversation_notifications WHERE conversation_id = ?1 AND agent_id = ?2 AND kind = 'message' AND session_id IS NULL",
+            "DELETE FROM conversation_notifications WHERE conversation_id = ?1 AND agent_id = ?2 AND kind = 'message' AND seen_at IS NULL AND (session_id IS NULL OR returned_at IS NOT NULL)",
             params![conversation, agent],
         )?;
         Ok(())
@@ -2216,7 +2242,7 @@ impl Store {
             "UPDATE conversation_targets SET state = ?1, next_attempt_at = ?2, record = ?3 WHERE conversation_id = ?4 AND message_id = ?5 AND target = ?6 AND direction = 'out'",
             params![o.state, o.next_attempt_at, serde_json::to_string(o)?, id, message, o.participant],
         )?;
-        Ok(())
+        self.note_undelivered(conn, id, message, o)
     }
     /// The request for a target's next attempt, or `None` when it is no
     /// longer due or was refused here for lack of anything to cite.
@@ -3393,77 +3419,6 @@ impl Store {
         (held.roster.version < version && held.roster.home_host_id != self.identity().id)
             .then_some(held.roster.home_host_id)
     }
-    /// `POST /adapter/v1/conversation-notifications/next`.
-    pub fn claim_conversation_notification(
-        &self,
-        auth: &crate::adapter_connection::AdapterAuth,
-    ) -> Result<Option<Value>, Error> {
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        let (a, ss) = verified_authority(&tx, auth)?;
-        if !a.directory {
-            return Ok(None);
-        }
-        let next: Option<(String, String)> = tx
-            .query_row(
-                "SELECT id, record FROM conversation_notifications WHERE agent_id = ?1 AND session_id IS NULL ORDER BY rowid LIMIT 1",
-                [&ss.agent_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let Some((nid, record)) = next else {
-            return Ok(None);
-        };
-        let mut n: Notification = json(record)?;
-        let at = now();
-        n.session_id = Some(ss.id.clone());
-        n.claimed_at = Some(at);
-        tx.execute(
-            "UPDATE conversation_notifications SET session_id = ?1, record = ?2 WHERE id = ?3",
-            params![ss.id, serde_json::to_string(&n)?, nid],
-        )?;
-        let held = self.held(&tx, &n.conversation_id)?;
-        let roster = held.roster.clone();
-        let me = format!("agent:{}/{}", self.identity().id, ss.agent_id);
-        let visible = self.visible(&tx, &n.conversation_id, &me)?;
-        let position = visible
-            .iter()
-            .position(|s| Some(&s.message.message_id) == n.message_id.as_ref());
-        let first: bool = !tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM conversation_notifications WHERE conversation_id = ?1 AND session_id = ?2 AND id != ?3 AND kind = 'message')",
-            params![n.conversation_id, ss.id, nid],
-            |r| r.get::<_, bool>(0),
-        )?;
-        let mut messages = Vec::new();
-        let mut window = Vec::new();
-        let mut window_total = 0;
-        if let Some(position) = position {
-            messages.push(self.adapter_message(&tx, &roster, &visible[position], &me, None)?);
-            if first {
-                window_total = position;
-                let mut bytes = 0;
-                for s in visible[..position].iter().rev() {
-                    let length = cut(&s.message.content, WINDOW_CUT).len();
-                    if window.len() == WINDOW_MESSAGES || bytes + length > WINDOW_BYTES {
-                        break;
-                    }
-                    bytes += length;
-                    window.push(self.adapter_message(&tx, &roster, s, &me, Some(WINDOW_CUT))?);
-                }
-                window.reverse();
-            }
-        }
-        let summary = self.agent_summary(&tx, &held, &me)?;
-        tx.commit()?;
-        Ok(Some(json!({
-            "notification": n,
-            "conversation": summary,
-            "messages": messages,
-            "window": window,
-            "window_total": window_total,
-            "redelivered": false,
-        })))
-    }
     fn adapter_message(
         &self,
         conn: &Connection,
@@ -3508,11 +3463,7 @@ impl Store {
     fn agent_summary(&self, conn: &Connection, held: &Held, me: &str) -> Result<Value, Error> {
         let roster = &held.roster;
         let agent = participant_parts(me).map(|p| p.2).unwrap_or_default();
-        let unseen: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM conversation_notifications WHERE conversation_id = ?1 AND agent_id = ?2 AND kind = 'message' AND json_extract(record, '$.forwarded_at') IS NULL",
-            params![roster.conversation_id, agent],
-            |r| r.get(0),
-        )?;
+        let unseen = self.unseen(conn, &roster.conversation_id, agent)?;
         let visible = self.visible(conn, &roster.conversation_id, me)?;
         let participants = self
             .shown(held)
@@ -3594,9 +3545,11 @@ impl Store {
                 "UPDATE conversation_notifications SET record = ?1 WHERE id = ?2",
                 params![serde_json::to_string(&n)?, id],
             )?;
+            self.forward_coalesced(&tx, &n, &ss.agent_id)?;
         }
+        let view = context::notification_view(&tx, &n)?;
         tx.commit()?;
-        Ok(json!({ "notification": n }))
+        Ok(json!({ "notification": view }))
     }
     /// The adapter's author participant and origin, once directory access
     /// is established.
@@ -5145,6 +5098,12 @@ struct ListQuery {
     state: Option<String>,
 }
 #[derive(Deserialize)]
+struct PageQueryAdapter {
+    before: Option<String>,
+    limit: Option<i64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReadQuery {
     participant: Option<String>,
 }
@@ -5192,14 +5151,17 @@ pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
             "/adapter/v1/conversations",
             get(adapter_list).post(adapter_start),
         )
-        .route("/adapter/v1/conversations/{id}/messages", post(adapter_say))
+        .route(
+            "/adapter/v1/conversations/{id}/messages",
+            get(context::adapter_history).post(adapter_say),
+        )
         .route(
             "/adapter/v1/conversations/{id}/manage",
             post(adapter_manage),
         )
         .route(
             "/adapter/v1/conversation-notifications/next",
-            post(adapter_next),
+            post(context::adapter_next),
         )
         .route(
             "/adapter/v1/conversation-notifications/{id}/forwarded",
@@ -5926,7 +5888,9 @@ async fn adapter_manage(
     }
     let invite = manage_as(&store, id.clone(), &actor, &r.action, r.participant, None).await?;
     let me = actor.participant.clone();
+    let auth = crate::adapter::token(&headers);
     let summary = blocking(store, move |s| {
+        s.conversation_seen(&auth, &id)?;
         let conn = s.connection()?;
         let held = s.held(&conn, &id)?;
         s.agent_summary(&conn, &held, &me)
@@ -5948,22 +5912,13 @@ async fn adapter_say(
         if !valid_conversation_id(&id) {
             return Err(Error::NotFound);
         }
-        s.author_message(&id, &author, Some(origin), r.message_id, r.content)
+        let sent = s.author_message(&id, &author, Some(origin), r.message_id, r.content)?;
+        s.conversation_seen(&auth, &id)?;
+        Ok(sent)
     })
     .await?;
     dispatch(&store, target_keys(keys));
     Ok(Json(value))
-}
-async fn adapter_next(
-    State(store): State<Arc<Store>>,
-    headers: HeaderMap,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Json<Option<Value>>, Error> {
-    let _: Empty = decode(body)?;
-    let auth = crate::adapter::token(&headers);
-    Ok(Json(
-        blocking(store, move |s| s.claim_conversation_notification(&auth)).await?,
-    ))
 }
 async fn adapter_forwarded(
     State(store): State<Arc<Store>>,

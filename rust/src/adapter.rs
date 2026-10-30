@@ -430,7 +430,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         if let Some(handoff) = self.claim_returned_delivery(&tx, &a, &ss)? {
             tx.commit()?;
             return Ok(Some(handoff));
