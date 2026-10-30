@@ -680,3 +680,109 @@ The suite gains C3 cases, written from this section by the same spec-only author
 - **Expiry** (last). With an invite pending on bob, the test clock moves 7 days and 1 second: bob's `conversations --invites --json` is empty, `conversation join ID` exits 1 with `not_found`, and within 15 seconds alice's view no longer lists the person.
 
 **Node adapter** (`node --test` in `integrations/shared`, as in C1 and C2): the `Participants:` line with a person `invited` and `inviting`, in a `conversation` and a `conversation_roster` event; `conversation_start` and `conversation_manage` accept `person:LABEL` and bare labels.
+
+## C4: catch-up
+
+C4 lets a participant whose host was offline, or missed a message, catch up from the author's host: gap detection through `prev_seq`, the peer routes `GET .../heads`, `GET .../messages` and `POST .../acks`, the conversation sync (roster first) at startup, every 10 minutes and after a roster change, the 24-hour push window and the `stopped` target state, and sync after close until every host has answered or 30 days pass (`unsynced`). Everything in C1 to C3 stays as written unless this section changes it. Not in C4: seen, redelivery, catch-up events, `pending_work`, `conversation_history` and `conversation_undelivered` (C5); rate limits, `addressed_to` from local surfaces, the read cursor, the event log, `forget`, and `home_unavailable` (C6). CONV-24 still holds: `conversation sync` below is not listed in the root help, the README or the quick start.
+
+**Words.** For a message M authored on host H and a participant T on another host, H's *outbound record* for (M, T) is the target record C1 creates at fan-out. "Messages sent to T" are exactly the messages with an outbound record for T, whatever its state; a message stored before T was `joined` in H's roster has none (decision 8). A *final* answer or outcome is one that C1 and C2 record as `delivered`, `refused` or `unsupported`.
+
+### The 24-hour push window and `stopped`
+
+- **Messages.** An outbound record still `sending` 24 hours after its message's `sent_at` (on the author host's clock) becomes `stopped`, within 15 seconds after the 24 hours pass, whether or not an attempt is due. No attempt starts after that moment, and an attempt in flight when it passes may still make the record final with its answer. A conversation message has no `deadline`, and nothing else shortens the 24 hours: not the cited policy's `not_after`, nor a grant's `expires_at` (CONV-22).
+- **Target view.** `state` gains `stopped`, with `code` null and `error` `retries stopped 24 hours after sending; the recipient's host fetches it when it syncs`. `stopped` is not final: an `acks` answer (below) makes it `delivered` or `refused`. Readable `conversation show` lists a `stopped` target under the viewer's own message as `not yet received by LABEL (stopped)`.
+- **Roster pushes.** C2's roster pushes to one host stop 24 hours after home committed the version being pushed; the host gets that roster or a newer one at its next sync (roster first). A newer version starts a new push with its own 24 hours. Invites (C2's 10 minutes), joins (no automatic retry), and leaves and declines (retried until home answers) are unchanged.
+
+### Gap detection
+
+Each host keeps, per conversation, remote author A and local participant T joined here, a *chain head*: the highest `seq` of A's messages it has *resolved* for T with no gap before it. A message is resolved for T when this host accepted it for T (pushed or fetched), or refused it for T at a fetch with a final code (below). A refusal of a pushed message is not recorded and resolves nothing, so a later fetch may still accept that message under the checks of that moment.
+
+- The chain head starts at 0 when T is admitted here, and again when T is admitted after a departure.
+- A message for T whose `prev_seq` is absent (the first message to T since T joined), or equals the chain head, moves the chain head to its `seq`, and then on through any resolved messages whose `prev_seq` continues the chain.
+- A message for T accepted (step 6) with a `prev_seq` above the chain head reveals a **gap**. The host stores the message as usual, answers the push with its receipt, and at once (without waiting for its answer) fetches A's messages to T after the chain head from A's host (`GET .../messages`, below), page by page, applying [fetched-message acceptance](#fetched-messages) to each, then sends `acks` to A's host. At most one gap fetch per (conversation, author host, T) runs at a time; a gap the fetch could not close (no answer, or a non-final outcome) waits for the next sync.
+- A `prev_seq` at or below the chain head that is not resolved, or that names a `seq` this host never saw, changes nothing beyond the push's own acceptance.
+
+### Peer routes
+
+C1's to C3's rules hold for every route below: per-request host authentication, the 1 MiB body limit, strict JSON and query parameters (unknown fields or parameters, nulls, missing required ones, and malformed values are 400 `invalid`), 403 `forbidden` for a sender that is not a current member of a coordinator-free network the receiver belongs to, and none is served on the first-contact listener, the completion listener or a helper. A conversation the receiver holds no roster for (a pending invite alone does not count, C3) is 404 `not_found`.
+
+A host H **serves** a participant T to the requesting host R when T's host is R (otherwise 403 `forbidden`) and T is `joined` in the roster H holds, open or closed (otherwise 404 `not_found`). A departed participant is never served: what it missed before its departure is not caught up. `GET .../messages` has one more limit after a close: for a conversation H holds as closed, H returns messages for T only while at least one of H's outbound records for T is neither `delivered` nor `refused` and fewer than 30 days have passed since H stored the closed roster; otherwise 404 `not_found`. (`heads` stays served, so the requester can confirm it is complete.)
+
+#### `GET /peer/v1/conversations/{id}/heads?target=T`
+
+From T's host to a participant host H. H serves T as above. Answer 200 `{roster_version, authors: [{author, last_seq}]}`: `roster_version` is the version H holds; `authors` has one entry per participant on H that authored at least one message sent to T, with the highest `seq` among those messages, ordered by `author` as bytes. A host none of whose participants sent anything to T answers `authors` `[]`.
+
+#### `GET /peer/v1/conversations/{id}/messages?author=A&target=T&after=N&limit=M`
+
+From T's host to A's host. `author` is a participant ID on the serving host (another host's participant is 400 `invalid`); `after` an integer from 0 to 2^53 − 1; `limit` 1 to 100, default 50. H serves T as above. Answer 200 `{messages: [{message, prev_seq}], more}`: A's messages sent to T with `seq` above N, in `seq` order, at most M of them and at most 900,000 bytes of encoded entries (always at least one when any exists); `message` is the message as C1 sends it, `prev_seq` the value H's outbound record holds (omitted where C1 omits it); `more` is true when further messages after the last one returned exist. Fetching acknowledges nothing and changes no outbound record.
+
+#### `POST /peer/v1/conversations/{id}/acks`
+
+From T's host to an author host H. Body `{target, acks: [{author, through_seq, refused: [{seq, code}]}]}`. `target` is T; `acks` has 1 to 16 entries with distinct `author`s, each a participant ID on H; `through_seq` from 1 to 2^53 − 1; `refused` (required, possibly empty, at most 100 entries) lists seqs at or below `through_seq` with `code` one of `not_authorized`, `not_participant`, `closed`, `invalid`, `conflict`. H checks that the sender is T's host (otherwise 403 `forbidden`) and holds a roster for the conversation (otherwise 404 `not_found`); T need not still be joined. For each entry, H sets every outbound record for T of A's messages with `seq` at most `through_seq`: those listed in `refused` that are not `delivered` become `refused` with that `code`; every other one that is `sending`, `stopped` or `refused` becomes `delivered`. `unsupported` records are unchanged. Answer 200 `{acked}`, the number of records changed. Idempotent: a repeat changes nothing and answers `{acked: 0}`.
+
+A recipient acks `through_seq` = its chain head for (A, T), and lists in `refused` the seqs it refused at a fetch since its last answered ack for that chain. With more than 100 refusals to report for one chain, it sends several acks, each with `through_seq` below the first refusal it cannot list yet. It sends `acks` after each gap fetch and in each sync for every (author host, local T) whose chain head moved since the last answered ack; a failed ack is sent again at the next sync.
+
+#### Fetched messages
+
+The recipient applies to each fetched entry exactly the acceptance steps of a pushed message, with the host it fetched from as the authenticated sender and no citation:
+1. **Shape**, as C1. The entry not for the requested author, a `seq` not above the chain head, or `seq`s out of order end the processing of that page as `invalid`, and every entry of the page not yet resolved is left for the next sync.
+2. **Author's host**: `message.author`'s host is the host fetched from; otherwise the page is processed no further.
+3. **Repeat**: a `(author host, message_id, T)` this host already accepted is resolved when the stored message and `prev_seq` are identical, and refused `conflict` when they differ.
+4. **Roster**: a `roster_version` above the version held, after the sync's roster fetch, stops processing of this author's entries until the next sync (not final). T not joined here, or the author not `joined` in the held roster, is refused `not_participant`.
+5. **Closed** (C2 step 5): refused `closed`, except a message whose `roster_version` is below the version of the closed roster held.
+6. **Authorization**, as for a push (C1, C3), evaluated against this host's records at the time of the fetch: self access, the recipient owner's current policy, or a current grant allows `message.append` from the author for an agent T; for a person T, the author's host and person are not blocked here. A failure is refused `not_authorized`. When this host holds no current policy statement of T's owner in any network both hosts share, and neither self access nor a grant allows it, the entry is not final: processing of this author's entries stops until the next sync (as C1's 503 `unavailable`).
+7. **Persist**, as C1 step 6: the message (stored once per host), the inbound target record, the clock raise, and, for an agent T, one `message` notification for that agent, exactly as for a pushed message (the claim, its `window` rule, and the `conversation` event are unchanged).
+
+An entry refused with a final code is resolved for T: it is not stored, never shown to T, never fetched again, and reported in the next `acks`. Nothing a sync fetches is accepted on any weaker terms than a push: no step is skipped, and a message is fetched only from its author's host.
+
+A recipient answers a push of a message it has already accepted by fetch with the saved receipt (C1 step 3), so the author's record becomes `delivered` either way.
+
+### Conversation sync
+
+A host H **syncs** a conversation it holds (not one known only from a pending invite):
+1. **Roster first.** Unless H is home, `GET /peer/v1/conversations/{id}/roster` from home, stored as C2 stores a push. No answer, or 404, leaves the held roster.
+2. **Heads.** For every other host P holding a participant `joined` in the held roster, and every local participant T joined here, `GET .../heads?target=T` on P. For each `{author, last_seq}` above H's chain head for (author, T), H fetches the missing messages (`GET .../messages`, after the chain head, page by page until `more` is false) and accepts them as above.
+3. **Acks** to P as above.
+
+**When.** At daemon startup (within 15 seconds after it), every 10 minutes per conversation (10 minutes of this host's clock after that conversation's last sync started; due syncs start within 15 seconds), after this host stores a newer roster for it, and on the owner's request (`POST /v1/conversations/{id}/sync`). It covers each open conversation with a local participant joined here, and each closed one still syncing (below). At most 4 conversation syncs run at once per daemon, separate from the 4 push attempts; each peer request in a sync has a 5-second limit. Conversation sync exchanges no grants, policies or contacts; it is separate from the network's record sync (spec section 10).
+
+**After close.** For a conversation H holds as closed, at the version V that closed it, H keeps syncing with each host P that held a participant `joined` in that closed roster (other than H) until P is **complete**: in one sync, P answered `heads` for every local T with a `roster_version` at or above V, every message P reported that H lacked was fetched and resolved, and every ack H sent P was answered 200. A complete host is not asked again. A host not complete 30 days after H stored the closed roster (on H's clock) becomes **unsynced** and is not asked again. Once every such host is complete or unsynced, H stops syncing the conversation.
+
+**Conversation view** gains `unsynced: [HOST_ID]`, the unsynced hosts in host ID order (`[]` for open conversations and while none is unsynced).
+
+### Local API and CLI
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `POST /v1/conversations/{id}/sync` | `{}` | Runs one sync of the conversation now (at most one per conversation at a time; a request while one runs waits for it and then runs its own) and answers when it ends: 200 `{conversation_id, roster_version, hosts: [{host_id, state, fetched, error}]}`. |
+
+- `roster_version` is the version held after the roster step. `hosts` lists, in host ID order, every other host holding a participant `joined` in the held roster, with `state`: `synced` (it answered `heads` for every local T, every message it reported missing was resolved, and its acks were answered), `failed` (any of those did not happen; `error` a short reason), `complete` (closed conversation; complete earlier, not asked), or `unsynced` (closed conversation; past 30 days, not asked). `fetched` counts the messages accepted from that host in this sync. `error` is null unless `failed`.
+- A full conversation ID; an unknown conversation (or one known only from a pending invite) is 404 `not_found`. Unknown fields and nulls are 400.
+- **CLI:** `conversation sync ID`, with C1's prefix rule for `ID`, prints the route's JSON answer and exits 0, or exits 1 with `error: CODE: TEXT`. Not listed in the root help (CONV-24).
+
+The owner and adapter routes, the claim, the `conversation` and `conversation_roster` events, and the `conversation_send`, `conversation_start`, `conversation_manage` and `list_conversations` tools are unchanged; their target views may now show `stopped`. A fetched message reaches a local agent through the same `message` notification and claim as a pushed one.
+
+### Persistence
+
+No new schema version. Chain heads, unacked fetch refusals and per-host sync state (last sync, complete, unsynced) live in the conversation's `record`; a fetch refusal is also an inbound row in `conversation_targets` with `state` `refused`; `stopped` is an outbound `state` there.
+
+### Verification
+
+Spec-only cases, written from this section by the separate author, in the conversations suites (a new file `conformance/slim/conversations_catchup.py` with its own `suite` matrix entry, as C3 did, if the existing files would pass 2 minutes; the 24-hour and 30-day clock moves need hosts of their own anyway).
+
+**Setup.** `suite.use_clock()` before any host starts. Hosts alice and bob in one coordinator-free network (`create_network`, `join_new_person`), and carol joined to it the same way. Participants in the clock cases are **people**, not agents: a person target needs no policy (C3), whereas bob's `allow` policy statement lasts at most 24 hours and the harness gives the daemon no `ssh-agent` to renew it, so after a 24-hour move bob would hold no current policy and every fetched message for an agent would wait (step 6). Each conversation is started on alice with `conversation start person:bob` (or `person:carol`) and joined with `conversation join ID` on the invited host, as in C3. Cases that need an agent recipient before any clock move use C1's setup: fixture agent `bert` on bob (`b.agent("bert")`), bob's `allow alice --no-tasks --person-key KEY` (only `message.append`), and the policy-version wait of C1; `bert` claims with `bert.post("/adapter/v1/conversation-notifications/next")` until non-null, then `.../{id}/forwarded`. Raw peer requests use `peerspan-peer-probe` with the requesting host's state directory (`peer(sender, receiver, ...)`). Syncs are triggered with `conversation sync ID` (or `POST /v1/conversations/{id}/sync`) instead of waiting 10 minutes; a host restart also syncs within 15 seconds. After a clock move, the suite restarts every running host before expecting peer traffic (so each holds fresh signed contacts), and polls with a 20-second bound. Order: gap and route cases first, then the 24-hour world, then the 30-day case last.
+
+**Cases** (the proposal's C4 column, made concrete):
+- **Gap fetch.** conv G between alice's and bob's persons. `block alice` on bob; alice's `conversation say G m1`: its target for bob becomes `refused` (`not_authorized`). `unblock alice`; alice says m2: within 20 seconds bob's `conversation show G --json` lists m1 and m2 in display order (m2's push revealed the gap at `prev_seq` 1 and bob fetched m1), and alice's targets for both become `delivered` (m1 through bob's `acks`, from `refused`).
+- **Agent gap** (optional, same shape before any clock move): `deny alice` on bob (with the policy wait), alice's message to `bert` is `refused`; `allow alice --no-tasks` again (with the wait); alice's next message makes bob fetch the first; `bert` claims both, in arrival order, and alice's targets for both become `delivered`.
+- **Route edges** (probe):
+  - `GET .../heads?target=BOB_PERSON_PARTICIPANT` from bob on alice: 200, `roster_version` alice's, `authors` `[{author: ALICE_PERSON_PARTICIPANT, last_seq: 2}]` for conv G; from carol's state (not T's host): 403 `forbidden`; with `target` a participant not in conv G: 404 `not_found`.
+  - `GET .../messages?author=ALICE_PERSON_PARTICIPANT&target=BOB_PERSON_PARTICIPANT&after=0` from bob on alice: m1 and m2 in `seq` order with `prev_seq` omitted and 1, `more` false; `limit=1` returns m1 with `more` true; `limit=101` and an unknown parameter are 400; from carol's state: 403.
+  - `POST .../acks` from carol's state for bob's person: 403 `forbidden`; from bob's state repeating an earlier ack: 200 `{acked: 0}`.
+- **24 hours** (the 24-hour world). bob's person joins three conversations: W and X started on alice, Y started on carol (each `conversation start person:bob`, then `conversation join` on bob). bob stops. alice says three messages in W and one in X, then `conversation close X`; carol says one message in Y. The test clock moves 24 hours and 1 second: within 20 seconds every one of those targets, on alice and on carol, is `stopped` (`conversation show --json`), and alice's view of X has `unsynced` `[]`. Then, in this order: carol stops; alice restarts; bob starts (its startup sync catches up W and X from alice; its sync of Y fails, carol being down); `block carol` on bob; carol starts.
+  - **Catch-up.** Within 20 seconds (`conversation sync W` on bob makes it immediate), bob's `conversation show W --json` lists the three messages in display order, and alice's three targets for bob become `delivered`.
+  - **Close while down.** bob's view of X is `closed` at alice's closing version and lists the message alice sent before the close; alice's target for it becomes `delivered`. `conversation sync X` on alice then reports bob's host `synced` or `complete`, and a second one `complete`; a probe `GET .../messages?author=ALICE_PERSON_PARTICIPANT&target=BOB_PERSON_PARTICIPANT&after=0` for X from bob's state on alice is 404 `not_found`, while `GET .../heads` for X still answers 200.
+  - **No back door.** `conversation sync Y` on bob: carol's host is `synced` with `fetched` 0; bob's `show Y` does not list carol's message; carol's target for bob becomes `refused` with `not_authorized` (through `acks`). After `unblock carol`, another `conversation sync Y` on bob fetches nothing and the target stays `refused`.
+- **30 days** (last). Conversation Z between alice's and carol's persons; carol stops; alice closes Z; the test clock moves 30 days and 1 second; `conversation sync Z` on alice reports carol's host `unsynced`, and alice's `GET /v1/conversations/{Z}` has `unsynced` `[CAROL_HOST]`.
+
+**Node adapter.** No change in C4; no new adapter tests.
