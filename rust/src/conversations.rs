@@ -3815,27 +3815,35 @@ impl Store {
         let by_id = crate::policy::person_id_shape(raw);
         let conn = self.connection()?;
         let own = self.identity().id;
-        let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        // The person first, by ID or label; then every host bound to that
+        // person in any shared network, whatever its label there.
+        let mut networks = Vec::new();
         for id in self.product_network_ids(&conn)? {
             if network.is_some_and(|n| n != id) {
                 continue;
             }
             let members = self.product_members(&conn, &id)?;
-            if !members.iter().any(|m| m.host_id == own) {
-                continue;
+            if members.iter().any(|m| m.host_id == own) {
+                networks.push((id, members));
             }
-            for p in self.product_persons(&conn, &id)? {
+        }
+        let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (id, _) in &networks {
+            for p in self.product_persons(&conn, id)? {
                 let matched = if by_id {
                     p.person_id == raw
                 } else {
                     p.member == raw
                 };
-                if !matched {
-                    continue;
+                if matched {
+                    found.entry(p.person_id).or_default();
                 }
-                let hosts = found.entry(p.person_id.clone()).or_default();
-                for m in &members {
-                    if m.person_id.as_deref() == Some(p.person_id.as_str()) {
+            }
+        }
+        for (person, hosts) in found.iter_mut() {
+            for (_, members) in &networks {
+                for m in members {
+                    if m.person_id.as_deref() == Some(person.as_str()) {
                         hosts.insert(m.host_id.clone());
                     }
                 }
