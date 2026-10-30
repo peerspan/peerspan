@@ -3872,6 +3872,11 @@ No implementer tests or invented protocol/authority rows.
    After the new action alone obtains the prefix and guided consent is approved,
    the ordinary explicit resume driver may advance that already-approved root
    work. No passive completion deadline or new automatic signing is promised.
+   Before terminal no-IO purity measurements, keep genuine participants/carriers
+   available and explicitly drain pending final publication to its ordinary
+   storage acknowledgment. Linked state alone does not prove transport is
+   quiescent. Public attention and documented outbound-storage observations may
+   establish that setup; do not weaken the measured zero-IO/DB/file assertions.
 
 Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
 exact source/binary/results and all failures/limits. Earlier signing historical
@@ -3925,6 +3930,9 @@ native project must still be current and attached to display owner controls.
 Other historical states have no approval control. **Leave incoming review**
 clears local selection/confirmation without declining, cancelling or revoking
 anything. An already dispatched action cannot be retracted by leaving.
+Re-enter through Review incoming connections before choosing another request.
+When an established adapter pane is open, its Back to project control returns
+to the attached project; the parent's Back to Peerspan leaves that project view.
 
 ### Missing proof and exact review actions
 

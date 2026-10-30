@@ -2522,3 +2522,16 @@ only historical Check/Leave. Initial review found cached-only post-IO checks
 could restore stale review controls and null consent had no expiry timer.
 Discarded: relying only on the next approval guard, dispatching expired progress/
 preparation and using a fresh review window to extend the signed request.
+
+### GU.impl23b — Navigate explicitly and settle terminal delivery in fixtures
+
+Selected: re-enter incoming selection after Leave and choose the adapter's
+specific Back to project when preserving an attached project. First native
+run270/272 stopped on absent choices after Leave and a generic Back matcher
+leaving the parent project. Separately, real-host incoming5/6 stopped on carrier
+traffic after local application while the genuine terminal outcome still had
+zero delivery acknowledgments. Drain ordinary terminal publication with both
+participants/carriers available before no-IO purity measurements. Preserve every
+old/new assertion, timeout and strict DB/file/zero-IO check. Discarded: retaining
+hidden native selection, changing parent Back semantics, counting linked as
+delivery completion, weakening purity or rerunning unchanged failed fixtures.
