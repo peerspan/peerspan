@@ -27,6 +27,7 @@ mod probe;
 pub(crate) mod product;
 mod project_access;
 mod project_access_consent;
+pub(crate) mod project_access_signing;
 mod provider;
 mod renewal;
 mod requester;

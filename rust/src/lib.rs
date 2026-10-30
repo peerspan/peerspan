@@ -35,6 +35,7 @@ pub mod oauth;
 pub mod onboarding;
 pub mod onboarding_access;
 pub mod onboarding_access_consent;
+pub(crate) mod onboarding_access_signing;
 pub mod onboarding_adapter;
 pub mod onboarding_admission;
 pub mod onboarding_admission_consent;
