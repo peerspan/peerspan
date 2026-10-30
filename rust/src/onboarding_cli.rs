@@ -48,6 +48,21 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum AdmissionCommand {
+    /// Read retained exact administrator consent without preparing or signing
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare one unapproved current-root administrator intent
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Approve the exact retained administrator review from private stdin
+    Approve {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Verify public incoming original/selection evidence without mutation
     Inspect {
         #[arg(long, required = true)]
@@ -215,10 +230,16 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
-        command: Some(OnboardingCommand::Admission { .. }),
+        command: Some(OnboardingCommand::Admission { command }),
     }) = command
     {
-        return admission_inspection(socket).await.map(Some);
+        return match command {
+            AdmissionCommand::Inspect { .. } => admission_inspection(socket).await,
+            AdmissionCommand::Lookup { .. } => admission_consent(socket, "lookup").await,
+            AdmissionCommand::Prepare { .. } => admission_consent(socket, "prepare").await,
+            AdmissionCommand::Approve { .. } => admission_consent(socket, "approve").await,
+        }
+        .map(Some);
     }
     if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Join { command }),
@@ -294,6 +315,29 @@ async fn admission_inspection(socket: &Path) -> Result<Value> {
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
         Local(socket).post("/v1/onboarding/admission-inspection".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
+
+async fn admission_consent(socket: &Path, operation: &str) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid administrator admission consent input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let payload = peerspan_host::onboarding_admission_consent::decode_input(&bytes, operation)
+        .map_err(|_| invalid())?;
+    let unavailable = || anyhow::anyhow!("administrator admission consent unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(
+            format!("/v1/onboarding/admission-consent/{operation}"),
+            payload,
+        ),
     )
     .await
     .map_err(|_| unavailable())?
