@@ -5309,7 +5309,116 @@ approval and completion with pure lookup-first recovery. Discarded: combining
 consent and completion, blanket agent access, frontend signing/provider choice,
 new persistence, retry/polling and local application as connection readiness.
 
-## 30. Remaining flow contract
+## 30. Project-bound agent-access inspection (GU-01t / GU-02u / GU-04u)
+
+This owner-local read supplies current verified terms for a later explicit
+agent-permission review. It creates no consent, reservation, signature or grant.
+Its digest identifies an inspection and cannot authorize a policy operation.
+
+### Private API and CLI
+
+`POST /v1/onboarding/access-inspection` accepts exactly
+`{context:AdapterContext,network_id,person_public_key}`. Context is section 5's
+exact attached-project binding; the network is an explicit canonical `net_` ID,
+and the selected person is a canonical base64 32-byte public key. Reject unknown
+or duplicate fields, nulls, wrong types, trailing JSON and inputs over 65,536
+bytes. `peerspan onboarding access inspect --stdin` sends the same closed input
+over the private Unix socket and prints the same public JSON. No positional
+payload, signer override, implicit network, label resolution or invitation is
+accepted. Missing daemon fails nonzero. CLI errors never echo input. Adapter
+credentials and peer routes cannot invoke this owner administration API.
+
+### Current verified terms
+
+Hold one database read transaction. Sample the ordinary DEC local decision
+clock once, load the exact network snapshot and build its ordinary projection.
+Preserve migration fences, clock rollback, proof and fork refusals. Never save
+the clock or repair evidence. Legacy networks are refused. Validate the latest
+attached project and original agent terms at the observed time. Replaced,
+detached or changed projects return 409 `review_changed`; malformed inputs
+return 400 `invalid`; an absent network returns 404 `not_found`. Other unavailable
+authority, unsafe public values and excessive output return 409
+`access_inspection_unavailable`, without partial terms.
+
+The local host must have a current verified person binding matching its stored
+own identity. The selected person must have a current verified person lease.
+Include all current machines of that person sorted by host public key; an empty
+list is allowed and establishes no reachability. Self-selection is allowed.
+Do not open or probe any signer/provider: a missing signer does not prevent a
+valid read. Membership and labels never establish agent access.
+
+With no retained local-person policy stream, return `policy:null`. Otherwise
+require its unambiguous current active statement and complete verified ancestry.
+An expired, revoked, ambiguous or incomplete retained stream is unavailable,
+rather than an empty policy. Return the exact signed body separately from the
+ordinary locally enforced content, including pending withdrawals. Preserve all
+rules, principals, actions, byte bounds, trusted hosts and capability rules.
+Do not add a second authorization evaluator or report policy presence/rule
+matches as permission to deliver an operation.
+
+### Public result
+
+The closed outer object is exactly `{version:1,host_id,context,observed_at,
+review_id,review,next_action:"review_agent_access"}`. The closed review contains:
+
+- `version:1`, `kind:"inspect_project_agent_access"`, `host_id`, `context`,
+  and the attached project's complete public `agent` terms;
+- `network:{id,name,context_id}` and current `root_state_id`;
+- `owner:{person_public_key,member,person_lease_id,host}`. `host` is the ordinary
+  current-member response: host public key, member label, person public key,
+  host/binding/device lease IDs and finite `not_after`;
+- `participant:{person_public_key,member,person_lease_id,not_after,hosts}`;
+- `policy:null`, or exactly `{statement_id,proof_id,body,enforced_content,
+  valid_until}`. `body` is the verified PolicyBody inside the signed statement;
+  `enforced_content` is ordinary Content after pending local withdrawals;
+  `valid_until` is its effective ancestry bound. `proof_id` is the first
+  lexicographically sorted retained proof for the statement;
+- `effects` with `inspect_current_membership:true`, `inspect_current_policy:true`,
+  and `prepare_access`, `approve_access`, `sign_policy`, `publish_policy`,
+  `grant_agent_access`, `share_files`, `share_conversation`, `capability_calls`
+  all false.
+
+`review_id` is `review_` plus lowercase SHA256 of
+`peerspan-project-access-inspection-v1\n` followed by section 3 canonical JSON
+of the complete review. The changing observation time stays outside the digest;
+unchanged terms retain it. Real policy/member/project changes change or
+invalidate it. Serialized output is at most 2 MiB and follows section 20's
+public-value privacy checks. There are no signing requests, private journal
+bytes, access/readiness booleans, model turns or native controls in this slice.
+
+### Verification
+
+A separate contract-only author supplies six compact black-box cases using
+genuine ordinary operations and real attached projects:
+
+1. Two people/two temporary hosts: exact project agent and selected person,
+   verified P/H/B references, sorted machines, complete policy/enforced content,
+   canonical digest and API/CLI parity; no inferred operation permission.
+2. Exact parent/native/root/integration/review/agent binding; wrong, replaced,
+   detached or changed context, unknown network/person and malformed keys fail
+   closed without creating a project, identity or request.
+3. Real absent policy returns null; message/task/capability/trusted-host terms
+   remain complete. A real pending withdrawal changes enforced content without
+   rewriting the signed body. Reads retain the digest; a new policy changes it.
+   Record source-only gaps where genuine absent/unsettled states cannot be
+   reached through public operations; never fabricate authority/storage rows.
+4. Genuine expiry/revocation/root or policy ambiguity and clock rollback cannot
+   yield active-looking terms. Losing/clearing the signer still permits a valid
+   read. Membership/policy never claim access, delivery or readiness.
+5. Repeats, refusals and restart preserve aggregate DB rows, state/home files
+   and both transport counters after genuine background work settles. No clock,
+   reservation, intent, contact, queue, event or key write. Keep every original
+   suite's assertions, actions, delays and timeouts.
+6. Closed/duplicate/trailing/null/oversize inputs, stdin-only CLI privacy,
+   unsupported methods, unavailable daemon, adapter/peer isolation, public
+   secret-prefix refusal and output bounds; no secrets in diagnostics.
+
+Selected: verified public terms, exact project binding and ordinary enforced
+policy before separate explicit grant consent. Discarded: membership as access,
+copied frontend policy as authority, label selection, a second policy evaluator,
+opening keys during inspection, new inspection storage and this digest as consent.
+
+## 31. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
