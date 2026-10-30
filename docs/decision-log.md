@@ -3075,3 +3075,20 @@ rules. Exact history/replacement is recoverable; no signer probe/signature or
 publication in this slice. Discard a new SQL table/schema for metadata, a second
 signing protocol, advanced approval as guided consent, silent payload refresh,
 automatic reapply, root fallback and a combined consent/signing press.
+
+#### GU.impl31a — Refusals and independent consent prerequisites
+
+Select raw-time-before-creation refusal before clamped live-work classification;
+keep the single captured raw/guarded pair throughout the transaction. A missing
+referenced ordinary action or predecessor receipt is corrupt guided state,
+409 access_review_unavailable; an unknown requested access ID remains404.
+Explicit replacement and approval cannot inherit advanced ordinary approval.
+Discard treating corrupt references as absent requested work, rollback as a
+different live review, or advanced approval as a reason to create another receipt.
+
+For independent advanced-approval setup, select the documented ordinary explicit
+external original public key and SSHSIG slots. Automatic selected-provider
+signing requires an available signer and is a different prerequisite. This does
+not add a guided signer override or possession probe. Preserve all consent
+assertions and retain the initial parser/clock/fixture failures; discard accepting
+an assumed successful setup or weakening history, rollback and traffic checks.

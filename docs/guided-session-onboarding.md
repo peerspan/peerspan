@@ -500,12 +500,29 @@ schema23→27/full-state upgrade/recovery/final combined acceptance remain open.
 Full feature acceptance remains incomplete; tracking PR35 stays unmerged.
 
 
-### Next slice: exact project agent-access consent
+### Exact project agent-access consent
 
 Section31 / GU.impl31 freezes the complete existing ordinary policy action and
 its exact project/person/provider context before separate explicit approval.
 The first profile enables messages/tasks with zero artifacts and ordinary
 owner-wide agent-name scope shown explicitly. A nonsigning typed local receipt
 reuses dec_intents; no new SQL/schema or signature/publication during consent.
-Implementation, independent conformance and final reviewed evidence follow;
-bounded signing/publication and native controls remain separate later slices.
+The API/private CLI are implemented. Frozen Rust `3fa769c` passes155 existing
+tests/2ignored, formatting, Clippy and shipped-binary build. Independent consent
+passes6/6in92s on its first diagnostic run; existing inspection6/6in99s,
+policy9/9in40s, unchanged join12/12in98s and native312/312in49.96s plus strict
+validation pass serially. Candidate `751ceb8` passes all26 host suites and PR
+checks; PR77 records fresh exact-head gates after this evidence commit.
+
+The [verification record](results/guided-access-consent-verification.json)
+preserves the parser/clock fixes, initial review P2 and independent regression,
+explicit external-signing fixture correction, all first failures and source/
+binary/log hashes. The runner's excessive Unix socket path was corrected with
+a shorter TMPDIR, preserving every old test. The original combined consent
+purity category, earlier QUIC failure and join boundary failure remain
+unclassified; later passes do not identify their causes. Diagnostic wrappers
+preserve the original complete comparisons, capture order and short-circuiting.
+Complex authority/quota/overflow and installed/physical/actual-model/full-state
+upgrade/recovery limits remain explicit. Bounded policy signing/publication,
+native access controls, observed readiness and other-computer flow follow.
+Tracking PR35 stays unmerged; full-feature acceptance remains incomplete.
