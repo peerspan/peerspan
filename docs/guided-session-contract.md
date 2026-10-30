@@ -5619,21 +5619,22 @@ ordinary typed policy payload and unsigned template remain immutable.
   publishes. Original/device key availability is not probed.
 
 All requests are closed, duplicate/null/trailing/type checked and at most65536
-bytes. `access_id` and replacement IDs are canonical `dint_` IDs. CLI commands
+bytes. Every successful operation returns200. `access_id` and replacement IDs are canonical `dint_` IDs. CLI commands
 are `peerspan onboarding access {lookup,prepare,approve} --stdin`; exact same
 input/output, private Unix socket only,5s request bound, no argv payload or
 signer override, no input echoed even with interleaved global flags. Owner API
 only; adapter credentials and peer routes cannot invoke it.
 
 Prepare with no replacement reuses the latest exact matching inspection receipt,
-including expired/approved history, without refreshing its payload or time.
+including expired/approved/invalidated history, without refreshing its payload or time.
 A different inspection requires explicit replacement. Replacement names the exact
 latest receipt and is allowed only when its fresh work is expired/invalidated;
 a still-live review or approved action refuses. Repeating that exact replacement
 returns its retained successor, not another action. Keep old receipts/approval
 history immutable. After replacement, the earlier receipt cannot authorize new
 guided work. A preexisting ordinary action may not be adopted as fresh guided
-consent; require a genuinely new action when first linking a receipt. Advanced
+consent; require a genuinely new action when first linking a receipt and return
+409 access_review_unavailable on collision, without refreshing payload/time. Advanced
 ordinary approval of a receipt's action without the exact guided receipt makes
 that receipt invalidated, never guided-approved by inference.
 
