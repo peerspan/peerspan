@@ -5098,6 +5098,7 @@ struct ListQuery {
     state: Option<String>,
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PageQueryAdapter {
     before: Option<String>,
     limit: Option<i64>,
