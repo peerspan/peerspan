@@ -5767,7 +5767,143 @@ signing mechanism, mutable payload refresh, automatic policy reapplication,
 root/provider fallback, silently host-exclusive name claims, broader default
 files/delegation/capability/offline access and combining consent with signing.
 
-## 32. Remaining flow contract
+## 32. Bounded exact project policy signing (GU-01v / GU-02w / GU-04w)
+
+After section31 approval, this slice records only the existing ordinary policy
+intent's exact issuer signature. Policy publication/local application and native
+controls follow separately. An access-review receipt remains NONSIGNING and
+unchanged; the ordinary action remains the sole signing record and authority.
+No new SQL/schema, intent kind, template, consent, policy generation or evaluator.
+
+### Private input and public observation
+
+- `POST /v1/onboarding/access-consent/signing`: exactly
+  `{context,network_id,person_public_key,access_id,access_review_id}`. Read only,
+  with no signer discovery/probe, authority refresh or state repair.
+- `POST /v1/onboarding/access-consent/sign`: exactly those five fields plus
+  `decision:"sign_project_agent_access"`. One explicit bounded signing attempt,
+  never approve, publish, apply or retry. Both section31 receipt AND its exact
+  ordinary action must already have matching recorded approval timestamps.
+
+IDs, context and input rules are section31's closed duplicate/null/type/trailing
+checks and65536-byte bound. Unknown network/project/access is404; wrong exact
+context/review or changed live terms409review_changed; elapsed fixed signing
+window409review_expired; unapproved/advanced-only consent, corrupt state,
+unavailable key or timeout409access_signing_unavailable; malformed400invalid.
+No raw errors, private paths, input, signatures, templates or encoded payloads
+are returned. Owner Unix API only, never scoped adapter or peer/bootstrap API.
+
+CLI is `peerspan onboarding access {signing,sign} --stdin`, identical private
+input/output, no argv payload/key/provider override or daemon initialization.
+Read request bound5s; sign request95s and daemon attempt90s, monotonic. Any late
+signer result must pass fresh live/clock/budget guards before persistence; a
+timeout cannot retract already completed IO or a commit whose response was lost.
+Recovery is explicit read-only `signing`, with no transparent retry.
+
+Every successful operation returns200, exactly the section31 outer response
+plus `signing`. The original `access` object/review/digest remain unchanged.
+`signing` is null until BOTH exact guided and ordinary approvals exist; advanced
+ordinary approval alone cannot become guided consent. Otherwise it is exactly:
+
+`{state:"unsigned"|"signed",action_id,intent_id,statement_id,
+signature_count:0|1,required_signatures:1,policy_application:"not_verified",
+peer_delivery:"not_verified",connection_readiness:"not_verified"}`.
+
+The single policy slot is issuer, fixed format/key/message derived by the
+ordinary typed template, never caller supplied. Validate the complete frozen
+ordinary action and every retained signature; completed must exactly match its
+typed pending-slot state. Counts/state describe retained cryptographically
+verified signatures, not current authority, grant enforcement, publication,
+delivery or readiness. A corrupt action/reference refuses instead of a marker.
+The complete public response remains at most1MiB and public-safe; refuse unsafe
+or oversize output before signing/persisting. Section31's old operations/shapes
+and nonsigning receipt bytes remain unchanged.
+
+### Fresh signing, durable boundary and history
+
+Fresh work requires exact latest receipt, approved immutable project/agent/
+network/person/review/action/template/provider pins, attached current project,
+unchanged section30 membership/policy inspection and ordinary scope1/retained
+maximum/edit/root/parent/lease/quota guards. Use one captured raw/guarded clock
+pair in each coherent transaction; raw before creation refuses unavailable.
+New signatures must precede BOTH fixed review/action expiry and proposed policy
+end. Never refresh/reapply, renew authority or choose a different provider.
+
+For the selected owned device, rederive the exact available owned raw seed under
+the held current-authority transaction and sign only its pinned issuer slot.
+Missing/corrupt selected device cannot fall back to person/root/another device.
+For a selected original, use the daemon's configured agent with that EXACT key,
+then its configured private owner key file only if it matches. No sole-identity
+discovery or caller path. A configured owner file must be regular, process-owned,
+private (no group/other permission), unencrypted OpenSSH Ed25519, at most16KiB;
+open without following a final symlink or blocking on a FIFO. Missing, malformed
+or wrong-key file cannot produce another identity. The matching configured agent
+is tried first under the ordinary daemon preference, not an inferred authority.
+
+Check fresh consent/project/authority before external lookup, after lookup and
+before the actual SSH signature, and again after IO before accepting it. Release
+the SQLite connection/transaction during external key/agent IO. Verify returned
+signature against the exact frozen slot. No extra possession signature or root
+fallback. Overlapping explicit calls may request the same immutable message;
+they must never create another payload/generation or conflicting stored slot.
+
+Atomically save only that ordinary intent's single signature/completed flag and
+the ordinary monotonic clock guard. Preserve both approvals/timestamps, every
+template/review/provider and all unrelated rows, policy maxima/edits/outbox/
+events/files. Late SQLite failure rolls back the entire signature/clock write.
+No ordinary signed-submission path that automatically applies the policy is
+used. Existing terminal signed history may be observed without fresh work.
+
+Already fully signed, exactly approved replay is pure even after review expiry,
+policy/provider/root/membership changes, detach/project or consent replacement,
+restart and missing/broken signer. It requires valid retained receipt/action/
+signature bytes and raw time not before creation, but no current authority or
+key probe. An unsigned superseded/changed/expired record cannot sign. Read-only
+observation of an unapproved/unsigned record never makes it live or approved.
+
+### Verification
+
+A separate contract-only author supplies six compact real-binary cases, with
+all26 old suites/harness/helpers unchanged and no fabricated authority/keys:
+
+1. Genuine two people/two hosts and attached project: exact prepare/approve,
+   null/unsigned read states, selected scope1 owned-device issuer signature
+   verifies over the actual frozen policy message, one exact slot/completed
+   write plus clock, no policy/edit/maximum/outbox/event/receipt changes and
+   API/private-CLI parity. Membership still differs from agent access.
+2. Genuine configured original file and real multi-identity ssh-agent: exact
+   selected public key/SSHSIG message only, no extra probe signature; no daemon
+   key import, root/provider fallback or wrong-key choice. Missing/broken/wrong
+   signer fails with unchanged state. Use supported key/agent configuration,
+   never edit device seeds or authority rows for a passing prerequisite.
+3. Exact guided AND ordinary approval, latest/context/person/project/review/
+   provider/policy pins, elapsed fixed signing window, raw rollback and genuine
+   detach/provider/head changes refuse before signatures. Advanced-only approval
+   never supplies guided consent. Slow/faulting agent permits genuine state
+   change during external IO; no acceptance under changed terms.
+4. Schema-only late signature UPDATE/clock fault rolls back both while preserving
+   all prior bytes; signer returns wrong role/key/message/format/signature refuse.
+   Existing true typed signing/application barriers remain unchanged. Mark any
+   unconstructible complex fork/member/lease/quota/overflow prerequisite honestly.
+5. Read-only and fully signed API/CLI retry/history after expiry/changes/detach/
+   replacement/restart/absent signer: whole schemas/DB/state/home, all original
+   TCP and every enabled UDP counter pure after genuinely observed request/
+   invitation/transport retirement and startup work. No added wait/timeouts,
+   counter filtering/reset or unchanged retries to obtain a pass. Failure-only
+   diagnostics use already captured public categories, preserving comparisons.
+6. Closed64KiB/duplicate/null/type/trailing/decision corpus, argv redaction with
+   interleaved flags, missing daemon/method/router isolation, no public private
+   material; genuine metadata/action/reference corruption refuses. Offline
+   negative fault may alter only an already genuine local receipt/signature
+   record and restore exact bytes; never invent valid authority/template/seed.
+
+Selected: signing and read-only recovery as the next small boundary, using the
+existing immutable ordinary action and exact daemon-selected signer. Discarded:
+combining signatures with policy application/delivery, an extra receipt/table,
+signature material through public output/argv, new consent/provider fallback,
+hidden payload refresh and claiming access/readiness from signature storage.
+
+## 33. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

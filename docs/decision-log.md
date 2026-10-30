@@ -3092,3 +3092,20 @@ signing requires an available signer and is a different prerequisite. This does
 not add a guided signer override or possession probe. Preserve all consent
 assertions and retain the initial parser/clock/fixture failures; discard accepting
 an assumed successful setup or weakening history, rollback and traffic checks.
+
+### GU.impl32 — Separate exact policy signing from local application
+
+After merged77, select a small signature-storage slice with explicit private
+signing decision and pure signature recovery. Reuse the approved immutable
+ordinary action's single issuer slot; the exact human receipt stays nonsigning
+and unchanged. Current project/latest receipt, policy/provider/scope1/root/
+parent/edit/time/budget guards surround actual local or external signing.
+Selected device cannot fall back; original uses exact daemon-configured agent
+then a safe matching configured owner file, never global key discovery or argv.
+Record only signature/completed and clock atomically, with no policy/outbox/event
+write. Pure fully signed history claims recorded signatures only. Document the
+90s server/95s CLI and unknown-outcome/read-only recovery boundary.
+Discard a new signing protocol/table/receipt, implicit approval, broad key
+fallback, copied/refreshed policy, and combining signatures with application,
+peer delivery or native readiness. Independent section32 conformance precedes
+runtime execution; full acceptance and PR35 remain open.

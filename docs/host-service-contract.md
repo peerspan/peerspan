@@ -344,3 +344,10 @@ action, with a separate human receipt; no key probe, signing/publication or
 readiness claim. Fixed first profile and ordinary owner-wide agent-name scope
 are explicit. Schema27 SQL stays unchanged; strict nonsigning private intent
 metadata and ordinary action approval commit atomically.
+### Exact project policy signature continuation
+
+Guided session contract section32 adds owner-local private-stdin `access signing`
+observation and explicit `access sign`, under the exact section31 dual approval.
+Only the existing policy action issuer slot is signed; its receipt stays
+nonsigning. No policy application, publication, new consent or readiness follows.
+Both owner routes remain absent from peer/bootstrap and adapter routers.
