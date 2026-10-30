@@ -36,6 +36,7 @@ pub mod onboarding;
 pub mod onboarding_adapter;
 pub mod onboarding_admission;
 pub mod onboarding_admission_consent;
+mod onboarding_incoming;
 pub mod onboarding_invitation;
 pub mod onboarding_join;
 pub mod peer;

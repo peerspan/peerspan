@@ -46,9 +46,11 @@ pub(crate) use ceremony_admin::{consent_in, consent_live, consent_proposal};
 pub use codec::{Error, Result, decision_clock};
 pub use controls::local_decision_time;
 pub use migration::{migration_inherited_bans, migration_person_labels};
+pub(crate) use observer::incoming_prefix;
 pub use peer::state_worker;
 pub use probe::{MAX_PROBE_LINE, probe};
 pub(crate) use requests::views_in as request_views_in;
+pub(crate) use requests_io::{IncomingPlan, fetch_incoming, incoming_plan, incoming_role};
 pub use statement::{Descriptor, SignatureEntry, Statement};
 
 pub use state::{CurrentMember, Maximum, Prior, Projection, Stream};

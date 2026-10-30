@@ -22,6 +22,97 @@ struct Plan {
     outbound: Vec<Value>,
     terminal: bool,
 }
+
+/// Opaque immutable private GET plan, prepared under the guided caller's
+/// preflight snapshot. This path never acknowledges, publishes or learns contacts.
+pub(crate) struct IncomingPlan(Plan);
+pub(crate) fn incoming_plan(
+    c: &rusqlite::Connection,
+    p: &requests::Pending,
+) -> Result<IncomingPlan> {
+    let secret = p.secret.ok_or_else(|| Error::new("recovery_required"))?;
+    require(
+        !p.record.carrier_endpoints.is_empty() && p.record.carrier_endpoints.len() <= 8,
+        "recovery_required",
+    )?;
+    // Check existing frames without doing cleanup or changing poll metadata.
+    require(
+        requests::frames(c, p)?
+            .iter()
+            .all(|f| incoming_role(&f.role)),
+        "state_conflict",
+    )?;
+    Ok(IncomingPlan(Plan {
+        id: p.id.clone(),
+        locator: bootstrap::locator(&secret),
+        created_at: text(&p.packet()?.payload, "created_at")?.into(),
+        expires_at: p.deadline.clone(),
+        cap: bootstrap::read_cap(&secret),
+        endpoints: p.record.carrier_endpoints.clone(),
+        frames: Vec::new(),
+        outbound: Vec::new(),
+        terminal: false,
+    }))
+}
+pub(crate) fn incoming_role(role: &str) -> bool {
+    matches!(role, "request" | "owner" | "selection" | "proofs")
+}
+pub(crate) async fn fetch_incoming(store: Arc<Store>, plan: IncomingPlan) -> Result<Vec<Frame>> {
+    let plan = Arc::new(plan.0);
+    let mut tasks = tokio::task::JoinSet::new();
+    for endpoint in plan.endpoints.clone() {
+        let store = store.clone();
+        let plan = plan.clone();
+        tasks.spawn(async move {
+            let response = bootstrap_io::exchange(
+                store,
+                &endpoint,
+                Method::GET,
+                format!("/bootstrap/v1/mailboxes/{}", plan.locator),
+                &plan.cap,
+                Vec::new(),
+            )
+            .await?;
+            let raw = bootstrap_io::success(response)?;
+            let now = controls::local_decision_time()?;
+            let frames = received(&raw, &plan, &now)?;
+            require(
+                frames.iter().all(|f| incoming_role(&f.role)),
+                "state_conflict",
+            )?;
+            Ok::<_, Error>(frames)
+        });
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut frames = BTreeMap::new();
+    let mut success = false;
+    while let Ok(Some(result)) = tokio::time::timeout_at(deadline, tasks.join_next()).await {
+        if let Ok(Ok(incoming)) = result {
+            success = true;
+            for frame in incoming {
+                let tuple = (
+                    frame.role.clone(),
+                    frame.writer_host_public_key.clone(),
+                    frame.frame_id.clone(),
+                );
+                if let Some(old) = frames.get(&tuple) {
+                    let old: &Frame = old;
+                    require(old.body == frame.body, "operation_conflict")?;
+                } else {
+                    frames.insert(tuple, frame);
+                }
+            }
+            require(
+                frames.len() <= 64
+                    && frames.values().map(|f| f.ciphertext.len()).sum::<usize>() <= 32 << 20,
+                "quota_exceeded",
+            )?;
+        }
+    }
+    // Dropping JoinSet aborts outstanding GETs. No task can retain local state.
+    require(success, "recovery_required")?;
+    Ok(frames.into_values().collect())
+}
 fn plan(store: &Store, id: &str) -> Result<Option<Plan>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(|_| Error::new("internal"))?;

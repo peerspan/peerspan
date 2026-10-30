@@ -356,3 +356,9 @@ approve commands for one exact retained incoming new-original request. The
 review pins the current owned network root and ordinary person/host drafts.
 Approval authorizes background administrator signing/publication, not requester
 finalization/commit or agent access. Native administrator controls follow later.
+
+Incoming proof progress (section22) adds one explicit private-stdin action to
+fetch missing original-owner/requester-selection evidence for an already returned
+request. It does not prepare or approve administrator work. Native controls
+will call this action explicitly before sections20/21's inspection and consent;
+ordinary broad link resume is not used as a guided observation.
