@@ -26,10 +26,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum ConversationCommand {
-    /// Start a conversation with one agent, PERSON/AGENT or HOST_ID/AGENT
+    /// Start a conversation with agents, each PERSON/AGENT or HOST_ID/AGENT
     Start {
-        #[arg(value_name = "TARGET")]
-        target: String,
+        #[arg(value_name = "TARGET", required = true, num_args = 1..)]
+        targets: Vec<String>,
         #[arg(long, value_name = "TEXT")]
         title: Option<String>,
         /// Send this as the first message
@@ -38,8 +38,51 @@ pub enum ConversationCommand {
         /// The first message's ID (cmsg_ and 32 hex digits)
         #[arg(long, value_name = "ID", requires = "message")]
         message_id: Option<String>,
+        /// A note the new participants see with their invite
+        #[arg(long, value_name = "TEXT")]
+        note: Option<String>,
+        /// Start as this local agent (name or ID) instead of this host's person
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
+    },
+    /// Add an agent to a conversation you created
+    Add {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TARGET")]
+        target: String,
+        /// Act as this local agent (name or ID), the conversation's creator
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Remove a participant from a conversation you created
+    Remove {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// A participant ID or label
+        #[arg(value_name = "PARTICIPANT")]
+        participant: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Close a conversation you created; it stays readable
+    Close {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Leave a conversation, or take a local agent out of it
+    Leave {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// The local agent (name or ID) to take out
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
     },
     /// Send a message as this host's person
     Say {
