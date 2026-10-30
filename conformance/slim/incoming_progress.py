@@ -146,6 +146,12 @@ def public(value, *secrets):
 def snapshot(h):
     return records(h), private_files(h.state), private_files(h.home)
 
+def snapshot_changes(before, after):
+    # Only schema/table and relative file names; never dump rows, keys or codes.
+    labels = ("tables", "state_paths", "home_paths")
+    return {label: sorted(name for name in set(old) | set(new) if old.get(name) != new.get(name))
+            for label, old, new in zip(labels, before, after)}
+
 def packet_message(packet):
     # Wire9.2: semantic packet message excludes every signature.
     fields = ["peerspan-decentralized-packet-v1", packet["context_id"], packet["request_id"], packet["role"],
@@ -261,13 +267,13 @@ def host(name, *, barrier=False):
     return h.start()
 
 
-def pair(name, *, barrier=False):
+def pair(name, *, barrier=False, invitation_seconds=3600):
     a, b = host(name + "a", barrier=barrier), host(name + "b")
     net = create_network(a, 'Incoming "é東京" ' + name, "inviter")
     parent, remote_parent = project(a, name + "a"), project(b, name + "b")
     key = ssh_key(suite.work, name + "-original"); person = ssh_public_base64(key); member = 'Original "é東京" ' + name
     status, issued = a.api("POST", "/v2/networks/" + net["id"] + "/invitations", {
-        "member": member, "expected_person_public_key": person, "expires_at": rfc3339(a.now() + timedelta(hours=1))})
+        "member": member, "expected_person_public_key": person, "expires_at": rfc3339(a.now() + timedelta(seconds=invitation_seconds))})
     check(status == 201, "genuine automatic invitation fixture")
     status, request = b.api("POST", "/v2/link/requests", {"mode": "new", "network_id": net["id"], "person_public_key": person,
         "migration_proposal_id": "-", "contact_invitation": issued["invitation"], "helpers": []})
@@ -278,7 +284,25 @@ def pair(name, *, barrier=False):
     incoming = wait_for(returned, timeout=15, interval=.1, message="automatic request return without administrator import/resume")
     check(incoming["role"] == "approver" and incoming["owner_offer_id"] == incoming["selection_id"] == "-", "automatic prefix fixture already advanced")
     return dict(a=a, b=b, parent=parent, remote_parent=remote_parent, key=key, person=person,
-                member=member, network=net, rid=rid, code=issued["invitation"], reply=request["display_code"])
+                member=member, network=net, rid=rid, code=issued["invitation"], reply=request["display_code"],
+                invitation_id=issued["invitation_id"], invitation_expires_at=issued["expires_at"], invitation_seconds=invitation_seconds)
+
+
+def retire_invitation_return(f):
+    # The request has already returned automatically and the genuine remote
+    # owner/selection is published. Its3600s window is independent of the
+    # shorter invitation return window. Retire that unrelated2s poller before
+    # attributing carrier counts to any measured progress/read/refusal.
+    a, b = f["a"], f["b"]
+    target = max(parse_time(f["invitation_expires_at"]) + timedelta(seconds=1), a.now(), b.now())
+    check(target < parse_time(link_view(a, f["rid"])["expires_at"]), "invitation isolation consumed the live request window")
+    for h in (a, b):
+        advance_to(h, target)
+    def retired():
+        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
+            row = db.execute("SELECT secret FROM dec_pending WHERE request_id=?", (f["invitation_id"],)).fetchone()
+        return row is None or row[0] is None
+    wait_for(retired, timeout=5, interval=.1, message="expired invitation return-row retirement before carrier accounting")
 
 
 def sign_remote(f, *, scopes=7, short=False):
@@ -302,7 +326,10 @@ def sign_remote(f, *, scopes=7, short=False):
         return None
     wait_for(published, timeout=15, interval=.1, message="genuine remote owner/selection published to retained inviter carrier")
     f["remote"] = remote
-    b.stop(); settled(f["a"])
+    b.stop()
+    if f["invitation_seconds"] < 3600:
+        retire_invitation_return(f)
+    settled(f["a"])
     before = link_view(f["a"], f["rid"])
     check(before["owner_offer_id"] == before["selection_id"] == "-", "administrator acquired proof before explicit progress action")
 
@@ -351,7 +378,7 @@ def current():
     if not main_fixture:
         main_fixture["initializing"] = True
         try:
-            f = prepared_pair("main"); sign_remote(f)
+            f = prepared_pair("main", invitation_seconds=65); sign_remote(f)
         except Exception:
             main_fixture["failed"] = True; raise
         main_fixture.clear(); main_fixture.update(f)
@@ -370,8 +397,10 @@ def counts(f):
 def pure(f, *, status=200, code=None, override=None):
     settled(f["a"]); quiet_counts(f); before = snapshot(f["a"]); network = counts(f)
     value = progress(f, status=status, code=code, override=override)
-    check(snapshot(f["a"]) == before, "cached/refused progress changed logical tables/schema/private files")
-    check(counts(f) == network, "cached/refused progress attempted carrier IO")
+    after, traffic = snapshot(f["a"]), counts(f)
+    check(after == before, f"cached/refused progress changed logical tables/schema/private files: {snapshot_changes(before, after)}; relay_changed={traffic != network}")
+    delta = tuple(tuple(new[i] - old[i] for i in range(2)) for old, new in zip(network, traffic))
+    check(traffic == network, f"cached/refused progress attempted carrier IO; connection/byte deltas={delta}")
     return value
 
 
@@ -492,7 +521,10 @@ def _():
         result = a.cli("onboarding", "admission", "progress", "--stdin", input=invalid.decode(), timeout=8)
         check(not result.ok, f"CLI accepted malformed/duplicate/trailing/oversized input variant{index}")
         public(result.stdout + result.stderr, "PRIVATE_INPUT", str(a.state))
-    check(snapshot(a) == before and counts(f) == network, "cached/invalid private CLI/API initialized state, performed IO or wrote records")
+    after, traffic = snapshot(a), counts(f)
+    check(after == before, f"cached/invalid private CLI/API changed logical DB/private files: {snapshot_changes(before, after)}; relay_changed={traffic != network}")
+    delta = tuple(tuple(new[i] - old[i] for i in range(2)) for old, new in zip(network, traffic))
+    check(traffic == network, f"cached/invalid private CLI/API performed carrier IO; connection/byte deltas={delta}")
     for method in ("GET", "PUT", "DELETE"):
         actual, denied = a.api(method, BASE)
         check(actual == 405, f"alternate method {method}: HTTP {actual}"); public(denied)
@@ -545,7 +577,7 @@ def _():
 @suite.case("unsupported_signed_terms_rollback_and_offline_budget_no_false_progress", "guided22 verification4")
 def _():
     for name, options in (("profile", {"scopes": 1}), ("short", {"short": True})):
-        f = prepared_pair(name); sign_remote(f, **options)
+        f = prepared_pair(name, invitation_seconds=65); sign_remote(f, **options)
         before = snapshot(f["a"])
         progress(f, status=409, code="incoming_progress_unavailable")
         check(snapshot(f["a"]) == before, "failed signed-term verification partially retained frames, proofs or stage")
@@ -622,7 +654,7 @@ def barrier_attempt(f, mode):
 def _():
     deadline = None
     for mode in ("context", "cancel", "deadline"):
-        f = prepared_pair("race" + mode, barrier=True); sign_remote(f)
+        f = prepared_pair("race" + mode, barrier=True, invitation_seconds=65); sign_remote(f)
         barrier_attempt(f, mode)
         if mode == "deadline":
             deadline = f
@@ -680,8 +712,14 @@ def _():
     # cleanup BEFORE the strict no-IO/whole-state historical purity baseline.
     # Live cached and live post-intent refusal were already measured above;
     # immediate post-application traffic attribution is not claimed here.
-    b.stop(); modes(f, "drop")
+    modes(f, "pass")
     advance_to(a, parse_time(f["initial"]["expires_at"]) + timedelta(seconds=1))
+    # Retirement is ordinary explicit work, not a promise about a periodic
+    # cleanup interval. Both real participants/carriers remain available for
+    # this one documented terminal-publication/cleanup pass.
+    actual, terminal = a.api("POST", "/v2/link/requests/" + rid + "/resume", {}, timeout=35)
+    check(actual == 200 and terminal.get("state") == "linked", f"ordinary deadline-retirement driver HTTP {actual}, linked={terminal.get('state') == 'linked'}")
+    public(terminal, f["code"], f["reply"])
     def terminal_transport_retired():
         with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
             row = db.execute("SELECT record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
@@ -692,7 +730,7 @@ def _():
         return record["terminal"] == "applied" and not record["outbound_frames"] and row[1] is None and row[2] is None and frames == 0
     wait_for(terminal_transport_retired, timeout=5, interval=.1,
              message="ordinary signed-deadline transport retirement before historical purity")
-    quiet_counts(f); settled(a)
+    b.stop(); modes(f, "drop"); quiet_counts(f); settled(a)
     pure(f, status=409, code="incoming_progress_unavailable")
     before = snapshot(a)
     actual, historical = a.api("POST", "/v1/onboarding/admission-consent/lookup", payload(f))
