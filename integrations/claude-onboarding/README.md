@@ -9,8 +9,8 @@ Native invitation review and explicit private code reveal are available.
 Private recipient invitation inspection and explicit join-request publication
 with an existing or explicitly created local original identity are available.
 A published request also offers exact new-original owner consent, original-offer
-signing and original finalization. The inviting computer has separate incoming
-administrator review/consent. Requester final commit, sharing permissions and
+signing, original finalization and separate requester consent/completion.
+The inviting computer has separate incoming administrator review/consent. Sharing permissions and
 live model acceptance remain later work. Owner actions stay in the human pane;
 no model setup tool is added.
 
@@ -311,6 +311,32 @@ The native process has a95s bound, separate from the backend's90s asynchronous
 deadline; timeout is not proof that no work committed. Installed, physical-machine
 and actual-model acceptance remain open.
 
+## Review and complete requester consent
+
+On the joining computer, once **Original finalization: recorded** is visible,
+press **Review requester commit**. It first recovers any existing consent. If
+none exists and the request is eligible, this explicit action prepares the
+review. Check the exact person, machine, network, original/administrator proofs,
+finite powers, requester host/device and expiry before **Approve requester
+commit**. This approval authorizes ordinary signing, publication and local
+application; it does not grant agent access or prove a connection is ready.
+
+**Complete requester commit** is a separate action over that approved consent.
+It uses the owned host/device keys, without choosing or importing an original
+key. **Local application: recorded** reports this computer's retained result.
+Participant delivery, agent access, connection readiness and model receipt
+remain unverified. Files, conversation sharing and capability calls remain
+separate permissions. Historical consent or application is not current powers.
+
+**Check requester consent** only reads public evidence. It never prepares,
+approves, completes or retries. An uncertain or timed-out action may already
+have recorded consent or partial work: use Check before deciding on another
+explicit attempt. **Leave requester review**, available while work is pending,
+clears the local owner/finalization/requester panes and returns to the published
+outcome. Navigation and reload discard callback authority; they cannot retract
+already dispatched work or revoke durable consent. Completion has a 95-second
+native process bound and the backend's separate 90-second attempt bound.
+
 ## Review and connect the adapter
 
 After attachment, press **Review adapter connection**. Review the full project,
@@ -432,8 +458,8 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite now includes292 cases:20 original-finalization
-cases,20 incoming administrator cases and the original252 project/adapter/
+The independent native suite includes312 cases:20 requester consent/completion
+cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
 message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
