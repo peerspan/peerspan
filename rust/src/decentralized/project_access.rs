@@ -51,7 +51,8 @@ pub(crate) fn inspect(c: &Connection, store: &Store, network: &str, person: &str
             .and_then(|ids| ids.iter().min())
             .ok_or_else(|| Error::missing(&statement.id))?;
         json!({"statement_id":statement.id,"proof_id":proof,"body":body,
-            "enforced_content":enforced,"valid_until":valid_until})
+            "enforced_content":{"rules":enforced.rules,"capability_rules":enforced.capability_rules,
+                "trusted_hosts":enforced.trusted_hosts},"valid_until":valid_until})
     } else {
         Value::Null
     };
