@@ -5337,7 +5337,8 @@ the clock or repair evidence. Legacy networks are refused. Validate the latest
 attached project and original agent terms at the observed time. Replaced,
 detached or changed projects return 409 `review_changed`; malformed inputs
 return 400 `invalid`; an absent network returns 404 `not_found`. Other unavailable
-authority, unsafe public values and excessive output return 409
+authority (including an unknown selected person), unsafe public values and
+excessive output return 409
 `access_inspection_unavailable`, without partial terms.
 
 The local host must have a current verified person binding matching its stored
@@ -5370,7 +5371,9 @@ review_id,review,next_action:"review_agent_access"}`. The closed review contains
 - `participant:{person_public_key,member,person_lease_id,not_after,hosts}`;
 - `policy:null`, or exactly `{statement_id,proof_id,body,enforced_content,
   valid_until}`. `body` is the verified PolicyBody inside the signed statement;
-  `enforced_content` is ordinary Content after pending local withdrawals;
+  `enforced_content` is exactly `{rules,capability_rules,trusted_hosts}`, the
+  ordinary Content after pending local withdrawals (empty collections remain
+  present);
   `valid_until` is its effective ancestry bound. `proof_id` is the first
   lexicographically sorted retained proof for the statement;
 - `effects` with `inspect_current_membership:true`, `inspect_current_policy:true`,
