@@ -20,6 +20,11 @@ pub struct OnboardingArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum OnboardingCommand {
+    /// Inspect current project-bound membership and policy before an access grant
+    Access {
+        #[command(subcommand)]
+        command: AccessCommand,
+    },
     /// Inspect retained incoming admission evidence before administrator consent
     Admission {
         #[command(subcommand)]
@@ -44,6 +49,14 @@ pub enum OnboardingCommand {
     Invitation {
         #[command(subcommand)]
         command: InvitationCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum AccessCommand {
+    /// Read current public access terms without granting or signing
+    Inspect {
+        #[arg(long, required = true)]
+        stdin: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -281,6 +294,12 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Access { .. }),
+    }) = command
+    {
+        return access_inspection(socket).await.map(Some);
+    }
+    if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Admission { command }),
     }) = command
     {
@@ -352,6 +371,26 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+async fn access_inspection(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid project access inspection input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input = peerspan_host::onboarding_access::decode_input(&bytes).map_err(|_| invalid())?;
+    let payload = serde_json::json!({"context":input.context,"network_id":input.network_id,
+        "person_public_key":input.person_public_key});
+    let unavailable = || anyhow::anyhow!("project access inspection unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post("/v1/onboarding/access-inspection".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
 }
 async fn admission_inspection(socket: &Path) -> Result<Value> {
     let invalid = || anyhow::anyhow!("invalid administrator admission inspection input");

@@ -99,6 +99,10 @@ async fn main() {
         .unwrap_or_else(|e| {
             // Clap may echo rejected arguments before private stdin validation.
             // This selects only error redaction; typed parsing still owns dispatch.
+            if e.use_stderr() && raw.windows(2).any(|path| path == ["onboarding", "access"]) {
+                eprintln!("error: invalid project access inspection arguments");
+                std::process::exit(e.exit_code());
+            }
             if e.use_stderr()
                 && raw
                     .windows(3)
