@@ -439,16 +439,20 @@ It returns verified local application without implying peer delivery or agent
 readiness, and recovers an applied operation purely. Native commit controls
 follow separately so both changes stay independently reviewable.
 
-Independent completion6/6 passes in125s on frozen production `baf62ba`, including
+Independent corrected completion6/6 passes in152s on frozen production `baf62ba`, including
 genuine post-review-window completion, late application SQL rollback, an actual
 application-barrier parent detach and pure API/CLI expiry/detach/restart history.
 Existing consent6/6in132s, delivery16/16in70s, native292/292in41.44s and all Rust
 gates pass. The local completion/consent durations exceed the two-minute target.
 The [verification record](results/guided-requester-completion-verification.json)
-retains both earlier new-suite CI failures, the unclassified terminal quiescence
-failure and old inspection contact-state change, initial native timeout/load
-evidence, independent fixture/diagnostic provenance and exact limits. A passing
-retained diagnostic run does not classify the earlier CI failure. PR69 records
+retains all earlier new-suite CI failures, the prior unclassified terminal
+quiescence failure and old inspection contact-state change, initial native
+timeout/load evidence, independent provenance and exact limits. Diagnostic CI
+then identified an actual proof retry eight seconds ahead of a five-second
+fixture wait. GU.impl28g makes recorded retry eligibility current with one bounded
+shared debug-clock step before the unchanged strict retirement/purity checks.
+The first corrected full run passes; external compilation overlap and its local
+duration remain recorded. The earlier missing-category failure stays unclassified. PR69 records
 fresh final-head all24 CI and review after the evidence commit. Native controls,
 access/readiness, device flow and installed/physical/model/upgrade acceptance
 remain open.
