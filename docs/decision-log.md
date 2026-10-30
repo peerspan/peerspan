@@ -3181,3 +3181,19 @@ signature/payload/current-enforcement/evidence assertions and every action,
 wait, capture and carrier comparison. Discard changing ordinary admission
 semantics or accepting a provenance label as proof. Retain the first failure
 and its dependent cases; no production change or unchanged retry is justified.
+
+### GU.impl33b — Establish the new history generation and live hints explicitly
+
+After the provenance correction, cases1–4 pass on unchangeda8ccff3; history's
+startup prerequisite and following retirement wait fail. Exact retained metadata
+shows a return outbox for case5's newly created policy, attempts2 with a retry
+17s after the history target, and both remote signed hints already expired;
+standalone authority deadlines remain valid. These identify unmet setup, not
+the directory caller's exact failure or the causes of PR79's old observations.
+Select actual latest-generation retirement before restarts plus genuine current
+signed contact handoffs and their documented expiry/ordinary maintenance before
+the unchanged strict history baselines. Any retry alignment uses its real
+recorded time within current hint/authority bounds, not a larger timeout or
+forcedACK. Discard assuming prior quiescence settles new writes, treating
+refresh as a global fence, queue/authority edits and traffic filtering. Preserve
+both first logs, dependent cases, all old suites and frozen production.
