@@ -494,3 +494,189 @@ The C1 suite gains C2 cases, written from this section by the same spec-only aut
 - **Roster route edges** (probe): a push from bob (not home) is 403 `forbidden`; a push from alice with a version at or below bob's held one answers 200 with the held version; a push from alice with a higher version that lists a bob agent never admitted (any agent registered on bob) as `joined` is 400 `invalid` and bob's version does not change; `GET .../roster` from carol after `cara` was removed answers 200 with the roster; a leave from bob naming carol's agent is 403 `forbidden`.
 
 **Node adapter** (`node --test` in `integrations/shared`, as in C1): the `conversation_roster` event's `meta` and content for `added` (with and without a note), `removed` and `closed`; `forwarded` after it; input validation of `conversation_start`, `conversation_manage` (`participant` required and not allowed) and `list_conversations`; the generated `message_id` of `conversation_start`; and the `not_creator`, `closed` and `full` tool errors.
+
+## C3: people
+
+C3 lets a person be invited to a conversation, join it on one host bound to them, decline it, and take part from that host. Everything in C1 and C2 stays as written unless this section changes it. Not in C3: the 10-minute conversation sync, `heads`, `acks`, gap fetches and the 24-hour push window (C4); seen, redelivery, `pending_work`, `conversation_history` and `conversation_undelivered` (C5); rate limits, `addressed_to` from local surfaces, the read cursor and unread counts, the event log, `forget`, and `home_unavailable` (C6). CONV-24 still holds: none of the commands below are listed in the root help, the README or the quick start.
+
+**Words.** A host is *bound* to a person when it holds a current binding grant for that person in a coordinator-free network (spec section 5; `GET /v2/networks/{id}/members`, field `person_id`). A person ID is `person_` and 64 lowercase hex digits. The *person participant* of a host is C1's `person:HOST_ID/PERSON_ID`. An invited person who has not joined has no participant ID; surfaces that need to name one use `person:PERSON_ID` (no `/`, as the policy principal).
+
+### Roster changes
+
+**Shape.** The roster is C2's, with these additions:
+- `participants[].state` may be `invited`. A person entry is either joined, with `id` `person:HOST_ID/PERSON_ID`, `host_id` and `person_id` set; or not yet joined, with `id` null, `host_id` null, `person_id` set, `agent_id` and `name` null, and `state` `inviting` (no bound host has answered `invited` yet) or `invited` (at least one has).
+- At most one person entry per `person_id`, joined or not. A person who joins keeps the entry's `added_by` and `added_at`.
+- A person who never joined is dropped from `participants` without a `departed` entry, as C2 drops a refused invite: when every bound host refused the invite, when no bound host answered within 10 minutes, when the person declines, when the creator removes them, and when the invite expires. A person who joined and then leaves or is removed gets a `departed` entry as an agent does.
+- C1's invite rule that a roster listing any `person:RECEIVER/…` participant is 400 becomes: an invite's roster (agent or person target) may list the receiver's person participant as `joined` only when it is joined here, and may list any person not yet joined. A roster push follows the admission rule below.
+
+**Admission (C2's rule, extended).** A host admits its own person participant when:
+- it is home and creates the conversation with that person as creator (C1); or
+- the person runs `conversation join` here and home confirms it: a 200 answer to `POST /peer/v1/conversations/{id}/join` from this host, or, on home, the local join committing.
+
+While this host has an *outstanding join* for the conversation (it sent a join that got no final answer), a roster from home that lists this host's person participant as `joined` is also home's confirmation and admits the person. Nothing else admits a local person: an invite never does, and a roster listing a person on this host as `joined` without an admission or an outstanding join is 400 `invalid`, as C2's roster step 5 says for agents.
+
+**Expiry.** A person entry still `inviting` or `invited` 7 days after its `added_at` (on home's clock) is dropped by home in a new version, within 15 seconds after the 7 days pass. C2's 10-minute `unanswered` rule applies to a person entry still `inviting`, dropping it without a `departed` entry. Both apply only while the conversation is open.
+
+**Pushes.** C2's push set gains every host that answered `invited` to a person invite of the conversation, until a roster pushed to that host no longer lists that person as `inviting` or `invited` (the person joined, declined, was removed, or the invite expired) or has `state` `closed`. A host in the push set for a pending invite gets every newer roster, so its pending copy shows the current title and participants.
+
+**Versions of person invites.** Person invites follow C2's [Invites with several targets](#roster-changes) with `invited` in place of `joined`: each attempt carries home's current roster with the person `invited` and the version one higher. On the first `invited` answer for a person still `inviting`, home commits the person as `invited` (exactly the offered roster when home's version is still the one below it, otherwise at one more than the higher of its current version and every offered version). Later `invited` answers from the person's other hosts change nothing.
+
+### Pending invites
+
+A host keeps one *pending invite* per `(conversation_id, person_id)` for its own bound person, with the invite's roster, `adder`, `note`, home, and `expires_at` = the person entry's `added_at` plus 7 days. A pending invite is current while it has not expired on this host's clock, not been joined or declined here, and not been dropped by a newer roster. A newer roster from home (pushed or fetched) replaces the pending invite's roster, and drops the pending invite when it no longer lists the person as `inviting` or `invited` with the same `added_at`, or when its `state` is `closed`.
+
+A conversation known to this host only through a pending invite is not a conversation this host holds: reads (`GET /v1/conversations/{id}`, `.../messages`), sending, and every peer message route treat it as unknown (404 `not_found` locally, as C1; 503 `unavailable` at message acceptance step 4, as C1 for a conversation with no roster). Only `conversations --invites`, `join`, `decline`, the roster push and the roster fetch use it.
+
+On home, an invite for a person that home itself is bound to is a pending invite held on home, created when the entry is committed, with no peer request; it counts as an `invited` answer from home.
+
+### Starting and adding people
+
+`POST /v1/conversations` (`participants`), `POST /v1/conversations/{id}/manage` `add` (`participant`), and their adapter and CLI forms accept person targets beside agent addresses: `person:PERSON_ID`, `person:LABEL`, or a bare label with no `/`. C1's 400 `person participants are not supported yet` is gone.
+
+**Resolution of a person target**, with optional `network` limiting it to one network:
+- `person:PERSON_ID` names a person admitted in a current person grant of one of home's coordinator-free networks (`GET /v2/networks/{id}/persons`, `person_id` of `person_public_key` as above); otherwise 404 `{code: "unknown", error: "No person with that ID in this host's networks."}`.
+- `person:LABEL` or a bare label is matched exactly against the `member` label of those persons. No match is 404 `{code: "unknown", error: "No person with that label in this host's networks."}`; labels of more than one distinct person are 409 `{code: "ambiguous", error: "That label matches more than one person.", matches: [PERSON_ID, …]}`. A person admitted in several networks under one label is one match.
+- The person's **bound hosts** are every host that is a current member, with a current binding grant for that person, of a coordinator-free network home belongs to (with `network`, of that network), home included. No bound host is 404 `{code: "unknown", error: "No current host is bound to that person."}`.
+- The creator's own person (the creator is that person participant) is 400 `invalid`, as C2 refuses a target resolving to the creator. Two targets resolving to the same person are 400 `invalid`.
+
+**No authorization step** for person targets: any member host that the person's host has not blocked may invite a person (decision 7). Each bound host decides for itself when the invite arrives.
+
+**Persist and invite.** The person entry is committed `inviting` (or `invited` at once when home is a bound host, with home's pending invite). Home sends the invite to every other bound host, all at once, with C1's retry schedule and C2's concurrency, sharing the start's or the add's 15-second wait. A person entry counts toward the 16-participant limit while `inviting` or `invited`.
+
+**Already present.** At `add`, a person who is already joined (from any host), `inviting` or `invited` answers 200 with the current outcome and changes nothing.
+
+**Invite outcome** for a person: `{target, participant, label, state, code, error, reachable_from, reaches, hosts}`.
+- `participant` is `person:PERSON_ID` while not joined, and the participant ID once joined. `label` is the person's member label as this host derives it.
+- `hosts` lists, in host ID order, each bound host and its answer: `{host_id, state, code}` with `state` `invited`, `inviting` (no final answer yet), `refused` or `unsupported`, and `code` as for target views (null unless `refused` or `unsupported`). Agent outcomes carry `hosts` `[]`.
+- `state` is `joined` when the person joined, else `invited` when any host answered `invited` (or home is bound), else `inviting` while any host has no final answer, else `unsupported` when every host answered 404, else `refused` with the `code` of the first refusing host in `hosts`. A person whose outcome is `refused` or `unsupported` is dropped from the roster.
+- `reachable_from` and `reaches` are C2's, and also filled for `invited`. For a person not yet joined, the pair rules use the person in place of the participant's host and person: Y is reachable from that person when Y's host is bound to the same person, or Y's owner's current policy allows `message.append` from `person:PERSON_ID`, `network`, `everyone`, or a group containing that person; the person is reachable from every participant whose host and person home has not blocked.
+
+**Answer to a person invite at home**, per host, extends C2's table: 200 `{state: "invited"}` is `invited`; 400 `refused` `invalid`; 403 `not_participant` `refused` `not_participant`; any other 403 `refused` `not_authorized`; 429 `refused` `limit`; 404 `unsupported`; anything else is retried.
+
+**Removing** (`manage` `remove`) accepts a person not yet joined by `person:PERSON_ID` or by its label (C2's label matching now includes their labels). It drops the entry (no `departed` entry) and stops the person's outstanding invites. A joined person is removed as C2 removes an agent: `departed` with `reason` `removed`, and the person's host stops treating it as joined here when it stores that roster.
+
+### Local API and CLI
+
+**Views.**
+- The participant view of a person not yet joined has `id` null, `host_id` null, `person_id`, `label` (its member label, or the person ID when this host knows no label), `state` `inviting` or `invited`, and `local` false.
+- The readable `conversation show` header marks a participant that is not joined with ` (invited)` or ` (inviting)` after its label, for example `dave (invited)`.
+- The agent summary's `participants` include persons not yet joined, as `{id: null, label, kind: "person", state, you: false}`.
+
+**Routes.**
+
+| Route | Body / query | Answer |
+| --- | --- | --- |
+| `GET /v1/conversations/invites` | | 200 `{invites: [INVITE VIEW]}`: the current pending invites on this host, newest `added_at` first. 409 `not_bound` without a bound person. |
+| `POST /v1/conversations/{id}/join` | `{}` | 200 `{conversation: VIEW}` once home confirmed. |
+| `POST /v1/conversations/{id}/decline` | `{}` | 200 `{conversation_id, state: "declined"}`. |
+
+`{id}` in the join and decline routes is a full conversation ID. Unknown fields and nulls are 400.
+
+**Invite view:** `{conversation_id, title, home_host_id, person_id, added_by, added_by_label, note, added_at, expires_at, participants: [{id, label, kind, state}]}`, from the pending invite's roster; `title` and `note` are null when absent; labels are derived here.
+
+**Joining**, in order:
+1. 409 `not_bound` without a bound person.
+2. No current pending invite here for this host's person in that conversation: 404 `{code: "not_found", error: "No pending invite to that conversation on this host."}`.
+3. This host's person participant already joined here in 200 open conversations: 429 `limit` with C2's text.
+4. On home: the local join commits as home's peer join route below would for this host. Elsewhere: this host records an outstanding join and sends `POST /peer/v1/conversations/{id}/join` to home, waiting at most 15 seconds:
+   - 200 `{roster}`: in one transaction this host admits its person participant, stores the roster, drops the pending invite and the outstanding join. Answer 200 `{conversation: VIEW}`.
+   - 404: the pending invite and the outstanding join are dropped; answer 404 `not_found` with step 2's text.
+   - 409 `closed`: dropped; answer 409 `closed` with C2's text. 409 `conflict`: dropped; answer 409 `{code: "conflict", error: "That person already takes part from another host."}`.
+   - 403: dropped; answer 403 `{code: "forbidden", error: "The home host refused the join."}`.
+   - Anything else, or no answer within 15 seconds: the pending invite and the outstanding join stay, and the answer is 503 `{code: "unavailable", error: "The home host did not answer; run conversation join again."}`. The host does not retry by itself; running `join` again sends again, and home answers a repeat as a success.
+
+The outstanding join ends with a final answer, when the pending invite stops being current, or when a roster from home admits the person.
+
+**Declining**, in order: 409 `not_bound`; 404 `not_found` as for joining; then, in one transaction, this host drops the pending invite (it is no longer current here) and records a decline for home. On home the decline commits at once (as home's leave route below). Elsewhere this host sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:PERSON_ID"}` to home with C1's retry schedule until home answers 200, 400, 403 or 404, as C2 sends a leave. Answer 200 `{conversation_id, state: "declined"}` without waiting for home. A later push of a roster that still lists the person as `invited` does not bring the pending invite back.
+
+**Leaving** (C2's `POST /v1/conversations/{id}/leave` without `agent`) now works for a person participant joined here on any host: off home it sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:HOST_ID/PERSON_ID"}` as C2 does for agents.
+
+**CLI.** Each prints the route's JSON answer and exits 0, or exits 1 with `error: CODE: TEXT` (C1).
+
+| CLI | Route |
+| --- | --- |
+| `conversations --invites [--json]` | `GET /v1/conversations/invites`. Readable: one line per invite with the ID's first 13 characters, the title in quotes if any, `from ADDED_BY_LABEL`, and `expires EXPIRES_AT`; `No pending conversation invites.` when there are none. `--json`: the route's answer. `--invites` with `--all` is a usage error (exit 2). |
+| `conversation join ID` | `POST /v1/conversations/{id}/join` |
+| `conversation decline ID` | `POST /v1/conversations/{id}/decline` |
+| `conversation start TARGET...`, `conversation add ID TARGET` | as in C2, with person targets |
+| `conversation remove ID PARTICIPANT` | as in C2, also for persons not yet joined |
+
+For `join` and `decline`, `ID` is the full ID or `conv_` and at least 6 hex digits matching exactly one current pending invite on this host (C1's prefix rule, over pending invites): none exits 1 with `not_found` and step 2's text, several with `ambiguous`.
+
+**Status.** `GET /v1/status` (and `GET /v2/status`, the same object) gains `conversations: {open, invites}`: `open` is the number of open conversations in which this host's person participant is joined here, `invites` the number of current pending invites here (both 0 without a bound person). While `invites` is above 0, `attention` has one item `{kind: "conversation_invites", subject: "N", detail: "pending conversation invites: N", command: "peerspan conversations --invites"}`, N being `invites` in decimal; its kind sorts after every existing kind. `peerspan status` therefore exits 1 while an invite is pending, as for any attention item. Unread counts come with the read cursor in C6.
+
+### Peer routes
+
+C1's and C2's rules hold: per-request host authentication, the 1 MiB body limit, strict JSON (400 `invalid`), 403 `forbidden` for a sender that is not a current member of a shared coordinator-free network, and none is served on the first-contact listener, the completion listener or a helper.
+
+#### `POST /peer/v1/conversations/invites` with a person target
+
+Body: C1's, with `target` `{kind: "person", person_id}` and no citation (any citation is 400). In order:
+1. **Shape.** C1's and C2's roster rules, with the person entry for `person_id` present, `id` null, `state` `invited`, and the roster's other entries as above. The roster may list this host's person participant as `joined` only when it is joined here. Otherwise 400 `invalid`.
+2. **Sender and adder.** C1's: the roster's `home_host_id` is the sender and `adder` is `joined` on the sender host, else 403 `forbidden`.
+3. **Bound.** This host is bound to `person_id`; otherwise 403 `forbidden`.
+4. **Block list.** The sender host, or the adder's person (an agent adder's host's person, or the person adder), blocked here: 403 `forbidden`.
+5. **Repeat.** A pending invite for `(home, conversation_id, person_id)` with the same `added_at` answers 200 `{state: "invited"}` while current, and 403 `{code: "not_participant"}` once it was joined, declined, expired or dropped here. A later `added_at` is a new invite. An invite superseded by a roster this host already holds for that conversation (pending or held, at or above the invite's version, not listing the person as `invited` with this `added_at`) is 403 `not_participant`.
+6. **Limit.** 20 current pending invites from this sender host held here already (repeats of one of them not counted): 429 `{code: "limit", error: "This host holds 20 pending conversation invites from that host."}`.
+7. **Store** the pending invite. Answer 200 `{state: "invited"}`. The host creates no notification; the person sees it with `conversations --invites` and in status.
+
+#### `POST /peer/v1/conversations/{id}/join`
+
+From a person's host to home. Body `{person_id}`. In order:
+1. Shape; 400 `invalid`.
+2. Home holds the conversation (it is its `home_host_id`); otherwise 404 `not_found`.
+3. The sender is bound to `person_id` by a current binding grant in a network both hosts share, and neither the sender host nor the person is blocked on home; otherwise 403 `forbidden`.
+4. A closed conversation is 409 `closed`.
+5. The person is already joined from the sender host: 200 `{roster}` with home's current roster (an idempotent repeat). Joined from another host: 409 `{code: "conflict", error: "That person already takes part from another host."}`.
+6. No `inviting` or `invited` entry for the person: 404 `not_found`.
+7. Home commits the entry as joined, `id` `person:SENDER/PERSON_ID`, `host_id` the sender, in a new version (C2's version rule), stops the person's outstanding invites, pushes the roster, and answers 200 `{roster}`.
+
+#### `POST /peer/v1/conversations/{id}/leave`, for people
+
+`participant` may also be:
+- `person:SENDER/PERSON_ID`, a person participant on the sender host: leave, as C2 for agents.
+- `person:PERSON_ID`, a decline: the sender must be bound to that person by a current binding grant in a network both hosts share, otherwise 403 `forbidden`. Home drops the person's `inviting` or `invited` entry in a new version and pushes it; a person not listed that way changes nothing (a joined person is not removed by a decline). Answer 200 `{roster}`.
+
+#### Roster push and fetch
+
+- `POST /peer/v1/conversations/{id}/roster`: a host whose only state for the conversation is a pending invite holds that invite's roster, so step 2 (404) does not apply; steps 3 and 4 use the pending invite's home and version; step 6 stores the roster in the pending invite, dropping it as in [Pending invites](#pending-invites). Step 5 accepts this host's person participant listed as `joined` when it is joined here or this host has an outstanding join, which the roster then admits.
+- `GET /peer/v1/conversations/{id}/roster`: home also answers a host in the push set for a pending invite.
+
+#### Messages to people
+
+C1's acceptance applies to a person target with "joined" meaning joined here under the admission rule above. Step 5 for a person target: the author's host and the author's person (for an agent author, its host's person) are not blocked here; otherwise 403 `forbidden`. There is no policy check and no citation. Messages sent before the person joined are never sent to it (decision 8): fan-out targets only participants `joined` in the author's host's roster when the message is stored.
+
+### Node adapter
+
+- **The `conversation` and `conversation_roster` events.** In the `Participants:` line, a person not yet joined reads `LABEL (person, invited)` or `LABEL (person, inviting)`. Nothing else changes.
+- **`conversation_send`** is unchanged: same input schema, call, and errors.
+- **`conversation_start`** and **`conversation_manage`** take person targets in `participants` and `participant` (same string limits). The `conversation_start` description says that participants are agent addresses as `list_agents` shows them, or people as `person:LABEL`; that each participant's owner still decides who may message it; that people receive messages only after they join on one of their hosts; and that the result reports who can reach whom.
+
+### Persistence
+
+No new schema version: pending invites live in `conversation_invites` (`expires_at` as above, the roster, adder, note, home, outstanding join and decline in `record`), declines to send in `conversation_roster_outbound`, and person entries in the conversation's `record`.
+
+### Verification
+
+The suite gains C3 cases, written from this section by the same spec-only author, still under 2 minutes in total.
+
+**Setup.** C1's alice and bob, and a fourth host `bob2` linked to bob's person with `link_machine(bob, bob2, NETWORK, BOB_PERSON_KEY, key=...)`, so bob's person is bound to bob and bob2. Inviting a person and messaging a joined person need no policy rule; `bert` cases keep C1's `allow alice --no-tasks --person-key KEY` and its sync wait. Fixture agents claim notifications as in C1 and C2. Raw peer requests use `peerspan-peer-probe` with the sending host's state directory. The expiry case uses the debug test clock and runs last (moving it 7 days outdates every grant).
+
+**Cases** (the proposal's C3 column, made concrete):
+- **Invite to every bound host.** `conversation start person:bob --title T` on alice (also with the bare label `bob`): the outcome for bob is `invited`, `participant` `person:BOB_PERSON_ID`, `hosts` listing bob and bob2 each `invited`. Within 20 seconds `conversations --invites --json` on bob and on bob2 lists it with `added_by` alice's person participant and `added_by_label` `alice`. alice's view lists the person with `id` null and `state` `invited`.
+- **Attention.** On bob, `GET /v1/status` has `conversations.invites` 1 and the `conversation_invites` attention item with subject `1` and command `peerspan conversations --invites`; `peerspan status` exits 1. After the join, `invites` is 0 and the item is gone.
+- **Join on one host.** `conversation join ID` (by prefix) on bob: the answer's view lists `person:BOB_HOST/BOB_PERSON_ID` `joined`. alice's view reaches the new version with that participant. Within 20 seconds bob2's `conversations --invites --json` no longer lists it, and `conversation join ID` on bob2 exits 1 with `not_found`. A second `join` on bob exits 1 with `not_found` (no pending invite remains).
+- **Messages to and from the person.** alice's `conversation say` gets a target for bob's person that becomes `delivered`; bob's `conversation show --json` lists it. bob's `conversation say` reaches alice (`delivered`, and alice's `show` lists it with `author_label` `bob`). A message alice sent before the join has no target for bob and is not in bob's `show`.
+- **Block.** After bob runs `block alice`, alice's next message's target for bob's person becomes `refused` with `not_authorized`; after `unblock alice` the next one is `delivered`.
+- **Decline.** A new conversation inviting `person:bob`; `conversation decline ID` on bob2: within 20 seconds alice's view no longer lists bob's person (no `departed` entry), and bob's pending copy is gone too.
+- **Remove an invited person.** `conversation remove ID bob` on alice drops the entry; bob's and bob2's pending copies disappear within 20 seconds.
+- **Peer edges** (probe):
+  - a person invite with a citation: 400 `invalid`;
+  - a person invite to bob for a person bob is not bound to (alice's person): 403 `forbidden`;
+  - `POST .../join` from bob2's state for a conversation in which bob's person joined from bob: 409 `conflict`;
+  - `POST .../join` from bob2's state for a conversation that does not list bob's person: 404 `not_found`;
+  - a roster push from alice listing `person:BOB2_HOST/BOB_PERSON_ID` as `joined`, sent to bob2 while bob2 holds a pending invite for that conversation and has sent no join: 400 `invalid`, and the pending invite stays.
+- **Limit.** alice starts conversations inviting `person:bob` until bob and bob2 each hold 20 current pending invites from alice (`conversations --invites --json`); the next start's outcome for bob is `refused` with code `limit`, both entries of `hosts` `refused` with `limit`, and alice's view of that conversation does not list bob's person. A probe person invite from alice to bob for another new conversation is 429 `limit`.
+- **Expiry** (last). With an invite pending on bob, the test clock moves 7 days and 1 second: bob's `conversations --invites --json` is empty, `conversation join ID` exits 1 with `not_found`, and within 15 seconds alice's view no longer lists the person.
+
+**Node adapter** (`node --test` in `integrations/shared`, as in C1 and C2): the `Participants:` line with a person `invited` and `inviting`, in a `conversation` and a `conversation_roster` event; `conversation_start` and `conversation_manage` accept `person:LABEL` and bare labels.
