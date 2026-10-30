@@ -2602,3 +2602,18 @@ request creation time. Materialized ordinary drafts during explicit setup are
 allowed; inspection changes none. Discarded: resurrecting the original attachment
 through approval replay/reconnect or rebinding an old published flow to a fresh
 context. Startup mutations stay outside the measured pure-inspection baseline.
+
+
+### GU.impl25 — Reuse requester progress and bound original finalization signing
+
+Selected: existing approved requester/approver worker fetches retained mailbox
+evidence and materializes its already authorized host-side work. Add one explicit
+CLI action, bound to original consent and exact section24 digest, for at most
+B/D issuer batch then F authority batch (three original signatures total).
+Record source-derived progress evidence: requests_io::approver_worker already
+polls unfinished requester operations. No duplicate proof-fetch endpoint is
+needed. Keep pure inspection/history and separate requester commit. Already
+completed F refuses Sign purely rather than claiming the caller's unverified
+finalization digest was signed. Discarded: extra fetch API, a protocol-driving
+loop, per-slot UI prompts, new consent/signature journal, original-key fallback
+and automatic final commit. This recommended adjustment follows source evidence.

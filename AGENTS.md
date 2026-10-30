@@ -74,3 +74,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `owner_finalization`: pure original finalization eligibility/administrator
   root/P/H snapshot, exact original consent and privacy (guided section24).
+
+- `owner_finalization_signing`: bounded original B/D/F signing under exact
+  original consent/verified administrator parents and key/privacy (section25).
