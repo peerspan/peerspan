@@ -3901,6 +3901,8 @@ not list, fetch, prepare or approve admissions automatically. Explicit entry
 rechecks terminal, native root/conversation, exact attached parent and host and
 reads the owner onboarding observation. Validate its host and bounded4096
 request collection, unique typed request IDs and exact public LINK_VIEW shapes.
+Sort validated rows by request ID before paging; valid unsorted input is accepted,
+while duplicate request IDs refuse the inventory as ambiguous.
 List only role approver, mode new, nonmigration requests with complete typed
 network/context/person pins; keep terminal history selectable for pure lookup.
 Requester/renewal/migration records never become admission candidates. No first
@@ -3944,6 +3946,10 @@ inspection's network/current root/member/identity/owner/selection/fixed terms.
 Existing consent is reused, never replaced. A failed/uncertain preparation is
 recovered through Check, not an automatic prepare retry. A prepared intent is
 not approval; inspection's digest never goes to approve.
+Offer Review only for a live needs_administrator snapshot with owner and
+selection IDs already present. An early live null result may offer Fetch;
+terminal or unsupported null results offer only Check and Leave. Recorded
+approval is labelled **Administrator consent: recorded**.
 
 Before offering **Approve administrator consent**, validate the exact section21
 closed response, review digest, kind/version/context/host/agent, all typed public
