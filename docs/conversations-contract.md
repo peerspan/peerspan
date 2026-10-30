@@ -973,3 +973,291 @@ Spec-only cases in `conformance/slim/conversations_context.py`, written from thi
 **Rust.** `cargo test` unit tests cover what the slim suite cannot reach: the `--hook` lead sentence, and output when only `conversations` is non-empty (no `attach` profile in the harness); the recheck's `wait` outcome (no host there lacks a current policy of the owner while still holding the message); and `stopped` followed by `delivered` or `refused` making no second notification, and none when P has already left.
 
 **Node adapter** (`node --test` in `integrations/shared`, as in C1 and C2): a catch-up claim's `meta` (`catch_up`, `redelivered`, `unseen`) and content with and without a window; `forwarded` after it; the `conversation_undelivered` event's `meta` and content for `refused`, `unsupported` and `stopped`; `conversation_history` input validation, its daemon call with `before` and `limit`, and the `not_participant` tool error; `mark_seen` accepting `conv_` and `cmsg_` IDs.
+
+## C6: rate, addressing, and the person's tools
+
+C6 finishes feature slice 1: the 60-messages-per-hour limit on both sides, `addressed_to` from local surfaces and `meta.addressed`, the `about` task link, the read cursor and unread counts, the event log and `conversation watch`, `conversation forget`, `home_unavailable`, terminal escaping, the activity kinds, and listing the commands (CONV-24). Everything in C1 to C5 stays as written unless this section changes it. No acceptance rule of an earlier section is relaxed. The manual live run (CONV-25) is recorded separately and is not part of this section's verification.
+
+**Words.** P is a local participant. *Visible to P* is the rule of C1's [Who may see what](#who-may-see-what) for a person and of C5's [What an agent may see](#the-handoff-recheck) for an agent, including the recheck. Every read path below uses it; none records anything about a recheck, as C5 says.
+
+### The rate limit
+
+An author may have at most 60 messages per conversation in any trailing hour. The limit is checked by the author's host and again by each recipient host. Both checks count stored rows, so a restart changes nothing. No counter lives in memory.
+
+**A message's time.** A message's *time* is the lesser of its `sent_at` and when this host stored it. The count for a message at time T covers the messages this host holds with the same author and conversation, and with a time above T minus 3,600 seconds and at most T.
+
+Counting by `sent_at` rather than by arrival means an honest author never trips a recipient's limit. A burst of retries or a catch-up after an outage carries the times the author's host already limited. Claiming a future `sent_at` gains nothing, since the time is then the storing time.
+
+**At the author's host.** The owner and adapter sending routes (`POST /v1/conversations/{id}/messages`, `POST /adapter/v1/conversations/{id}/messages`) check, in this order, after C1's shape check:
+1. the repeat rule (below), so a repeat is never limited and consumes nothing;
+2. closed, then joined, as today;
+3. `addressed_to` resolution (below);
+4. **rate:** 60 or more of this author's messages in the hour ending now is 429 `{code: "limit", error: "This participant reached its limit of 60 messages per hour in this conversation."}`. Nothing is stored and no `seq` is used.
+
+The CLI prints `error: limit: This participant reached its limit of 60 messages per hour in this conversation.` and exits 1. Each author is counted alone: a person and an agent on one host have separate allowances. Local deliveries (decision 18) are covered by this check and have no second one.
+
+**At a recipient host.** `POST /peer/v1/conversations/{id}/messages` gains a step between authorization and persist, after the repeat, roster, closed and authorization steps:
+- **Rate.** A message whose `message_id` this host does not yet hold, with 60 or more messages of this author in the hour ending at its time, is 429 `{code: "limit", error: "This author reached its limit of 60 messages per hour in this conversation."}`. Nothing is stored.
+- A further target of a message this host already holds passes this step and is not counted again.
+- An identical repeat returns the saved receipt at C1's step 3 and never reaches this step. Only accepted messages count: a refused attempt counts for nothing, and repeating it gets 429 again while the hour is full.
+
+The author's host records the 429 as `refused` with code `limit`, as C2's answer table says. It is final for that target, even after the hour passes. As for every `refused` target of an agent author, C5's `conversation_undelivered` event follows.
+
+**Fetched messages.** [Fetched-message acceptance](#fetched-messages) gains the same step between its authorization and persist steps. A failure is refused `limit`, resolved for T like any other final code, and its content is not stored. The `refused` codes of `POST .../acks` gain `limit`. An author host's fetch entry for an outbound record refused with `limit` is C4's `{message_id, seq, prev_seq, refused: "limit"}`.
+
+### `addressed_to`
+
+Every joined participant still receives an addressed message. The field only tells the others it is not mainly for them.
+
+**Local sending.** `POST /v1/conversations/{id}/messages` and `POST /adapter/v1/conversations/{id}/messages` gain optional `addressed_to`: an array of at most 16 strings of at most 256 characters each. Each is a participant ID or a label as this host shows it, resolved against the entries of `participants` in the held roster that have an `id` and are `joined` or `inviting`:
+- no match is 404 `{code: "not_found", error: "No such participant in that conversation."}`, so a departed participant or a person not yet joined cannot be named;
+- several matches are 409 `ambiguous` with the matching IDs in `matches`, as C2's `remove`;
+- entries resolving to one participant count once; the author may be named.
+
+The stored `message.addressed_to` holds the resolved participant IDs in roster order. An empty array is the same as none: the field is left out of the stored and sent message, so the peer route's existing 1-to-16 rule still holds. The first message of `POST /v1/conversations` and `POST /adapter/v1/conversations` has no `addressed_to`.
+
+**Repeats.** C1's repeat rule compares `addressed_to` as well as `content`. A repeat matches when, against the stored IDs and their current labels, the given entries name exactly the stored set; absent or empty matches only a message with none. This is decided before resolution, so a repeat still succeeds after a named participant departed. A difference is 409 `conflict` with C1's text.
+
+**Views.**
+- The owner message view and the adapter message view gain `addressed_to_labels`, the label of each `addressed_to` entry in the same order, derived as `author_label` is.
+- The owner message view gains `addressed`, as the adapter view has: true when `addressed_to` is empty or includes the viewing participant.
+- Readable `show` and `watch` print `to LABEL, LABEL` after the author label when `addressed_to` is not empty.
+
+### The `about` task link
+
+A conversation may name a task it is about. The link is informational: it is shown in views and events only, and grants nothing. No host checks that the task exists.
+
+- `POST /v1/conversations` and `POST /adapter/v1/conversations` gain optional `about: {peer_host_id, task_id}`, where `peer_host_id` is a host ID (`^host_[0-9a-f]{64}$`), `task_id` is `^task_[0-9a-f]{32}$`, and no other key is allowed; otherwise 400 `invalid`.
+- The roster gains optional `about` with the same shape, omitted when there is none. Home never changes it after start. A peer's roster with a malformed `about` fails C1's shape check (400 `invalid`).
+- The conversation view, the invite view, and both summaries gain `about`, null when none.
+- CLI: `conversation start ... --about HOST_ID/TASK_ID`.
+
+### The read cursor and unread counts
+
+There is one read cursor per person participant, in `conversation_reads`, holding a `local_seq` that only moves forward. Agents use seen (C5), not a cursor.
+
+**Unread.** A person's *unread* count in a conversation is the number of messages visible to that person, not authored by that person, with a `local_seq` above the cursor. A message that arrives late is unread even if it sorts before messages already read.
+
+- `GET /v1/conversations` summaries gain `unread`, the count for this host's person participant, and 0 when that person is not in the conversation or the host has no bound person.
+- `GET /v1/status` and `GET /v2/status`: `conversations` becomes `{open, unread, invites}`. `unread` sums the count over the conversations counted in `open`, and is 0 without a bound person. Unread messages add no attention item.
+- Readable `conversations` shows `N unread` when N is above 0.
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `POST /v1/conversations/{id}/read` | `{message_ids?}` | 200 `{conversation_id, participant, unread}` |
+
+- `message_ids` is 1 to 100 message IDs, each visible to the person; anything else is 400 `invalid`. The cursor moves to the highest `local_seq` among them. Without `message_ids`, it moves to the highest `local_seq` of the messages visible to the person now.
+- A cursor already at or past that point does not move, and the route still answers 200.
+- 404 `not_found` for an unknown conversation; 409 `not_bound` without a bound person; 403 `not_participant` when the person was never in the roster. Unknown fields and nulls are 400.
+
+**What advances it.** Only this route does; every `GET` leaves the cursor alone.
+- `conversation read ID` posts without `message_ids`.
+- `conversation show` (readable or `--json`) posts the IDs of the messages it listed, so the cursor reaches the most recently stored of them. It does not post with `--as AGENT` or when it listed none. A page reached with `--before` cannot move the cursor back.
+- `conversation watch` posts the IDs of the messages it printed, except with `--as AGENT`.
+
+### The event log
+
+`conversation_events` holds a local log. An entry is `{sequence, kind, conversation_id, message_id, participant, at}`, committed in the transaction of the change it reports, and it never holds content. `sequence` is never reused.
+
+| `kind` | Written when | `message_id` | `participant` |
+| --- | --- | --- | --- |
+| `message_sent` | a local participant's message is stored | that message | the author |
+| `message_received` | a message is accepted for a local participant, pushed, fetched or by local delivery; one entry per target | that message | the target |
+| `target_changed` | an outbound target of a local author's message changes state (`delivered`, `refused`, `unsupported`, `stopped`) | that message | the author |
+| `roster_changed` | this host commits or stores a newer roster for a conversation it holds | null | null |
+| `invited` | a pending invite is first stored here (not on a repeat) | null | `person:PERSON_ID` |
+| `read_changed` | a read cursor moves | null | the person participant |
+
+Entries older than 30 days on this host's clock, and those beyond the newest 10,000, are deleted.
+
+| Route | Query | Answer |
+| --- | --- | --- |
+| `GET /v1/conversations/events` | `after` (default 0), `limit` (1 to 1,000, default 100), `wait` (seconds, 0 to 25, default 0), `participant`, `conversation` (a full ID) | 200 `{events, next_after, latest}` |
+
+- `participant` follows C1's read rule: a local participant ID, defaulting to the person participant (409 `not_bound` without one, 400 `invalid` for one that is not local). `conversation` naming a conversation this host does not hold is 404 `not_found`. An unknown or malformed query parameter is 400 `invalid`.
+- **What P gets.** Entries in `sequence` order above `after`, keeping only those for P:
+  - `message_sent`, `message_received` and `target_changed` whose `participant` is P and whose message is visible to P at the time of this read;
+  - `read_changed` whose `participant` is P;
+  - `roster_changed` for a conversation whose roster or departures list P;
+  - `invited` whose person is P's person.
+- **Hidden entries are passed over for good.** An entry whose message fails or waits on the recheck is skipped, and `next_after` moves past it, so a reader of the stream does not get it later even if the author is allowed again. `conversation show` and the claim still follow C5.
+- `next_after` is the sequence of the last entry examined: the last returned entry's when `limit` was reached, otherwise `latest`, and never below `after`. `latest` is the highest sequence in the log (0 when it has never held one).
+- `wait` holds the request until an entry for P exists or the wait ends, then answers, possibly with `events` `[]`.
+
+| Route | Query | Answer |
+| --- | --- | --- |
+| `GET /v1/conversations/{id}/messages/{message_id}` | `participant` | 200 `{message: MESSAGE VIEW}` |
+
+It follows C1's read rule for `participant`. A message that does not exist, or is not visible to P, is 404 `not_found` with the same text either way.
+
+### `home_unavailable`
+
+The conversation view and both summaries gain `home_unavailable`: true while the home host is not a current member of any coordinator-free network this host shares with it (CONV-23), and always false on the home host. Sending continues among participants whose hosts are members, a local leave still works at once (C2), and readable `show` adds `home unavailable` to its header line.
+
+### `conversation forget`
+
+| CLI | Route | Answer |
+| --- | --- | --- |
+| `conversation forget ID [--yes]` | `DELETE /v1/conversations/{id}` | 200 `{conversation_id, state: "forgotten", roster_kept}` |
+
+**CLI.** `ID` follows C1's prefix rule. At a terminal without `--yes`, it asks before sending; any answer other than `y` or `yes` prints `Not forgotten.`, changes nothing, and exits 0. Not at a terminal, without `--yes`, it exits 1 with `error: confirm: conversation forget needs --yes when not at a terminal.` and sends nothing.
+
+**Checks,** in order:
+1. 404 `not_found` for a conversation this host does not hold, including one already forgotten here or known only from a pending invite.
+2. If the conversation is open and a local participant is joined here, or a current pending invite for it is held here, 409 `{code: "in_use", error: "Someone on this host is still in that conversation; leave it first."}`. A closed conversation can be forgotten with its participants still listed.
+
+**What is deleted,** in one transaction: this host's messages, inbound and outbound target records, notifications, read cursors, and event log entries of the conversation. Outbound targets still `sending` stop. Activity entries stay; they hold no content.
+
+**Not on home** (`roster_kept` false): the roster goes too, and the host then answers as one that never held the conversation. An unconfirmed leave or decline in `conversation_roster_outbound` is kept and still sent. A later invite is a new start: its chain heads begin at 0, so a gap fetch may bring back messages the authors sent to that participant, each passing acceptance again.
+
+**On home** (`roster_kept` true): the conversation row, the roster, and the outbound pushes stay, and the conversation is marked forgotten.
+- Local routes treat it as unknown (404 `not_found`), and it leaves the list.
+- Peer routes keep serving it: `GET .../roster`, `POST .../join`, `POST .../leave` and roster pushes work as before, home's expiry and `unanswered` timers keep running, and every new roster is still pushed.
+- `heads` answers `authors` `[]`, `GET .../messages` is 404 `not_found`, and `acks` answers `{acked: 0}`.
+
+### Terminal escaping
+
+**The rule.** Text printed for a person never carries a terminal control character. Every piece of peer-supplied text in readable output is **escaped**: each character below U+0020 (including newline and tab), U+007F, and U+0080 to U+009F is written as `\u` and four lowercase hex digits, as capability approval views already show caller text. So a message cannot start a new line that looks like another message.
+
+**Readable output** covers content, titles, participant and author labels, names, `addressed_to` labels, invite notes, `added_by` labels, target labels and reasons, previews, and error texts, in:
+- `conversations`, `conversations --invites`, `conversation show`, `conversation watch`;
+- `session pending` and `session pending --hook`, for conversation entries;
+- `error: CODE: TEXT` from any conversation command, on stderr.
+
+**JSON output.** Every JSON the `conversations` and `conversation` commands print, with or without `--json`, writes U+007F and U+0080 to U+009F as `\u00XX` in strings, beside the escapes JSON already requires. Parsing returns the original text. The daemon's routes are unchanged: they answer the original text, encoded as JSON.
+
+**Names.** A peer-asserted agent `name` is not refused for its characters; it is escaped wherever printed. Titles keep C1's rule, so a peer's roster with a control character in `title` is 400 `invalid`.
+
+**Agent events.** In the channel events' content and meta, the adapter writes labels and the title with control characters escaped by the same rule, so a peer-chosen name cannot forge a line. Message content stays as received and is presented as peer content (C1).
+
+### Activity
+
+These kinds are recorded in `GET /v1/activity`, each in the transaction of its change, as `{sequence, kind, subject_id, created_at}`. Activity never holds content, a title, or a label.
+
+| Kind | When | `subject_id` |
+| --- | --- | --- |
+| `conversation.created` | this host creates a conversation as home | `CONVERSATION_ID` |
+| `conversation.roster_changed` | this host commits or stores a newer roster, other than the creating one and the closing one | `CONVERSATION_ID` |
+| `conversation.closed` | this host commits or first stores a closed roster | `CONVERSATION_ID` |
+| `conversation.message_sent` | a local participant's message is stored | `CONVERSATION_ID/MESSAGE_ID` |
+| `conversation.message_received` | a remote author's message is first stored here, once per message | `CONVERSATION_ID/MESSAGE_ID` |
+| `conversation.message_refused` | an outbound target becomes `refused` | `CONVERSATION_ID/MESSAGE_ID` |
+
+A local delivery is one `conversation.message_sent` only. A repeat records nothing.
+
+### Commands
+
+**CONV-24.** `conversations` and `conversation` are listed in the root help (`MAIN_COMMANDS`), the advanced help, the README and the quick start. `conversation sync` stays out of the README and the quick start. The unit test on the root help's list changes with `MAIN_COMMANDS`.
+
+| CLI | Route | Output |
+| --- | --- | --- |
+| `conversation say ID TEXT [--to PARTICIPANT ...] [--message-id ID]` | `POST .../messages` | As C1; `--to` fills `addressed_to`. |
+| `conversation start ... [--about HOST_ID/TASK_ID]` | `POST /v1/conversations` | As C2. |
+| `conversation read ID` | `POST .../read` | The route's JSON. |
+| `conversation forget ID [--yes]` | `DELETE /v1/conversations/{id}` | The route's JSON. |
+| `conversation watch [ID] [--as AGENT]` | `GET /v1/conversations/events`, `GET .../messages/{message_id}`, `POST .../read` | Below. |
+
+**`conversation watch`.**
+- It first reads `latest` with `wait=0&limit=1`, then writes `Watching; press Ctrl-C to stop.` to stderr, so it prints only what happens after that line. It then long-polls with `wait=25`. `ID` follows C1's prefix rule and limits it to that conversation.
+- For each `message_sent` and `message_received` it fetches the message, and prints one line to stdout: the conversation ID's first 13 characters, the `sent_at` time (`HH:MM`, UTC), the author label, `to LABEL, LABEL` when addressed, and the content, all escaped. A message the fetch no longer shows is skipped. Each `target_changed` to `refused`, `unsupported` or `stopped` prints the line `show` uses for that target. Each `roster_changed` and `invited` prints one line naming the conversation and the change. Other wording and spacing are not part of the contract.
+- stdout is flushed after each line.
+- It posts the cursor after printing each batch (see above).
+- SIGINT or SIGTERM ends it with exit 0. A daemon that cannot be reached exits 1 as for any command; a failure after it started is retried once a second until the daemon answers again.
+
+### Node adapter
+
+**`conversation_send`** gains `addressed_to`: an array of at most 16 strings of at most 256 characters each, optional, sent to the daemon as given. The input schema is now (`additionalProperties: false`):
+- `conversation_id`: string, required, `^conv_[0-9a-f]{32}$`.
+- `content`: string, required, 1 to 65,536 characters.
+- `addressed_to`: as above.
+- `message_id`: string, optional, `^cmsg_[0-9a-f]{32}$`, generated when absent.
+
+Its refusals gain:
+
+| Daemon `code` | Tool `code` | `error` |
+| --- | --- | --- |
+| `limit` | `rate_limited` | `This agent reached its limit of 60 messages per hour in this conversation. Wait, or ask the person.` |
+| `not_found`, from `addressed_to` | `not_found` | the daemon's |
+| `ambiguous` | `ambiguous` | the daemon's |
+
+**`conversation_start`** gains `about`: an object with required `peer_host_id` and `task_id` of the patterns above, `additionalProperties: false`.
+
+**The `conversation` event.**
+- `meta` gains `about_peer_host_id` and `about_task_id` beside the C1 keys, and they are null (omitted for Claude Code) when the conversation has no `about`. `meta.addressed` is from the claim's new message, as C1 defines it.
+- The content gains a line `About task TASK_ID on HOST_ID` after `Participants:` when `about` is set, on `conversation`, `conversation_roster` and `conversation_undelivered` events.
+- A new message or window entry with `addressed_to` reads `[LABEL HH:MM, to LABEL, LABEL] CONTENT`, the labels from `addressed_to_labels`. For this agent's own: `[LABEL HH:MM, to LABEL] (you) CONTENT`.
+
+The MCP server instructions do not change. `list_conversations` and `conversation_history` return the new view fields.
+
+### Persistence
+
+No new schema version: schema 24 already has `conversation_reads` and `conversation_events`. `about` lives in the roster inside `record`; the forgotten mark on home lives in the conversation's `record`.
+
+### Verification
+
+Spec-only cases are appended to `conformance/slim/conversations.py`, written from this section by the separate author, with the suite still under 2 minutes in total. Raising that limit is a question for the owner, so report it rather than dropping a case.
+
+**Setup.** C1's alice and bob, in that suite's network.
+- **Fixture agent.** `bert` on bob comes from `b.agent("bert")`, a directory session with a verified channel. It claims with `bert.post("/adapter/v1/conversation-notifications/next")` until non-null, then posts `.../{id}/forwarded`. A fixture claims only when the suite calls this, so a message stays unclaimed for as long as a case needs. Sends use `bert.post("/adapter/v1/conversations/ID/messages", {...})`.
+- **Policy.** bob's `allow alice --no-tasks --person-key KEY` gives alice `message.append` to bob's agents; `deny alice --person-key KEY` takes it away, at once on bob. Each change is followed by C1's policy-version wait where alice must cite it. People need no policy: `conversation start person:bob` and `conversation join ID` on bob, as in C3.
+- **Raw requests.** Use `peer(sender, receiver, method, path, body)`. A probe message omits `prev_seq` (so it reveals no gap), uses `seq` values alice's host has not used, and carries the roster version bob holds. A person target takes no citation.
+- **Speed.** The 60 sends go through `POST /v1/conversations/{id}/messages`, not the CLI, except where a case names the CLI.
+- **Watch.** Run `peerspan conversation watch` with `suite.spawn`, wait for `Watching` on stderr before sending, and terminate it in the case.
+- **Clock.** A case moving the test clock runs after every other C6 case and before C2's unanswered case, and restarts hosts before expecting peer traffic.
+
+**Cases** (the proposal's C6 column, made concrete):
+- **Limit at the author's host.** In a conversation with `bert`, alice sends 60 messages through the owner route, each 200. All 60 targets for `bert` reach `delivered`, so the recipient's limit does not trip. The 61st `conversation say` exits 1 with `error: limit: This participant reached its limit of 60 messages per hour in this conversation.`, and `show --json` lists no 61st message. A repeat of the 60th `message_id` with its content is 200. After restarting alice, a new message is still refused. `bert` can still send (each author is counted alone).
+- **Limit at a recipient.** In a conversation between alice's and bob's persons, 60 probe messages from alice with `sent_at` now are each 200. The 61st is 429 `limit`, and again when repeated. A repeat of the 60th returns its saved receipt. After restarting bob, a new one is still 429. A probe with `sent_at` two hours earlier is 200 (it counts in its own hour).
+- **Final refusal.** With the allowance on bob filled by those probes, alice's own next `conversation say` in that conversation is 200 on alice (her host stored none of the probes), and its target for bob's person becomes `refused` with `limit`.
+- **The window** (clock). After the clock moves 3,601 seconds and the hosts restart, alice's next `conversation say` in the first conversation is 200.
+- **`addressed_to`.** With alice, `bert` and a second fixture agent `bea` on bob in one conversation, `conversation say ID TEXT --to bob/bert`:
+  - `bert`'s claim has `addressed` true, `addressed_to` `[BERT]` and `addressed_to_labels` `["bob/bert"]`;
+  - `bea`'s claim has the message with `addressed` false;
+  - a message with no `--to` is `addressed` true for both;
+  - `--to` by participant ID works; `--to nobody` exits 1 with `not_found`, and no message is stored;
+  - a repeat of the `message_id` with another `--to` is 409 `conflict`; `pending_work` shows `addressed` accordingly;
+  - alice's `show --json` gives `addressed` true for her own unaddressed message, and false for one addressed only to `bert`.
+- **`about`.** `conversation start bob/bert --about HOST/TASK`: alice's and bob's views show the same `about`, and `GET /adapter/v1/conversations` on `bert` shows it; a malformed value is 400 `invalid`. It gives no access: with `deny alice` in place, a start with `about` is still 403 `not_authorized`.
+- **Read cursor.** In a conversation of alice's person, bob's person and `bert`:
+  - alice sends 2 messages: bob's summary `unread` is 2, and `GET /v1/status` `conversations.unread` rises by 2;
+  - `GET /v1/conversations/{id}/messages` changes nothing;
+  - `conversation show ID --as bert` changes nothing;
+  - `conversation show ID` makes it 0;
+  - a third message makes it 1, and `conversation read ID` makes it 0;
+  - bob's own message does not count;
+  - `POST .../read` with a message ID not visible to bob is 400.
+- **Watch.** Before watch, bob has one unread message. It is not printed, and it stays unread until a later cursor moves past it. With watch running, alice's new message prints a line with its content and the unread count reaches 0 within 20 seconds. A message in another conversation prints only without an `ID`. After the watch is terminated (exit 0), a new message stays unread.
+- **Event log.** `GET /v1/conversations/events` on bob lists `message_received` and `read_changed` for the person, with exactly the keys `sequence, kind, conversation_id, message_id, participant, at` and ascending sequence. `after=latest&wait=2` answers `events` `[]` after about 2 seconds, and a message arriving during `wait=20` ends it early. `wait=26`, `limit=0` and an unknown parameter are 400.
+- **Nothing hidden leaks.** alice sends s1 to `bert`, `delivered`, unclaimed. After `deny alice` on bob:
+  - `GET /v1/conversations/events?participant=BERT&after=0` has no entry with s1's ID;
+  - `GET /v1/conversations/{id}/messages/S1?participant=BERT` is 404;
+  - a `conversation watch --as bert` started now, with alice then sending s2 (refused at bob), prints neither message.
+
+  After `allow alice` again and no claim, the claim returns s1 (C5), and the event entry stays passed over for a reader already past it.
+- **Forget.**
+  - bob's person, joined in a conversation homed on alice, gets 409 `in_use` from `forget` on bob.
+  - After `conversation leave`, `forget --yes` on bob answers `roster_kept` false, and `show` exits 1 with `not_found`. Without `--yes` and not at a terminal, it exits 1 with `confirm` and changes nothing.
+  - On home: alice starts with `person:bob` and `bob/bert`, bob joins, alice leaves, `forget --yes` answers `roster_kept` true; `show` on alice is `not_found` and the list omits it; `GET .../roster` by probe from bob still answers 200; bob's `conversation leave ID` reaches home and a later `GET .../roster` lists bob's person in `departed`; `bert` still leaves through `manage`, and the roster shows that too. Alice's `GET /v1/activity` keeps the earlier entries.
+- **`home_unavailable`** (use a fresh host dave, since it is revoked).
+  - dave joins alice's network and starts `conversation start person:alice`, and alice joins. alice's view has `home_unavailable` false.
+  - After `network revoke --network ID --host DAVE`, alice's view has it true, and `conversation leave ID` on alice answers 200 at once.
+- **Escaping.** alice says a message whose content is `ESC [31m red BEL U+009B 2J newline fake`.
+  - bob's `conversation show` stdout holds `\u001b[31m`, `\u0007`, `\u009b`, `\u000a` as text, and no raw ESC, BEL, or the bytes of U+009B.
+  - `watch` prints the same.
+  - `conversation show --json` holds no raw U+009B, and parsing it returns the content exactly.
+  - A probe roster push from alice with a higher version, in a conversation of its own, listing an alice agent with `name` holding ESC, prints escaped in bob's `show`, `conversations`, and the `show --json` bytes for U+009B.
+  - A title with a control character is 400 from the owner route.
+- **Activity.** `activity --limit 1000` on alice and bob holds `conversation.created`, `.roster_changed`, `.message_sent`, `.message_received`, `.message_refused` and `.closed` with the subject shapes above, and no case's message content or title anywhere in its output.
+- **Help.** `peerspan --help` lists `conversations` and `conversation`.
+
+**Rust.** `cargo test` unit tests cover what the slim suite cannot reach:
+- the event log's retention at 30 days and 10,000 entries;
+- the `--hook` and `session pending` escaping (no `attach` profile in the harness);
+- the `limit` code at a fetch (a fetched entry is refused `limit`, resolved, and reported in `acks`);
+- a future-dated `sent_at` counting at its storing time.
+
+**Node adapter** (`node --test` in `integrations/shared`, as before):
+- `conversation_send` passes `addressed_to` and validates it, and maps `limit` to `rate_limited` with its text;
+- `conversation_start` validates `about`;
+- the `conversation` event's `to` labels and `About task` line, and `meta.addressed` and the `about_*` keys;
+- labels holding control characters are escaped in event content.
