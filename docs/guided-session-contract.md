@@ -4573,6 +4573,22 @@ No row edits, worker disabling, inferred stale holds, retry-until-green or omitt
 categories. The initial failure remains evidence, not a pass; new native cases
 are independently committed before any execution and are not changed to hide it.
 
+First combined native CI275/292 (17 failures,44.82s) retained all original272
+passes. Its positive projection used a drs_ root and administrator issuer '-',
+instead of section24's verified statement parents and section25's packet issuer.
+Here root/P/H are canonical distinct ds_ statement IDs; administrator issuer is
+the verified canonical ds_ issuer, never the possession-only provider's '-'.
+Fixtures must use those exact existing protocol forms, without broadening the
+frontend to accept unsupported parents/providers. An unapproved section16 review
+begins with the pending request/no owner prefix, then separate approval and
+ordinary approved work may supply the four-stage prefix. A missing-owner negative
+must remain missing/unapproved throughout any explicitly requested ordinary
+preparation; returning a previous approved owner from that preparation is not
+evidence that the frontend offered finalization without approved consent.
+Independent setup corrections retain all positive/negative/privacy/dispatch/
+timer assertions and original delays/timeouts. The first CI failures remain
+recorded; no unchanged local duplicate run is needed before reconciliation.
+
 Selected: explicit pure finalization review, one bounded backend call and
 lookup-first recovery. Discarded: more protocol/proof APIs, combined consent/
 key use, frontend signer selection, hidden sign-as-read, retries/polling, new

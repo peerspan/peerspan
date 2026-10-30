@@ -82,7 +82,7 @@ export function reviewLines(v, parent) {
     `Administrator offer: ${r.administrator_offer_id}`, `Current root: ${r.root_state_id}`, `Person lease: ${r.person_lease_id}`,
     `Host lease: ${r.host_lease_id}`, `Administrator signer public key: ${quoted(r.administrator.signer_public_key)}`,
     `Administrator host public key: ${quoted(r.administrator.host_public_key)}`, `Administrator signature format: ${r.administrator.signature_format}`,
-    `Administrator issuer: ${r.administrator.issuer_id}`, 'Machine powers: 7; binding scope: 2',
+    `Administrator issuer: ${r.administrator.issuer_id}`, 'Machine powers profile: 7; binding scope: 2',
     'Policy editing (1); host binding (2); approval, renewal and revocation of eligible own devices (4). Network administrator (8): not approved.',
     `Powers end: ${r.not_after}`, `Request expires: ${r.expires_at}`,
     'Sign uses only this approved original on this computer: its safe existing generated key or exact SSH-agent identity.',

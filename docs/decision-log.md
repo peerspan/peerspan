@@ -2724,3 +2724,15 @@ and dispatch. A slow context check cannot preserve an earlier signing timestamp
 past expiry. Backend checks and final-check/dispatch race limits remain; no new
 API or test changes. Discarded: treating time captured before asynchronous
 preflight as the immediate dispatch deadline check.
+
+### GU.impl26d — Use verified statement parents and consistent owner fixtures
+
+First combined native CI275/292 in44.82s preserved all original272 passes but
+the positive finalization fixture supplied drs_ root and issuer '-'. Selected:
+clarify existing sections24/25's ds_ root/P/H/verified issuer forms; independent
+author corrects positive setup, pending-before-approval progression and missing-
+owner preparation consistency while retaining every original assertion/timeout.
+The new terms must name the fixed powers profile7 as contracted. Discarded:
+accepting unsupported catalog/provider forms in signing projections, testing
+unapproved advanced stages as valid owner approval, or treating a prepared
+globally approved consent as a missing-owner result. Preserve initial failures.
