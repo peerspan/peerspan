@@ -4993,6 +4993,15 @@ limit without a reliable public stimulus. Existing ordinary join-stage timeout
 coverage remains unchanged. Actual application-barrier parent/clock changes and
 late INSERT rollback still require real synchronization as specified above.
 
+First section 28 local native validation passed, but the full unchanged suite
+passed287/292 in71.32s: five unrelated existing cases hit their 5000ms runtime
+timeout while an external Clippy compilation overlapped on the shared host.
+Retain that run and the observed load; this is not a product regression finding
+or proof of exact per-case attribution. One corrected full run may follow after
+the actual external compilation ends and the host is idle, with all292 cases,
+source/assertions/stimuli/delays/timeouts unchanged. Verify process isolation
+around the run; do not hide a failure by repeated unchanged execution.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
