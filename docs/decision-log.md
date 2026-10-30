@@ -2535,3 +2535,16 @@ participants/carriers available before no-IO purity measurements. Preserve every
 old/new assertion, timeout and strict DB/file/zero-IO check. Discarded: retaining
 hidden native selection, changing parent Back semantics, counting linked as
 delivery completion, weakening purity or rerunning unchanged failed fixtures.
+
+### GU.impl23c — Use documented terminal deadline retirement for purity setup
+
+Selected: after full genuine application, use the test clock past the signed
+request deadline and observe ordinary background retirement of frames, secret,
+terminal read capability and outbound delivery before measuring pure completed
+history. The acknowledgment-drain attempt still ended5/6 in115s, timing out at
+35s; its transport return was not retained, so its exact transport cause remains
+unclassified. Live cached no-IO and live post-intent refusal remain separate
+assertions, and every historical DB/file/zero-IO assertion stays. Immediate
+post-application scheduling attribution remains an explicit coverage limit.
+Discarded: longer acknowledgment waits, assumed guaranteed delivery, disabling
+background work, editing authority/storage rows or weakening measured purity.
