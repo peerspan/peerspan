@@ -2941,3 +2941,13 @@ at this stage. Select the same strict invariant for approved and unapproved
 five-stage snapshots; preserve legitimate six/seven-stage advancement. Extend
 the independent projection/preflight corpus before its first execution.
 Discarded: weakening public stage checks or treating approval as application.
+
+### GU.impl29c — Retain closed contact-purity failure metadata
+
+PR73's initial unchanged host CI repeated the known section24 final-history
+failure: dec_contacts changed without file/carrier changes,5/6in60s. All other
+23 suites and PR checks passed, with unchanged Rust. Select an independent
+failure-only snapshot metadata observer and one retained local diagnosis,
+preserving the whole original test after removing that observer. Discarded:
+guessing a cause, skipping contact state, raw dumps, larger waits or unchanged
+CI retry. Keep earlier69 missing-evidence failures unclassified.
