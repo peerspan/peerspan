@@ -5671,10 +5671,12 @@ Outer result is exactly `{version:1,host_id,context,observed_at,access}`.
 Review is exactly:
 
 `{version:1,kind:"approve_project_agent_access",access_id,host_id,context,
-inspection_review_id,inspection,grant,action_id,intent_id,provider,statement,
+inspection_review_id,inspection,replaces_access_id,grant,action_id,intent_id,provider,statement,
 created_at,expires_at,effects}`.
 
 Inspection is the complete frozen section30 review. Grant is exactly
+The replacement link is the exact prior `dint_` or `"-"` for first preparation;
+it is immutable local lineage, not revocation or new authority.
 `{policy_scope:"owner_agent_name",agent_id,agent_name,principal,
 actions:["message.append","task.submit"],max_message_bytes:65536,
 max_artifact_bytes:0,allow_disconnected:false}`. Provider is the ordinary frozen
