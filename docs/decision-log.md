@@ -2805,3 +2805,15 @@ The unchanged join suite has 12 cases and passed 12/12 in 99s against frozen
 production daf53e4. Section 27's join14 label was a stale count; correct it to
 join12. The file and every existing case/assertion/delay/timeout remain unchanged.
 Discarded: claiming 14 passing cases or adding duplicate tests to fit the label.
+
+### GU.impl27f — Preserve actionable public delivery failure evidence
+
+Final-head CI9335093 passed all requester-commit cases, the other21 suites and
+standard PR checks, but existing delivery failed11/5 on inviter application
+timeout. The same runtime/test sources passed ondb7766e. Cause stays unclassified;
+the runner discarded retained state. Selected: independently authored bounded
+failure-only public diagnostics after the original wait, preserving every
+assertion/action/delay/timeout and rethrowing the original failure. Keep the
+failed run and one retained local diagnostic run. Discarded: calling the failure
+a proven flake, retrying unchanged until green, weakening the timeout or dumping
+private DB/state artifacts into CI. Production remains frozen.

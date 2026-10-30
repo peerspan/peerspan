@@ -4780,6 +4780,25 @@ checks/fresh review on one final head. Record failures/corrections, hashes and
 source/manual limits. Existing transport hold/terminal cleanup isolation rules
 remain; no retries until green or assertion/timeout weakening.
 
+The first final-head CI on9335093 passed22 suites and standard PR checks but
+delivery failed11/5: join_with_no_direct_path timed out waiting for the inviter
+to apply, then four dependent cases failed. The preceding identical runtime/
+test/workflow sources passed all23; this does not classify the timeout. Its
+retained runner directory was discarded, leaving no host-state diagnosis.
+Keep the failed run in the verification record. A separate contract-only author
+may add closed, bounded failure-only diagnostics to this existing delivery
+case after its original wait fails. Preserve every original assertion, protocol
+action, delay and timeout. Reuse the already returned commit result and at most
+one pure request-view GET per participant, each bounded2s; print one public
+summary containing only HTTP status, known stage/state/attention enums and
+booleans for retained stage/approval/application presence. Unknown values become
+a fixed marker. Never print keys, codes, locators/capabilities, signatures,
+templates, paths, labels, raw errors/bodies or database records. Diagnostics
+must not sign, resume, publish, apply, retry, change the verdict or mask the
+original failure. This improves evidence retention without changing successful
+test behavior. A fresh CI run of the changed diagnostic source is not evidence
+that the original timeout's cause is known.
+
 Selected: reuse ordinary immutable requester intent for exact durable consent
 with pure recovery, then add bounded completion/native controls in the following
 slice. Discarded: new consent storage, direct broad commit/resume-as-observation,
