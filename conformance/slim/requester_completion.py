@@ -957,6 +957,19 @@ def terminal_transport_retired(h):
     return pending == frames == outbox == 0 and not list(h.state.glob('*-journal'))
 
 
+def terminal_restart_directory(h, issuer, network_id):
+    """GU.impl28k: observe one documented refresh, never a global IO fence."""
+    network = get(h, '/v2/networks/' + network_id)
+    check(network['authority']['state'] == 'usable', 'startup directory fixture lacks current usable authority')
+    status, observed = h.api('POST', '/v1/directory/refresh?network=' + network_id, {}, timeout=12)
+    check(status == 200 and isinstance(observed, dict) and observed.get('network_id') == network_id
+          and isinstance(observed.get('hosts'), list) and isinstance(observed.get('agents'), list),
+          'synchronous startup directory observation failed or changed network')
+    known = [entry for entry in observed['hosts'] if isinstance(entry, dict) and entry.get('host_id') == issuer.id]
+    check(len(known) == 1 and known[0].get('state') == 'error',
+          'stopped issuer directory observation has not completed with its truthful error state')
+
+
 def terminal_diagnostic_capture(diagnostics, phase, local, h, issuer, rows):
     """GU.impl28h: retain a closed generation projection in memory only."""
     if diagnostics is None:
@@ -1416,7 +1429,7 @@ def _():
         if phase == 'detached':
             h.ok('session', 'detach', f['parent']['review']['session_id'])
         elif phase == 'restarted':
-            h.restart(kill=True); quiet(f)
+            h.restart(kill=True); terminal_restart_directory(h, a, f['network']['id']); quiet(f)
         for mode in ('API', 'CLI'):
             quiet(f); before, network = snapshot(h), traffic(f)
             if mode == 'API':
