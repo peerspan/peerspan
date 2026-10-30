@@ -5711,8 +5711,11 @@ approve_policy_intent, follow_policy_action, inspect_agent_access,
 inspect_agent_access. Approved history remains exact and pure after expiry,
 policy/provider changes, detach/replacement/restart and absent original signer;
 it claims recorded consent, not current permission or delivery. No raw time
-before the original creation may yield misleading live history. Unapproved
-state reflects current liveness without mutation. Already-approved exact replay
+before the original creation may yield misleading live history.
+Raw decision time before a retained receipt's creation returns409
+access_review_unavailable before live-work/approval classification, even when
+the ordinary rollback guard clamps the projection time forward.
+Unapproved state reflects current liveness without mutation. Already-approved exact replay
 is pure and never updates approved_at/clock or invokes another signature.
 Unknown network/project/access IDs are404; malformed input400invalid; wrong
 context/digest or changed live terms409review_changed; elapsed review409
@@ -5731,6 +5734,10 @@ Separate contract-only author supplies six compact real-binary cases:
 2. Context/native/project/agent/network/person/inspection exactness, lookup-null
    purity, repeated preparation/recovery and explicit replacement boundaries;
    never adopt an unrelated/advanced-approved ordinary action as guided consent.
+   For the missing-original advanced-approval prerequisite, use the existing
+   ordinary explicit external provider (the exact selected original public key,
+   signature_format sshsig), which returns unsigned signing slots without a
+   daemon key. Guided operations continue to use only their selected provider.
 3. Late genuine SQLite INSERT/UPDATE fault rolls back both preparation or both
    approvals/clock. Real approval changes only exact receipt/action/guard, leaves
    all signatures/templates/policy/maximum/edit/outbox/provider/event evidence
