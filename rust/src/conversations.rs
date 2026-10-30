@@ -55,6 +55,11 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(8);
 const WINDOW_MESSAGES: usize = 10;
 const WINDOW_BYTES: usize = 16_384;
 const WINDOW_CUT: usize = 2_048;
+/// The largest `seq`, `clock` or `roster_version` accepted: 2^53 - 1, exact
+/// in every JSON reader.
+const MAX_COUNTER: i64 = (1 << 53) - 1;
+/// How far a received clock may run ahead of the highest one held.
+const MAX_CLOCK_JUMP: i64 = 1 << 20;
 
 // ---------------------------------------------------------------- shapes
 
@@ -1059,6 +1064,9 @@ impl Store {
             params![id, author],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        if seq > MAX_COUNTER || clock > MAX_COUNTER {
+            return Err(invalid("this conversation's counters are exhausted"));
+        }
         let at = now();
         let message = Message {
             message_id: message_id.clone(),
@@ -1439,9 +1447,9 @@ impl Store {
             || author.is_none()
             || !citation_ok
             || !origin_ok
-            || m.seq < 1
-            || m.clock < 1
-            || m.roster_version < 1
+            || !(1..=MAX_COUNTER).contains(&m.seq)
+            || !(1..=MAX_COUNTER).contains(&m.clock)
+            || !(1..=MAX_COUNTER).contains(&m.roster_version)
             || r.prev_seq.is_some_and(|p| p < 1 || p >= m.seq)
             || !valid_content(&m.content)
             || chrono::DateTime::parse_from_rfc3339(&m.sent_at).is_err()
@@ -1488,6 +1496,16 @@ impl Store {
         };
         if m.roster_version > roster.version {
             return Err(unavailable("this host holds an older roster"));
+        }
+        // A clock far ahead of everything held would leave nothing to count
+        // up to; honest clocks advance by one per message.
+        let highest: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(clock), 0) FROM conversation_messages WHERE conversation_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        if m.clock > highest.saturating_add(MAX_CLOCK_JUMP) {
+            return Err(invalid("clock too far ahead"));
         }
         // A local person counts as joined only when this host joined it: in
         // C1, as the creator of a conversation homed here (C3 adds joins).
