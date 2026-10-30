@@ -37,6 +37,7 @@ use tokio::sync::watch;
 
 mod context;
 mod sync;
+mod tools;
 pub(crate) use context::{mark_seen_id, return_notifications};
 
 /// Every table of feature slice 1 (proposal, Persistence), added at once.
@@ -116,6 +117,19 @@ pub struct Roster {
     pub created_at: String,
     pub participants: Vec<Participant>,
     pub departed: Vec<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub about: Option<About>,
+}
+/// The task a conversation is about: shown only, grants nothing (C6).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct About {
+    pub peer_host_id: String,
+    pub task_id: String,
 }
 impl Roster {
     fn joined(&self, id: &str) -> Option<&Participant> {
@@ -382,6 +396,9 @@ struct LocalState {
     /// After close).
     #[serde(default)]
     closed_at: Option<String>,
+    /// On home: the owner ran `conversation forget`; only the roster stays.
+    #[serde(default)]
+    forgotten: bool,
 }
 
 /// A conversation as this host holds it: home's roster and the local state.
@@ -518,6 +535,7 @@ fn consistent(roster: &Roster) -> bool {
     });
     let mut persons = BTreeSet::new();
     departed_ok
+        && roster.about.as_ref().is_none_or(tools::valid_about)
         && matches!(&roster.state[..], "open" | "closed")
         && participant_parts(&roster.created_by).is_some()
         && roster.participants.iter().all(|p| {
@@ -593,6 +611,26 @@ fn save_held(conn: &Connection, held: &Held) -> Result<(), Error> {
     }
     let held = &held;
     let roster = &held.roster;
+    let before: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT roster_version, state FROM conversations WHERE id = ?1",
+            [&roster.conversation_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let id = &roster.conversation_id;
+    if before.as_ref().is_none_or(|b| roster.version > b.0) {
+        tools::log_event(conn, "roster_changed", id, None, None)?;
+        // Only home admits a conversation's creator before storing it.
+        let kind = if before.as_ref().is_none_or(|b| b.1 != "closed") && roster.state == "closed" {
+            "conversation.closed"
+        } else if before.is_none() && held.local.admitted.contains_key(&roster.created_by) {
+            "conversation.created"
+        } else {
+            "conversation.roster_changed"
+        };
+        tools::activity(conn, kind, id)?;
+    }
     conn.execute(
         "INSERT INTO conversations (id, home_host, roster_version, state, record) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET roster_version = excluded.roster_version, state = excluded.state, record = excluded.record",
         params![
@@ -933,6 +971,7 @@ impl Store {
     ) -> Result<Value, Error> {
         let m = &stored.message;
         let mine = m.author == reader;
+        let addressed_to = m.addressed_to.clone().unwrap_or_default();
         Ok(json!({
             "message_id": m.message_id,
             "conversation_id": m.conversation_id,
@@ -945,7 +984,9 @@ impl Store {
             "sent_at": m.sent_at,
             "received_at": stored.received_at,
             "content": m.content,
-            "addressed_to": m.addressed_to.clone().unwrap_or_default(),
+            "addressed_to": addressed_to,
+            "addressed_to_labels": self.addressed_labels(conn, roster, &addressed_to)?,
+            "addressed": addressed_to.is_empty() || addressed_to.iter().any(|a| a == reader),
             "mine": mine,
             "targets": if mine { Value::from(self.targets(conn, roster, &m.message_id)?) } else { Value::Null },
         }))
@@ -1014,6 +1055,8 @@ impl Store {
             "departed": self.departed_views(conn, roster, &departed)?,
             "last_message_at": Self::last_message_at(&messages),
             "unsynced": self.unsynced(conn, &roster.conversation_id)?,
+            "about": roster.about,
+            "home_unavailable": self.home_unavailable(conn, roster)?,
         }))
     }
 
@@ -1024,6 +1067,9 @@ impl Store {
         let mut items = Vec::new();
         for held in self.all_held(&conn)? {
             let roster = &held.roster;
+            if held.local.forgotten {
+                continue;
+            }
             let active =
                 roster.state == "open" && held.local.admitted.keys().any(|p| held.joined_here(p));
             if !all && !active {
@@ -1059,6 +1105,9 @@ impl Store {
                     "participants": participants,
                     "created_at": roster.created_at,
                     "last_message_at": last,
+                    "about": roster.about,
+                    "home_unavailable": self.home_unavailable(&conn, roster)?,
+                    "unread": self.own_unread(&conn, &roster.conversation_id)?,
                 }),
             ));
         }
@@ -1071,6 +1120,7 @@ impl Store {
     }
     /// `GET /v1/conversations/{id}`.
     pub fn conversation(&self, id: &str, participant: Option<String>) -> Result<Value, Error> {
+        self.not_forgotten(id)?;
         let conn = self.connection()?;
         let held = self.held(&conn, id)?;
         let reader = self.reader(&conn, &held.roster, participant)?;
@@ -1088,6 +1138,7 @@ impl Store {
         if !(1..=100).contains(&limit) {
             return Err(invalid("limit must be 1 to 100"));
         }
+        self.not_forgotten(id)?;
         let conn = self.connection()?;
         let roster = self.roster(&conn, id)?;
         let reader = self.reader(&conn, &roster, participant)?;
@@ -1121,6 +1172,7 @@ impl Store {
         targets: &[(String, Target)],
         title: Option<String>,
         note: Option<String>,
+        about: Option<About>,
     ) -> Result<(String, Vec<(String, String, Option<&'static str>)>), Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -1165,6 +1217,7 @@ impl Store {
                     added_at: at.clone(),
                 }],
                 departed: vec![],
+                about,
             },
             local: LocalState::default(),
         };
@@ -2075,7 +2128,10 @@ impl Store {
         origin: Option<Origin>,
         message_id: Option<String>,
         content: String,
+        addressed_to: Option<Vec<String>>,
     ) -> Result<(Value, Vec<String>), Error> {
+        let addressed_to = addressed_to.unwrap_or_default();
+        tools::check_addressed(&addressed_to)?;
         if !valid_content(&content) {
             return Err(invalid("content must be 1 to 65,536 bytes of UTF-8"));
         }
@@ -2098,9 +2154,17 @@ impl Store {
             .optional()?;
         if let Some((conversation, record)) = existing {
             let stored: Stored = json(record)?;
+            let same_addressed = conversation == id
+                && self.same_addressed(
+                    &tx,
+                    &roster,
+                    stored.message.addressed_to.as_deref().unwrap_or_default(),
+                    &addressed_to,
+                )?;
             if conversation != id
                 || stored.message.author != author
                 || stored.message.content != content
+                || !same_addressed
             {
                 return Err(coded_error(
                     409,
@@ -2117,6 +2181,10 @@ impl Store {
         }
         if !held.joined(&own, author) {
             return Err(not_participant());
+        }
+        let addressed_to = self.resolve_addressed(&tx, &held, &addressed_to)?;
+        if tools::rate_full(&tx, id, author, crate::clock::now())? {
+            return Err(tools::author_limit());
         }
         let (seq, clock, local_seq): (i64, i64, i64) = tx.query_row(
             "SELECT (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages WHERE conversation_id = ?1 AND author = ?2), (SELECT COALESCE(MAX(clock), 0) + 1 FROM conversation_messages WHERE conversation_id = ?1), (SELECT COALESCE(MAX(local_seq), 0) + 1 FROM conversation_messages)",
@@ -2136,7 +2204,7 @@ impl Store {
             roster_version: roster.version,
             sent_at: at.clone(),
             content,
-            addressed_to: None,
+            addressed_to: (!addressed_to.is_empty()).then_some(addressed_to),
             origin,
         };
         let stored = Stored {
@@ -2147,6 +2215,12 @@ impl Store {
         tx.execute(
             "INSERT INTO conversation_messages (conversation_id, message_id, author, seq, clock, local_seq, record) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![id, message_id, author, seq, clock, local_seq, serde_json::to_string(&stored)?],
+        )?;
+        tools::log_event(&tx, "message_sent", id, Some(&message_id), Some(author))?;
+        tools::activity(
+            &tx,
+            "conversation.message_sent",
+            &format!("{id}/{message_id}"),
         )?;
         let mut keys = Vec::new();
         for p in &roster.participants {
@@ -2193,6 +2267,7 @@ impl Store {
                     "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
                     params![id, message_id, target, own, prev, serde_json::to_string(&inbound)?],
                 )?;
+                tools::log_event(&tx, "message_received", id, Some(&message_id), Some(target))?;
                 if let Some(("agent", _, agent)) = participant_parts(target) {
                     self.notify(&tx, id, agent, "message", Some(&message_id), None)?;
                 }
@@ -2238,6 +2313,28 @@ impl Store {
         message: &str,
         o: &Outbound,
     ) -> Result<(), Error> {
+        let before: Option<String> = conn
+            .query_row(
+                "SELECT state FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'out'",
+                params![id, message, o.participant],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if before.as_deref() != Some(o.state.as_str()) {
+            let author: String = conn.query_row(
+                "SELECT author FROM conversation_messages WHERE conversation_id = ?1 AND message_id = ?2",
+                params![id, message],
+                |r| r.get(0),
+            )?;
+            tools::log_event(conn, "target_changed", id, Some(message), Some(&author))?;
+            if o.state == "refused" {
+                tools::activity(
+                    conn,
+                    "conversation.message_refused",
+                    &format!("{id}/{message}"),
+                )?;
+            }
+        }
         conn.execute(
             "UPDATE conversation_targets SET state = ?1, next_attempt_at = ?2, record = ?3 WHERE conversation_id = ?4 AND message_id = ?5 AND target = ?6 AND direction = 'out'",
             params![o.state, o.next_attempt_at, serde_json::to_string(o)?, id, message, o.participant],
@@ -2750,6 +2847,18 @@ impl Store {
                 }
             }
             None => {
+                // Only a message not yet held counts; a further target of
+                // one passes. Its time is the lesser of `sent_at` and now.
+                let sent = crate::membership::time(&m.sent_at)
+                    .map_err(|_| invalid("invalid conversation message"))?;
+                if tools::rate_full(&tx, id, &m.author, sent.min(crate::clock::now()))? {
+                    return Err(tools::recipient_limit());
+                }
+                tools::activity(
+                    &tx,
+                    "conversation.message_received",
+                    &format!("{id}/{}", m.message_id),
+                )?;
                 let local_seq: i64 = tx.query_row(
                     "SELECT COALESCE(MAX(local_seq), 0) + 1 FROM conversation_messages",
                     [],
@@ -2790,6 +2899,13 @@ impl Store {
         tx.execute(
             "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
             params![id, m.message_id, r.target, sender, r.prev_seq, serde_json::to_string(&inbound)?],
+        )?;
+        tools::log_event(
+            &tx,
+            "message_received",
+            id,
+            Some(&m.message_id),
+            Some(&r.target),
         )?;
         if target_kind == "agent" {
             self.notify(&tx, id, target_local, "message", Some(&m.message_id), None)?;
@@ -3447,6 +3563,7 @@ impl Store {
             "received_at": stored.received_at,
             "content": m.content,
             "addressed": addressed_to.is_empty() || addressed_to.iter().any(|a| a == me),
+            "addressed_to_labels": self.addressed_labels(conn, roster, &addressed_to)?,
             "addressed_to": addressed_to,
             "mine": m.author == me,
         });
@@ -3488,6 +3605,8 @@ impl Store {
             "unseen": unseen,
             "last_message_at": Self::last_message_at(&visible),
             "creator": roster.created_by == me,
+            "about": roster.about,
+            "home_unavailable": self.home_unavailable(conn, roster)?,
         }))
     }
     /// `GET /adapter/v1/conversations`: open conversations the agent is
@@ -3810,6 +3929,10 @@ impl Store {
         person: &str,
         pending: &Pending,
     ) -> Result<(), Error> {
+        let before = self.pending_opt(conn, id, person)?;
+        if pending.state == "pending" && before.is_none_or(|b| b.added_at != pending.added_at) {
+            tools::log_event(conn, "invited", id, None, Some(&format!("person:{person}")))?;
+        }
         conn.execute(
             "INSERT INTO conversation_invites (conversation_id, person_id, home_host, expires_at, record) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(conversation_id, person_id) DO UPDATE SET home_host = excluded.home_host, expires_at = excluded.expires_at, record = excluded.record",
             params![
@@ -4676,12 +4799,18 @@ impl Store {
         Ok(json!({ "invites": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }))
     }
     /// `{open, invites}` for status (contract C3, Status).
-    pub(crate) fn conversation_status(&self, conn: &Connection) -> Result<(i64, i64), Error> {
+    pub(crate) fn conversation_status(&self, conn: &Connection) -> Result<(i64, i64, i64), Error> {
         let Some(person) = self.conversation_person(conn)? else {
-            return Ok((0, 0));
+            return Ok((0, 0, 0));
         };
         let participant = format!("person:{}/{person}", self.identity().id);
         let open = self.open_count(conn, &participant)? as i64;
+        let mut unread = 0;
+        for held in self.all_held(conn)? {
+            if held.roster.state == "open" && held.joined_here(&participant) {
+                unread += self.unread(conn, &held.roster.conversation_id, &participant)?;
+            }
+        }
         let mut statement =
             conn.prepare("SELECT record FROM conversation_invites WHERE person_id = ?1")?;
         let rows = statement
@@ -4693,7 +4822,7 @@ impl Store {
                 invites += 1;
             }
         }
-        Ok((open, invites))
+        Ok((open, unread, invites))
     }
     /// A roster pushed to a host whose only state for the conversation is a
     /// pending invite (contract C3, Roster push and fetch).
@@ -5036,6 +5165,8 @@ struct StartRequest {
     as_agent: Option<String>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     network: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    about: Option<About>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5049,6 +5180,8 @@ struct AdapterStartRequest {
     note: Option<String>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     message_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    about: Option<About>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5056,6 +5189,8 @@ struct SendRequest {
     content: String,
     #[serde(default, deserialize_with = "crate::policy::present")]
     message_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    addressed_to: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5121,10 +5256,16 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/v1/conversations", get(list).post(start))
         .route("/v1/conversations/invites", get(invites))
+        .route("/v1/conversations/events", get(tools::events))
         .route("/v1/conversations/{id}/join", post(join))
         .route("/v1/conversations/{id}/decline", post(decline))
-        .route("/v1/conversations/{id}", get(show))
+        .route("/v1/conversations/{id}", get(show).delete(tools::forget))
         .route("/v1/conversations/{id}/messages", get(page).post(say))
+        .route(
+            "/v1/conversations/{id}/messages/{message_id}",
+            get(tools::one),
+        )
+        .route("/v1/conversations/{id}/read", post(tools::read))
         .route("/v1/conversations/{id}/manage", post(manage))
         .route("/v1/conversations/{id}/leave", post(leave))
         .route("/v1/conversations/{id}/sync", post(sync::local_sync))
@@ -5214,8 +5355,9 @@ async fn say(
 ) -> Result<Json<Value>, Error> {
     let r: SendRequest = decode(body)?;
     let (value, keys) = blocking(store.clone(), move |s| {
+        s.not_forgotten(&id)?;
         let author = s.person_participant(&*s.connection()?)?;
-        s.author_message(&id, &author, None, r.message_id, r.content)
+        s.author_message(&id, &author, None, r.message_id, r.content, r.addressed_to)
     })
     .await?;
     dispatch(&store, target_keys(keys));
@@ -5382,6 +5524,7 @@ async fn start_conversation(
     message_id: Option<String>,
     note: Option<String>,
     network: Option<String>,
+    about: Option<About>,
 ) -> Result<Started, Error> {
     if participants.is_empty() || participants.len() > MAX_PARTICIPANTS - 1 {
         return Err(invalid("give 1 to 15 participants"));
@@ -5400,6 +5543,9 @@ async fn start_conversation(
     }
     if content.as_deref().is_some_and(|c| !valid_content(c)) {
         return Err(invalid("content must be 1 to 65,536 bytes of UTF-8"));
+    }
+    if about.as_ref().is_some_and(|a| !tools::valid_about(a)) {
+        return Err(invalid("invalid about"));
     }
     if note.as_deref().is_some_and(|n| n.len() > MAX_NOTE) {
         return Err(invalid("note must be at most 4,096 bytes"));
@@ -5441,7 +5587,7 @@ async fn start_conversation(
     }
     let creator = actor.participant.clone();
     let (id, outcomes) = blocking(store.clone(), move |s| {
-        s.create_conversation(&creator, &targets, title, note)
+        s.create_conversation(&creator, &targets, title, note, about)
     })
     .await?;
     let remote: Vec<String> = outcomes
@@ -5454,7 +5600,7 @@ async fn start_conversation(
         Some(content) => {
             let (i, author, origin) = (id.clone(), actor.participant.clone(), actor.origin.clone());
             let (value, keys) = blocking(store.clone(), move |s| {
-                s.author_message(&i, &author, origin, message_id, content)
+                s.author_message(&i, &author, origin, message_id, content, None)
             })
             .await?;
             dispatch(store, target_keys(keys));
@@ -5523,6 +5669,7 @@ async fn start(
         r.message_id,
         r.note,
         r.network,
+        r.about,
     )
     .await?;
     let answer = started_answer(&store, &actor, started, false).await?;
@@ -5649,6 +5796,8 @@ async fn manage(
     if !valid_conversation_id(&id) {
         return Err(Error::NotFound);
     }
+    let i = id.clone();
+    blocking(store.clone(), move |s| s.not_forgotten(&i)).await?;
     {
         let i = id.clone();
         blocking(store.clone(), move |s| {
@@ -5687,6 +5836,8 @@ async fn leave(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Value>, Error> {
     let r: LeaveRequest = decode(body)?;
+    let i = id.clone();
+    blocking(store.clone(), move |s| s.not_forgotten(&i)).await?;
     let participant = blocking(store.clone(), move |s| {
         let conn = s.connection()?;
         match r.agent {
@@ -5863,6 +6014,7 @@ async fn adapter_start(
         r.message_id,
         r.note,
         None,
+        r.about,
     )
     .await?;
     let answer = started_answer(&store, &actor, started, true).await?;
@@ -5912,7 +6064,14 @@ async fn adapter_say(
         if !valid_conversation_id(&id) {
             return Err(Error::NotFound);
         }
-        let sent = s.author_message(&id, &author, Some(origin), r.message_id, r.content)?;
+        let sent = s.author_message(
+            &id,
+            &author,
+            Some(origin),
+            r.message_id,
+            r.content,
+            r.addressed_to,
+        )?;
         s.conversation_seen(&auth, &id)?;
         Ok(sent)
     })

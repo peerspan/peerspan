@@ -87,6 +87,7 @@ pub(super) fn saved_refusal(record: String) -> Result<Error, Error> {
         "closed" => super::closed(),
         "conflict" => Error::Conflict("message ID reused with different fields".into()),
         "invalid" => invalid("refused as invalid at a fetch"),
+        "limit" => super::tools::recipient_limit(),
         _ => Error::Forbidden,
     })
 }
@@ -373,6 +374,7 @@ impl Store {
                     ..
                 }) => "not_participant",
                 Err(Error::Coded { code: "closed", .. }) => "closed",
+                Err(Error::Coded { code: "limit", .. }) => "limit",
                 Err(Error::Coded {
                     code: "conflict", ..
                 }) => "conflict",
@@ -574,6 +576,9 @@ impl Store {
         let own = self.identity().id;
         let mut ids = Vec::new();
         for held in self.all_held(&conn)? {
+            if held.local.forgotten {
+                continue;
+            }
             let local = held.local.admitted.keys().any(|p| held.joined_here(p));
             let roster = &held.roster;
             let wanted = if roster.state == "open" {
@@ -624,6 +629,9 @@ impl Store {
     /// After a close, whether nothing is left to fetch for `target`: every
     /// outbound record is final, or 30 days passed.
     fn serving_ended(&self, conn: &Connection, held: &Held, target: &str) -> Result<bool, Error> {
+        if held.local.forgotten {
+            return Ok(true);
+        }
         if held.roster.state != "closed" {
             return Ok(false);
         }
@@ -734,6 +742,7 @@ impl Store {
             "closed",
             "invalid",
             "conflict",
+            "limit",
         ];
         let mut authors = BTreeSet::new();
         let shape = !r.acks.is_empty()
@@ -1209,7 +1218,7 @@ pub(super) async fn local_sync(
     let _: Empty = decode(body)?;
     let i = id.clone();
     let held = blocking(store.clone(), move |s| {
-        if !valid_conversation_id(&i) {
+        if !valid_conversation_id(&i) || s.not_forgotten(&i).is_err() {
             return Ok(false);
         }
         Ok(s.held_opt(&*s.connection()?, &i)?.is_some())
@@ -1228,7 +1237,7 @@ pub(super) async fn local_sync(
     Ok(Json(run_sync(&store, &id).await?))
 }
 
-fn query(
+pub(super) fn query(
     q: Result<Query<BTreeMap<String, String>>, QueryRejection>,
     allowed: &[&str],
 ) -> Result<BTreeMap<String, String>, Error> {
@@ -1238,7 +1247,7 @@ fn query(
     }
     Ok(q)
 }
-fn number(
+pub(super) fn number(
     text: Option<&String>,
     default: i64,
     range: std::ops::RangeInclusive<i64>,

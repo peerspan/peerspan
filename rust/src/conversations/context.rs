@@ -810,6 +810,7 @@ mod tests {
             created_at: now(),
             participants: Vec::new(),
             departed: Vec::new(),
+            about: None,
         };
         save_held(&store.connection().unwrap(), &Held { roster, local }).unwrap();
         (store, agent, me)

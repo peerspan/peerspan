@@ -1288,7 +1288,10 @@ fn pending_hook(value: &Value) -> Option<String> {
         .iter()
         .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
     (!empty).then(|| {
-        let context = format!("{PENDING_HOOK_LEAD}{value}");
+        let context = format!(
+            "{PENDING_HOOK_LEAD}{}",
+            crate::conversation_cli::json_text(&value.to_string())
+        );
         json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
             .to_string()
     })
@@ -1389,8 +1392,8 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
             "conversation {} {} unseen, latest from {}: {}",
             text(&c["conversation_id"]),
             c["unseen"],
-            text(&c["latest"]["author_label"]),
-            text(&c["latest"]["preview"])
+            crate::capability_cli::escaped(&text(&c["latest"]["author_label"])),
+            crate::capability_cli::escaped(&text(&c["latest"]["preview"]))
         );
     }
     for c in value["calls"].as_array().into_iter().flatten() {
@@ -2165,6 +2168,15 @@ mod tests {
             "check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. "
         ));
         assert!(output.contains("conv_x"));
+    }
+
+    #[test]
+    fn pending_output_escapes_peer_text() {
+        let mut value = json!({"deliveries": [], "replies": [], "tasks": [], "calls": []});
+        value["conversations"] = json!([{"title": "t\u{9b}2J", "conversation_id": "conv_x"}]);
+        let output = pending_hook(&value).unwrap();
+        assert!(!output.contains('\u{9b}'));
+        assert!(output.contains("t\\\\u009b2J"));
     }
 
     #[test]

@@ -47,6 +47,9 @@ pub enum ConversationCommand {
         as_agent: Option<String>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
+        /// The task this conversation is about; shown only, it grants nothing
+        #[arg(long, value_name = "HOST_ID/TASK_ID")]
+        about: Option<String>,
     },
     /// Add an agent or a person to a conversation you created
     Add {
@@ -94,6 +97,32 @@ pub enum ConversationCommand {
         /// Reuse an ID to retry a send without sending twice
         #[arg(long, value_name = "ID")]
         message_id: Option<String>,
+        /// Who this is mainly for, by participant ID or label; everyone
+        /// still receives it
+        #[arg(long = "to", value_name = "PARTICIPANT")]
+        to: Vec<String>,
+    },
+    /// Print new messages and changes as they arrive, until interrupted
+    Watch {
+        /// Only this conversation
+        #[arg(value_name = "ID")]
+        id: Option<String>,
+        /// Watch as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Mark everything in a conversation as read
+    Read {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Delete this host's copy of a conversation no one here is still in
+    Forget {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Do not ask first
+        #[arg(long)]
+        yes: bool,
     },
     /// Join a conversation you were invited to, on this host
     Join {
@@ -313,7 +342,6 @@ pub enum Command {
         harness_args: Vec<String>,
     },
     /// List conversations of this host's person and agents
-    #[command(hide = true)]
     Conversations {
         /// Include closed conversations
         #[arg(long, conflicts_with = "invites")]
@@ -326,7 +354,7 @@ pub enum Command {
         json: bool,
     },
     /// Start, send in, and show conversations
-    #[command(subcommand, hide = true)]
+    #[command(subcommand)]
     Conversation(ConversationCommand),
     /// Show the agents you can reach, your own, and who can reach yours
     Agents {
@@ -1699,7 +1727,7 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 20] = [
+pub const MAIN_COMMANDS: [&str; 22] = [
     "status",
     "up",
     "install",
@@ -1711,6 +1739,8 @@ pub const MAIN_COMMANDS: [&str; 20] = [
     "agents",
     "send",
     "task",
+    "conversations",
+    "conversation",
     "allow",
     "deny",
     "block",
