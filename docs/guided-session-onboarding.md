@@ -474,12 +474,27 @@ fresh final-head all24 suites/PR checks/review after that record commit.
 Installed/physical/model/access-readiness/device/full-feature gates stay open.
 
 
-### Next slice: current project-bound access terms
+### Current project-bound access terms
 
 Section 30 / GU.impl30 adds a pure access inspection for the attached project,
 selected network and exact person. It returns verified current membership and
 the signed policy separately from ordinary enforced content, without opening a
 signer or treating membership as agent access. Exact grant consent/signing,
 native controls, observed readiness and other-computer flow remain later work.
-Independent conformance and reviewed PR evidence are required before this slice
-is described as implemented. Full feature acceptance remains incomplete.
+The API/private CLI are implemented. Independent access6/6in97s passes on
+frozen Rust `e928c4b`, with real two-person membership/policy, exact signed JSON,
+missing signer, expiry/revocation and aggregate DB/files plus both original TCP
+and additional UDP purity/restart checks. Rust155/2ignored/fmt/Clippy/shipped
+bins and native312/312in58.25s pass locally. Old completion6/6in157s passes after
+independent genuine delivery/contact retirement and startup-directory setup;
+its local duration exceeds the two-minute target, with original waits intact.
+The [verification record](results/guided-access-inspection-verification.json)
+retains every initial compile/test failure, the fixed review P2, diagnostic
+metadata, independent provenance and exact limits. Earlier missing categories
+and the specific origin of historical UDP traffic remain unclassified; a
+passing correction does not retrospectively establish those causes. PR75 records
+final exact-head all25 CI/PR checks and fresh review after the evidence commit.
+Exact agent-grant consent/signing is next, followed by native access controls
+and observed readiness. Other-computer and installed/physical/actual-model/
+schema23→27/full-state upgrade/recovery/final combined acceptance remain open.
+Full feature acceptance remains incomplete; tracking PR35 stays unmerged.
