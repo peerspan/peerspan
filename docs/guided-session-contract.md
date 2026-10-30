@@ -4720,6 +4720,9 @@ wrong flow/context/join/commit digest409 review_changed; detached fresh parent
 request_unavailable; unsupported/missing/corrupt/ambiguous projection or absent
 intent409 commit_review_unavailable. Other HTTP methods405. CLI failures are
 controlled nonzero, no retry/stdout or stderr echo of supplied private values.
+Raw local time before request/stage/intent creation is commit_review_unavailable,
+including within the shared clock-clamp allowance; actual elapsed review/signed/
+fixed/stage bounds are review_expired. Pure failures never advance the clock.
 Successful lookup/prepare/approve are HTTP200. Atomic fault fixtures may install
 temporary schema-only BEFORE INSERT requester_commit-intent and BEFORE UPDATE
 approval-record ABORT triggers for the genuine operation, then remove them
