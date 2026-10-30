@@ -25,7 +25,7 @@ struct Plan {
 
 /// Opaque immutable private GET plan, prepared under the guided caller's
 /// preflight snapshot. This path never acknowledges, publishes or learns contacts.
-pub(crate) struct IncomingPlan(Plan);
+pub(crate) struct IncomingPlan(Plan, [u8; 16]);
 pub(crate) fn incoming_plan(
     c: &rusqlite::Connection,
     p: &requests::Pending,
@@ -42,22 +42,26 @@ pub(crate) fn incoming_plan(
             .all(|f| incoming_role(&f.role)),
         "state_conflict",
     )?;
-    Ok(IncomingPlan(Plan {
-        id: p.id.clone(),
-        locator: bootstrap::locator(&secret),
-        created_at: text(&p.packet()?.payload, "created_at")?.into(),
-        expires_at: p.deadline.clone(),
-        cap: bootstrap::read_cap(&secret),
-        endpoints: p.record.carrier_endpoints.clone(),
-        frames: Vec::new(),
-        outbound: Vec::new(),
-        terminal: false,
-    }))
+    Ok(IncomingPlan(
+        Plan {
+            id: p.id.clone(),
+            locator: bootstrap::locator(&secret),
+            created_at: text(&p.packet()?.payload, "created_at")?.into(),
+            expires_at: p.deadline.clone(),
+            cap: bootstrap::read_cap(&secret),
+            endpoints: p.record.carrier_endpoints.clone(),
+            frames: Vec::new(),
+            outbound: Vec::new(),
+            terminal: false,
+        },
+        secret,
+    ))
 }
 pub(crate) fn incoming_role(role: &str) -> bool {
     matches!(role, "request" | "owner" | "selection" | "proofs")
 }
 pub(crate) async fn fetch_incoming(store: Arc<Store>, plan: IncomingPlan) -> Result<Vec<Frame>> {
+    let secret = plan.1;
     let plan = Arc::new(plan.0);
     let mut tasks = tokio::task::JoinSet::new();
     for endpoint in plan.endpoints.clone() {
@@ -80,6 +84,12 @@ pub(crate) async fn fetch_incoming(store: Arc<Store>, plan: IncomingPlan) -> Res
                 frames.iter().all(|f| incoming_role(&f.role)),
                 "state_conflict",
             )?;
+            // Reject this endpoint as a unit before it can poison another
+            // carrier's valid response. Retention revalidates the merged prefix
+            // and all context/operation pins under its atomic transaction.
+            for frame in &frames {
+                frame.open_bytes(&secret, &now)?;
+            }
             Ok::<_, Error>(frames)
         });
     }

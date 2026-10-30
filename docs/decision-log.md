@@ -2477,3 +2477,13 @@ Section22 defines independent incoming_progress6 and all20 final CI.
 Discarded: implicit polling in inspection, calling broad resume/observer engines,
 automatic provider/approval/selection/commit, external endpoint inputs, contact
 learning, partial failed retention and another schema/journal.
+
+### GU.impl22a — Validate each carrier's encrypted frames before union
+
+Selected: reject an endpoint's complete snapshot if any frame fails ordinary
+decryption/plaintext validation, before combining it with healthy responses.
+The initial review found that outer-envelope validation alone let one invalid
+encrypted snapshot block another carrier's valid prefix. Keep the later atomic
+retention, context/proof validation and cross-snapshot ambiguity checks.
+Discarded: letting arrival order choose a carrier, dropping individual invalid
+frames from a snapshot, weakening atomic retention or changing ordinary polling.
