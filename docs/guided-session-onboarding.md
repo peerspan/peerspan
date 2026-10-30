@@ -394,3 +394,7 @@ retains the initial failures, independently authored fixture corrections,
 source/binary hashes and cancellation/attribution limits. PR62 records final
 combined-head CI and fresh review after that record commit. This is backend
 signing evidence; installed, physical-machine and actual-model gates remain open.
+
+The next native finalization slice (section26) adds explicit public review and
+one bounded signing control over the existing sections24/25. It preserves
+lookup-first recovery and keeps requester final commit as a separate decision.

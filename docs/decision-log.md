@@ -2680,3 +2680,16 @@ checks. Sync acknowledgment is observed, not inferred. The retained failure
 fixture later had empty queues/no journal on both hosts, which cannot establish
 its earlier change direction/cause. Discarded: stale hold flags, row edits,
 worker disabling, dropping queue/journal/counter checks or larger timeouts.
+
+### GU.impl26 — Native explicit original finalization and pure recovery
+
+Selected: one explicit pure review of the existing section24 projection, then
+one exact section25 CLI call under the captured digest and approved original
+consent. Fresh authoritative parent/host/flow/owner/projection checks guard
+dispatch/display;95s native process bound is separate from90s async orchestration.
+Completed F recovers through pure owner lookup without historical digest or
+frontend signature attribution. Keep requester commit/access/readiness separate.
+Section26 defines independent native coverage with all old272 and host22
+preserved. Discarded: new backend/progress APIs, approval as key-use consent,
+frontend keys/templates, implicit signing/retries, automatic requester commit
+and more onboarding persistence. This continues the accepted four-step flow.

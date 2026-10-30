@@ -4406,7 +4406,158 @@ its exact cause. Preserve unclassified failure attribution and instantaneous
 scheduler/source limits. Every changed fixture is independently authored and
 committed before its one corrected full run against the same frozen binary.
 
-## 26. Remaining flow contract
+## 26. Native bounded original finalization
+
+This human-only native slice composes the pure section24 inspection and bounded
+section25 CLI after exact approved original consent. No Rust/API/schema change,
+key inventory/selection, signing bytes, model tool/turn, persistence journal,
+automatic fetch/sign/resume or requester commit. Existing approved worker
+progress remains separate from pure human observation.
+
+### Review and exact public terms
+
+In an attached project's published join outcome, an approved owner review with
+the exact completed original offer/selection/administrator prefix may offer
+**Review original finalization**. It requires requester/new/nonmigration,
+needs_owner_finalization, selection approved, commit not approved, all four
+request_created/owner_offered/owner_selected/administrator_offered stages and no
+F/manifest/activation/outcome. Existing host/person/network/device and immutable
+section16 owner review/digest checks apply. It never prepares or approves owner
+or administrator intent. Entry/Check owner consent/progress/Refresh/reload do
+not implicitly fetch section24 or invoke signing.
+
+The explicit review first checks current native terminal/root/conversation,
+authoritative attached parent and host, immutable published join flow/outcome
+and pure owner lookup. Require the same displayed approved owner consent and
+immutable request pins. If that lookup already records the exact original F,
+show global recorded evidence without section24 inspection or signing. Otherwise
+one pure finalization inspect binds that exact owner review. Recheck authoritative
+parent, flow, host and native context after IO before displaying controls.
+
+Validate the complete closed section24 wrapper/request/review/effects, canonical
+dates/IDs/public keys and domain-separated digest. Bind all flow/context/host,
+owner/join review, request/intent/network/member/person/host/device/fixed-term
+pins to the current approved owner snapshot and published flow. Exact original
+offer/selection/administrator references, distinct current root/P/H IDs and
+administrator public writer/signer/format/issuer are required. The native view
+validates public projections; the daemon owns cryptographic proof verification.
+No private prefix, extra/null/unknown field or inconsistent stage is displayed.
+
+Show quoted project/network/member and participant public keys, original consent,
+selected original offer/selection/administrator references, current root/P/H,
+administrator identity/format/issuer, fixed profile7 with binding scope2, and
+fixed expiry. Explain that the explicit action uses this approved original's
+safe existing generated key or exact SSH-agent identity, at most two ordered
+batches/three original signatures. It creates/copies/imports no key. It records
+binding/device/finalization evidence, with requester commit, adopted powers,
+agent access, files/conversation sharing, capabilities and readiness separate.
+Leaving cannot retract already dispatched signatures or submissions.
+
+### One explicit bounded signing action
+
+Only a validated fresh inspection offers **Sign original finalization**. The
+earlier of request.expires_at and fixed not_after bounds review/sign eligibility
+using native and observed times; observation more than30s in the future refuses.
+The original approved review's old15min window does not renew or remove consent.
+An authoritative timer removes Sign at that effective deadline without signing,
+renewing, cancelling, committing or replacing retained publication. Ordinary
+stage-inactivity/root/P/H checks remain enforced by the daemon.
+
+The first press synchronously sets busy, clears old actionable terms and makes
+double presses inert. Recheck native/authoritative parent/host/immutable join,
+pure owner lookup and the same approved consent. Already recorded exact F is
+read-only recovery with zero inspect/sign calls. Otherwise re-inspect section24
+and require exactly the displayed digest and entire review, immutable original
+and exact offer/selection/administrator prefix. Recheck authoritative parent/
+flow/host/native context and effective deadline immediately before dispatch.
+Changed terms/state/context or unready work sends zero sign commands, never
+silently rebinds the old press to a new review.
+
+Invoke exactly the configured executable and literal --state argv:
+onboarding join owner finalization sign --stdin
+with timeoutMs95000 and exactly
+{flow_id,context,join_review_id,owner_review_id,finalization_review_id,
+ decision:"sign_original_finalization"}
+in private stdin. Read calls retain5s; no payload/references in argv/shell,
+broad link signing/resume/selection, administrator work, requester commit or
+automatic retry. The95s native process bound is separate from section25's90s
+asynchronous deadline. Timeout/Leave cannot retract an already used key or
+dispatched/committed POST, and partial B/D/F may remain retained.
+
+Accept success only as the complete section16 owner wrapper plus exactly
+original_finalization:{state:"recorded",review_id:<captured inspection digest>,
+packet_id:<typed F ID>}. Strip only that known marker before reusing full owner
+validation. Require the exact approved immutable owner review/request pins,
+same original offer/selection/administrator prefix and request F equal packet_id.
+Reject bare snapshots, extra/null/malformed/private markers, changed digests,
+packet/pins/keys/terms or invalid dates/stages. After dispatch later valid stages
+and expired bounds may still show historical retained F; they grant no current
+authority. Recheck authoritative attachment/flow/host/native context after IO
+before display. No callback may restore a departed view.
+
+### Recovery and volatile authority
+
+**Check original finalization** is explicit pure owner lookup and, only while
+still eligible with no F, pure section24 inspection. It neither signs nor
+prepares/approves/polls/resumes. A completed F observed by Check is global public
+evidence without attributing its creation or a historical inspection digest to
+this pane. A missing F does not prove B/D were not partially signed. After a
+failed/denied/timed-out/malformed signing result, report outcome unknown, clear
+actionable terms, preserve publication and offer Check; another sign requires
+a freshly displayed review and another explicit press. Never echo raw process
+stdout/stderr, templates/messages/signatures/paths/agent comments or private data.
+
+**Leave finalization review** remains available during preflight and pending
+signing, clearing volatile review/digest/error/confirmation and callback
+authority without cancelling/revoking protocol consent. Back/Close/Refresh/
+root/conversation/host/parent/surface/session change does likewise. Old callbacks
+or expiry timers cannot restore departed terms or disable a newer view. Current
+adapter/message/task/lease runtime and inviter invariants remain unchanged;
+no new prompt, hello, tool or frontend storage. Actual terminal/installed/
+physical-machine/model/schema23-to27 acceptance remains separate. Previous
+rejected terminal actions and unchanged quota-refused probes are not retried.
+
+### Verification
+
+A separate contract-only author adds one compact native finalization test file,
+without reading product hooks/Rust or importing implementation helpers. Preserve
+all original272 native files/assertions/stimuli/delays/timeouts and all22 host
+suites. Genuine delayed fixtures signal dispatch/registration before navigation
+or virtual time advances. Cover:
+
+1. Inert entry/approval/progress/Check owner/Refresh/reload; only the exact live
+   approved four-stage prefix offers Review, then explicit inspection displays
+   complete quoted terms, bounded effects, separate commit/access/readiness.
+2. Double Sign performs fresh authoritative parent/host/flow/owner/inspection
+   checks and one exact configured95s stdin call. Changed prefix/consent/digest/
+   root/P/H/admin/context/host/stage/deadline refuses; just-recorded F recovers
+   read-only with zero inspect/sign. Future observations refuse.
+3. Closed inspection/digest/effects/request/review/key/date/private corpus;
+   strict success marker/packet/prefix/owner corpus. Bare/changed/private results
+   cannot confirm; same-context later valid stages can confirm historical F.
+4. Original review-window expiry alone preserves otherwise eligible signing;
+   request/fixed end expires controls; preflight crossing blocks dispatch,
+   post-dispatch crossing allows historical evidence. Stale timers cannot
+   affect a newer view or automatically renew/sign.
+5. Lost/denied/raw/timeout/mismatched results stay unknown without retry. Check
+   uses only lookup/eligible inspection; missing F acknowledges partial-work
+   uncertainty, completed F recovers without sign or historical attribution.
+6. Leave/Back/Close/Refresh/root/conversation/host/parent/surface/end in preflight
+   or after dispatch clears authority without retraction claims or runtime loss.
+
+Run strict validation/full native suite, existing owner_finalization_signing6/
+owner_finalization6, required Rust gates and all22 CI suites on one final head.
+Record exact source/binary/test provenance, initial failures/corrections and
+source/mock/manual limits. The test kit invokes current drawings; old retained
+closures/narrow final-check-to-dispatch intervals remain source limits unless
+a genuine deterministic fixture is available.
+
+Selected: explicit pure finalization review, one bounded backend call and
+lookup-first recovery. Discarded: more protocol/proof APIs, combined consent/
+key use, frontend signer selection, hidden sign-as-read, retries/polling, new
+journals and recorded F as requester commit or connection readiness.
+
+## 27. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
