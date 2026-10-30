@@ -526,3 +526,14 @@ Complex authority/quota/overflow and installed/physical/actual-model/full-state
 upgrade/recovery limits remain explicit. Bounded policy signing/publication,
 native access controls, observed readiness and other-computer flow follow.
 Tracking PR35 stays unmerged; full-feature acceptance remains incomplete.
+
+### Next slice: bounded exact policy signature storage
+
+Merged77 (`2a36210`) supplies exact agent-access consent. Section32 / GU.impl32
+adds one explicit bounded signer operation and pure signature observation on
+that immutable ordinary action; its human receipt remains nonsigning. Device
+and exact original daemon signer paths keep current authority checks around IO.
+Signature/clock persistence is atomic and does not apply/publish a policy.
+Independent conformance and reviewed evidence follow. Bounded publication/local
+application, native access controls, observed readiness and the remaining full
+acceptance gates stay separate; PR35 stays unmerged.
