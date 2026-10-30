@@ -561,7 +561,17 @@ def _():
     deny(wait=True)
     try:
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
-        api_error(status, body, 403, "not_authorized")
+        if status == 201:  # alice's directory entry can still be the earlier one: bob refuses the invite
+            outcome = body["invites"][0]
+            check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
+            denied = body["conversation"]["conversation_id"]
+            check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
+                  f"ana is in the denied conversation: {body['conversation']}")
+            status, listed = ana.call("GET", "/adapter/v1/conversations")
+            check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
+                  f"ana lists the denied conversation: {status} {listed}")
+        else:
+            api_error(status, body, 403, "not_authorized")
     finally:
         allow()
 
@@ -826,6 +836,8 @@ def _():
     bob_p = person_p(b, "bob")
     mid = say(conv, "will be forgotten")
     show_targets(a, conv, mid, bob_p, "delivered")
+    bobs = b.ok("conversation", "say", conv, text("bob's before forgetting"))["message"]
+    show_targets(b, conv, bobs["message_id"], state["alice_p"], "delivered")
     refused(b.cli("conversation", "forget", conv, "--yes"), "in_use", IN_USE)
     status, body = b.api("DELETE", f"/v1/conversations/{conv}")
     api_error(status, body, 409, "in_use", IN_USE)
@@ -855,6 +867,16 @@ def _():
     check(conv not in {e["conversation_id"] for e in events(b)["events"]}, "its entries are still in the log")
     status, body = b.api("DELETE", f"/v1/conversations/{conv}")
     api_error(status, body, 404, "not_found")
+    state["forgotten_conv"] = conv
+    # A later invite is a new start, and the author's next message never reuses a seq other hosts hold.
+    a.ok("conversation", "add", conv, "person:bob", timeout=60)
+    wait_invite(b, conv)
+    b.ok("conversation", "join", conv, timeout=60)
+    again = b.ok("conversation", "say", conv, text("bob's after forgetting"))["message"]
+    check(again["seq"] > bobs["seq"], f"seq {again['seq']} after forgetting, want above {bobs['seq']}")
+    show_targets(b, conv, again["message_id"], state["alice_p"], "delivered")
+    b.ok("conversation", "leave", conv)
+    b.ok("conversation", "forget", conv, "--yes")
     # Known only from a pending invite: not held.
     pending = start("person:bob", join=None)
     wait_invite(b, pending)
@@ -1085,8 +1107,8 @@ def _():
 def _():
     conv = need("read_conv")[0]
     # Every case above used these conversations; what they did must all be here, as subjects only.
-    limit, local, local_message, refused_subject, closed = need("limit_conv", "local_conv", "local_message",
-                                                                "refused_subject", "closed_conv")
+    limit, local, local_message, refused_subject, closed, _ = need("limit_conv", "local_conv", "local_message",
+                                                                   "refused_subject", "closed_conv", "forgotten_conv")
     for host in (a, b):
         result = host.cli("activity", "--limit", "1000")
         check(result.ok, f"{host.name}: activity: exit {result.code}: {result.stderr[-200:]!r}")
@@ -1112,7 +1134,9 @@ def _():
     subject = f"{local}/{local_message}"
     of = [e["kind"] for e in entries["alice"] if e["subject_id"] == subject]
     check(of == ["conversation.message_sent"], f"the local delivery recorded {of}, want one message_sent")
-    received = [e["subject_id"] for e in entries["bob"] if e["kind"] == "conversation.message_received"]
+    # (A forgotten conversation's messages may be stored again after a later invite: `conversation forget`.)
+    received = [e["subject_id"] for e in entries["bob"] if e["kind"] == "conversation.message_received"
+                and not e["subject_id"].startswith(state["forgotten_conv"])]
     check(len(received) == len(set(received)), "bob recorded a message_received twice")
     created = [e["subject_id"] for e in entries["alice"] if e["kind"] == "conversation.created"]
     check(len(created) == len(set(created)), "a conversation was created twice")
