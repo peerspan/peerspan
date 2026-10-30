@@ -2862,3 +2862,14 @@ the failed run and observed load, then run the full unchanged suite once after
 the host is actually idle. Exact per-case load attribution remains unproven.
 Discarded: changing tests/timeouts, calling the failure a proven product bug or
 retrying unchanged until green. Runtime and host suites stay serial locally.
+
+### GU.impl28d — Pin application lifecycle and rollback/delivery evidence
+
+Selected: preserve the exact prior completed requester-intent record with only
+its ordinary terminal lifecycle changing to applied. Verify proof-publication
+outbox rollback with application authority; carrier frames are a separate
+earlier phase. Unavailable-carrier participant delivery uses separate explicit
+ordinary completed-requester repair during setup, outside pure replay measures.
+Keep the first independent CI result before any fixture correction. Discarded:
+freezing a pre-application terminal label, omitting proof outbox from rollback or
+attributing advanced delivery repair to pure guided history.
