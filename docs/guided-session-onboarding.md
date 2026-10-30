@@ -368,7 +368,12 @@ request selection, bounded proof fetch, exact administrator preparation and
 approval, with pure Check recovery. Original finalization, requester commit,
 device linking and agent-access/readiness reviews remain separate work.
 
-Original finalization inspection (section24) is the next backend slice: a pure
+Original finalization inspection (section24) provides a pure
 view of the exact original consent and independently verified administrator
 root/person/host parents. It does not fetch, materialize drafts, sign or commit.
 Bounded original finalization, requester commit and native controls follow.
+
+Independent section24 verification passes all six real-host cases on frozen
+production `f34b100`, including same-request advanced original finalization and
+separate requester commit. Exact provenance, source/binary hashes and limits:
+[verification record](results/guided-owner-finalization-inspection-verification.json).
