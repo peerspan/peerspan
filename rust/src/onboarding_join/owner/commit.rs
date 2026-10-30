@@ -1,6 +1,7 @@
 //! Durable exact requester consent over the ordinary intent; pure recovery.
 use super::*;
 use crate::decentralized::{commit_in, commit_live, commit_proposal};
+mod complete;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,6 +38,7 @@ pub fn decode_commit_input(bytes: &[u8], operation: &str, cli: bool) -> Result<V
     let keys = match operation {
         "lookup" | "prepare" => "context join_review_id",
         "approve" => "context join_review_id commit_review_id",
+        "complete" => "context join_review_id commit_review_id decision",
         _ => return Err(invalid()),
     };
     let keys = if cli {
@@ -58,7 +60,13 @@ pub fn decode_commit_input(bytes: &[u8], operation: &str, cli: bool) -> Result<V
             return Err(invalid());
         }
     }
-    let context = if operation == "approve" {
+    let context = if operation == "complete" {
+        let input = complete::parse(body)?;
+        OwnerContext {
+            context: input.context,
+            join_review_id: input.join_review_id,
+        }
+    } else if operation == "approve" {
         let a: Approval = serde_json::from_value(body).map_err(|_| invalid())?;
         if !crate::peer_store::valid_id(&a.commit_review_id, "review", 32) {
             return Err(invalid());
@@ -417,4 +425,5 @@ pub(super) fn routes() -> Router<Arc<Store>> {
             "/v1/onboarding/join-flows/{id}/commit/approve",
             post(approve),
         )
+        .merge(complete::routes())
 }

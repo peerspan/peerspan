@@ -618,9 +618,23 @@ pub(crate) fn activation_bytes(p: &Pending, commit: &[u8]) -> Result<Vec<u8>> {
     Ok(raw)
 }
 pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
+    resume_guarded(store, id, None, |_, _| Ok(()))
+}
+/// The guided caller adds checks inside each existing phase transaction.
+/// Ordinary continuation retains its unbounded phase loop and no added checks.
+pub(crate) fn resume_guarded(
+    store: &Store,
+    id: &str,
+    maximum: Option<usize>,
+    mut guard: impl FnMut(&Connection, &Pending) -> Result<()>,
+) -> Result<()> {
+    let mut phases = 0;
     // Each pass commits exactly one dependency/signature/frame phase, releases
     // the writer guard, then exposes that real durable boundary.
     loop {
+        if maximum.is_some_and(|maximum| phases >= maximum) {
+            return Ok(());
+        }
         let mut c = store.connection().map_err(|_| Error::new("internal"))?;
         let tx = c.transaction().map_err(db)?;
         let mut p = requests::load(&tx, id)?;
@@ -632,6 +646,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
         {
             return Ok(());
         }
+        guard(&tx, &p)?;
         let stage = context(&tx, store, &p)?;
         // No new commit signature after 600 idle seconds (spec 8.5); a commit
         // already signed is past the timeout and is still published.
@@ -646,6 +661,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                 .ok_or_else(|| Error::new("state_conflict"))?
                 .pending()?
                 .is_empty();
+        guard(&tx, &p)?;
         let barrier = if binding_missing {
             budget(&tx, store, &p, &stage)?;
             let value = objects[0]
@@ -657,6 +673,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                         && slot.public_key == p.record.host_public_key
                         && slot.signature_format == "ed25519",
                 )?;
+                guard(&tx, &p)?;
                 i.record.signatures.push(Filled {
                     slot_id: 1,
                     role: slot.role,
@@ -701,6 +718,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                     "device" if slot.public_key == p.record.device_public_key => &device,
                     _ => return Err(Error::new("state_conflict")),
                 };
+                guard(&tx, &p)?;
                 i.record.signatures.push(Filled {
                     slot_id: index as u64 + 1,
                     role: slot.role,
@@ -732,15 +750,19 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
             let full = verify_complete(&tx, store, &p, &i, &stage, &raw)?;
             // Proof-only frames retain exact whole objects; packet frame refers
             // to the same fixed closure without crossing the2MiB component cap.
+            guard(&tx, &p)?;
             retain_catalog(&tx, store, &mut p, &catalog, &stage.now)?;
+            guard(&tx, &p)?;
             retain_outbound(&tx, store, &mut p, "commit", &raw, "-", &stage.now)?;
             p.record.catalog_base64 = encode(&full.bytes);
             requests::save(&tx, &p)?;
             "dec.frame.after_commit"
         };
+        guard(&tx, &p)?;
         controls::remember_decision(&tx, &i.network_id, &stage.now)?;
         tx.commit().map_err(db)?;
         drop(c);
+        phases += 1;
         controls::barrier(store, barrier, id)?;
         if barrier == "dec.signature.after_commit" && i.record.completed {
             controls::barrier(store, "dec.requester_commit.after_commit", id)?;
