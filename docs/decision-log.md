@@ -2910,3 +2910,14 @@ clocks once to their maximum/current time plus one second, within the runtime's
 strict retirement wait and full historical purity measurements. Independent
 author commits before one corrected run. Discarded: sleeping longer, retry loops,
 queue edits, force-ACK/worker controls or a production change for test timing.
+
+### GU.impl29 — Native exact requester consent and bounded completion
+
+After merged69, select separate human Review, Approve and Complete controls over
+sections27/28, with pure lookup-first recovery and strict public projections.
+Section29 precedes code and independent native conformance. Preserve original
+consent, exact immutable F/terms, parent/native/time guards and distinct local
+application/delivery/access/readiness evidence. No schema/Rust/protocol or
+frontend keys/model tools/journal. Discarded: a combined approve-and-complete
+press, hidden mutation during Check/reload, provider selection, automatic agent
+access and recorded local application as a verified connection.

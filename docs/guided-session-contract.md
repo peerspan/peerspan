@@ -5074,7 +5074,197 @@ implicit approval, a new consent/job journal, original-key fallback, carrier
 ACK as authority, whole-command rollback claims across prior phases and local
 application as a ready connection.
 
-## 29. Remaining flow contract
+## 29. Native requester consent and completion
+
+This human-only native slice composes sections27/28 after original finalization.
+It changes no Rust/API/schema/protocol, key inventory/provider selection, model
+tool/prompt/turn, frontend storage or adapter/message/task/lease behavior. Separate
+explicit review, approval and completion remain distinct human actions. Existing
+authorized workers may sign or publish after approval; no pane attribution or
+global absence is inferred. Preserve all24 host suites and292 native tests.
+
+### Entry, exact review and lookup-first recovery
+
+Within the attached project's published requester/new/nonmigration outcome,
+the exact approved original consent and recorded original F expose **Review
+requester commit**. Offer this beside recorded-F evidence in both the original
+finalization pane and owner pane; no original-signature/finalization action
+implicitly prepares, approves or completes requester consent. Ordinary entry,
+join progress, owner Check, Refresh/reload and original approval/signing remain
+inert with respect to these new actions.
+
+An explicit Review checks native terminal/root/conversation, authoritative exact
+attached project and host, immutable published join flow/outcome and pure owner
+lookup. Require approved original consent and immutable request/person/host/
+device/network/offer/selection/administrator/F pins. First call only section27
+commit lookup. An existing review, including approved/expired/cancelled/invalid
+history, is recovered without preparing or refreshing it. Only this explicit
+Review, a null lookup and the exact eligible needs_commit five-stage F prefix
+permit one prepare call. Never combine prepare with approval or completion.
+After IO recheck authoritative parent/host/flow/native context before display.
+
+Inside the requester pane **Check requester consent** repeats pure owner and
+commit lookups, with no prepare/approve/complete/progress/fetch/resume/sign call.
+It may report null consent or retained historical states. After lost responses
+or reload, reenter through published outcome/owner lookup and explicit Review;
+lookup precedes any potential first preparation. No polling or hidden retry.
+
+Validate section27's complete closed wrapper, LINK_VIEW, commit/review/effects,
+canonical UTC dates, typed IDs and public keys, fixed profile7/binding2/seven-day
+end and requester provider. Verify its domain-separated canonical review digest.
+Bind all host/context/flow/join/owner/request/intent/network/member/person/host/
+device/packet/offer/selection/administrator/F references to the approved original
+and published outcome. Require five distinct canonical root/P/H/B/D statement
+IDs, exact provider host/device/ed25519, intent-created>=request-created and
+review expiry=min(intent-created+15min, signed request deadline, fixed end).
+Review and approved states/actions must agree with exact request approval and
+complete prefix. Approved requests may advance through commit retention and
+local application between calls without changing immutable consent/F pins.
+History can outlive the human review/request/powers bounds; it confers no
+current authority. An observation more than30s in the future, malformed/null/
+extra/unknown/private value or inconsistent request/state refuses display.
+The frontend validates public projections; cryptographic verification remains
+the daemon's responsibility. Internal flow/review/intent/native/session IDs are
+private transport bindings, not displayed terms.
+
+Show quoted project/network/member, public network/context/genesis root and
+person/host/device keys; original consent and exact offer/selection/admin/F;
+root/P/H/B/D references; fixed powers and their end; human review and signed
+request expiry; owned requester provider/ed25519. Explicitly state profile7 is
+policy editing1, host binding2 and eligible own-device approval/renewal/revocation4,
+without network administrator8. Approval authorizes existing intent, binding-host
+and requester signatures, commit publication and local application. Files,
+conversation sharing, capability calls and agent-access grants remain none.
+Completion uses owned host/device keys, never selects/creates/copies/imports an
+original key. Separate participant approvals remain intact. Leaving cannot
+retract durable consent, prior valid signatures/publication or dispatched work.
+
+### Separate approval and bounded completion
+
+Only an exact live state=review offers **Approve requester commit**. The first
+press synchronously makes the pane busy and invalidates old callbacks. Repeat
+authoritative native/parent/host/flow, pure owner lookup and pure commit lookup;
+require exactly the displayed immutable review/digest and original/F pins.
+If that exact consent is already approved, recover it read-only with zero
+approval calls. Otherwise recheck all attachment/context/host/flow authority and
+native time after asynchronous preflight immediately before dispatch. Require
+native/observed time>=request/intent creation and before review/request/fixed
+bounds. Stage/raw/guarded/root/device eligibility stays enforced by the daemon.
+One configured executable/literal --state private-stdin command, timeoutMs5000:
+
+```
+onboarding join commit approve --stdin
+{flow_id,context,join_review_id,commit_review_id}
+```
+
+Accept only the exact approved section27 wrapper with unchanged immutable review
+and pins. Recheck authoritative parent/host/flow/native context after IO before
+display. Approval never dispatches Complete automatically. It may already have
+authorized independent ordinary signatures/publication, without pane attribution.
+
+Only exact approved consent with a live signed request/fixed end, selection/F
+and no local application offers **Complete requester commit**. The old15min
+review window alone does not revoke durable approval or disable otherwise live
+completion. An authoritative timer removes Approve at review/request/fixed end,
+and Complete at request/fixed end; it does not renew/read/retry or mutate state.
+Before Complete repeat the same authoritative checks and pure owner/commit
+lookups, require exactly the displayed approved review/digest and immutable
+original/F prefix. A just-recorded local application is read-only recovery,
+zero Complete calls. Changed consent/state/prefix/context/time sends zero
+mutation calls; never silently rebind an old press to another review. Recheck
+native clock after asynchronous preflight before dispatch. One configured
+executable/literal --state command, timeoutMs95000, exact private stdin:
+
+```
+onboarding join commit complete --stdin
+{flow_id,context,join_review_id,commit_review_id,
+ decision:"complete_requester_commit"}
+```
+
+No private payload/references in argv/shell, broad link commit/resume, original
+or administrator signing, polling or automatic retry.95s client/90s server
+bounds and partial-work/cancellation limits remain those of section28.
+
+Accept completion success only as the full section27 wrapper plus the exact
+section28 completion marker, state=locally_applied, captured commit review ID,
+typed manifest/activation/outcome references equal the same linked request,
+and all three not_verified delivery/access/readiness values. Require identical
+approved immutable review, original/F/request pins and complete seven-stage
+prefix. Bare snapshots, wrong/missing/null/extra/private markers or references,
+changed review/digest/keys/terms and malformed dates/states cannot confirm.
+After dispatch elapsed protocol bounds may show retained historical application;
+fresh attachment/context/host/flow/native display guards still apply. Recheck
+those authoritative guards and future-time bound after IO before display.
+
+### Volatile state, uncertainty and truthful evidence
+
+After failed/denied/timed-out/raw/malformed/mismatched approval or completion,
+show fixed outcome unknown, clear actionable terms and offer Check. Another
+mutation requires freshly displayed terms and an explicit press; raw stdout/
+stderr/errors and private codes/paths/templates/signatures never reach UI/logs/
+model events. Check may report **Requester consent: recorded** and **Local
+application: recorded** from exact global public history, without attributing
+the approving/completing interface or inventing an old completion marker/digest.
+Only a valid explicit completion reply confirms its exact section28 marker.
+Neither recorded approval nor application establishes current powers, participant
+delivery, agent access, files/conversation/capabilities, connection or model
+readiness. Absent application evidence does not prove earlier work is absent.
+
+**Leave requester review** remains available during preflight/pending mutations.
+It clears volatile review/digest/error/confirmation and callback/timer authority,
+returns to the published join outcome, and does not cancel/decline/revoke
+protocol consent. Back/Close/Refresh/project/root/conversation/host/parent/surface/
+session changes invalidate old callbacks likewise. Late reads/results/timers
+cannot restore a departed pane or disable a newer pane. No new journal/recovery
+store, adapter credential, prompt, model tool or message/task/lease change.
+Actual terminal/installed/physical/model/schema23-to27/full-state recovery gates
+remain open. Do not repeat earlier rejected terminal/quota probes.
+
+### Verification
+
+A separate contract-only author adds one compact independent native test file,
+without reading hooks/Rust or importing product helpers. Preserve original292
+native files/assertions/stimuli/delays/timeouts and all24 host suites unchanged.
+Model exact public backend projections from sections27/28; fresh needs_commit
+has no manifest/activation/outcome, and later real prefix advances are separate
+fixtures. Retained old callback closure limitations stay source/manual where
+the public kit cannot deliver them. Deterministic delayed fixtures must signal
+real command dispatch before navigation or clock changes. Cover:
+
+1. Inert entry/owner/progress/Refresh/reload, exact approved original+F entry;
+   lookup before explicit first preparation; existing/null/history recovery and
+   Check never prepare/approve/complete. Complete public quoted review/effects.
+2. Separate fresh approval and completion; double presses produce one exact
+   configured5s/95s private-stdin mutation after fresh authoritative checks.
+   Already approved/applied preflight recovers read-only with zero mutation.
+   No automatic completion after approval, no original key use/frontend storage.
+3. Closed wrapper/review/digest/effects/provider/date/ID/private-prefix corpus;
+   exact original/F/root/P/H/B/D/request/profile/end binding. Changed preflight
+   terms/parents/host/flow/context/native terminal or time sends zero mutation.
+4. Strict approved and completion reply corpora, exact marker/reference/not_verified
+   values, unknown outcomes on nonzero/timeout/raw/malformed/bare replies, pure
+   explicit Check recovery and no interface/historical marker attribution.
+5. Review15min expiry disables approval but preserves otherwise live approved
+   completion; request/fixed end disables completion. Post-async preflight
+   crossing blocks dispatch; post-dispatch expiry permits historical reply;
+   future observations/early time refuse, stale timers cannot alter new panes.
+6. Leave/Back/Close/Refresh/root/conversation/host/parent/surface/end during
+   preflight or pending mutations clears authority without retry/retraction
+   claims; original adapter/message/task runtime and old292 remain intact.
+
+Run strict validation/full native suite, unchanged requester_commit6 and
+requester_completion6 against frozen merged69 binaries, required Rust gates,
+then all24 CI suites/PR checks/fresh review on one final combined head. Serialize
+primary-owned builds/native/host runs; record external overlap, every failure/
+correction, exact source/binary/test/log provenance and source/manual limits.
+No weakened assertions/timeouts or unchanged retries until green.
+
+Selected: compose existing exact backends through separate native review,
+approval and completion with pure lookup-first recovery. Discarded: combining
+consent and completion, blanket agent access, frontend signing/provider choice,
+new persistence, retry/polling and local application as connection readiness.
+
+## 30. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
