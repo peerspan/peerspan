@@ -77,3 +77,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `owner_finalization_signing`: bounded original B/D/F signing under exact
   original consent/verified administrator parents and key/privacy (section25).
+
+- `requester_commit`: exact durable requester final-commit review, ordinary
+  intent/request atomic approval, rollback, privacy and pure history (section27).
