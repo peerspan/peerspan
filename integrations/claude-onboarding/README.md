@@ -8,10 +8,11 @@ Explicit incoming-message and assigned-task paths use scoped native tools.
 Native invitation review and explicit private code reveal are available.
 Private recipient invitation inspection and explicit join-request publication
 with an existing or explicitly created local original identity are available.
-A published request also offers exact new-original owner consent review/approval;
-original signing and remaining participant decisions use advanced linking.
-Participant admission, sharing permissions and live model acceptance remain
-later work. Owner actions stay in the human pane; no model setup tool is added.
+A published request also offers exact new-original owner consent, original-offer
+signing and original finalization. The inviting computer has separate incoming
+administrator review/consent. Requester final commit, sharing permissions and
+live model acceptance remain later work. Owner actions stay in the human pane;
+no model setup tool is added.
 
 ## Try the entry
 
@@ -267,8 +268,8 @@ administrator consent** to verify it and prepare the exact unapproved review.
 Read the complete network/current-root, person/host/device, finite powers,
 deadlines and effects before **Approve administrator consent**. Approval permits
 ordinary background root/host signing and administrator-offer publication.
-Original finalization, requester commit, agent access and connection readiness
-remain separate; later progress still uses advanced linking in this preview.
+Original finalization on the joining computer, requester commit, agent access
+and connection readiness remain separate.
 
 **Check administrator consent** reads global protocol evidence only, including
 approved history after expiry. It never fetches, prepares, approves or retries
@@ -277,6 +278,38 @@ retract a dispatched action. Leave, Refresh, Close, context loss and reload
 clear local selection and approval controls; reopen and choose the request to
 recover its retained record. No original keys, raw codes or signing bytes enter
 this flow, the model or plugin storage.
+
+## Finalize the original machine binding
+
+On the joining computer, **Check owner consent** reads the retained exact
+original consent. Once its original offer, requester selection and administrator
+offer are present, press **Review original finalization**. Review the original
+person and machine, independently verified administrator/current-root/P/H
+references, finite machine powers and expiry before **Sign original
+finalization**. Existing approved host work fetches proofs; opening or checking
+this review does not fetch, prepare consent, sign or resume the ceremony.
+
+The separate explicit signing action uses the approved original's safe existing
+generated key or exact SSH-agent identity. It creates, copies and imports no
+key. It permits at most two ordered batches and three original signatures for
+binding/device/finalization evidence. Requester final commit remains another
+decision. Recorded finalization alone does not verify adopted powers, agent
+access, reachability or model receipt.
+
+**Original finalization: recorded** is global durable protocol evidence, without
+attributing its creation or a historical review digest to this pane. A failed
+or timed-out signing action is outcome unknown: partial signatures may remain.
+**Check original finalization** reads retained consent and, while still eligible,
+the pure finalization inspection. It never signs or automatically retries. A
+later attempt needs a freshly displayed review and another explicit Sign press.
+
+**Leave finalization review** returns to the published joining outcome and clears
+both local owner/finalization controls. Leave is available during signing;
+navigation, Refresh, context loss and reload discard pending callback authority.
+They cannot retract an already dispatched signature or committed submission.
+The native process has a95s bound, separate from the backend's90s asynchronous
+deadline; timeout is not proof that no work committed. Installed, physical-machine
+and actual-model acceptance remain open.
 
 ## Review and connect the adapter
 
