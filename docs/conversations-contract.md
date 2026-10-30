@@ -148,7 +148,7 @@ The sender of every request must be a current member of a coordinator-free netwo
 
 Body: `{conversation_id, roster, target, adder, note?, origin?, policy | grant_id | self}`.
 - `target` is `{kind: "agent", agent_id}`. A person target (`{kind: "person", person_id}`) is 400 in C1 (C3).
-- `roster` is the roster home will commit if the invite is answered `joined`: its `conversation_id` equals the body's, its `home_host_id` is the authenticated sender, and it lists the target as `agent:RECEIVER/AGENT_ID`, `joined`. Otherwise 400.
+- `roster` is the roster home will commit if the invite is answered `joined`: its `conversation_id` equals the body's, its `home_host_id` is the authenticated sender, and it lists the target as `agent:RECEIVER/AGENT_ID`, `joined`. Every participant has a unique `id` whose kind and host match its `kind` and `host_id`, with `agent_id` (and a `name`) matching an agent ID, or `person_id` matching a person ID; states are `inviting` or `joined`. Otherwise 400. Labels are always derived from the host in the participant ID.
 - `adder` is a participant ID that is `joined` in `roster` and on the sender host; otherwise 403 `forbidden`. `origin` is present exactly when `adder` is an agent, and then names it; otherwise 400.
 - `note` is optional text up to 4,096 bytes (no C1 sender sends it).
 
