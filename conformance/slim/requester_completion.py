@@ -1051,7 +1051,13 @@ def _():
     approved = op(f, 'approve', prepared); shared['approved'] = approved
     # Observe only ordinary already-authorized progress; never invoke Complete
     # or resume in a loop, and never attribute this worker's signatures to it.
-    f['a'].relay.mode = h.relay.mode = 'drop'
+    # The requester's genuine own first-contact mailbox remains reachable for
+    # ordinary polling. Drop faults start after this signed/framed observation,
+    # never as a substitute for the prerequisite successful carrier read.
+    carriers = pending(h, f['rid'])[0]['carrier_endpoints']
+    check(any(item['kind'] == 'participant' and item['address'] == h.relay.address and item['public_key'] == h.public_key
+              for item in carriers), 'genuine requester mailbox endpoint was not retained by public setup')
+    f['a'].relay.mode = 'drop'; h.relay.mode = 'pass'
     wait_for(lambda: pending(h, f['rid'])[0]['commit_packet_base64'] != '-' and commit_frames(h, f['rid']),
              timeout=15, interval=.1, message='genuine already-approved signed and framed requester commit retention')
     retained, _ = pending(h, f['rid']); existing = intent(h, prepared['commit']['review']['intent_id'])['record']
@@ -1092,7 +1098,7 @@ def _():
     now = intent(h, prepared['commit']['review']['intent_id'])['record']
     remaining_frames = commit_frames(h, f['rid'])
     check(pending(h, f['rid'])[0]['commit_packet_base64'] == signed_bytes and
-          now == existing and len(intents(h, f['rid'])) == 1 and set(remaining_frames) <= set(existing_frames) and
+          now == {**existing, 'terminal': 'applied'} and len(intents(h, f['rid'])) == 1 and set(remaining_frames) <= set(existing_frames) and
           all(remaining_frames[key] == existing_frames[key] for key in remaining_frames),
           'completion replaced prior exact signature/template/consent/frame bytes instead of reusing them')
     check(records(h)['$schema'] == schema and private_files(h.home) == home, 'completion added schema/store/original key source')
@@ -1121,10 +1127,10 @@ def _():
         with closing(sqlite3.connect(db_path(h))) as db, db:
             db.execute('DROP TRIGGER conformance_completion_abort')
     quiet(f); after = records(h); after_pending, after_secret = pending(h, f['rid'])
-    # Earlier authorized signatures/materialization/sealing/publication and their
-    # clock may persist. Every other table, including application authority,
-    # provider, owned keys, metadata and events, remains exactly unchanged.
-    earlier_phase_tables = {'dec_intents', 'dec_pending', 'dec_frames', 'dec_outbox', 'dec_clock'}
+    # Earlier authorized signatures/materialization/carrier-frame sealing and
+    # their clock may persist. The proof-publication outbox is an application
+    # effect and rolls back with authority/provider/owned keys/metadata/events.
+    earlier_phase_tables = {'dec_intents', 'dec_pending', 'dec_frames', 'dec_clock'}
     for table in set(before) | set(after):
         if table not in earlier_phase_tables:
             check(before.get(table) == after.get(table), 'failed application changed nonphase table: ' + table)
@@ -1180,6 +1186,9 @@ def _():
     a.relay.mode = h.relay.mode = 'pass'; a.start()
     # This separate ordinary repair checks actual participant application. It is
     # not attributed to the completion marker or needed to claim local success.
+    status, repaired = h.api('POST', '/v2/link/requests/' + f['rid'] + '/resume', {}, timeout=35)
+    check(status == 200 and repaired['state'] == 'linked', 'one explicit completed-requester delivery repair failed')
+    public(repaired, f['code'], f['reply'])
     wait_linked(a, f['rid'], timeout=25)
     terminal_delivery_baseline(h, a, f['network']['id'])
     a.stop(); terminal_cleanup(f); a.relay.mode = h.relay.mode = 'drop'; quiet(f)
