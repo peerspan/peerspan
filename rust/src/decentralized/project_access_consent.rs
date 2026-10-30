@@ -112,12 +112,23 @@ struct Receipt {
     action: Intent,
     review: Value,
 }
-fn load(c: &Connection, store: &Store, input: &Input, parent: &Value, id: &str) -> Result<Receipt> {
+fn load(
+    c: &Connection,
+    store: &Store,
+    input: &Input,
+    parent: &Value,
+    id: &str,
+    raw_time: &str,
+) -> Result<Receipt> {
     let meta = Intent::load(c, id)?;
     require(meta.kind == "access_review", "not_found")?;
     require(
         meta.network_id == input.network_id && meta.record.operation_id == key_for(input),
         "review_changed",
+    )?;
+    require(
+        raw_time >= meta.record.created_at.as_str(),
+        "access_review_unavailable",
     )?;
     let review = parse(&b64(&meta.record.review_base64, 1 << 20)?, 1 << 20)?;
     let o = object(&review)?;
@@ -125,7 +136,8 @@ fn load(c: &Connection, store: &Store, input: &Input, parent: &Value, id: &str) 
         o,
         "version kind access_id host_id context inspection_review_id inspection replaces_access_id grant action_id intent_id provider statement created_at expires_at effects",
     )?;
-    let action = Intent::load(c, text(o, "intent_id")?)?;
+    let action = Intent::load(c, text(o, "intent_id")?)
+        .map_err(|_| Error::new("access_review_unavailable"))?;
     let d = actions::descriptor(c, &input.network_id)?;
     require(
         action.kind == "action"
@@ -157,7 +169,8 @@ fn load(c: &Connection, store: &Store, input: &Input, parent: &Value, id: &str) 
     )?;
     let replaces = text(o, "replaces_access_id")?;
     if replaces != "-" {
-        let previous = Intent::load(c, replaces)?;
+        let previous =
+            Intent::load(c, replaces).map_err(|_| Error::new("access_review_unavailable"))?;
         let row = |id: &str| -> Result<i64> {
             c.query_row(
                 "SELECT rowid FROM dec_intents WHERE intent_id=?1",
@@ -416,8 +429,9 @@ pub(crate) fn run(
     input: &Input,
     parent: &Value,
     attached: bool,
-    now: &str,
+    times: (&str, &str),
 ) -> Result<Value> {
+    let (now, raw_time) = times;
     let d = actions::descriptor(c, &input.network_id)?;
     let existing = latest(c, input)?;
     if op == "lookup" {
@@ -427,7 +441,7 @@ pub(crate) fn run(
                     c,
                     store,
                     input,
-                    &load(c, store, input, parent, &id)?,
+                    &load(c, store, input, parent, &id, raw_time)?,
                     parent,
                     attached,
                     now,
@@ -441,7 +455,7 @@ pub(crate) fn run(
             .access_id
             .as_deref()
             .ok_or_else(|| Error::new("invalid"))?;
-        let mut r = load(c, store, input, parent, id)?;
+        let mut r = load(c, store, input, parent, id, raw_time)?;
         require(
             existing.as_deref() == Some(id)
                 && input.access_review_id.as_deref() == Some(review_id(&r.review).as_str()),
@@ -468,7 +482,7 @@ pub(crate) fn run(
     }
     require(op == "prepare", "invalid")?;
     if let Some(id) = &existing {
-        let r = load(c, store, input, parent, id)?;
+        let r = load(c, store, input, parent, id, raw_time)?;
         let same =
             input.inspection_review_id.as_deref() == r.review["inspection_review_id"].as_str();
         match input.replace_access_id.as_deref() {
