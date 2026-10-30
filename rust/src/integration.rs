@@ -1463,12 +1463,12 @@ fn suffix_or(text: &str, fallback: &str) -> String {
     }
 }
 /// `parts` joined with `-` and `tail` appended, cutting the parts from the
-/// end so the name fits in 64 characters: the host name (`parts[1]`)
-/// first, then the project (`parts[2]`), then the base (`parts[0]`), each
-/// down to 1 character before the next. The tail is never cut.
+/// end so the name fits in 64 characters: the project (`parts[1]`) first,
+/// then the base (`parts[0]`), each down to 1 character before the next.
+/// The tail is never cut.
 fn fitted(parts: &[String], tail: &str) -> String {
     let mut cut = parts.to_vec();
-    for i in [1, 2, 0] {
+    for i in [1, 0] {
         let Some(part) = cut.get(i) else { continue };
         let over = (cut.join("-").len() + tail.len()).saturating_sub(64);
         let keep = part.len().saturating_sub(over).max(1);
@@ -1477,24 +1477,22 @@ fn fitted(parts: &[String], tail: &str) -> String {
     format!("{}{tail}", cut.join("-"))
 }
 
-/// The first free default name: `BASE-HOSTNAME`, else
-/// `BASE-HOSTNAME-PROJECT` when that is used on this host, or
-/// `BASE-HOSTNAME-HHHH` with a growing prefix of the host ID when it is
-/// used only on another host, then the last of these with `-2`, `-3`, and
-/// so on.
+/// The first free default name: `BASE`, else `BASE-PROJECT` when that is
+/// used on this host, or `BASE-HHHH` with a growing prefix of the host ID
+/// when it is used only on another host, then the last of these with `-2`,
+/// `-3`, and so on. The machine's host name is never part of it: other hosts
+/// in the network see agent names.
 fn default_name(
     base: &str,
-    hostname: &str,
     project: &str,
     host_id: &str,
     local: &BTreeSet<String>,
     remote: &BTreeMap<String, String>,
 ) -> String {
-    let free = |name: &str| !local.contains(name) && !remote.contains_key(name);
-    let mut parts = vec![
-        base.to_owned(),
-        suffix_or(hostname.split('.').next().unwrap_or_default(), "host"),
-    ];
+    let free = |name: &str| {
+        name != peerspan_host::builtin::AGENT && !local.contains(name) && !remote.contains_key(name)
+    };
+    let mut parts = vec![base.to_owned()];
     let first = fitted(&parts, "");
     if free(&first) {
         return first;
@@ -2026,14 +2024,7 @@ async fn prepare_attach_inner(
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
                             let names = local.keys().cloned().collect();
-                            default_name(
-                                &base,
-                                &crate::hostname(),
-                                &project,
-                                &host,
-                                &names,
-                                &remote,
-                            )
+                            default_name(&base, &project, &host, &names, &remote)
                         }
                     };
                     let owner = label
@@ -2155,6 +2146,50 @@ pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn default_names(project: &str, local: &[&str], remote: &[&str]) -> String {
+        default_name(
+            "claude",
+            project,
+            "host_5c12ab34",
+            &local.iter().map(|n| (*n).to_owned()).collect(),
+            &remote
+                .iter()
+                .map(|n| ((*n).to_owned(), "host_other".to_owned()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn default_name_leaves_out_the_host_name() {
+        assert_eq!(default_names("site", &[], &[]), "claude");
+        assert_eq!(default_names("site", &["claude"], &[]), "claude-site");
+        assert_eq!(default_names("", &["claude"], &[]), "claude-project");
+        assert_eq!(default_names("site", &[], &["claude"]), "claude-5c12");
+        assert_eq!(
+            default_names("site", &[], &["claude", "claude-5c12"]),
+            "claude-5c12ab"
+        );
+        assert_eq!(
+            default_names("site", &["claude", "claude-site"], &[]),
+            "claude-site-2"
+        );
+    }
+
+    #[test]
+    fn default_name_avoids_the_reserved_name_and_fits() {
+        let free = BTreeSet::new();
+        let none = BTreeMap::new();
+        assert_eq!(
+            default_name("builtin", "site", "host_5c12", &free, &none),
+            "builtin-5c12"
+        );
+        let long = "a".repeat(64);
+        assert_eq!(default_name(&long, "site", "host_5c12", &free, &none), long);
+        let taken: BTreeSet<String> = [long.clone()].into();
+        let name = default_name(&long, "site", "host_5c12", &taken, &none);
+        assert!(name.len() <= 64 && name != long, "{name}");
+    }
 
     #[test]
     fn pending_hook_names_conversations() {

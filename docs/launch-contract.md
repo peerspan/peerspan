@@ -496,8 +496,8 @@ Each daemon keeps a directory per network, in memory:
   "refreshed_at": "RFC3339 or null",
   "hosts": [{"host_id": "host_…", "person_id": "person_… or null", "person_label": "bob or null",
              "state": "ok", "refreshed_at": "RFC3339 or null", "error": "text or null"}],
-  "agents": [{"address": "bob/claude-laptop", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
-              "name": "claude-laptop", "agent_id": "agent_…", "connected": true, "authorizations": []}]
+  "agents": [{"address": "bob/claude", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
+              "name": "claude", "agent_id": "agent_…", "connected": true, "authorizations": []}]
 }
 ```
 
@@ -555,12 +555,12 @@ A session's credential may be created with **directory access**. Then its adapte
   - connected now (`ready`, a valid lease): an adapter that has just exited keeps its lease for up to 15 seconds, so `attach` says on stderr that it is waiting, and polls the connection until the lease it saw has expired, at most 16 seconds. If the lease was renewed meanwhile, the session is running, and `attach` refuses with exit 1 before changing anything. Otherwise it continues as for `offline`;
   - otherwise (expired, revoked, detached, or connected before and now `offline`): it performs a new setup for the same agent, replacing the old credential as the adapter contract allows for a lapsed lease, and replaces the old profile once the setup succeeds. A refusal because the old adapter is still within its reconnect window is reported as is.
 - **Naming** (revised 2026-10-16). Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
-  1. `BASE-HOSTNAME`, with this machine's short host name;
-  2. `BASE-HOSTNAME-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE-HOSTNAME` is used on this host;
-  3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on while that is taken;
+  1. `BASE`;
+  2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE` is used on this host;
+  3. `BASE-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE` is used only on another host; then 6, 8, and so on while that is taken;
   4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
-  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name part left with no letters or digits after that is replaced by `host`, and a project part left with none, including the root directory's empty base name, by `project`. So that the whole name fits in 64 characters, parts are cut from the end in this order, each down to 1 character before the next is cut: the host name, then the project, then `BASE`. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
-  The host name is the one at `attach` time. An agent keeps its name when the machine is renamed, and re-attaching reuses it.
+  The machine's host name is never part of a default name, because other hosts in the network see agent names (DEC-OWN12). Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A project part left with no letters or digits after that, including the root directory's empty base name, is replaced by `project`. So that the whole name fits in 64 characters, parts are cut in this order, each down to 1 character before the next is cut: the project, then `BASE`. The reserved name `builtin` is never free. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
+  An agent named under an earlier rule keeps its name, and re-attaching reuses it.
   IP addresses are not part of names: they change after `attach`, repeat across private networks, and a host often has several. `agents` shows each host's current endpoint instead (below).
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
 - **Setup.** It then runs today's session setup with directory access, `max_sends_per_hour` (default 100), no routes, and a renewable credential (the slice 1 default) unless an expiry is given. Integration options pass through.
@@ -616,7 +616,7 @@ The readable layout prints, after each agent, `address` when there is one, follo
   - `not_authorized` persisting nothing;
   - a retry still reaching the stored target after the address would resolve elsewhere (the target host unbound, and the name registered on another host of that person).
 - **Attach:**
-  - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule), a host name with no letters or digits, and `--directory /` as a second project;
+  - default naming and each suffix rule, across two hosts of one person, including the `-HHHH` rule, and `--directory /` as a second project;
   - `endpoint` in `agents --json` for this host, and in `agents --json` and `GET /adapter/v1/agents` for a direct peer, a relayed peer, and a peer with path `none`;
   - a 64-character integration ID as `BASE`, cut so the default name fits;
   - `--name` taken refused, with no registration;
@@ -701,7 +701,7 @@ it keeps the terminal for Claude Code. Each counted step below is a command the 
 2. copying `~/.config/peerspan/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Peerspan step);
 3. M2: `scripts/install-release.sh VERSION --from dist`, `peerspan join TOKEN`, `peerspan attach claude`.
 
-That is 7 commands, including 2 installer calls, and one copy. The agents are named `claude-HOSTNAME` after each machine, and `claude-HOSTNAME-HHHH` on M2 if both machines have the same host name.
+That is 7 commands, including 2 installer calls, and one copy. The agents are named `claude` on M1 and `claude-HHHH` on M2.
 
 **Pair** (alice on M1, bob on M2):
 1. M1: `scripts/install-release.sh VERSION --from dist`, `peerspan network create acme`, `peerspan invite bob`;

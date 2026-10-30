@@ -78,7 +78,7 @@ The **roster** is the home host's record of who is in the conversation. Every pa
     {"id": "person:host_a…/person_…", "kind": "person", "host_id": "host_a…", "person_id": "person_…",
      "agent_id": null, "name": null, "state": "joined", "added_by": null, "added_at": "RFC3339"},
     {"id": "agent:host_b…/agent_…", "kind": "agent", "host_id": "host_b…", "person_id": "person_…",
-     "agent_id": "agent_…", "name": "claude-laptop", "state": "joined", "added_by": "person:host_a…/person_…", "added_at": "RFC3339"},
+     "agent_id": "agent_…", "name": "claude", "state": "joined", "added_by": "person:host_a…/person_…", "added_at": "RFC3339"},
     {"id": null, "kind": "person", "host_id": null, "person_id": "person_…",
      "agent_id": null, "name": null, "state": "invited", "added_by": "person:host_a…/person_…", "added_at": "RFC3339"}
   ],
@@ -90,7 +90,7 @@ The **roster** is the home host's record of who is in the conversation. Every pa
 
 - **Participant IDs.** An agent is `agent:HOST_ID/AGENT_ID`, the same text as the policy principal. A person is `person:HOST_ID/PERSON_ID`: the person, taking part from one host. Policy's `person:PERSON_ID` has no `/`, so the two never collide. An invited person has no ID until they join on one of their hosts.
 - **State** of a participant is `inviting` (the home host has not yet had an answer from the target's host), `invited` (a person who has not joined), or `joined`. Departed participants move to `departed` with `reason` `left` or `removed`.
-- **Names and labels.** `name` is the agent's name as its own host gave it in the invite answer. Each host displays labels it derives itself: the member label of the person bound to the participant's host, from its own verified records, then `/NAME` for agents, for example `bob/claude-laptop`. A host never displays a person label the home host asserted.
+- **Names and labels.** `name` is the agent's name as its own host gave it in the invite answer. Each host displays labels it derives itself: the member label of the person bound to the participant's host, from its own verified records, then `/NAME` for agents, for example `bob/claude`. A host never displays a person label the home host asserted.
 - **Title** is optional, 0 to 200 bytes of UTF-8 without control characters. Without one, views show the participant labels.
 - **State** of the conversation is `open` or `closed`. A closed conversation accepts no messages or roster changes, and stays readable.
 
@@ -344,14 +344,14 @@ Recommended (decision 10): the new message only, with a short header, because a 
 
 ```text
 Peerspan conversation conv_3f9a… "Flaky checkout test" (open)
-Participants: alice (person), bob/claude-laptop (you), carol/codex-box
+Participants: alice (person), bob/claude (you), carol/codex-box
 Earlier messages (last 4 of 11; conversation_history has the rest):
 [alice 10:02] Our checkout test fails one run in twenty.
 [carol/codex-box 10:02] The retry loop in checkout_test.go hides the race; see line 88.
-[bob/claude-laptop 10:03] (you) I can take the fix if someone reviews.
+[bob/claude 10:03] (you) I can take the fix if someone reviews.
 [alice 10:04] Go ahead.
 New message:
-[carol/codex-box 10:05, to bob/claude-laptop] I'll review. Push a branch when ready.
+[carol/codex-box 10:05, to bob/claude] I'll review. Push a branch when ready.
 ```
 
 - **Window size:** up to 10 earlier messages and 16,384 bytes of their content, newest kept; each earlier message is cut at 2,048 bytes with `[cut: N bytes; conversation_history has it]`. The new message is never cut.
@@ -391,11 +391,11 @@ Readable output of `conversation show`:
 
 ```text
 conv_3f9a1c… "Flaky checkout test"   open   4 participants
-  alice (you)   bob/claude-laptop   carol/codex-box   dave (invited)
+  alice (you)   bob/claude   carol/codex-box   dave (invited)
 
 10:02  alice              Our checkout test fails one run in twenty.
 10:02  carol/codex-box    The retry loop in checkout_test.go hides the race; see line 88.
-10:03  bob/claude-laptop  I can take the fix if someone reviews.
+10:03  bob/claude  I can take the fix if someone reviews.
 10:04  alice              Go ahead.
          not yet received by carol/codex-box (sending)
 ```

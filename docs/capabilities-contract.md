@@ -47,7 +47,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 
 ## Sources
 
-A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude-laptop/github`. Slice 3 adds [built-in sources](#built-in-sources), starting with the `gh` adapter Peerspan ships.
+A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude/github`. Slice 3 adds [built-in sources](#built-in-sources), starting with the `gh` adapter Peerspan ships.
 
 `attach` discovers sources after its session setup succeeds. `peerspan sources refresh [--agent NAME]` repeats discovery for each `attach` profile on this host, or for one agent. Both run in the CLI, which has the user's environment and the project directory. The CLI sends the result to the daemon.
 
@@ -133,7 +133,7 @@ A capability record is:
 ```json
 {
   "name": "github-issues",
-  "source": {"agent": "claude-laptop", "server": "github"},
+  "source": {"agent": "claude", "server": "github"},
   "operations": ["list_issues", "get_issue"],
   "resources": null,
   "credential": {"env_file": null, "args": null},
@@ -802,8 +802,8 @@ Unchanged: the policy statement, its JSON, and its test vector; coordinator hand
 
 | Form | Example | Meaning |
 | --- | --- | --- |
-| `PERSON/AGENT` | `alice/claude-laptop` | The agent named `AGENT` on one of the hosts bound to the person `PERSON` in the selected network. `PERSON` is a person label or person ID, resolved as other person arguments are. |
-| `HOST_ID/AGENT` | `host_3f…/claude-laptop` | The agent named `AGENT` on that host. It also reaches hosts without a bound person, and persons whose label contains `/`. |
+| `PERSON/AGENT` | `alice/claude` | The agent named `AGENT` on one of the hosts bound to the person `PERSON` in the selected network. `PERSON` is a person label or person ID, resolved as other person arguments are. |
+| `HOST_ID/AGENT` | `host_3f…/claude` | The agent named `AGENT` on that host. It also reaches hosts without a bound person, and persons whose label contains `/`. |
 | `agent:HOST_ID/AGENT_ID` | as before | Used as given, with no lookup. |
 
 **Parsing.** For a value with no `KIND:` prefix (`person:`, `group:`, `agent:`) that is not `everyone` or `network`:
@@ -875,7 +875,7 @@ Then `Share? [y/N] ` as before. Sharing with an agent on another host of the sig
 
 **`shares`, `capability list`, and `capability show`** use `?lookup=true`.
 - The overall layout of `shares --json` is not shared, but each recipient object of a capability on this host whose principal is `agent:` is exactly `{network_id, principal, label, agent_state, unshare}`, where `unshare` is the command that removes it: `peerspan unshare NAME --with HOST_ID/AGENT_NAME --network NETWORK_ID` when `agent_state` is `found` and `label` is not null, where `AGENT_NAME` is the part of `label` after its last `/`, and `peerspan unshare NAME --with agent:HOST_ID/AGENT_ID --network NETWORK_ID` otherwise. The command uses the host's address rather than `label`: `HOST_ID/AGENT_NAME` names exactly that agent even when the person has an agent of the same name on another host, and it is always safe to paste into a shell.
-- The readable layout marks agent recipients, for example `alice/claude-laptop (agent)` and, for any state other than `found`, `carol/codex-desk (agent, gone)`. Its wording is not shared.
+- The readable layout marks agent recipients, for example `alice/claude (agent)` and, for any state other than `found`, `carol/codex-desk (agent, gone)`. Its wording is not shared.
 
 Principals of agents that are gone are never removed automatically. Each still uses one of the rule's 64 principal slots.
 
