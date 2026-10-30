@@ -5068,6 +5068,24 @@ closed failure observer, all complete DB/state/home/BOTH-counter assertions and
 every original action/delay/timeout. Independently commit this setup before one
 corrected full local run against unchanged frozen production.
 
+GU.impl28h diagnostic extension: later CI on a45d70a passed5/6in86s,
+with the requester proof row attempts4, due_now=false and11 seconds until retry,
+both journals absent and successful prior sync responses. The existing one-time
+alignment already followed those responses. This does not identify when the
+row was rescheduled or why the ordinary send failed. Before changing setup,
+a separate author may capture closed before/after-alignment retry generations
+and the failure-time projection: role, opaque row-ID hash, kind, attempts,
+due eligibility/seconds-until-next and fixed public error/transport categories.
+Reuse existing row reads where possible; at most one bounded extra read-only
+capture immediately after alignment, outside every purity baseline. Keep
+metadata only in memory and print only on the original failure. No raw rows,
+keys, targets, paths, locators, bytes or error detail. Helpers/captures/wrappers
+must normalize back to the exact prior source/AST; original assertions, action
+order, clock advance count, five-second wait, delays and BOTH-carrier/DB/files
+checks remain unchanged. One retained diagnostic run may follow; a passing run
+cannot classify the earlier failure or be called a timing fix. No repeated
+clock advances, forced ACK, extra protocol calls or unchanged retries.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
@@ -5424,6 +5442,19 @@ genuine ordinary operations and real attached projects:
 6. Closed/duplicate/trailing/null/oversize inputs, stdin-only CLI privacy,
    unsupported methods, unavailable daemon, adapter/peer isolation, public
    secret-prefix refusal and output bounds; no secrets in diagnostics.
+
+GU.impl30d diagnosis: corrected access source e928c4b / independent c658d84
+passes6/6in35s in CI, while its first local full run passes5/6in75s.
+The aggregate repeat/refusal purity assertion fails without identifying the
+changed category; original before snapshots were not retained by that process.
+Do not infer a product mutation or fixture cause. Independently add a failure-only
+observer over the already captured expected/actual snapshot tuples at the
+original purity assertions. Print only fixed phase, changed table names, row
+counts and changed state/home entry counts; no rows, paths, bodies, keys or
+private values. No new IO, mutation, wait, exclusion or altered assertion.
+Removing the diagnostic helper/wrappers restores the exact prior source/AST.
+Commit before one retained diagnostic full run; preserve all six cases and
+all old suites. A passing diagnostic run leaves the earlier category unknown.
 
 Selected: verified public terms, exact project binding and ordinary enforced
 policy before separate explicit grant consent. Discarded: membership as access,
