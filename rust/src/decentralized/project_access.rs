@@ -40,10 +40,10 @@ pub(crate) fn inspect(c: &Connection, store: &Store, network: &str, person: &str
     let policy_stream = vec!["policy".into(), owner_key.clone()];
     let policy = if p.streams.contains_key(&policy_stream) {
         let (statement, valid_until) = p.current_statement(&policy_stream)?;
-        let body: PolicyBody =
-            serde_json::from_value(Value::Object(access_body(&statement.payload)?))
-                .map_err(|_| Error::new("state_conflict"))?;
-        let enforced = edits::enforced(c, &p, owner_key, body.content())?;
+        let body = Value::Object(access_body(&statement.payload)?);
+        let typed: PolicyBody =
+            serde_json::from_value(body.clone()).map_err(|_| Error::new("state_conflict"))?;
+        let enforced = edits::enforced(c, &p, owner_key, typed.content())?;
         let proof = p
             .catalog
             .statement_proofs
