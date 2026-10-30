@@ -5291,7 +5291,7 @@ Neither another pass nor this table name alone proves a cause or product fix.
 First combined native CI on bfdffd0 ran312 cases:308 passed/4 failed in48.25s.
 One original case requires the still-supported advanced-administration fallback;
 retain it while directing normal participant approvals to explicit reviews.
-Three new fixture failures occur before the intended assertions: changed-flow
+Three new fixture failures prevent intended coverage: changed-flow
 transport/privacy expectations bind to mutable replacement IDs instead of the
 captured requested flow, and short request deadlines retain an owner review
 expiry beyond that signed request. Preserve these failures. An authoritative

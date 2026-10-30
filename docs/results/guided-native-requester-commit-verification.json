@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/73",
+  "scope": "Native separate exact requester consent and bounded completion over sections27/28; guided contract section29. No Rust/API/schema/protocol/model-tool/storage change.",
+  "base_merge": "fb99c97302fc691bf5f6a14eda18fdc02ba12de2",
+  "contract_first_commit": "94fb73cc82b80a5df33e03f44cb85bc56919f271",
+  "clarifications": [
+    "2a3c9c1 / GU.impl29a: historical entry/public application references and explicit Leave clears all owner/finalization/requester panes.",
+    "08e995f / GU.impl29b: fix initial P2 by rejecting every premature manifest/activation/outcome reference in approved or unapproved five-stage snapshots.",
+    "4d1e877 / GU.impl29c: independent closed failure-only metadata for recurring old contact-purity failure; original assertions/actions/timeouts preserved.",
+    "e966c62 / GU.impl29d: retain advanced fallback; native fixture must preserve captured inspect IDs and original review expiry bounded by signed request before short-deadline stimuli."
+  ],
+  "initial_frontend": "21477a3bac67e2ac937258b38a5a604ca0978c7a",
+  "source_review_refinements": [
+    "55d9996: refuse observed time before retained intent creation under existing fresh-time contract.",
+    "e34c8dd: progress text points to explicit participant reviews."
+  ],
+  "frozen_frontend": "e966c628a5c1b06231e8cbe6dc255d7190e2e0c6",
+  "frozen_host_production": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
+  "rust_unchanged_from_base": true,
+  "frontend_source_sha256": {
+    "integrations/claude-onboarding/hooks/register.mjs": "948797d6f4999487c83b83ee1752b0bb8d10a20017a0ccbdeab48c4d9d7cbf1c",
+    "integrations/claude-onboarding/hooks/requester-commit.mjs": "ac891ce12a35ee74719c4d6d27c5f8b90254e1e5ce1d5487e464222f93d63a15",
+    "integrations/claude-onboarding/hooks/join-progress.mjs": "5447a498518340a2fe9406bc3e67e4bf4c42d9676ceefb9d94e0e6bc31c69c68"
+  },
+  "binary_sha256": {
+    "peerspan-host": "ebce95f6deaf48faddc557cfccd82fdc5cfccb4a79956c536318f1d470d7777b",
+    "peerspan-peer-probe": "25607a27f7b81b67908f40a7dd4ef238a61d883d421e34335961c33d2c76b9da",
+    "peerspan-helper": "9ca257811c8b681511e90b208b875224a7f57665ffb4fbdd6ad0fa1327094281"
+  },
+  "local": {
+    "scheduling": "Primary-owned Rust/native/host runs are serialized. External Claude activity is observed separately; no continuous global isolation is claimed.",
+    "required_rust": {
+      "frontend_head": "08e995fba817b542f7ec89516ca0ab8c4298757c; Rust identical to merged69",
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "fmt": "pass",
+      "clippy": "pass",
+      "shipped_bins": "pass"
+    },
+    "requester_commit": {
+      "passed": 6,
+      "failed": 0,
+      "expected_failures": 0,
+      "unexpected_passes": 0,
+      "skipped": 0,
+      "seconds": 137,
+      "runs": 1,
+      "source_unchanged": true,
+      "log": "/dev/shm/peerspan-gu73-requester-commit.log",
+      "limit": "Above the two-minute slim target. An independent external conversations_sync host run was observed active at completion, despite an idle start; no exact per-case attribution or retry."
+    },
+    "inspection_diagnostic": {
+      "source": "0bfc49db5b01e76a5f32a7eedc34c431a34f7b74; integrated4881cad",
+      "passed": 6,
+      "failed": 0,
+      "seconds": 82,
+      "case_seconds": [
+        11.6,
+        23.7,
+        5.7,
+        12.3,
+        1.7,
+        27.0
+      ],
+      "runs": 1,
+      "observer_triggered": false,
+      "retained_fixture": "/dev/shm/peerspan-gu-ci-temp/slim-owner_finalization-v7xkn38o",
+      "log": "/dev/shm/peerspan-gu73-inspection-diagnostic-first.log",
+      "limit": "First retained diagnostic-source run passed without invoking failure observer. Earlier discarded-state failures remain unclassified, no product/fixture fix inferred. External conversations host run began after clear preflight and overlapped; retained gu46 smoke daemon untouched."
+    },
+    "requester_completion": {
+      "passed": 6,
+      "failed": 0,
+      "expected_failures": 0,
+      "unexpected_passes": 0,
+      "skipped": 0,
+      "seconds": 135,
+      "case_seconds": [
+        32.3,
+        23.5,
+        12.9,
+        42.2,
+        13.9,
+        10.4
+      ],
+      "runs": 1,
+      "source_unchanged": true,
+      "log": "/dev/shm/peerspan-gu73-requester-completion.log",
+      "limit": "Above the two-minute slim target. External host suites and cargo/rustc began during the run after prior primary inspection released; immutable frozen binaries unchanged. No exact per-case load attribution or rerun."
+    },
+    "native": {
+      "runtime": "Claude Code2.1.303",
+      "strict_validation": "pass",
+      "first_corrected_source_local_run": true,
+      "passed": 312,
+      "failed": 0,
+      "files": 15,
+      "new_cases": 20,
+      "original_cases": 292,
+      "seconds": 50.48,
+      "source": "e15f16720290e5b107c13e9c6e1f5df621d764a2 integrated3a99cdd; frontend e966c62",
+      "runs": 1,
+      "log": "/dev/shm/peerspan-gu73-native-first.log",
+      "limit": "Primary-owned Rust/host/native runs serialized; no active compiler at native start or after. One independent external host-only conversations_sync run was active at start. No continuous global resource isolation claim. Original uncorrected20-case version ran only in CI, not locally."
+    }
+  },
+  "initial_ci": {
+    "head": "21477a3bac67e2ac937258b38a5a604ca0978c7a",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41096986974",
+    "conformance_conclusion": "failure",
+    "other_suites_passed": 23,
+    "owner_finalization": {
+      "job_id": 124205928487,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 60,
+      "case": "same_request_explicit_original_F_and_requester_commit_then_pure_refusal_and_owner_history",
+      "failure": "Strict pure inspection DB comparison changed dec_contacts, state/home paths unchanged and relay_changed=False.",
+      "classification": "Unclassified; retained CI runner state discarded. Same condition existed in earlier69 evidence. Rust and old test sources unchanged; no frontend or product cause is inferred."
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41096987023",
+    "pr_checks_conclusion": "success",
+    "native_cases": 292,
+    "rust": "155 passed,2 ignored; fmt/Clippy/shipped bins pass"
+  },
+  "initial_review": {
+    "head": "21477a3bac67e2ac937258b38a5a604ca0978c7a",
+    "completed": true,
+    "findings": 1,
+    "priority": "P2",
+    "thread": "PRRT_kwDOVZ-Tss6yEWGV",
+    "url": "https://github.com/peerspan/peerspan/pull/73#discussion_r4426429069",
+    "fix": "08e995f; independent regression required before first new suite execution",
+    "regression_result": "Passed in initial combined CI corpora and corrected full local312/312; no partial application reference can install/send Complete for five-stage consent.",
+    "resolved": true,
+    "resolution": "https://github.com/peerspan/peerspan/pull/73#discussion_r4426429069"
+  },
+  "runtime_log_sha256": {
+    "peerspan-gu73-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "peerspan-gu73-rust.log": "85d401819077966705fb8499143d844692897055fee579bcfafcc5cb081ee8e5",
+    "peerspan-gu73-clippy.log": "60752725ea6f194f20ebc7150276eef9d351f09c52a8c6e784e05f6a10ca45df",
+    "peerspan-gu73-build.log": "60752725ea6f194f20ebc7150276eef9d351f09c52a8c6e784e05f6a10ca45df",
+    "peerspan-gu73-requester-commit.log": "780f7a797f5dfa86519acd0db4c79c05b90196d6a0ffaa67a349121028624b1f",
+    "peerspan-gu73-inspection-diagnostic-first.log": "10088933438ff11ccbc329b5858d7476265256f2571e1d5431ba82638d5857aa",
+    "peerspan-gu73-requester-completion.log": "5048a4b1f204282fbe2cd661d0a42e5e4c196ca211cab473b3f21d6468718d45",
+    "peerspan-gu73-native-validate.log": "0da97b2b94733d39643194f14dedf2f6f8d9a09ff3656ece491ef23a995bd68e",
+    "peerspan-gu73-native-first.log": "aaa4fccdfd8ad9cb1b6b333de1ee697f4999a2568d329073f18571b7002775ca"
+  },
+  "evidence_boundaries": [
+    "Frontend public projection fixtures use the pinned native mod runtime with process/native effects stubbed; daemon cryptography remains covered separately by unchanged real-host suites.",
+    "Existing old callback closures that cannot be delivered by the public test kit remain source/manual coverage; synchronized delay fixtures prove actual dispatch before navigation/time changes.",
+    "No frontend signing/provider/key selection, persistent journal, model tool/prompt/turn, implicit approval/completion or increased permissions.",
+    "Verified local application and global retained approval/history are distinct from interface attribution, current powers, participant delivery, agent access and connection/model readiness.",
+    "No installed bundle, physical two-machine exchange, actual-model receipt or schema23-to27/full-state recovery acceptance is inferred. Previous rejected terminal/quota probes are not retried.",
+    "Earlier69 missing-evidence delivery/contact-purity failures remain unclassified; diagnostic future-retry evidence classifies only its actual recorded run."
+  ],
+  "remaining_feature_work": [
+    "Explicit agent-access review and observed connection readiness",
+    "Connect my other computer/device flow",
+    "Installed distinct-person/two-machine exchange, actual Claude receipt, schema23-to27/full-state upgrade/recovery and final combined feature review"
+  ],
+  "final_exact_head_gates": "PR73 records all24 conformance suites, standard PR checks and fresh final-head review after this evidence commit; earlier CI failures remain recorded.",
+  "merge_policy": "Owner reviews/merges PR73 into feature branch; leave tracking PR35 unmerged and all full-feature acceptance gates incomplete.",
+  "inspection_diagnostic": {
+    "contract_commit": "4d1e877251ad3ceba402b9dfdf017b6d7f0c5dfd",
+    "author": "/root/inspection_purity_diagnostics",
+    "implementation_read": false,
+    "committed_before_execution": true,
+    "author_commit": "0bfc49db5b01e76a5f32a7eedc34c431a34f7b74",
+    "integrated_commit": "4881cad",
+    "original_source_sha256": "72951d6366a6aa9a843ba41ee88f95f67783adca271b08d835ee5338f7e6bf35",
+    "diagnostic_source_sha256": "986f6166e03020adbe8eb23853fb43bcb0bc2bf2413a3c426155d440dc53c379",
+    "normalized_ast_sha256": "d3e88d57ad021372841ff8c589aeaa37444a0136c78f0151d7964c363e99315a",
+    "preservation": "Removing only the helper and its pre-assertion invocation restores the complete original AST and original bytes exactly. Original whole-snapshot/DB/files/BOTH-counter assertions/actions/delays/timeouts unchanged.",
+    "scope": "Failure-only closed captured before/after contact metadata; no new DB/file/transport calls or writes/waits, no raw values/hashes/keys/addresses/paths. Diagnostic/output exceptions cannot mask original assertion.",
+    "local_observer_triggered": false
+  },
+  "independent_native_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "implementation_read": false,
+    "contract_only": true,
+    "committed_before_execution": true,
+    "author_commit": "54394b29bd80c8c59df2cfc0cf29f6ecaa3307dd",
+    "integrated_commit": "d2c6c3f1ac8547329cb5d9b8f769b9c5781c51bd",
+    "file": "integrations/claude-onboarding/tests/requester-commit.test.ts",
+    "sha256": "418029887236879087528fd7568c8e83a4070452abe645db74d189cfd7a918a3",
+    "new_cases": 20,
+    "existing_cases": 292,
+    "combined_cases": 312,
+    "preservation": "All original14 native test files and their assertions/stimuli/delays/timeouts unchanged. All24 original host assertions/actions/delays/timeouts retained; only independent failure-only owner inspection observer added under GU.impl29c.",
+    "regression": "Each premature manifest_id/activation_id/outcome_id under approved five-stage consent is covered in closed-entry and displayed-Complete preflight corpora; valid six/seven-stage advances remain separate positives.",
+    "correction_author_commit": "e15f16720290e5b107c13e9c6e1f5df621d764a2",
+    "correction_integrated_commit": "3a99cddfb86246fe893e164086c680272c665867",
+    "corrected_sha256": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653",
+    "correction_scope": "Return authoritative replacement as response to captured old inspect request, keeping exact argv/private bindings; clamp original owner finite expiry to signed request expiry. All20names and all assertions/timeouts/delays/clock/barrier lines preserved."
+  },
+  "first_combined_native_ci": {
+    "head": "bfdffd07e523d823a606ff3df03904ab7a75e84b",
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41099082188",
+    "job_id": 124212421230,
+    "passed": 308,
+    "failed": 4,
+    "seconds": 48.25,
+    "old_cases_passed": 291,
+    "old_cases_failed": 1,
+    "new_cases_passed": 17,
+    "new_cases_failed": 3,
+    "failures": [
+      "Original progress rendering still requires supported advanced fallback wording; corrected without editing old tests.",
+      "New changed-flow privacy fixture expected replacement ID instead of captured original inspect ID; silently rebinding is forbidden.",
+      "New short-request timing fixture kept original owner expiry beyond its signed request, so requester review entry was unavailable before stimulus.",
+      "New Leave/lifecycle short-request setup had the same invalid original expiry before stimulus."
+    ],
+    "correction_contract": "e966c62 / GU.impl29d precedes independent fixture corrections; preserve all20cases and all original assertions/barriers/delays/timeouts.",
+    "local_initial_version_runs": 0
+  },
+  "first_combined_host_ci": {
+    "head": "bfdffd07e523d823a606ff3df03904ab7a75e84b",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41099082110",
+    "suites": 24,
+    "conclusion": "success",
+    "note": "All old host assertions/actions/delays/timeouts unchanged; independent inspection failure-only observer present. This passing result does not classify the discarded earlier contact-state failure."
+  },
+  "combined_local_verification_head": "3a99cddfb86246fe893e164086c680272c665867",
+  "corrected_source_ci_before_evidence": {
+    "head": "3a99cddfb86246fe893e164086c680272c665867",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41100182880",
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41100182876",
+    "status_at_evidence_commit": "in progress; may be superseded by final evidence head",
+    "note": "No pass inferred. PR73 records exact final-head gates after this commit; local corrected full312 passed and preceding bfdffd0 all24 host suites passed."
+  },
+  "original_native_preservation": {
+    "files": 14,
+    "unchanged": true,
+    "new_file_sha256": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653"
+  }
+}

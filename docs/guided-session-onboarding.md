@@ -457,8 +457,18 @@ fresh final-head all24 CI and review after the evidence commit. Native controls,
 access/readiness, device flow and installed/physical/model/upgrade acceptance
 remain open.
 
-The next native slice (section29) exposes separate requester Review, Approve and
+Native requester controls (section29) expose separate requester Review, Approve and
 Complete actions over sections27/28, with pure lookup-first recovery. Original
 and administrator approvals remain separate. Local application is not delivery,
-agent access or connection readiness. Contract GU.impl29 precedes implementation
-and independent native tests; installed/physical/model/full-feature gates stay open.
+agent access or connection readiness. Contract GU.impl29 and independent
+clarification precede implementation. Independent native312/312 passes locally
+in50.48s, including20 new cases and all original292 unchanged. Required Rust
+gates pass155/2ignored/fmt/Clippy/shipped bins; existing consent6/6in137s,
+completion6/6in135s and one retained inspection diagnosis6/6in82s pass serially.
+The [verification record](results/guided-native-requester-commit-verification.json)
+preserves the first native308/4 CI result, contract-first independent fixture
+corrections, initial P2 fix/regression, old unclassified contact-purity failure,
+failure-only observer provenance and exact source/binary/log/resource limits.
+Local consent/completion durations exceed the two-minute target. PR73 records
+fresh final-head all24 suites/PR checks/review after that record commit.
+Installed/physical/model/access-readiness/device/full-feature gates stay open.
