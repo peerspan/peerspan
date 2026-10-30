@@ -2617,3 +2617,15 @@ completed F refuses Sign purely rather than claiming the caller's unverified
 finalization digest was signed. Discarded: extra fetch API, a protocol-driving
 loop, per-slot UI prompts, new consent/signature journal, original-key fallback
 and automatic final commit. This recommended adjustment follows source evidence.
+
+
+### GU.impl25a — Bounded recovery after partial original finalization
+
+Contract-only author clarified asynchronous dependent readiness and lost results.
+Selected: lost first B/D response ends that invocation before F key use/second
+POST. A genuine fixture may prove B/D retention, explicitly wait for ordinary F
+readiness and issue one later explicit F-only decision, with original operation
+caps preserved. Initial completed-F refusal is pure regardless of a different
+well-typed inspection digest; it makes no historical attribution. Discarded:
+retry-until-green signing, assuming immediate dependent host work or silently
+continuing after an uncertain first mutation.
