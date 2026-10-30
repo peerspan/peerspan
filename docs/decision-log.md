@@ -2452,3 +2452,15 @@ keep shared protocol clock smoothing and pure approved-history recovery intact.
 Discarded: accepting the clamped value as proof of fresh local consent time,
 changing all ordinary clocks, disabling historical recovery or weakening the
 independent stale-clock refusal assertion. No new test stimulus or timeout.
+
+### GU.impl21b — Use the existing ordinary code form in negative setup
+
+Selected: reconcile a stale wire-format claim that ordinary admission HTTP
+accepts code:- plus request_id. The runtime contract/table and shipped endpoint
+use the exact code-based body; retained request IDs are resolved privately by
+the CLI. A genuine negative SSH-root fixture reached HTTP400 on that extra
+field, so the independent author uses its real private reply code and omits
+request_id before measuring guided refusal. All retained-provider/purity
+assertions remain. Discarded: treating this malformed setup as provider
+validation, weakening the negative case, or expanding an unrelated ordinary
+HTTP API as part of the guided-consent backend.
