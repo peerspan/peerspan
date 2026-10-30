@@ -3540,7 +3540,175 @@ as an observation (it imports/polls/prepares durable intents), code import in a
 read route, automatic provider choice/approval/signing, frontend key access, new
 schema/journal and public signature evidence as admission or agent access.
 
-## 21. Remaining flow contract
+## 21. Durable administrator consent for an incoming new original
+
+This backend slice prepares and approves the existing ordinary administrator
+intent for section20's retained incoming original/selection path. No native
+control, manual import, external signer selection, signature collection, new
+schema or approval mirror. The selected provider is explicitly network_root with
+ed25519 using the host's already retained current root seed. No auto/original/
+device fallback or key creation/SSH-agent/file access. Missing or mismatched root
+seed is unavailable, not an invitation to choose another provider. Preparation
+may read existing private signer metadata internally but never signs or exports it.
+Approval authorizes ordinary background root/host signing and publication of the
+exact administrator offer. It is not a guarantee that no signature is made until
+a later frontend action. Original F and requesting-machine commit stay separate.
+
+### Private API and CLI
+
+Owner-local POST routes:
+
+```
+/v1/onboarding/admission-consent/lookup
+/v1/onboarding/admission-consent/prepare
+/v1/onboarding/admission-consent/approve
+```
+
+CLI: `peerspan onboarding admission lookup|prepare|approve --stdin`.
+Lookup/prepare input is exactly {context,request_id}; approve adds exactly
+admission_review_id. Context is section5 AdapterContext; request_id is link_64
+lowercase hex; review ID is review_64 lowercase hex. All input is strict64KiB
+JSON, no duplicate/unknown/null/type coercion, positional ID or optional provider,
+profile, deadline, packet, approval boolean, code/file/key input. Local validation
+precedes IO. One literal5s local request, static redacted errors, no daemon/state
+initialization. Normal CLI help remains available; rejected arguments never echo
+input. Alternate API methods405; absent from scoped adapter, authenticated peer
+and bootstrap routers. No secret/template/signing bytes or provider/path errors.
+
+Prepare is explicit work to create an unapproved ordinary administrator intent,
+not an approval of section20's inspection digest. The resulting exact review is
+what the person must approve. Lookup is read-only and never prepares, imports,
+polls, resumes, cleans up, advances clocks or recreates history. Prepare/approve
+use one blocking-worker SQLite transaction; ordinary intent creation/validation
+and approval fields are reused without another crypto or authority implementation.
+
+### Exact public review
+
+All responses are exactly:
+
+```
+{version:1,host_id,context,observed_at,request,admission}
+```
+
+Request is the ordinary public LINK_VIEW. Admission is null before preparation,
+otherwise exactly {review_id,review,state,next_action}. Observed_at is guarded
+whole-second UTC. Review is exactly:
+
+```
+{version:1,kind:"approve_new_original_admission",host_id,context,agent,
+ network,request_id,request_packet_id,owner_offer_id,selection_id,intent_id,
+ root_state_id,root_public_key,person_lease_id,host_lease_id,member,
+ person_public_key,host_public_key,device_public_key,scopes:7,not_after,
+ request_created_at,request_expires_at,created_at,expires_at,effects}
+```
+
+Network is section20's exact {id,name,context_id,genesis_root_public_key}. Root
+state/key identify the selected current network root; P/H IDs are the exact
+ordinary person/host lease drafts. Intent_id is dint_32hex. Owner/selection,
+identity tuple, member and fixed request-created+7day terms match verified
+section20 evidence. Created_at is fixed intent creation; expires_at is fixed
+min(request.expires_at,intent.created_at+15min). Request bounds are the signed
+original request's bounds. All times are canonical whole-second UTC. Review_id
+is review_ + SHA256("peerspan-onboarding-original-admission-review-v1\n" +
+canonical(review)). Effects are exactly:
+
+```
+{approve_administrator_intent:true,authorize_network_root_signature:true,
+ authorize_host_packet_signature:true,publish_administrator_offer_after_signatures:true,
+ grant_membership:false,grant_agent_access:false,authorize_original_finalization:false,
+ commit_request:false,share_files:false,share_conversation:false,capability_calls:false}
+```
+
+No raw ordinary review, templates/messages/signing requests, authority signatures,
+contact code, seed/key, socket/path or provider inventory. Apply section20's
+recursive public-string/private-prefix/control/bidi protections to every response.
+Public consent is not usable authority, membership, agent access, reachability,
+adapter readiness or model receipt.
+
+### Preparation, exact approval and pure history
+
+Fresh prepare requires the exact attached parent/agent and all section20 live
+new-original/profile7/selection/expiry/role/projection conditions, supported
+current owned network root and ordinary typed draft validation. It creates only
+one ordinary unapproved intent, pins its exact current root/P/H/owner/selection
+and returns the review. Failed validation/public redaction rolls back intent,
+pending reference and guarded clock writes. Existing compatible intent returns
+its fixed review without writes or renewed expiry, including later history;
+unsupported retained providers/profiles fail closed. No intent is replaced.
+
+Approve recomputes and compares the entire review digest before any write.
+Wrong context/digest409 review_changed; no intent409 admission_review_unavailable.
+Before first approval, require attached parent, live needs_administrator request,
+unchanged selected original/selection/root/P/H/provider, ordinary current draft
+validation, observation no earlier than request/intent/stage creation, unexpired
+review/request and ten-minute stage inactivity. Recheck effective guarded time,
+parent and liveness before commit: crossing a bound rolls back. Expiry409
+review_expired; other incompatible evidence/provider409 admission_review_unavailable.
+A schema-only abort on the ordinary approved-intent update must roll back all
+writes. No separate frontend approval record or gap before protocol consent.
+Ordinary approved/approved_at and clock bookkeeping commit together. Existing
+after-intent/after-approval commit barriers remain available. Do not call resume,
+signing, packet publication or transport from these routes; background protocol
+work may subsequently fulfill the consent using owned keys and later root checks.
+
+Lookup/state precedence: approved if the ordinary intent records approval;
+otherwise cancelled if request/intent cancelled, expired if review/request/stage
+bounds expired, invalidated if detached or current evidence/root/provider changed,
+otherwise review. Next_action is follow_link_progress for approved,
+approve_administrator_intent for review, inspect_link_progress for other states.
+An approved result reports global ordinary consent, not which project/frontend
+originally approved it. Any exact valid project context may inspect the same
+ordinary intent; its context/agent changes the public review digest. No stored
+frontend attribution or new secret/history table is added.
+
+Exact approved retry, existing prepare and lookup are pure even after restart,
+parent detachment, expiry, completed offer, F or commit/application. Preserve
+initial root/P/H/creation/review bytes/digest for the same context despite later
+mutable ordinary administrator_offer_id. Wrong digest still refuses, even for
+approved history. Missing/pruned ordinary request is404; missing/corrupt or
+incompatible intent409 admission_review_unavailable, never recreated. Unknown
+parent404, changed parent before first write409 review_changed; malformed400.
+No approval, signature, completion or connection readiness is inferred from null,
+review/expired/invalidated/cancelled state. Actual installed/native/physical/model
+and schema23-to27 full-state recovery acceptance remains open.
+
+### Verification
+
+Separate contract-only author adds admission_consent6, each suite under2min;
+existing admission_onboarding6, signing6/owner6/join14, native252 and Rust155/
+2ignored remain intact. No implementer tests or invented protocol authority rows.
+
+1. Genuine two-host/two-person incoming selected original: pure null lookup,
+   fixed unapproved ordinary intent, exact public root/P/H/identity/digest/effects,
+   one stable prepare and lookup; no signing/publication/extra schema/key/journal.
+2. Exact atomic approval and pure approved retry/response-loss/restart/expiry/
+   detached history; same ordinary intent and stable public digest despite later
+   explicit advanced F/commit. Background signing is allowed after consent and
+   must never be attributed to an inspection or a particular frontend.
+3. Wrong digest/context/parent, unsupported profile/lifetime/provider, request/
+   review/stage time boundaries/cancellation refuse without writes. Genuine
+   public fixtures only; unavailable root-rotation/provider/corrupt-proof race
+   intervals stay explicit source/fault limits rather than fabricated authority.
+4. Strict64KiB API/CLI JSON/positional/missing-daemon/privacy and alternate method,
+   scoped adapter/authenticated peer/bootstrap isolation; no provider/secret echo.
+5. Schema-only ABORT on first ordinary approved field update proves full rollback,
+   then exact retry succeeds after removing it. After-commit response loss may use
+   existing debug barriers where bounded; unavailable intervals are source limits.
+6. Full same-request ordinary admission/F/requester commit, pure historical lookup/
+   exact approval retry and no recreation when ordinary history is absent.
+
+Run all19 final-head CI suites, native252 and Rust gates, record exact source/
+binary/independent evidence, every failure and fresh bot review. Earlier signing
+historical-purity intermittence remains explicit until diagnosed. Do not retry
+rejected terminal actions or unchanged quota-refused model probes.
+
+Selected: reuse one ordinary durable root administrator intent with exact public
+consent, atomic approval and pure history. Discarded: schema28 consent mirror,
+auto/original/device fallback, hidden signing as preparation, raw admission
+preview/import, external key flows, profile15 for the new original, native
+controls in this backend slice and consent as membership/access/readiness.
+
+## 22. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
