@@ -670,6 +670,24 @@ def _():
     # Both ordinary participants may explicitly finish the already approved
     # ceremony. Neither driver supplied the original/selection progress setup.
     wait_linked(b, a, rid, timeout=25)
+    # Local application does not finish terminal outcome delivery. Keep the
+    # genuine participant/carriers available while ordinary explicit resume
+    # drains that publication, before attributing any later IO to progress.
+    # The public terminal-resume contract permits one overall30s transport pass;
+    # the documented outbound-frame list separately proves its storage work is
+    # no longer pending. No measured progress call is retried here.
+    terminal_publication_attempted = False
+    def terminal_delivery_drained():
+        nonlocal terminal_publication_attempted
+        view = link_view(a, rid); record, _ = pending(a, rid)
+        if "delivery_pending" not in view["attention"] and not record["outbound_frames"]:
+            return True
+        if not terminal_publication_attempted:
+            terminal_publication_attempted = True
+            a.cli("link", "resume", rid, timeout=35)
+        return None
+    wait_for(terminal_delivery_drained, timeout=35, interval=.1,
+             message="ordinary terminal outcome delivery before pure progress baseline")
     b.stop(); modes(f, "drop"); quiet_counts(f); settled(a)
     pure(f, status=409, code="incoming_progress_unavailable")
     before = snapshot(a)
