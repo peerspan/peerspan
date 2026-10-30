@@ -3664,7 +3664,8 @@ fn person_form(to: &str) -> bool {
 /// The step after a local join's checks: done at home, or a request to home.
 enum JoinStep {
     Done,
-    Remote(String, Vec<u8>),
+    /// Home, the request, and the invite's person and `added_at`.
+    Remote(String, Vec<u8>, String, String),
 }
 
 impl Store {
@@ -4417,17 +4418,27 @@ impl Store {
         Ok(JoinStep::Remote(
             home,
             serde_json::to_vec(&json!({ "person_id": person }))?,
+            person,
+            pending.added_at,
         ))
     }
     /// Applies home's answer to a local join (contract C3, Joining step 4).
-    fn finish_join(&self, id: &str, outcome: Outcome) -> Result<(), Error> {
+    fn finish_join(
+        &self,
+        id: &str,
+        person: &str,
+        generation: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
         let own = self.identity().id;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let person = self.conversation_person(&tx)?.ok_or_else(not_bound)?;
-        let Some(mut pending) = self.pending_opt(&tx, id, &person)? else {
+        let Some(mut pending) = self.pending_opt(&tx, id, person)? else {
             return Err(no_invite());
         };
+        // A refusal for an invite since replaced by a new one leaves the
+        // new invite as it is.
+        let replaced = pending.added_at != generation;
         let participant = format!("person:{own}/{person}");
         let unanswered = || {
             coded_error(
@@ -4468,7 +4479,7 @@ impl Store {
                     .unwrap_or_default();
                 pending.state = "joined".into();
                 pending.joining = false;
-                self.save_pending(&tx, id, &person, &pending)?;
+                self.save_pending(&tx, id, person, &pending)?;
                 let mut held = match self.held_opt(&tx, id)? {
                     Some(mut h) => {
                         if roster.version > h.roster.version {
@@ -4477,7 +4488,7 @@ impl Store {
                             // A newer roster held here no longer lists the
                             // person joined: home removed them since.
                             pending.state = "dropped".into();
-                            self.save_pending(&tx, id, &person, &pending)?;
+                            self.save_pending(&tx, id, person, &pending)?;
                             tx.commit()?;
                             return Err(not_participant());
                         }
@@ -4501,9 +4512,12 @@ impl Store {
             }
             _ => return Err(unanswered()),
         };
+        if replaced {
+            return Err(refusal);
+        }
         pending.state = "dropped".into();
         pending.joining = false;
-        self.save_pending(&tx, id, &person, &pending)?;
+        self.save_pending(&tx, id, person, &pending)?;
         tx.commit()?;
         Err(refusal)
     }
@@ -5613,12 +5627,15 @@ async fn join(
         return Err(no_invite());
     }
     let i = id.clone();
-    if let JoinStep::Remote(home, request) =
+    if let JoinStep::Remote(home, request, person, generation) =
         blocking(store.clone(), move |s| s.prepare_join(&i)).await?
     {
         let outcome = send_join(&store, &id, &home, &request).await;
         let i = id.clone();
-        blocking(store.clone(), move |s| s.finish_join(&i, outcome)).await?;
+        blocking(store.clone(), move |s| {
+            s.finish_join(&i, &person, &generation, outcome)
+        })
+        .await?;
     }
     let view = blocking(store, move |s| {
         let conn = s.connection()?;
