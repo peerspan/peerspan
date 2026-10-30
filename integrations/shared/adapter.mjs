@@ -1085,7 +1085,7 @@ export function createAdapter({
       return textResult({ ready: true });
     }
     if (name === 'mark_seen') {
-      if (!validArguments(name, args)) return errorResult('Invalid mark_seen arguments: give ids, 1 to 100 delivery, request, task, or call IDs.');
+      if (!validArguments(name, args)) return errorResult('Invalid mark_seen arguments: give ids, 1 to 100 delivery, request, task, call, conversation, or conversation message IDs.');
       try {
         return textResult(await scopedCall('POST', '/adapter/v1/seen', { ids: args.ids }));
       } catch (error) {
