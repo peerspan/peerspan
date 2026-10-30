@@ -5586,8 +5586,11 @@ Preserve the complete verified signed baseline policy JSON, including explicit
 optional/default presence and unrelated rules/capabilities/trust/edit entries.
 For a same-key rule (ordinary agent/settings equality), append the principal
 only if absent, preserving existing order/fields; otherwise append the exact
-profile rule. Do not remove or broaden another rule. Existing broader authority
-remains visible in the complete baseline. An existing identical grant may yield
+profile rule. Do not remove or broaden another rule.
+For a newly appended profile rule, include the explicit raw
+`max_artifact_bytes:0` field; a retained same-key rule preserves its original
+optional/default field presence.
+Existing broader authority remains visible in the complete baseline. An existing identical grant may yield
 an ordinary new policy generation; no claim of newly absent permission follows.
 A truly absent policy starts with format2 and empty arrays. Refuse retained
 inactive/forked/incomplete policy or unsettled local edits; never auto-reapply.
