@@ -83,3 +83,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `requester_completion`: bounded exact approved requester signing/publication/
   local application and pure verified replay, without new consent (section28).
+
+
+- `access_onboarding`: pure exact project-bound selected-person membership and
+  signed/enforced policy inspection before agent-access consent (section30).
