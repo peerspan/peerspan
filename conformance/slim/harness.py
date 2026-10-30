@@ -658,8 +658,10 @@ def finalize(host, view, key=None):
     return host.ok_incomplete(*args)
 
 
-def link_machine(owner, machine, network_id, person_public_key, key=None, scopes=None):
-    """`link` on a second machine of the owner's person, approved on the owner's host (spec 8.1, 8.2)."""
+def link_machine(owner, machine, network_id, person_public_key, key=None, scopes=None, admin=None):
+    """`link` on a second machine of the owner's person, approved on the owner's host (spec 8.1, 8.2).
+
+    ADMIN signs the administrator stage when the owner's person is not an administrator (default: the owner)."""
     request = machine.cli("link", "--network", network_id, "--expect-person", person_public_key, timeout=90).json
     check(request and request.get("display_code"), f"{machine.name}: link printed no request code")
     rid, code = request["request_id"], request["display_code"]
@@ -675,10 +677,12 @@ def link_machine(owner, machine, network_id, person_public_key, key=None, scopes
     view = link_view(machine, rid)
     if view["state"] == "needs_administrator":
         # Not folded: the owner's host also signs the administrator stage (root signer by default).
-        owner.ok_incomplete("link", "admit", "--network", network_id, "--owner-offer", view["owner_offer_id"],
-                            "--selection", view["selection_id"], "--person", person_public_key,
-                            "--expect-host-key", view["host_public_key"], "--expect-device-key",
-                            view["device_public_key"], "--code-stdin", "--approve", *signer, input=code + "\n")
+        admitter, admit_signer = (owner, signer) if admin is None else (admin, [])
+        admitter.ok_incomplete("link", "admit", "--network", network_id, "--owner-offer", view["owner_offer_id"],
+                               "--selection", view["selection_id"], "--person", person_public_key,
+                               "--expect-host-key", view["host_public_key"], "--expect-device-key",
+                               view["device_public_key"], "--code-stdin", "--approve", *admit_signer,
+                               input=code + "\n")
         view = pull_until(machine, rid, "administrator_offer_id")
         owner.ok_incomplete("link", "finalize", rid, "--network", network_id, "--context", view["context_id"],
                             "--expect-person", person_public_key, "--expect-host-key", view["host_public_key"],
