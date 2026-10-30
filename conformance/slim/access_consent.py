@@ -699,8 +699,19 @@ def _():
     other = project(f["a"], "advanced")
     ordinary = prepare(f, f["a"], other, f["bob"])
     _, _, encoded, _ = unsigned(f["a"], ordinary)
-    status, result = f["a"].api("POST", f"/v2/networks/{net}/actions", {"kind": "policy", "provider_id": "auto",
-        "signature_format": "auto", "payload_base64": base64.b64encode(encoded).decode(), "approve": True}, timeout=8)
+    status, result = f["a"].api("POST", f"/v2/networks/{net}/actions", {"kind": "policy", "provider_id": f["alice"],
+        "signature_format": "sshsig", "payload_base64": base64.b64encode(encoded).decode(), "approve": True}, timeout=8)
+    if not (status == 200 and isinstance(result, dict) and result.get("action_id") == ordinary["access"]["review"]["action_id"]
+            and result.get("committed") is False and result.get("signing_requests")):
+        observed = result if isinstance(result, dict) else {}
+        codes = {"-", "invalid", "forbidden", "not_found", "clock_rollback", "authority_expired", "proof_required",
+                 "state_conflict", "review_required", "signer_unavailable", "quota_exceeded", "internal"}
+        diagnostic = {"phase": "advanced_original_approval", "status": status if type(status) is int else "unknown",
+            "code": observed.get("code") if isinstance(observed.get("code"), str) and observed.get("code") in codes else "unknown",
+            "committed": observed.get("committed") if type(observed.get("committed")) is bool else "unknown",
+            "action_id_equal": observed.get("action_id") == ordinary["access"]["review"]["action_id"],
+            "slot_count": len(observed["signing_requests"]) if isinstance(observed.get("signing_requests"), list) else "unknown"}
+        print("access_advanced_failure_public=" + json.dumps(diagnostic, sort_keys=True), flush=True)
     check(status == 200 and result["action_id"] == ordinary["access"]["review"]["action_id"]
           and result["committed"] is False and result["signing_requests"], "genuine advanced-only original action approval prerequisite")
     check(intent(f["a"], ordinary["access"]["review"]["intent_id"])["record"]["signatures"] == [], "advanced fixture unexpectedly signed")
