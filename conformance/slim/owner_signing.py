@@ -14,6 +14,10 @@ The client-window distinction remains source coverage; real expired historical
 replay is checked. A lost response can mean committed signature; no automatic retry
 or cancellation of dispatched key use is claimed. No native/model/installed
 or two-physical-machine acceptance is inferred. Existing suites stay unchanged.
+The full ceremony keeps both real peers online for one explicit sync each and
+observes actual empty proof outboxes/no rollback journal before terminal purity.
+Sync success alone is not evidence of acknowledged retirement. Earlier outbox/
+journal snapshot changes remain unclassified; no storage category is excluded.
 """
 import base64
 import copy
@@ -506,6 +510,28 @@ def pure_retry(h, flow, approved, proxy, agent=None, *, logical=True):
     return result
 
 
+def terminal_delivery_baseline(h, issuer, network_id):
+    # Public setup after both local applications. Register only the real pinned
+    # participants; no consent/signing/provider work or private-record changes.
+    for local, remote in ((h, issuer), (issuer, h)):
+        local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key,
+                 '--address', remote.peer_address)
+    for local in (h, issuer):
+        status, value = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
+        check(status == 200 and value['unavailable'] == [],
+              f'{local.name}: genuine terminal sync setup HTTP {status}')
+    def retired():
+        for local in (h, issuer):
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+                if db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0] != 0:
+                    return False
+            if list(local.state.glob('*-journal')):
+                return False
+        return True
+    wait_for(retired, timeout=5, interval=.1,
+             message='actual terminal proof outbox retirement and rollback-journal quiescence')
+
+
 @suite.case("generated_original_one_typed_signature_real_proof_and_pure_replay", "guided onboarding18 verification1")
 def _():
     h, _, flow, approved = approved_fixture("generated"); key = install_key(h)
@@ -768,7 +794,9 @@ def _():
         view = pull_until(h, rid, "administrator_offer_id", timeout=20); finalize(h, view, source()["key"])
         view = pull_until(h, rid, "owner_finalization_id", timeout=20)
         pure_retry(h, flow, approved, proxy, logical=False)
-        commit(h, view); wait_linked(h, issuer, rid, timeout=20); issuer.stop()
+        commit(h, view); wait_linked(h, issuer, rid, timeout=20)
+        terminal_delivery_baseline(h, issuer, network['id'])
+        issuer.stop()
         check(pending(h, rid)[0]["owner_intent_id"] == iid, "advanced F/commit changed the original intention")
         pure_retry(h, flow, approved, proxy)
         h.restart(kill=True)
