@@ -14,7 +14,8 @@ import os
 import re
 import subprocess
 
-from harness import Suite, check, create_network, in_future, join_new_person, ssh_key, wait_for
+from harness import (Suite, api_error, check, create_network, departed_of, find_message, in_future, join_new_person,
+                     message_id, peer, refused, show_targets, ssh_key, target_of, view_as, wait_for, wait_view)
 
 suite = Suite("conversations", __doc__)
 suite.use_clock()  # C2 Verification: the unanswered case moves the test clock; it must be set before hosts start
@@ -30,18 +31,6 @@ CONFLICT = "This message_id was already used with different content."
 NOT_BOUND = "This host is not bound to a person; conversations need one (peerspan join)."
 
 
-def refused(result, code, text):
-    """A CLI refusal: exit 1 and `error: CODE: TEXT` on stderr (C1 Errors)."""
-    want = f"error: {code}: {text}"
-    check(result.code == 1 and want in result.stderr,
-          f"`{' '.join(result.args[:3])}`: exit {result.code}, stderr {result.stderr.strip()[-300:]!r}, want {want!r}")
-
-
-def api_error(status, body, http, code, text=None):
-    ok = status == http and isinstance(body, dict) and body.get("code") == code
-    if text is not None:
-        ok = ok and body.get("error") == text
-    check(ok, f"answer {status} {body}, want {http} {code} {text or ''}")
 
 
 def need(*names):
@@ -49,9 +38,6 @@ def need(*names):
     check(not missing, f"an earlier case did not finish ({', '.join(missing)} missing)")
     return [state[n] for n in names]
 
-
-def message_id():
-    return "cmsg_" + os.urandom(16).hex()
 
 
 def policy_version(host, person_public_key):
@@ -77,17 +63,6 @@ def show(host, *extra):
     return view
 
 
-def find_message(view, mid):
-    found = [m for m in view["messages"] if m["message_id"] == mid]
-    check(len(found) == 1, f"message {mid} appears {len(found)} times in {[m['message_id'] for m in view['messages']]}")
-    return found[0]
-
-
-def target_of(message, participant):
-    check(isinstance(message["targets"], list), f"own message {message['message_id']} has targets {message['targets']}")
-    found = [t for t in message["targets"] if t["participant"] == participant]
-    check(len(found) == 1, f"target {participant} in {message['targets']}")
-    return found[0]
 
 
 def wait_target(host, mid, participant, want, extra=(), timeout=30):
@@ -329,12 +304,14 @@ def _():
     check(view["conversation"]["conversation_id"] == conv, f"show {prefix}: {view['conversation']}")
 
 
-@suite.case("start_refusals", "C1 Starting steps 1 and 3; C2 Starting step 1 (`note` is a field, unknown `as`)")
+@suite.case("start_refusals", "C1 Starting steps 1 and 3; C2 Starting step 1 (`note` is a field, unknown `as`); "
+                              "C3 Resolution of a person target")
 def _():
     need("bert")
     before = {x["conversation_id"] for x in a.ok("conversations", "--json")["conversations"]}
     for body, http, code in (({"participants": ["bob/bert", "bob/bert"]}, 400, "invalid"),
-                             ({"participants": ["bob"]}, 400, "invalid"),
+                             # C3 Starting and adding people: a bare label is a person target now, not C1's 400.
+                             ({"participants": ["nobody"]}, 404, "unknown"),
                              ({"participants": ["bob/bert"], "as": "nobody"}, 404, "not_found"),  # C2 `as`
                              ({"participants": ["bob/bert"], "title": None}, 400, "invalid"),
                              ({"participants": ["bob/nobody"]}, 404, "unknown")):
@@ -459,18 +436,6 @@ NO_PARTICIPANT = "No such participant in that conversation."
 MAX_SAFE = 2 ** 53 - 1
 
 
-def peer(sender, receiver, method, path, body=None):
-    """One raw peer request with `peerspan-peer-probe` from SENDER's state; returns (status, body)."""
-    args = [str(suite.probe_bin), "--address", receiver.peer_address, "--alpn", "peerspan-peer/1", "--path", path,
-            "--method", method, "--state", str(sender.state)]
-    if body is not None:
-        args.append("--body-stdin")
-    p = subprocess.run(args, input=json.dumps(body).encode() if body is not None else b"", capture_output=True,
-                       timeout=45)
-    check(p.returncode == 0, f"probe {method} {path}: exit {p.returncode} {p.stderr.decode(errors='replace')[-300:]}")
-    answer = json.loads(p.stdout)
-    return answer["status"], answer["body"]
-
 
 def owner_policy(owner, public_key):
     return policy_version(owner, public_key)
@@ -533,44 +498,8 @@ def roster_change(got, conv, change, by):
     return n["change"]
 
 
-def view_as(host, conv, participant):
-    status, body = host.api("GET", f"/v1/conversations/{conv}?participant={participant}")
-    check(status == 200, f"{host.name}: view of {conv} as {participant}: {status} {body}")
-    return body
 
 
-def departed_of(view):
-    return {d["id"]: d for d in view.get("departed") or []}
-
-
-def wait_view(host, conv, participant, predicate, what, timeout=20):
-    last = {}
-
-    def ok():
-        last["v"] = view_as(host, conv, participant)
-        return last["v"] if predicate(last["v"]) else None
-    try:
-        return wait_for(ok, timeout=timeout, interval=0.5, message=what)
-    except AssertionError:
-        raise AssertionError(f"{host.name}: {what} not seen within {timeout}s; last view {last.get('v')}") from None
-
-
-def show_targets(host, conv, mid, participant, want, as_agent=None, timeout=30):
-    """Poll HOST's message view of MID until its target for PARTICIPANT leaves `sending`."""
-    extra = ("--as", as_agent) if as_agent else ()
-    last = {}
-
-    def settled():
-        view = host.ok("conversation", "show", conv, "--json", "--limit", "100", *extra)
-        t = target_of(find_message(view, mid), participant)
-        last["t"] = t
-        return t if t["state"] != "sending" else None
-    try:
-        t = wait_for(settled, timeout=timeout, interval=0.5, message=f"{mid} target {participant}")
-    except AssertionError:
-        raise AssertionError(f"target of {mid} for {participant} still {last.get('t')}, want {want}") from None
-    check(t["state"] == want, f"target of {mid} for {participant}: {t}, want {want}")
-    return t
 
 
 def peer_message(conv, author, roster_version, clock, seq=None, content="probe", mid=None):
