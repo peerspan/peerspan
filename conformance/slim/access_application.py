@@ -657,8 +657,24 @@ def applied_evidence(h, prepared):
     check(stored == ("policy", raw_statement) and admitted is not None,
           "application lacks exact ordinary local proof/admission evidence")
     admission = json.loads(admitted[0])
-    check(admission["kind"] == "policy" and admission["proof_id"] == result["proof_id"]
-          and admission["basis"]["kind"] == "current", "applied policy has no verified current ordinary admission basis")
+    check(type(admission) is dict and set(admission) == {"format", "kind", "proof_id", "admitted_at", "basis"}
+          and type(admission["format"]) is int and admission["format"] == 1
+          and admission["kind"] == "policy" and admission["proof_id"] == result["proof_id"],
+          "applied policy lacks its closed exact ordinary admission/proof record")
+    admitted_at = admission["admitted_at"]
+    check(type(admitted_at) is str and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", admitted_at)
+          and rfc3339(parse_time(admitted_at)) == admitted_at
+          and parse_time(review["created_at"]) <= parse_time(admitted_at) < parse_time(review["expires_at"]),
+          "ordinary admission time is not canonical or within the fixed application consent window")
+    basis = admission["basis"]
+    check(type(basis) is dict and set(basis) == {"kind", "evidence_ids"}
+          and basis["kind"] in {"current", "retention", "migration"}, "ordinary admission provenance has an invalid closed basis")
+    evidence = basis["evidence_ids"]
+    check(type(evidence) is list and all(type(item) is str and
+          re.fullmatch(r"(?:ds|dp|dm|da|dpk)_[0-9a-f]{64}", item) for item in evidence)
+          and evidence == sorted(set(evidence)), "ordinary admission evidence IDs are not canonical sorted unique references")
+    required = {review["statement"]["id"], payload["root_state_id"], *(parent["id"] for parent in payload["parents"])}
+    check(required <= set(evidence), "ordinary admission omits the exact policy/root/direct-parent evidence")
     ordinary = get(h, f"/v2/networks/{action['network_id']}/actions/{review['action_id']}")
     check(ordinary == result, "completed ordinary GET changed the retained exact action result")
     return result
