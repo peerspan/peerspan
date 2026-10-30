@@ -289,28 +289,57 @@ impl Store {
         author: &str,
         target: &str,
         after: i64,
-        entries: Vec<(Message, Option<i64>)>,
+        entries: Vec<Entry>,
     ) -> Result<Page, Error> {
         let mut page = Page {
             accepted: 0,
             stopped: false,
         };
         let mut last = after;
-        for (message, prev_seq) in entries {
-            if message.author != author || message.seq <= last {
+        for entry in entries {
+            let seq = entry.seq();
+            if seq <= last {
                 page.stopped = true;
                 return Ok(page);
             }
-            last = message.seq;
+            last = seq;
+            let prev_seq = entry.prev_seq;
+            let (message, message_id) = match (entry.message, entry.message_id, entry.refused) {
+                (Some(m), None, None) if m.author == author => {
+                    let id = m.message_id.clone();
+                    (Some(m), id)
+                }
+                (None, Some(i), Some(_)) if super::valid_message_id(&i) => (None, i),
+                _ => {
+                    page.stopped = true;
+                    return Ok(page);
+                }
+            };
             // Accepted or refused already: never overwritten.
             let resolved: bool = self.connection()?.query_row(
                 "SELECT EXISTS(SELECT 1 FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND peer = ?4)",
-                params![id, message.message_id, target, peer],
+                params![id, message_id, target, peer],
                 |r| r.get(0),
             )?;
             if resolved {
                 continue;
             }
+            // The author's host already holds it as refused for this target.
+            let Some(message) = message else {
+                let refused = Refused {
+                    author: author.to_owned(),
+                    seq,
+                    prev_seq,
+                    code: String::new(),
+                    refused_at: now(),
+                    acked: true,
+                };
+                self.connection()?.execute(
+                    "INSERT OR IGNORE INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'refused', NULL, ?6)",
+                    params![id, message_id, target, peer, prev_seq, serde_json::to_string(&refused)?],
+                )?;
+                continue;
+            };
             let request = MessageRequest {
                 message: message.clone(),
                 target: target.to_owned(),
@@ -624,23 +653,37 @@ impl Store {
             }
         }
         let mut q = conn.prepare(
-            "SELECT m.record, t.prev_seq FROM conversation_messages m JOIN conversation_targets t ON t.conversation_id = m.conversation_id AND t.message_id = m.message_id WHERE m.conversation_id = ?1 AND m.author = ?2 AND t.direction = 'out' AND t.target = ?3 AND m.seq > ?4 ORDER BY m.seq LIMIT ?5",
+            "SELECT m.record, t.prev_seq, t.record FROM conversation_messages m JOIN conversation_targets t ON t.conversation_id = m.conversation_id AND t.message_id = m.message_id WHERE m.conversation_id = ?1 AND m.author = ?2 AND t.direction = 'out' AND t.target = ?3 AND m.seq > ?4 ORDER BY m.seq LIMIT ?5",
         )?;
         let rows = q
             .query_map(params![id, author, target, after, limit + 1], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut messages = Vec::new();
         let mut bytes = 0;
         let mut more = false;
-        for (index, (record, prev)) in rows.into_iter().enumerate() {
+        for (index, (record, prev, out)) in rows.into_iter().enumerate() {
             if index as i64 == limit {
                 more = true;
                 break;
             }
             let stored: Stored = json(record)?;
-            let mut entry = json!({ "message": stored.message });
+            let out: Outbound = json(out)?;
+            // A final refusal stays final: it is named, never served again.
+            let mut entry = if out.state == "refused" {
+                json!({
+                    "message_id": stored.message.message_id,
+                    "seq": stored.message.seq,
+                    "refused": out.code,
+                })
+            } else {
+                json!({ "message": stored.message })
+            };
             if let Some(prev) = prev {
                 entry["prev_seq"] = json!(prev);
             }
@@ -715,7 +758,7 @@ impl Store {
                     out.state = "refused".into();
                     out.code = Some((*code).into());
                     out.error = Some(format!("{sender} refused it when it fetched it"));
-                } else if matches!(&out.state[..], "sending" | "stopped" | "refused") {
+                } else if matches!(&out.state[..], "sending" | "stopped") {
                     out.state = "delivered".into();
                     out.code = None;
                     out.error = None;
@@ -790,9 +833,25 @@ struct Fetched {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Entry {
-    message: Message,
+    #[serde(default)]
+    message: Option<Message>,
+    #[serde(default)]
+    message_id: Option<String>,
+    #[serde(default)]
+    seq: Option<i64>,
+    #[serde(default)]
+    refused: Option<String>,
     #[serde(default)]
     prev_seq: Option<i64>,
+}
+impl Entry {
+    fn seq(&self) -> i64 {
+        self.message
+            .as_ref()
+            .map(|m| m.seq)
+            .or(self.seq)
+            .unwrap_or(0)
+    }
 }
 
 /// Fetches `author`'s messages to `target` past this host's chain head
@@ -825,14 +884,10 @@ async fn fetch_missing(
         };
         let page: Fetched =
             serde_json::from_slice(&body).map_err(|_| "invalid messages answer".to_owned())?;
-        let Some(highest) = page.messages.last().map(|e| e.message.seq) else {
+        let Some(highest) = page.messages.last().map(Entry::seq) else {
             break;
         };
-        let entries: Vec<(Message, Option<i64>)> = page
-            .messages
-            .into_iter()
-            .map(|e| (e.message, e.prev_seq))
-            .collect();
+        let entries = page.messages;
         let (i, p, a, t) = (
             id.to_owned(),
             peer.to_owned(),
@@ -871,37 +926,47 @@ async fn send_acks(
     target: &str,
     authors: Vec<String>,
 ) -> Result<(), String> {
-    let (i, p, t) = (id.to_owned(), peer.to_owned(), target.to_owned());
-    let entries = blocking(store.clone(), move |s| s.acks_due(&i, &p, &t, &authors))
-        .await
-        .map_err(|e| format!("{e:?}"))?;
-    for chunk in entries.chunks(16) {
-        let body = serde_json::to_vec(&json!({"target": target, "acks": chunk}))
-            .map_err(|e| e.to_string())?;
-        match request(
-            store,
-            peer,
-            "POST",
-            &format!("/peer/v1/conversations/{id}/acks"),
-            &body,
-        )
-        .await
-        {
-            Outcome::Answer(_) => {
-                let (i, p, t, c) = (
-                    id.to_owned(),
-                    peer.to_owned(),
-                    target.to_owned(),
-                    chunk.to_vec(),
-                );
-                blocking(store.clone(), move |s| s.acked(&i, &p, &t, &c))
-                    .await
-                    .map_err(|e| format!("{e:?}"))?;
+    // More than 100 refusals in one chain take several rounds.
+    loop {
+        let (i, p, t, a) = (
+            id.to_owned(),
+            peer.to_owned(),
+            target.to_owned(),
+            authors.clone(),
+        );
+        let entries = blocking(store.clone(), move |s| s.acks_due(&i, &p, &t, &a))
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        if entries.is_empty() {
+            return Ok(());
+        }
+        for chunk in entries.chunks(16) {
+            let body = serde_json::to_vec(&json!({"target": target, "acks": chunk}))
+                .map_err(|e| e.to_string())?;
+            match request(
+                store,
+                peer,
+                "POST",
+                &format!("/peer/v1/conversations/{id}/acks"),
+                &body,
+            )
+            .await
+            {
+                Outcome::Answer(_) => {
+                    let (i, p, t, c) = (
+                        id.to_owned(),
+                        peer.to_owned(),
+                        target.to_owned(),
+                        chunk.to_vec(),
+                    );
+                    blocking(store.clone(), move |s| s.acked(&i, &p, &t, &c))
+                        .await
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                other => return Err(failure(other)),
             }
-            other => return Err(failure(other)),
         }
     }
-    Ok(())
 }
 
 /// One sync with one participant host: heads for every local target,
