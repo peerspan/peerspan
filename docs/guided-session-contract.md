@@ -6091,6 +6091,41 @@ queue fabrication. Document unsupported prerequisites as limits honestly.
    closed. Keep any source/manual cryptographic/quota/fork/installed/physical/
    model/full-state-upgrade limits explicit.
 
+### Historical transport prerequisites retained after first executions
+
+The first provenance-corrected run passes application/enforcement, live guards,
+full rollback and actual concurrent/lost-response recovery (4/6in92.23s), then
+fails its post-expiry/restart directory prerequisite and subsequent5s retirement
+wait. Retained evidence shows a return outbox containing the exact NEW policy
+created in case5 (transport_unavailable,attempts2,next retry17s after that
+history target). The last current-contact handoff preceded several clock jumps;
+both retained remote contact bodies expire before the exact history target.
+Current standalone person/host/binding/device grants remain valid. Neither
+observation retrospectively attributes the first directory request or PR79's
+unclassified failures; it identifies missing fixture prerequisites.
+
+For this new suite only, before its history clock advance/restart, observe actual
+retirement of the latest genuine policy generation AFTER the ordinary new-head
+operation. Earlier quiescence cannot settle newly queued work. After restart and
+expiry, establish genuine mutually retained current counted contact hints using
+ordinary short signed handoffs and authenticated peer import/retained GET. Retire
+those actual short invitation windows with one bounded synchronized clock step
+and genuine unapproved create/cancel maintenance (unique local maintenance keys,
+no reused ssh-keygen destination). Prove all relevant contacts/authority remain
+live at that cleanup target and all actual secrets/read-caps/frames/outboxes/
+journals retire, then observe the original directory/startup result and use the
+original strict history captures/assertions. A future recorded ordinary retry
+may be made eligible with one bounded synchronized clock step only from its
+actual next_attempt_at, within current contact/authority bounds; never invent
+ACKs, alter queues or extend waits. No global transport fence is inferred.
+
+Keep the first2/6 and corrected4/6 logs/dependencies, all prior evidence and
+all27 old suites/helpers/native exact. The independent author adds only genuine
+setup prerequisites to the new suite, preserving every existing new-suite
+verdict, comparison, baseline order, sleep/timeout and original user operation.
+No discarded path/counter, disabled worker, refreshed policy/approval/signature,
+changed production code or unchanged retry-to-green follows from this evidence.
+
 Selected: one explicit local application of the exact signed ordinary policy,
 with pure independently verified recovery and ordinary delivery queueing.
 Discard combining signer/application, a second consent/table/journal, hidden
