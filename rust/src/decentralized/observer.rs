@@ -394,6 +394,56 @@ pub(crate) fn observe(store: &Store, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Retain only a verified incoming owner/selection prefix, never later stages
+/// or requester-local consent. Caller owns all writes and their transaction.
+pub(crate) fn incoming_prefix(
+    c: &Connection,
+    store: &Store,
+    p: &mut Pending,
+    now: &str,
+) -> Result<()> {
+    let evidence = Evidence::read(c, p, now)?;
+    let owners: Vec<_> = evidence
+        .packets
+        .values()
+        .filter(|o| o.packet.object["role"] == "owner")
+        .collect();
+    let id = if p.record.owner_offer_id != "-" {
+        p.record.owner_offer_id.clone()
+    } else {
+        require(owners.len() <= 1, "operation_conflict")?;
+        let Some(owner) = owners.first() else {
+            require(
+                !evidence
+                    .packets
+                    .values()
+                    .any(|p| p.packet.object["role"] == "selection"),
+                "proof_required",
+            )?;
+            return Ok(());
+        };
+        owner.packet.id.clone()
+    };
+    let offer = evidence.offer(c, store, p, &id, now)?;
+    super::ceremony_admin::original_terms(p, &offer)?;
+    offer.remember(p)?;
+    if let Some(selection) = evidence.matching(
+        "selection",
+        &p.record.selection_id,
+        &[("owner_offer_id", &id)],
+    )? {
+        state::check_requester_selection(
+            &p.packet()?,
+            &offer.owner,
+            &selection.packet,
+            &offer.descriptor,
+        )?;
+        p.record.selection_id = selection.packet.id.clone();
+        p.record.selection_packet_base64 = encode(&selection.bytes);
+    }
+    Ok(())
+}
+
 fn advance_prefix(
     c: &Connection,
     store: &Store,

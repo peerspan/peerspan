@@ -277,3 +277,11 @@ exact approval is atomic with the ordinary administrator intent. Approval may
 permit background root/host signing and publication; original F and requester
 commit remain separate. Lookup and exact historical retries are read-only.
 No new schema, native control, key/provider fallback or peer/scoped route.
+
+Guided explicit incoming proof progress (guided session contract section22) is
+owner-local POST /v1/onboarding/incoming-progress and private-stdin
+`onboarding admission progress --stdin`. One bounded pinned carrier GET pass
+retains only validated incoming request/original/selection/proofs, atomically
+under rechecked context/request/root/time pins. Cached complete-prefix retry is
+pure; this never prepares consent, signs protocol packets, learns endpoints or
+invokes the ordinary resume/action engine. No schema/native control is added.

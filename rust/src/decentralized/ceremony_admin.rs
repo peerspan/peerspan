@@ -270,7 +270,20 @@ pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Re
             && (p.record.stage_at == "-" || stamp(&b.now)? >= stamp(&p.record.stage_at)?),
         "state_conflict",
     )?;
-    let owner = &b.offer.owner;
+    let fixed_end = original_terms(p, &b.offer)?;
+    check(
+        p.record.expected_network_id == b.descriptor.network_id
+            && p.record.expected_context_id == b.descriptor.context_id(),
+    )?;
+    Ok(json!({"observed_at":b.now,"request":request,
+        "network":{"id":b.descriptor.network_id,"name":b.descriptor.name,
+            "context_id":b.descriptor.context_id(),"genesis_root_public_key":b.descriptor.genesis_root_public_key},
+        "root_state_id":b.projection.root_state_id()?,"member":b.offer.owner.payload["member"],
+        "scopes":7,"not_after":fixed_end}))
+}
+/// The fixed guided new-original policy over an ordinarily verified offer.
+pub(super) fn original_terms(p: &Pending, offer: &Offer) -> Result<String> {
+    let owner = &offer.owner;
     let payload = &owner.payload;
     let signed_request = p.packet()?;
     let fixed_end = (stamp(text(&signed_request.payload, "created_at")?)?
@@ -278,7 +291,7 @@ pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Re
     .format("%Y-%m-%dT%H:%M:%SZ")
     .to_string();
     check(
-        b.offer.provider["kind"] == "original_person"
+        offer.provider["kind"] == "original_person"
             && text(payload, "root_state_id")? == "-"
             && text(payload, "person_lease_id")? == "-"
             && ids(payload, "issuer_lease_ids", "ds_")?.is_empty()
@@ -287,16 +300,13 @@ pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Re
             && text(payload, "not_after")? == fixed_end
             && text(&owner.object, "authority_signature_format")? == "sshsig"
             && text(&owner.object, "writer_host_public_key")? == p.record.host_public_key
-            && p.record.expected_network_id == b.descriptor.network_id
-            && p.record.expected_context_id == b.descriptor.context_id()
+            && p.record.expected_network_id == offer.descriptor.network_id
+            && p.record.expected_context_id == offer.descriptor.context_id()
             && p.record.expected_person_public_key == text(&owner.object, "person_public_key")?,
     )?;
-    Ok(json!({"observed_at":b.now,"request":request,
-        "network":{"id":b.descriptor.network_id,"name":b.descriptor.name,
-            "context_id":b.descriptor.context_id(),"genesis_root_public_key":b.descriptor.genesis_root_public_key},
-        "root_state_id":b.projection.root_state_id()?,"member":payload["member"],
-        "scopes":7,"not_after":fixed_end}))
+    Ok(fixed_end)
 }
+
 fn issuer(base: &Base, r: &Resolved) -> Result<(Value, BTreeMap<String, String>)> {
     if r.provider.kind == "root" {
         return Ok((

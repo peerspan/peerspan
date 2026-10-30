@@ -48,6 +48,11 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum AdmissionCommand {
+    /// Explicitly fetch missing incoming original/selection evidence
+    Progress {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read retained exact administrator consent without preparing or signing
     Lookup {
         #[arg(long, required = true)]
@@ -234,6 +239,7 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
     }) = command
     {
         return match command {
+            AdmissionCommand::Progress { .. } => incoming_progress(socket).await,
             AdmissionCommand::Inspect { .. } => admission_inspection(socket).await,
             AdmissionCommand::Lookup { .. } => admission_consent(socket, "lookup").await,
             AdmissionCommand::Prepare { .. } => admission_consent(socket, "prepare").await,
@@ -315,6 +321,26 @@ async fn admission_inspection(socket: &Path) -> Result<Value> {
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
         Local(socket).post("/v1/onboarding/admission-inspection".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
+
+async fn incoming_progress(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid incoming progress input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input = peerspan_host::onboarding_admission::decode_input(&bytes).map_err(|_| invalid())?;
+    let payload = serde_json::json!({"context":input.context,"request_id":input.request_id});
+    let unavailable = || anyhow::anyhow!("incoming progress unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post("/v1/onboarding/incoming-progress".into(), payload),
     )
     .await
     .map_err(|_| unavailable())?
