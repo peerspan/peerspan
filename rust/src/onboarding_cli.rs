@@ -76,6 +76,11 @@ pub enum AdmissionCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum JoinCommand {
+    /// Review and approve the separate exact requester final-commit consent
+    Commit {
+        #[command(subcommand)]
+        command: CommitCommand,
+    },
     /// Prepare or explicitly approve exact new-original owner terms
     Owner {
         #[command(subcommand)]
@@ -110,6 +115,24 @@ pub enum JoinCommand {
     Inspect { flow_id: String },
     /// Approve request publication or decline the exact retained review
     Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum CommitCommand {
+    /// Pure lookup of retained requester commit consent
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare exact public final-commit terms without signing or applying
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Atomically approve only the exact retained final-commit review
+    Approve {
         #[arg(long, required = true)]
         stdin: bool,
     },
@@ -392,6 +415,9 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, Progress, decode_input};
     let local = Local(socket);
     let base = "/v1/onboarding/join-flows";
+    if let JoinCommand::Commit { command } = command {
+        return commit_command(command, socket).await;
+    }
     if let JoinCommand::Owner { command } = command {
         return owner_command(command, socket).await;
     }
@@ -408,7 +434,8 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         JoinCommand::Progress { .. } => "progress",
         JoinCommand::Inspect { .. }
         | JoinCommand::CreateIdentity { .. }
-        | JoinCommand::Owner { .. } => unreachable!(),
+        | JoinCommand::Owner { .. }
+        | JoinCommand::Commit { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid join review input");
     let mut bytes = Vec::new();
@@ -460,7 +487,8 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         }
         JoinCommand::Inspect { .. }
         | JoinCommand::CreateIdentity { .. }
-        | JoinCommand::Owner { .. } => unreachable!(),
+        | JoinCommand::Owner { .. }
+        | JoinCommand::Commit { .. } => unreachable!(),
     }
 }
 
@@ -652,6 +680,46 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
     )
 }
 
+async fn commit_command(command: &CommitCommand, socket: &Path) -> Result<Value> {
+    let operation = match command {
+        CommitCommand::Lookup { .. } => "lookup",
+        CommitCommand::Prepare { .. } => "prepare",
+        CommitCommand::Approve { .. } => "approve",
+    };
+    let invalid = || anyhow::anyhow!("invalid requester commit consent input");
+    let unavailable = || {
+        anyhow::anyhow!(
+            "requester commit consent unavailable or outcome unknown; inspect the retained exact review before another explicit action"
+        )
+    };
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    ensure!(
+        bytes.len() <= 65536,
+        "invalid requester commit consent input"
+    );
+    let mut value = peerspan_host::onboarding_join::decode_commit_input(&bytes, operation, true)
+        .map_err(|_| invalid())?;
+    let id = value
+        .as_object_mut()
+        .and_then(|v| v.remove("flow_id"))
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .ok_or_else(invalid)?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(
+            format!("/v1/onboarding/join-flows/{id}/commit/{operation}"),
+            value,
+        ),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
 async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
     if let OwnerCommand::Finalization { command } = command {
         return match command {

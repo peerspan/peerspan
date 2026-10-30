@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod owner;
-pub use owner::{OwnerApproval, OwnerContext, decode_owner_input};
+pub use owner::{OwnerApproval, OwnerContext, decode_commit_input, decode_owner_input};
 
 pub(crate) const SCHEMA: &str = "
 CREATE TABLE onboarding_join_flows (

@@ -101,6 +101,14 @@ async fn main() {
             // This selects only error redaction; typed parsing still owns dispatch.
             if e.use_stderr()
                 && raw
+                    .windows(3)
+                    .any(|path| path == ["onboarding", "join", "commit"])
+            {
+                eprintln!("error: invalid requester commit consent arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw
                     .windows(4)
                     .any(|path| path == ["onboarding", "join", "owner", "finalization"])
             {

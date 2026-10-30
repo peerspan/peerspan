@@ -50,6 +50,7 @@ pub use migration::{migration_inherited_bans, migration_person_labels};
 pub(crate) use observer::incoming_prefix;
 pub use peer::state_worker;
 pub use probe::{MAX_PROBE_LINE, probe};
+pub(crate) use requester::{commit_in, commit_live, commit_proposal};
 pub(crate) use requests::views_in as request_views_in;
 pub(crate) use requests_io::{IncomingPlan, fetch_incoming, incoming_plan, incoming_role};
 pub use statement::{Descriptor, SignatureEntry, Statement};

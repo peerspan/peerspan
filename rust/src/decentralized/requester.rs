@@ -75,6 +75,9 @@ pub(crate) fn select(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
 mod approval;
 pub(crate) use approval::validate_references;
 pub(crate) use commitment::{activation_bytes, catalog_delta_components, retain_catalog};
+pub(crate) use commitment::{
+    consent_in as commit_in, consent_live as commit_live, consent_proposal as commit_proposal,
+};
 #[path = "requester_commit.rs"]
 mod commitment;
 pub(crate) fn commit(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {

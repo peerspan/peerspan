@@ -21,6 +21,10 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+#[path = "requester_commit/consent.rs"]
+mod consent;
+pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
+
 struct Context {
     offer: Offer,
     prepared: PreparedFinalization,

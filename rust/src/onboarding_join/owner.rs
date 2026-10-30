@@ -1,7 +1,9 @@
 //! Exact public consent over the existing ordinary unapproved owner intent.
 use super::*;
 use crate::decentralized::{ceremony, controls};
+mod commit;
 mod finalization;
+pub use commit::decode_commit_input;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -417,6 +419,7 @@ impl Store {
 }
 pub(super) fn routes() -> Router<Arc<Store>> {
     Router::new()
+        .merge(commit::routes())
         .route(
             "/v1/onboarding/join-flows/{id}/owner/finalization/inspect",
             post(finalization::inspect),
