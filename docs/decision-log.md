@@ -2998,3 +2998,18 @@ ordinary DEC Ed25519 public-key validity: an unknown valid key is409, while
 an invalid encoded public key is400. Correct an invalid unknown-person fixture
 with a genuinely generated public key before the next execution, retaining its
 409 assertion and all other cases/assertions/delays/timeouts.
+
+
+### GU.impl30d / GU.impl28h — Diagnose observed purity and retry prerequisites
+
+Corrected access CI6/6in35s and local5/6in75s expose an unidentified aggregate
+purity category. The same head's old completion5/6in86s reports a proof retry
+11s ahead despite prior one-time clock alignment. The alignment's captured
+generation and actual failed category are missing; no timing or product fix is
+inferred. Select independent failure-only closed captured-snapshot diagnostics
+for access and bounded before/after-alignment public retry metadata for old
+completion. Preserve exact prior AST/source after diagnostic normalization and
+all existing assertions/actions/clock counts/delays/timeouts. Commit before one
+retained diagnostic run per suite. Discard repeated unchanged runs, larger
+waits, missing purity categories, queue/authority edits, forced ACK, worker
+controls and a second clock-advance/protocol loop.
