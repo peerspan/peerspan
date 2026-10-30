@@ -4463,6 +4463,15 @@ impl Store {
                 };
                 // A push already settled this join (and a newer roster may
                 // have removed the person since): the answer changes nothing.
+                // An answer for a replaced invite, or older than the roster
+                // the invite holds when that no longer lists the person
+                // joined, admits nothing.
+                if replaced
+                    || (roster.version < pending.roster.version
+                        && pending.roster.joined(&participant).is_none())
+                {
+                    return Err(not_participant());
+                }
                 if pending.state != "pending" {
                     let joined = self
                         .held_opt(&tx, id)?
