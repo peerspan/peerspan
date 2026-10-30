@@ -2639,3 +2639,17 @@ may delay process shutdown. Abandoned key results cannot submit another batch.
 The future native caller sets a separate process bound. This clarifies40fe2c3's
 whole-command wording before conformance assertions. Discarded: claiming Tokio
 future cancellation kills blocking work or retracts a dispatched signature POST.
+
+
+### GU.impl25c — Isolate independent requester polling during read purity
+
+Initial CI old finalization inspection5/6 in31s counted one extra connection on
+each relay and zero added bytes during case3; local old signing5/6 in48s changed
+dec_outbox and a rollback-journal path at its terminal historical check. Selected:
+independent diagnosis and a public setup/observed in-flight transport barrier
+that keeps ordinary requester background polling outside each measured read,
+while preserving all logical DB/file/bothcarrier assertions. Invitation return
+expiry alone does not stop unfinished requester polling. The terminal outbox/
+journal cause remains unclassified pending evidence. Discarded: unmeasured quiet
+gaps as proof of no worker activity, filtering one carrier or storage category,
+editing protocol rows, disabling workers, longer timeouts or retry-until-green.
