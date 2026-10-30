@@ -186,6 +186,12 @@ def _():
 @suite.case("claim", "C1 Adapter routes: Claiming, Notification, Claim")
 def _():
     bert, first, alice_p, alice_person = need("bert", "first", "alice_participant", "alice_person")
+    # C2 Notifications: accepting the invite first gave bert an `added` roster notification, the oldest one.
+    added = claim(bert)
+    check(added["notification"]["kind"] == "roster" and added["notification"]["change"]["change"] == "added"
+          and added["notification"]["change"]["by"] == alice_p and added["messages"] == [],
+          f"bert's first claim is not the C2 `added` notification: {added['notification']}")
+    forwarded(bert, added["notification"]["id"])
     got = claim(bert)
     n = got["notification"]
     check(NOT_ID.match(n["id"] or "") and n["kind"] == "message" and n["conversation_id"] == state["conv"]
@@ -323,13 +329,13 @@ def _():
     check(view["conversation"]["conversation_id"] == conv, f"show {prefix}: {view['conversation']}")
 
 
-@suite.case("start_refusals", "C1 Starting steps 1 and 3")
+@suite.case("start_refusals", "C1 Starting steps 1 and 3; C2 Starting step 1 (`note` is a field, unknown `as`)")
 def _():
     need("bert")
     before = {x["conversation_id"] for x in a.ok("conversations", "--json")["conversations"]}
     for body, http, code in (({"participants": ["bob/bert", "bob/bert"]}, 400, "invalid"),
                              ({"participants": ["bob"]}, 400, "invalid"),
-                             ({"participants": ["bob/bert"], "note": "hi"}, 400, "invalid"),
+                             ({"participants": ["bob/bert"], "as": "nobody"}, 404, "not_found"),  # C2 `as`
                              ({"participants": ["bob/bert"], "title": None}, 400, "invalid"),
                              ({"participants": ["bob/nobody"]}, 404, "unknown")):
         status, answer = a.api("POST", "/v1/conversations", body)
@@ -398,6 +404,11 @@ def _():
         status, answer = send(mutate)
         check(status == 400 and isinstance(answer, dict) and answer.get("code") == "invalid",
               f"invite with {what}: {status} {answer}, want 400 invalid")
+    # C2 Notifications: the consistent invite gave bert an `added` notification; take it so later cases start clean.
+    status, added = bert.post(CLAIM, {})
+    check(status == 200 and isinstance(added, dict) and added["notification"]["kind"] == "roster"
+          and added["notification"]["change"]["change"] == "added", f"bert's `added` claim: {status} {added}")
+    forwarded(bert, added["notification"]["id"])
 
 
 @suite.case("refused_after_deny", "C1 Fan-out and retry (citation, 403 -> refused not_authorized); CLI show")
@@ -562,7 +573,10 @@ def show_targets(host, conv, mid, participant, want, as_agent=None, timeout=30):
     return t
 
 
-def peer_message(conv, author, roster_version, clock, seq=1, content="probe", mid=None):
+def peer_message(conv, author, roster_version, clock, seq=None, content="probe", mid=None):
+    # A fresh, high seq: a host refuses an author's seq it already holds under another message_id (C2, Changes to
+    # the C1 routes), and nothing before C4 acts on gaps.
+    seq = seq or 100_000 + int.from_bytes(os.urandom(3), "big")
     return {"message_id": mid or message_id(), "conversation_id": conv, "author": author, "seq": seq,
             "clock": clock, "roster_version": roster_version, "sent_at": in_future(seconds=0), "content": content}
 
