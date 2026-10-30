@@ -68,13 +68,17 @@ pub fn decode_input(bytes: &[u8], operation: &str) -> Result<Value, Error> {
     if bytes.len() > 65536 {
         return Err(invalid());
     }
+    let value = codec::parse(bytes, 65536).map_err(|_| invalid())?;
     let fields = match operation {
         "lookup" => "context network_id person_public_key",
-        "prepare" => "context network_id person_public_key inspection_review_id replace_access_id",
+        "prepare" if value.get("replace_access_id").is_some() => {
+            "context network_id person_public_key inspection_review_id replace_access_id"
+        }
+        "prepare" => "context network_id person_public_key inspection_review_id",
         "approve" => "context network_id person_public_key access_id access_review_id",
         _ => return Err(invalid()),
     };
-    let value: Value = crate::linking::decode_mutation(bytes, fields).map_err(|_| invalid())?;
+    codec::fields(codec::object(&value).map_err(|_| invalid())?, fields).map_err(|_| invalid())?;
     let input: Input = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
     input.context.validate().map_err(|_| invalid())?;
     if !codec::ident(&input.network_id, "net_") || !codec::key(&input.person_public_key) {

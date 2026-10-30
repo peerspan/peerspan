@@ -448,6 +448,7 @@ pub(crate) fn run(
             "review_changed",
         )?;
         if !r.meta.record.approved {
+            require(!r.action.record.approved, "review_changed")?;
             live(c, store, input, &r, parent, attached, now).map_err(|e| {
                 if e.code == "review_expired" {
                     e
