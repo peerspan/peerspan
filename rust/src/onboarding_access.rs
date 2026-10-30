@@ -84,10 +84,7 @@ impl Store {
         let now = chrono::DateTime::parse_from_rfc3339(observed)
             .map_err(|_| unavailable())?
             .with_timezone(&chrono::Utc);
-        let (parent, attached) = input
-            .context
-            .project(&tx, now)
-            .map_err(|_| coded("review_changed"))?;
+        let (parent, attached) = input.context.project(&tx, now)?;
         if !attached {
             return Err(coded("review_changed"));
         }
