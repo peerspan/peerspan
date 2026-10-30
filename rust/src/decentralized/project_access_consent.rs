@@ -481,7 +481,8 @@ pub(crate) fn run(
             }
             Some(old) if old == id => {
                 require(
-                    live(c, store, input, &r, parent, attached, now).is_err(),
+                    !(r.action.record.approved && !r.meta.record.approved)
+                        && live(c, store, input, &r, parent, attached, now).is_err(),
                     "review_changed",
                 )?;
             }
