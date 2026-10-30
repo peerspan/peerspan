@@ -851,6 +851,9 @@ test('the membership tools validate, call the daemon, and report refusals', asyn
 
     await adapter.callTool('list_conversations', {});
     assert.deepEqual(calls.at(-1), { method: 'GET', path: '/adapter/v1/conversations', body: undefined });
+    const omitted = await adapter.callTool('list_conversations');
+    assert.equal(omitted.isError, undefined);
+    assert.equal(calls.at(-1).path, '/adapter/v1/conversations');
     await adapter.callTool('conversation_start', { participants: ['bob/bert'], content: 'hi', note: 'n' });
     assert.equal(calls.at(-1).path, '/adapter/v1/conversations');
     assert.match(calls.at(-1).body.message_id, /^cmsg_[0-9a-f]{32}$/);

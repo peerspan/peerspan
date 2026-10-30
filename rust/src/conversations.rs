@@ -286,6 +286,11 @@ struct Invite {
     next_attempt_at: Option<String>,
     #[serde(default)]
     note: Option<String>,
+    /// The highest roster version an attempt of this invite offered: the
+    /// target's host may hold that roster, so home never commits a
+    /// different roster at that version.
+    #[serde(default)]
+    offered: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1070,6 +1075,7 @@ impl Store {
                         attempts: 0,
                         next_attempt_at: Some(later(10)),
                         note: note.clone(),
+                        offered: 0,
                     },
                 )?;
                 outcomes.push((given.clone(), participant, None));
@@ -1239,11 +1245,34 @@ impl Store {
         &self,
         conn: &Connection,
         held: &mut Held,
-        mut new: Roster,
+        new: Roster,
         actor: Option<&str>,
     ) -> Result<(), Error> {
+        self.commit_as(conn, held, new, actor, None)
+    }
+    /// `commit`, numbering the version past every version an invite of the
+    /// conversation offered, so a host holding an invite's roster always
+    /// receives a higher one. Only the join an invite offered may take the
+    /// version that invite offered (`join`), as its roster is then the
+    /// invite's own.
+    fn commit_as(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        mut new: Roster,
+        actor: Option<&str>,
+        join: Option<i64>,
+    ) -> Result<(), Error> {
         let old = held.roster.clone();
-        new.version = old.version + 1;
+        let offered: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(json_extract(record, '$.offered')), 0) FROM conversation_roster_outbound WHERE conversation_id = ?1 AND kind LIKE 'invite:%'",
+            [&old.conversation_id],
+            |r| r.get(0),
+        )?;
+        new.version = match join {
+            Some(v) if v == old.version + 1 => v,
+            _ => old.version.max(offered) + 1,
+        };
         self.apply_roster(conn, held, new, actor)?;
         save_held(conn, held)?;
         let own = self.identity().id;
@@ -1526,6 +1555,10 @@ impl Store {
                 p.state = "joined".into();
             }
         }
+        let mut invite = invite;
+        invite.offered = invite.offered.max(next.version);
+        self.save_invite(&tx, id, &invite)?;
+        tx.commit()?;
         let request = InviteRequest {
             conversation_id: id.into(),
             roster: next,
@@ -1582,7 +1615,7 @@ impl Store {
                             p.name = Some(name.clone());
                         }
                     }
-                    self.commit(tx, &mut held, next, None)?;
+                    self.commit_as(tx, &mut held, next, None, Some(invite.offered))?;
                 }
             }
             Err((state @ ("refused" | "unsupported"), code, error)) => {
@@ -1609,10 +1642,31 @@ impl Store {
     fn finish_invite(&self, id: &str, participant: &str, outcome: Outcome) -> Result<(), Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        {
+        let stopped = {
             let mut invite = self.invite_record(&tx, id, participant)?;
             invite.attempts += 1;
             self.save_invite(&tx, id, &invite)?;
+            !matches!(&invite.state[..], "sending" | "joined")
+        };
+        // An invite stopped (removed, closed, unanswered) while its attempt
+        // was in flight may still have been accepted: push home's current
+        // roster to that host, so it learns the participant is not in it.
+        if stopped
+            && let Outcome::Answer(_) = &outcome
+            && let Some((_, host, _)) = participant_parts(participant)
+        {
+            let held = self.held(&tx, id)?;
+            let push = Push {
+                version: held.roster.version,
+                state: "sending".into(),
+                attempts: 0,
+                error: None,
+                next_attempt_at: Some(now()),
+            };
+            tx.execute(
+                "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                params![id, host, serde_json::to_string(&push)?],
+            )?;
         }
         let settled = match outcome {
             Outcome::Answer(body) => match serde_json::from_slice::<Value>(&body) {
@@ -2405,6 +2459,7 @@ impl Store {
                     attempts: 0,
                     next_attempt_at: Some(later(10)),
                     note: None,
+                    offered: 0,
                 },
             )?;
         }
