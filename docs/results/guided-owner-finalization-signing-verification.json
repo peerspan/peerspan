@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/62",
+  "scope": "Bounded local original B/D/F signing; guided session contract section25",
+  "base_merge": "24d26ccc6301c0a5d97ce92b06e185a33e600ae1",
+  "contract_first_commit": "930e1f9",
+  "contract_clarifications": [
+    "779a774: partial-result recovery and at most one later explicit F-only decision",
+    "40fe2c3 and 83c62b4: 90s asynchronous orchestration deadline and actual blocking-operation cancellation boundary",
+    "dfae2e1 and 9d3b6c8: independent polling, confirmed live transport hold and observed terminal retirement",
+    "2300b29: eager test helper ordering and shared genuine exact-agent recovery fixture"
+  ],
+  "frozen_production": "40d3f7b7c76af89de1deab92c20685b54c292527",
+  "combined_local_verification_head": "cb1f4c55038b9db43f0a19c81446c85f49e37f4c",
+  "binary_sha256": "718c72fd8e7de4e70e46220e943c659d3c33eefe4811fbc944894933f7ccfde8",
+  "source_sha256": {
+    "rust/src/main.rs": "5b1749b9917c47c9781b8d61ff3eb9eb4a266655527528677248ca7fdd10464f",
+    "rust/src/onboarding_cli.rs": "dbae530daa49ba1251d8f32e028d0f92d8cd90a70034a1e22f06569fc3925ad2",
+    "rust/src/onboarding_owner_sign.rs": "838fe73c63fd8ee936b562540bf86a2bed7a882392c57966e484e6f05832fa16",
+    "rust/src/onboarding_owner_finalization_sign.rs": "aa12ee091488ca16882b98af1ae8d608ee4252d87de9c1c9440b6d922c2805eb",
+    "conformance/slim/owner_finalization_signing.py": "bf8dcc267c58377e0220ac94fe5db9b14aa95fa1c50c00c65ec66e4468dae4da",
+    "conformance/slim/owner_finalization.py": "72951d6366a6aa9a843ba41ee88f95f67783adca271b08d835ee5338f7e6bf35",
+    "conformance/slim/owner_signing.py": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "contract_only": true,
+    "implementation_read": false,
+    "committed_before_each_execution": true,
+    "new_suite": {"author_commit": "1b9c5aa", "integrated_commit": "73c4511"},
+    "new_suite_correction": {"author_commit": "3df2f97", "integrated_commit": "b681fda"},
+    "old_inspection_fixture": {"author_commit": "a31d3b3", "integrated_commit": "5f5c3c8"},
+    "old_signing_fixture": {"author_commit": "8b2896a", "integrated_commit": "cb1f4c5"},
+    "matrix_change": "Add owner_finalization_signing as the22nd suite; preserve all previous entries"
+  },
+  "local_frozen_production": {
+    "rust_tests": {"passed": 155, "ignored": 2, "failed": 0},
+    "fmt": "pass",
+    "clippy": "pass",
+    "all_bins_build": "pass",
+    "clippy_seconds": 7.44,
+    "build_seconds": 9.64,
+    "native": {
+      "runtime": "2.1.303",
+      "passed": 272,
+      "failed": 0,
+      "files": 13,
+      "seconds": 35.55,
+      "strict_plugin_validation": "pass",
+      "all_native_sources_and_assertions_unchanged": true
+    },
+    "owner_finalization_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 131,
+      "case_seconds_in_execution_order": [34.0, 37.7, 29.6, 15.1, 3.6, 11.3],
+      "runtime_target": "Local131s exceeds two minutes; CI on the same suite passed6/6 in49s",
+      "evidence": [
+        "Genuine generated-original B/D and F authority signing, exact retained intent/parents/profile/fixed end, bounded batches and no commit/access/schema change",
+        "Safe generated source boundaries, multiple SSH-agent identities, exact identity and three original agent signatures with no replacement/fallback",
+        "Lost first B/D response stops dependent F; proven retained B/D plus one later explicit F-only decision, including nested F faults and dependent issuer-reappearance refusal",
+        "Strict stdin/CLI/privacy/no-startup and genuine-derived typed slot, object, key, message, parent and lifetime rejection",
+        "Genuine missing/unapproved/changed/expired/cancelled and unavailable work refusals",
+        "Same distinct-person/two-temporary-host request reaches retained F through this CLI and completes through separate advanced requester commit; repeated Sign refuses purely with immutable original consent"
+      ]
+    },
+    "owner_finalization": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 85,
+      "case_seconds": [14.6, 23.7, 5.9, 12.3, 1.7, 26.7],
+      "fixture": "Confirm genuinely consumed TLS ClientHello and the same live held generation throughout strict whole-DB/state/home and BOTH full relay-counter snapshots; no TLS impersonation/decryption or worker disabling"
+    },
+    "owner_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 53,
+      "case_seconds": [2.8, 5.4, 4.4, 2.2, 4.5, 34.1],
+      "fixture": "Register genuine pinned peers and one ordinary sync each, then observe both real outboxes empty and rollback journals absent before issuer stop; retain all offline/keyless/restart/expired historical checks"
+    }
+  },
+  "retained_initial_failures": [
+    {
+      "gate": "First Rust compilation before production freeze",
+      "result": "Three type errors in Value/vector equality and Map/Value helper calls; fixed before40d3f7b and all successful gates"
+    },
+    {
+      "gate": "Initial CI at40d3f7b",
+      "run": "https://github.com/peerspan/peerspan/actions/runs/41009555571",
+      "result": "20/21 suites passed; owner_finalization5/6 in31s",
+      "case": 3,
+      "relay_counters_before": [[15, 68445], [13, 60784]],
+      "relay_counters_after": [[16, 68445], [14, 60784]],
+      "attribution": "One additional connection each, zero added bytes; exact per-connection cause unclassified. Unfinished requester polling is independent of invitation return expiry."
+    },
+    {
+      "gate": "Initial local old owner_signing",
+      "result": "5/6 in48s; historical purity case6 failed",
+      "changed_tables": ["dec_outbox"],
+      "changed_state_paths": ["host.db-journal"],
+      "changed_home_paths": [],
+      "attribution": "Earlier before-values/change direction were not retained; cause remains unclassified. Later empty outboxes/no journals do not establish its earlier cause. Chained local inspection did not execute."
+    },
+    {
+      "gate": "First independently authored owner_finalization_signing",
+      "result": "5/6 in121s; case3 NameError alter_packets because Suite.case executes eagerly before the later helper declaration",
+      "attribution": "No product assertion failed; first lost-B/D caps passed before the helper failure, later F-fault assertions had not executed. Contract-first independent correction moved helpers and shared the genuine exact-agent recovery setup without dropping assertions or enlarging timeouts."
+    }
+  ],
+  "preceding_remote_gates": {
+    "head": "9d3b6c85fefe63dce036a3c6c9b397df6e2d8d30",
+    "all22_conformance": "https://github.com/peerspan/peerspan/actions/runs/41011766495",
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41011766522",
+    "result": "pass",
+    "new_suite": {"passed": 6, "failed": 0, "seconds": 49},
+    "limit": "These passing runs precede the two independently corrected old fixtures and this evidence record; they are not final combined-head evidence."
+  },
+  "early_review": {
+    "head": "40d3f7b7c76af89de1deab92c20685b54c292527",
+    "url": "https://github.com/peerspan/peerspan/pull/62#issuecomment-6515856856",
+    "findings": false,
+    "limit": "Fresh review of final combined head remains required"
+  },
+  "final_remote_gate_location": "PR62 and tracking PR35 record exact combined final head, all22 suites, PR checks and fresh review after this record commit; earlier-head gates are not substituted.",
+  "preservation": "All old21 case assertions, delays and timeouts remain; two independently corrected setups isolate live polling and terminal delivery without row edits, ignored counters/categories, disabled workers or retry-until-green. Author static comparison confirms original check/delay/timeout preservation. All native272 and protocol/API sources remain unchanged.",
+  "execution": "Builds, artifacts and logs in RAM. Required Rust gates, native272, new host6 and corrected old host6+6 executed sequentially without overlapping build/native/host load. Product stayed frozen at40d3f7b throughout conformance diagnosis/corrections.",
+  "source_or_fault_limits": [
+    "Generated-key internal file-open and signature-operation syscall counts are not instrumented; retained signatures/submissions are observed, exact agent key/signature operations are counted",
+    "Queued/dispatched blocking signer work can outlive the90s orchestration deadline and delay shutdown; abandoned results cannot trigger another POST. A dispatched POST may still commit; future native caller needs its separate process bound.",
+    "Microscopic state changes after the final checked observation and before dispatch, authenticated corrupt-catalog variants and all missing-parent combinations are source/fault limits",
+    "No cross-invocation stale B/D classification is claimed without public signature evidence; same-invocation issuer reappearance after successful first POST is tested and refuses",
+    "Confirmed held live connections isolate measured reads, not general scheduler attribution; terminal setup observes actual retirement and does not infer earlier failure direction/cause",
+    "Temporary hosts are isolated local fixtures, not physical machines, installed artifacts or a real model exchange"
+  ],
+  "remaining_feature_work": [
+    "Native bounded original finalization controls and separate guided requester commit",
+    "Agent-access/readiness review and other-computer flow",
+    "Actual terminal, installed artifacts, physical machines, real model receipt and schema23-to27 full-state upgrade/recovery",
+    "Final combined feature-head acceptance and review before tracking PR35 merges to main"
+  ],
+  "merge_policy": "Owner reviews/merges slice into feature branch; leave PR62 and tracking PR35 unmerged and full acceptance gates incomplete."
+}
