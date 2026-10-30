@@ -1080,7 +1080,7 @@ Entries older than 30 days on this host's clock, and those beyond the newest 10,
   - `read_changed` whose `participant` is P;
   - `roster_changed` for a conversation whose roster or departures list P;
   - `invited` whose person is P's person.
-- **Hidden entries are passed over for good.** An entry whose message fails or waits on the recheck is skipped, and `next_after` moves past it, so a reader of the stream does not get it later even if the author is allowed again. `conversation show` and the claim still follow C5.
+- **Hidden entries are passed over for good by a reader that follows `next_after`.** An entry whose message fails or waits on the recheck is skipped, and `next_after` moves past it, so that reader does not get it later even if the author is allowed again. Each read decides afresh from the `after` it is given: a new read from an earlier `after` returns the entry if its message is visible at that time. `conversation show` and the claim still follow C5.
 - `next_after` is the sequence of the last entry examined: the last returned entry's when `limit` was reached, otherwise `latest`, and never below `after`. `latest` is the highest sequence in the log (0 when it has never held one).
 - `wait` holds the request until an entry for P exists or the wait ends, then answers, possibly with `events` `[]`.
 
@@ -1126,7 +1126,7 @@ The conversation view and both summaries gain `home_unavailable`: true while the
 
 **JSON output.** Every JSON the `conversations` and `conversation` commands print, with or without `--json`, writes U+007F and U+0080 to U+009F as `\u00XX` in strings, beside the escapes JSON already requires. Parsing returns the original text. The daemon's routes are unchanged: they answer the original text, encoded as JSON.
 
-**Names.** A peer-asserted agent `name` is not refused for its characters; it is escaped wherever printed. Titles keep C1's rule, so a peer's roster with a control character in `title` is 400 `invalid`.
+**Names.** A peer-asserted agent `name` is not refused for its characters; it is escaped wherever printed. Titles keep C1's rule, where a control character is any of U+0000 to U+001F and U+007F to U+009F, so such a title is 400 `invalid` from the owner route and in a peer's roster.
 
 **Agent events.** In the channel events' content and meta, the adapter writes labels and the title with control characters escaped by the same rule, so a peer-chosen name cannot forge a line. Message content stays as received and is presented as peer content (C1).
 
@@ -1140,10 +1140,10 @@ These kinds are recorded in `GET /v1/activity`, each in the transaction of its c
 | `conversation.roster_changed` | this host commits or stores a newer roster, other than the creating one and the closing one | `CONVERSATION_ID` |
 | `conversation.closed` | this host commits or first stores a closed roster | `CONVERSATION_ID` |
 | `conversation.message_sent` | a local participant's message is stored | `CONVERSATION_ID/MESSAGE_ID` |
-| `conversation.message_received` | a remote author's message is first stored here, once per message | `CONVERSATION_ID/MESSAGE_ID` |
+| `conversation.message_received` | a remote author's message is first stored here, once per message while this host holds it (after `forget` and a later invite, a fetch may store it and record it again) | `CONVERSATION_ID/MESSAGE_ID` |
 | `conversation.message_refused` | an outbound target becomes `refused` | `CONVERSATION_ID/MESSAGE_ID` |
 
-A local delivery is one `conversation.message_sent` only. A repeat records nothing.
+A local delivery is one `conversation.message_sent` only. A repeat records nothing. Each host records only what happens on it: only home records `conversation.created`, and only the author's host records `conversation.message_refused`.
 
 ### Commands
 
@@ -1159,7 +1159,7 @@ A local delivery is one `conversation.message_sent` only. A repeat records nothi
 
 **`conversation watch`.**
 - It first reads `latest` with `wait=0&limit=1`, then writes `Watching; press Ctrl-C to stop.` to stderr, so it prints only what happens after that line. It then long-polls with `wait=25`. `ID` follows C1's prefix rule and limits it to that conversation.
-- For each `message_sent` and `message_received` it fetches the message, and prints one line to stdout: the conversation ID's first 13 characters, the `sent_at` time (`HH:MM`, UTC), the author label, `to LABEL, LABEL` when addressed, and the content, all escaped. A message the fetch no longer shows is skipped. Each `target_changed` to `refused`, `unsupported` or `stopped` prints the line `show` uses for that target. Each `roster_changed` and `invited` prints one line naming the conversation and the change. Other wording and spacing are not part of the contract.
+- For each `message_sent` and `message_received` it fetches the message, and prints one line to stdout: the conversation ID's first 13 characters, the `sent_at` time (`HH:MM`, UTC), the author label, `to LABEL, LABEL` when addressed, and the content, all escaped. A message the fetch no longer shows is skipped. Each `target_changed` to `refused`, `unsupported` or `stopped` prints the line `show` uses for that target. Each `roster_changed` and `invited` prints one line starting with the conversation ID's first 13 characters, followed by the change. Other wording and spacing are not part of the contract.
 - stdout is flushed after each line.
 - It posts the cursor after printing each batch (see above).
 - SIGINT or SIGTERM ends it with exit 0. A daemon that cannot be reached exits 1 as for any command; a failure after it started is retried once a second until the daemon answers again.
@@ -1217,7 +1217,7 @@ Spec-only cases in `conformance/slim/conversations_tools.py`, written from this 
   - `--to` by participant ID works; `--to nobody` exits 1 with `not_found`, and no message is stored;
   - a repeat of the `message_id` with another `--to` is 409 `conflict`; `pending_work` shows `addressed` accordingly;
   - alice's `show --json` gives `addressed` true for her own unaddressed message, and false for one addressed only to `bert`.
-- **`about`.** `conversation start bob/bert --about HOST/TASK`: alice's and bob's views show the same `about`, and `GET /adapter/v1/conversations` on `bert` shows it; a malformed value is 400 `invalid`. It gives no access: with `deny alice` in place, a start with `about` does not admit the agent. The answer is 403 `not_authorized` when alice's directory entry already shows the denial, and otherwise 201 with the invite outcome `refused`, code `not_authorized`, as C1 and C2 define for an invite the target's host refuses (alice's directory entry can still be the earlier one); either way `bert` is not `joined`.
+- **`about`.** `conversation start bob/bert --about HOST/TASK`: alice's and bob's views show the same `about`, and `GET /adapter/v1/conversations` on `bert` shows it; a malformed value is 400 `invalid`. It gives no access: with `deny alice` in place, a start with `about` does not admit the agent. Which answer depends on alice's directory entry, not on the policy version she holds: a policy sync does not update that entry, so after `deny alice` and the policy wait it is still the earlier one, and the answer is 201 with the invite outcome `refused`, code `not_authorized`, from bob's host. After `agents --refresh` the directory no longer lists the agent, and the answer is 404 `unknown`. 403 `not_authorized` is for an entry that still lists the agent without `message.append`. In every form the agent is not `joined`.
 - **Read cursor.** In a conversation of alice's person, bob's person and `bert`:
   - alice sends 2 messages: bob's summary `unread` is 2, and `GET /v1/status` `conversations.unread` rises by 2;
   - `GET /v1/conversations/{id}/messages` changes nothing;
@@ -1247,8 +1247,10 @@ Spec-only cases in `conformance/slim/conversations_tools.py`, written from this 
   - `conversation show --json` holds no raw U+009B, and parsing it returns the content exactly.
   - A probe roster push from alice with a higher version, in a conversation of its own, listing an alice agent with `name` holding ESC, prints escaped in bob's `show`, `conversations`, and the `show --json` bytes for U+009B.
   - A title with a control character is 400 from the owner route.
-- **Activity.** `activity --limit 1000` on alice and bob holds `conversation.created`, `.roster_changed`, `.message_sent`, `.message_received`, `.message_refused` and `.closed` with the subject shapes above, and no case's message content or title anywhere in its output.
+- **Activity.** `activity --limit 1000` on alice holds `conversation.created`, `.roster_changed`, `.message_sent`, `.message_received`, `.message_refused` and `.closed`, and on bob at least `.roster_changed`, `.closed`, `.message_sent` and `.message_received`, with the subject shapes above, and no case's message content or title anywhere in either output.
 - **Help.** `peerspan --help` lists `conversations` and `conversation`.
+
+**Claim order.** The claim route takes notifications in the order they were created, which is the order messages reached this host (C5). A host's fan-out sends each message's request on its own, so two messages sent in quick succession can arrive, and be claimed, in either order; a case that needs one order waits for the first to be `delivered` before sending the second.
 
 **Rust.** `cargo test` unit tests cover what the slim suite cannot reach:
 - the event log's retention at 30 days and 10,000 entries;
