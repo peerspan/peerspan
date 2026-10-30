@@ -4351,6 +4351,28 @@ success with an unverified finalization digest, per-slot UI prompts, a broad
 sign/resume loop, new consent storage, signer/provider fallback and implicit
 requester commit. Pure reads remain recoverable independent of key availability.
 
+### Verification fixture isolation clarification
+
+Ordinary unfinished-requester mailbox polling (existing spec8.4/9.5) is independent
+of both measured pure reads and the invitation-return worker. Retiring a short
+invitation alone does not stop requester polling. A brief no-change traffic gap
+is not an attribution boundary. Live read fixtures may use an explicitly observed
+in-flight transport fault/barrier outside any DB transaction: establish its
+bounded hold before the baseline, keep it held throughout the measured read and
+assert it remained held, along with all strict existing DB/file/both-carrier
+counter equality checks. No worker disabling, authority/protocol-row edits,
+transport-counter filtering or timeout/assertion weakening. Public terminal
+expiry/maintenance setup may precede historical baselines as in23e; it must settle
+ordinary outbox/journal lifecycle too, never silently omit those effects.
+
+Initial PR62 CI at40d3f7b: old section24 case3 had one additional connection on
+each relay with no additional bytes (5/6 in31s). Local old section18 case6 changed
+dec_outbox and a host.db-journal path (5/6 in48s). The precise latter lifecycle
+cause is unclassified; preserve both observations. Any fixture correction is
+independently authored from contracts before final rerun, retaining all original
+assertions. These failures are not passing evidence or permission to retry until
+green. No repeated native/host/build load overlap is allowed during diagnosis.
+
 ## 26. Remaining flow contract
 
 Teammate/device admission, remaining
