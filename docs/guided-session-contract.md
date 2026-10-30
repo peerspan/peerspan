@@ -5964,7 +5964,130 @@ combining signatures with policy application/delivery, an extra receipt/table,
 signature material through public output/argv, new consent/provider fallback,
 hidden payload refresh and claiming access/readiness from signature storage.
 
-## 33. Remaining flow contract
+## 33. Exact signed project-policy local application
+
+This slice continues section31's exact human approval and section32's stored
+issuer signature. It publishes the signed policy into the local admitted proof
+catalog and queues the ordinary bounded delivery work atomically. It neither
+obtains another signature nor establishes peer delivery or current readiness.
+The existing policy evaluator enforces the resulting ordinary policy; an
+historical application marker is evidence of that committed operation only.
+
+### Owner-local API and private CLI
+
+Add owner-only POST `/v1/onboarding/access-consent/application` (pure) and
+`/v1/onboarding/access-consent/apply` (explicit local publication). Both take
+exactly section32's selection/context/access_id/access_review_id fields; apply
+also requires `decision:"apply_project_agent_access"`. Reject extras, duplicates,
+nulls, wrong types, invalid IDs, trailing input and more than64KiB as400.
+Private `peerspan onboarding access application|apply --stdin` uses the same
+closed payload, prints no input/private diagnostics, and redacts command values
+from argv errors. No route on peer/bootstrap or scoped adapter routers.
+
+Return exactly `{version:1,host_id,context,observed_at,access,application}` using
+section31's unchanged access object. `application` is null when the human receipt
+is unapproved. Otherwise it is exactly `{state,action_id,intent_id,statement_id,
+proof_id,peer_delivery,connection_readiness}`. State is `unsigned`, `signed`, or
+`locally_applied`; proof_id is `-` until signed, then the exact dp_ proof ID.
+Both delivery and readiness always remain `not_verified`. Never expose signed
+statement/catalog/template/signature bytes, private file paths or signer output.
+Use canonical UTC YYYY-MM-DDTHH:MM:SSZ observation time. Output is at most1MiB.
+Missing requested network/project/access is404; mismatched exact review/context
+or superseded live work is409review_changed, elapsed original consent window
+is409review_expired; other unavailable/corrupt/ineligible state is the closed
+409access_application_unavailable. Unknown methods keep normal routing errors.
+
+### Fresh application and recovery
+
+Application observation validates the exact retained receipt, dual approvals,
+approval timestamps, fixed policy payload/provider and its sole issuer slot.
+It is pure for every state: no key/agent lookup, maintenance, clock save, signing,
+publication, event, transport or policy write. An unsigned record never becomes
+signed/applied through observation. An advanced-only ordinary approval or apply
+cannot create or replace guided human consent.
+
+For first apply, require BOTH exact approvals and the fully stored, verified
+single signature. Require latest receipt, attached exact project/session/agent,
+current selected provider, exact inspection/root/P/H/member/policy-head/edit
+pins, ordinary scope1 policy authority, fixed creation/expiry, local raw time
+not before receipt creation and ordinary guarded time within the original
+five-minute consent deadline. Revalidate under the same final transaction that
+applies; do not refresh/rewrite the payload, issuer, signature or consent. The
+full signed statement must be admitted under fresh ordinary policy rules and
+all ordinary catalog/edit/outbox bounds. No network-root fallback or new signer
+IO, membership/ownership change, file sharing, capability grant or delegation.
+
+In one ordinary transaction, merge the exact signed policy proof and its
+ordinary projection/admission/maxima/enforced policy, settle its existing local
+edit, queue ordinary peer proof delivery, save action terminal=`applied` and its
+normal result, save the monotonic clock and exactly one ordinary
+network.action_applied event. Human receipt/approval/review and signature bytes
+stay unchanged. Any late SQLite failure rolls back ALL of these writes. Return
+only after commit. The guided handler sends no direct peer request; existing
+workers may deliver the queued proof after commit under ordinary retry rules.
+An overlapping call sees one durable application/event; never another action,
+payload, signature or grant. No new schema/table/journal/protocol or retry loop.
+
+Server explicit apply budget90s and private CLI95s; observation CLI5s. Check the
+budget before accepting state changes and before commit. A client timeout or
+lost response is unknown outcome; recover using pure application first. The
+underlying blocking transaction may outlive an HTTP timeout but cannot accept a
+new commit once its checked deadline has elapsed. No automatic CLI retry.
+
+After committed application, both application and apply replay validate the
+ordinary retained signed action result/catalog signature closure and exact
+local proof/admission evidence. Return `locally_applied` purely, even after
+review expiry, detach/replacement/provider/root/policy changes, restart or
+missing signer. Do not require the historical grant to be current or recreate
+missing evidence. Broken signature/result/proof/admission refuses closed; no
+repair, key lookup or reapplication. Raw time before creation still refuses.
+Later current enforcement and actual delivery/readiness are separate evidence.
+
+### Verification
+
+A separate contract-only author supplies six compact black-box cases using
+real hosts and genuine signatures. All27 existing host suites and shared
+harness/helpers/native remain unchanged, including original assertions,
+actions, sleeps, timeouts, whole-state and every enabled TCP/UDP comparison.
+Retain the prior PR79 failures as unclassified; no unchanged reruns to green,
+guessed global fences, worker/path disabling, counter filtering or authority/
+queue fabrication. Document unsupported prerequisites as limits honestly.
+
+1. Two people/two hosts with an attached project: unapproved/unsigned/signed
+   pure states, real section31 approval and section32 signature, exact apply
+   admits the reviewed policy and exact proof, ordinary local enforcement and
+   settled edit/outbox, exactly one event and unchanged receipt/signature;
+   API/private CLI parity and no membership/readiness claim.
+2. No guided approval, advanced-only ordinary approval, missing signature,
+   changed digest/project/selection/selected provider/policy head or expired
+   exact terms refuse before any application. Real state changes via supported
+   public operations; no fabricated authority/provider/seed prerequisites.
+3. Late schema-only SQLite ABORT on ordinary action terminal/result or event
+   causes controlled non2xx, no private detail and exact all-state rollback.
+   Existing authentic signatures remain. No mandatory internal-storage code.
+4. Concurrent explicit application, lost response and pure recovery keep one
+   action/proof/edit/event, no new signature or action. Use genuine ordinary
+   transport retirement before any zero-IO comparison; record source/manual
+   limits for full timeout/cancellation/overlap boundaries not constructed.
+5. Pure observation and applied replay after elapsed deadline, genuine detach/
+   replacement/restart and absent original sources preserve whole schemas/DB/
+   state/home and all enabled TCP/UDP counters after observed ordinary startup
+   work. Historical marker does not assert today's grant. Offline negative
+   corruption may alter only an already genuine result/signature/proof/admission
+   and restore exact bytes; missing evidence refuses without repair.
+6. Closed input/error/argv privacy corpus,64KiB bound, duplicate/null/trailing/
+   decision rejection, unknown/missing daemon/method/router isolation, no public
+   signed bytes/key material/paths, actual retained-reference corruption fails
+   closed. Keep any source/manual cryptographic/quota/fork/installed/physical/
+   model/full-state-upgrade limits explicit.
+
+Selected: one explicit local application of the exact signed ordinary policy,
+with pure independently verified recovery and ordinary delivery queueing.
+Discard combining signer/application, a second consent/table/journal, hidden
+payload refresh or auto-retry, and claiming delivery/readiness from a local
+commit. Native controls and observed two-way exchange follow separately.
+
+## 34. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

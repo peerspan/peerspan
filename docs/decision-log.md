@@ -3151,3 +3151,18 @@ daemon-only timing categories under section32, retaining all original strict
 verdicts and complete proof captures. Discard guessing startup/anti-entropy
 causes, refresh as a global fence, filtering traffic or unchanged retry-to-green.
 No production or authority change is inferred.
+
+### GU.impl33 — Apply the exact signed project policy locally
+
+After merged79 (830c1ee), select explicit local publication/application of the
+exact dual-approved and stored-signed ordinary policy action, followed by pure
+verified historical recovery. First apply checks current project/provider/
+inspection/authority/edit/time pins in its one final transaction. Merge the
+ordinary proof/projection, settle the local edit, queue bounded ordinary peer
+delivery and save the ordinary action result/clock/event atomically. No new
+signature, consent, table, journal, protocol or direct guided transport call.
+Discard implicit apply during signing, refreshed payload/provider fallback,
+auto retry and treating a local commit as peer delivery or connection readiness.
+Native access controls/readiness and the full feature acceptance remain open;
+PR35 stays unmerged. Preserve PR79's unclassified failures and all existing
+strict assertions rather than guessing another refresh/sync/quiet fence.
