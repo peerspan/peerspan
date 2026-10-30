@@ -557,11 +557,16 @@ def _():
     f["a"].stop()
 
 
+def marker(path, text):
+    temporary = path.with_name(path.name + ".new")
+    temporary.write_text(text); temporary.chmod(0o600); temporary.replace(path)
+
+
 def arm(f):
     directory = f["a"].barrier; name = "dec.incoming_progress.before_retain"
     for suffix in ("arm", "entered", "continue"):
         (directory / (name + "." + suffix)).unlink(missing_ok=True)
-    target = directory / (name + ".arm"); target.write_text(f["rid"] + "\n"); target.chmod(0o600)
+    target = directory / (name + ".arm"); marker(target, f["rid"] + "\n")
     return directory / (name + ".entered"), directory / (name + ".continue"), target
 
 
@@ -570,7 +575,12 @@ def barrier_attempt(f, mode):
     with ThreadPoolExecutor(max_workers=2) as pool:
         future = pool.submit(a.api, "POST", BASE, payload(f), timeout=10)
         try:
-            wait_for(lambda: entered.exists(), timeout=4, interval=.02, message="actual fetched-proof pre-retention barrier")
+            def reached():
+                try:
+                    return entered.read_text().strip() == f["rid"]
+                except FileNotFoundError:
+                    return False
+            wait_for(reached, timeout=4, interval=.02, message="actual fetched-proof pre-retention barrier")
             check(entered.read_text().strip() == f["rid"], "barrier captured another operation")
             if mode == "context":
                 change = pool.submit(project, a, "replaced", replace=f["parent"]["flow_id"], old=f["parent"])
@@ -587,7 +597,7 @@ def barrier_attempt(f, mode):
                 time.sleep(4.15)
                 expected = "incoming_progress_unavailable"
             before = snapshot(a)
-            release.write_text("continue\n"); release.chmod(0o600)
+            marker(release, "continue\n")
             actual, denied = future.result(timeout=5)
             check(actual == 409 and denied.get("code") == expected, f"{mode} in-flight guard HTTP {actual}, code {denied.get('code') if isinstance(denied, dict) else None}")
             public(denied, f["code"], f["reply"])
@@ -596,7 +606,7 @@ def barrier_attempt(f, mode):
             check(rec["owner_packet_base64"] == rec["selection_packet_base64"] == "-", f"{mode} guard left partial owner/selection")
         finally:
             if not release.exists():
-                release.write_text("continue\n"); release.chmod(0o600)
+                marker(release, "continue\n")
             armed.unlink(missing_ok=True)
             # Context-managed executor drains both actual HTTP/mutation calls.
             # No old future or fault stays detached after this case.
