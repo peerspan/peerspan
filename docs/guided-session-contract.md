@@ -5908,6 +5908,51 @@ all26 old suites/harness/helpers unchanged and no fabricated authority/keys:
    negative fault may alter only an already genuine local receipt/signature
    record and restore exact bytes; never invent valid authority/template/seed.
 
+### Retained pre-existing CI purity failures and bounded diagnosis
+
+Candidate325df66 passes new signing6/6in79s and every PR check with a clean
+review, but existing section28 completion history observes issuer UDP receive
++2datagrams/+2400bytes, returns0, during detached API replay (5/6in84s).
+Section24 finalization history observes only dec_contacts change,3rows before/
+after, unchanged TCP (5/6in62s). Neither caller nor contact change is identified.
+One unchanged local section28 diagnosis passes6/6in138s; that does not attribute
+or erase the first CI failure. No unchanged retry to obtain a pass is permitted.
+
+A separate contract-only author may make these diagnostic-only corrections
+before one retained execution, preserving every original case/assertion/action/
+sleep/timeout and original proof capture/comparison order and short-circuiting:
+
+- Section24's failure-only contact schema gate must accept storage section9's
+  documented paired network/context `-`/`-`, besides canonical net_/ctx_ pairs.
+  No raw row/key/hash/body/path is printed, no extra SQL read or new verdict.
+  Restoring that one predicate must reproduce the prior source bytes/AST.
+- For section28's history failure only, enable the existing debug host timing
+  observation (`PEERSPAN_TIMING=1`) ONLY during daemon launch, never CLI calls.
+  A fixture start wrapper may delegate exactly once to the original real host
+  start, restoring its environment afterward; restarts keep the same wrapper.
+  No process/worker/transport control, changed arguments or artificial timing.
+- After the original history snapshot/carrier baseline, retain each participant
+  daemon-log byte offset using one metadata stat. On an actual carrier mismatch,
+  read at most64KiB per host from that offset and project only fixed participant,
+  timing request class (`background`/`served`/`unknown`), static peer route class
+  (`directory`/`contact`/`catalog`/`repair`/`other`), completion-serving count and
+  bounded numeric duration/counts. Keep unknown when absent or unrecognized.
+  No raw request number/path/ID/line/endpoint/body or provider diagnostic appears.
+  These extra filesystem observations are diagnostic metadata, not SQL/state/
+  home/carrier proof captures; the original actual tuples and assertions remain.
+- Failure output must return the original actual value unchanged and cannot
+  replace its verdict, request another operation or change any wait. Removing
+  only timing wrapper/offset/diagnostic additions must restore prior source/AST.
+
+Timing output lives only in the fixture's existing daemon log outside its
+measured state/home. Logging can affect scheduling and is not a transport fence,
+a full trace or proof of a missing caller. A completed background span alone
+cannot retrospectively identify the two original CI datagrams. Keep initial
+failures and classify any new data before choosing a genuine setup correction.
+Discard guessed refresh/sync fences, disabling workers/paths, filtered counters,
+longer waits, authority/queue edits, fabricated acknowledgments and unchanged
+retry-to-green. No signing production change is justified by these observations.
+
 Selected: signing and read-only recovery as the next small boundary, using the
 existing immutable ordinary action and exact daemon-selected signer. Discarded:
 combining signatures with policy application/delivery, an extra receipt/table,
