@@ -2512,3 +2512,13 @@ and all20 CI gates. Discarded: auto-selection/poll/prepare/approve, inputting ra
 IDs/codes, frontend keys/signatures, broad resume, approval mirrors and consent
 as membership/access/readiness. This is an implementation choice under the
 accepted guided flow; no additional owner confirmation is attributed.
+
+### GU.impl23a — Recheck returned views and expire request actions
+
+Selected: before displaying an incoming response, re-inspect the authoritative
+host-side parent and host identity. Null-consent/fetched-prefix views also carry
+the signed request deadline, including across in-flight work; expired views keep
+only historical Check/Leave. Initial review found cached-only post-IO checks
+could restore stale review controls and null consent had no expiry timer.
+Discarded: relying only on the next approval guard, dispatching expired progress/
+preparation and using a fresh review window to extend the signed request.
