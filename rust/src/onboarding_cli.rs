@@ -53,6 +53,21 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum AccessCommand {
+    /// Recover exact project agent-access consent
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare one exact unsigned project policy action
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Approve the exact retained policy action without signing
+    Approve {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read current public access terms without granting or signing
     Inspect {
         #[arg(long, required = true)]
@@ -294,10 +309,16 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
-        command: Some(OnboardingCommand::Access { .. }),
+        command: Some(OnboardingCommand::Access { command }),
     }) = command
     {
-        return access_inspection(socket).await.map(Some);
+        return match command {
+            AccessCommand::Inspect { .. } => access_inspection(socket).await,
+            AccessCommand::Lookup { .. } => access_consent(socket, "lookup").await,
+            AccessCommand::Prepare { .. } => access_consent(socket, "prepare").await,
+            AccessCommand::Approve { .. } => access_consent(socket, "approve").await,
+        }
+        .map(Some);
     }
     if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Admission { command }),
@@ -371,6 +392,25 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
         }
     };
     Ok(Some(result))
+}
+async fn access_consent(socket: &Path, operation: &str) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid project access consent input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input = peerspan_host::onboarding_access_consent::decode_input(&bytes, operation)
+        .map_err(|_| invalid())?;
+    let unavailable = || anyhow::anyhow!("project access consent unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(format!("/v1/onboarding/access-consent/{operation}"), input),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
 }
 async fn access_inspection(socket: &Path) -> Result<Value> {
     let invalid = || anyhow::anyhow!("invalid project access inspection input");

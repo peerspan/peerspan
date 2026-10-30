@@ -1,10 +1,16 @@
 //! Current public access terms; no consent, signing, repair or authority save.
-use super::{codec::*, controls, edits, statement::access_body, storage::Snapshot};
+use super::{codec::*, edits, statement::access_body, storage::Snapshot};
 use crate::{policy::PolicyBody, store::Store};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
-pub(crate) fn inspect(c: &Connection, store: &Store, network: &str, person: &str) -> Result<Value> {
+pub(crate) fn inspect(
+    c: &Connection,
+    store: &Store,
+    network: &str,
+    person: &str,
+    time: &str,
+) -> Result<Value> {
     let raw: Option<String> = c
         .query_row("SELECT record FROM networks WHERE id=?1", [network], |r| {
             r.get(0)
@@ -14,7 +20,6 @@ pub(crate) fn inspect(c: &Connection, store: &Store, network: &str, person: &str
     let raw = raw.ok_or_else(|| Error::new("not_found"))?;
     let tag = parse(raw.as_bytes(), 32 << 20)?;
     require(tag["mode"] == "decentralized", "upgrade_required")?;
-    let time = controls::local_decision_time()?;
     let s = Snapshot::load(c, network, &store.identity().public_key)?;
     require(
         !s.migrations
@@ -22,7 +27,7 @@ pub(crate) fn inspect(c: &Connection, store: &Store, network: &str, person: &str
             .any(|m| m.fenced && m.state != "adopted"),
         "migration_pending",
     )?;
-    let p = s.project(&time)?;
+    let p = s.project(time)?;
     let root = p.root_state_id()?;
     p.active(root)?;
     let members = p.members()?;
