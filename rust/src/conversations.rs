@@ -1323,10 +1323,10 @@ impl Store {
                 };
                 self.message_authority(conn, sender, &authz, false)
             };
-        let mut behind = false;
+        // A receiver behind the cited policy version answers 503 before
+        // anything else, so an older version never decides.
         match check(cited.0, cited.1, cited.2) {
             Ok(_) => return Ok(()),
-            Err(Error::Unavailable(_)) => behind = true,
             Err(Error::Forbidden) => {}
             Err(e) => return Err(e),
         }
@@ -1345,10 +1345,19 @@ impl Store {
                 return Ok(());
             }
         }
-        if behind {
-            return Err(unavailable(
-                "this host has not yet received the cited policy version",
-            ));
+        let grants: Vec<String> = {
+            let mut statement = conn.prepare(
+                "SELECT id FROM grants WHERE json_extract(record, '$.requester_host_id') = ?1 AND json_extract(record, '$.target_agent_id') = ?2 ORDER BY id",
+            )?;
+            statement
+                .query_map(params![sender, agent], |r| r.get::<_, String>(0))?
+                .collect::<Result<_, _>>()?
+        };
+        if grants
+            .iter()
+            .any(|g| check(Some(g.as_str()), None, None).is_ok())
+        {
+            return Ok(());
         }
         Err(Error::Forbidden)
     }
