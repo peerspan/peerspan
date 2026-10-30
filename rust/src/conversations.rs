@@ -291,6 +291,10 @@ struct Invite {
     /// different roster at that version.
     #[serde(default)]
     offered: i64,
+    /// The target's `added_at`: which admission this invite is for, so a
+    /// late answer to a replaced invite is not applied to its successor.
+    #[serde(default)]
+    added_at: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1076,6 +1080,7 @@ impl Store {
                         next_attempt_at: Some(later(10)),
                         note: note.clone(),
                         offered: 0,
+                        added_at: at.clone(),
                     },
                 )?;
                 outcomes.push((given.clone(), participant, None));
@@ -1510,7 +1515,7 @@ impl Store {
         &self,
         id: &str,
         participant: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, Error> {
+    ) -> Result<Option<(String, Vec<u8>, String)>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let invite = self.invite_record(&tx, id, participant)?;
@@ -1556,6 +1561,7 @@ impl Store {
             }
         }
         let mut invite = invite;
+        let generation = invite.added_at.clone();
         invite.offered = invite.offered.max(next.version);
         self.save_invite(&tx, id, &invite)?;
         tx.commit()?;
@@ -1577,7 +1583,7 @@ impl Store {
             policy,
             self_access,
         };
-        Ok(Some((host, serde_json::to_vec(&request)?)))
+        Ok(Some((host, serde_json::to_vec(&request)?, generation)))
     }
     /// Records an invite's outcome: `Ok(name)` joins the target with that
     /// name; a final refusal drops it; anything else schedules a retry. An
@@ -1639,14 +1645,25 @@ impl Store {
         }
         self.save_invite(tx, id, &invite)
     }
-    fn finish_invite(&self, id: &str, participant: &str, outcome: Outcome) -> Result<(), Error> {
+    fn finish_invite(
+        &self,
+        id: &str,
+        participant: &str,
+        generation: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let stopped = {
             let mut invite = self.invite_record(&tx, id, participant)?;
-            invite.attempts += 1;
-            self.save_invite(&tx, id, &invite)?;
-            !matches!(&invite.state[..], "sending" | "joined")
+            // An answer for a replaced invite (the target was removed and
+            // added again) belongs to the old admission: it settles nothing.
+            let replaced = invite.added_at != generation;
+            if !replaced {
+                invite.attempts += 1;
+                self.save_invite(&tx, id, &invite)?;
+            }
+            replaced || !matches!(&invite.state[..], "sending" | "joined")
         };
         // An invite stopped (removed, closed, unanswered) while its attempt
         // was in flight may still have been accepted: push home's current
@@ -1678,7 +1695,9 @@ impl Store {
             Outcome::Final(state, code, error) => Err((state, code, error)),
             Outcome::Retry(error) => Err(("sending", "", error)),
         };
-        self.settle_invite(&tx, id, participant, settled)?;
+        if !stopped {
+            self.settle_invite(&tx, id, participant, settled)?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -2078,6 +2097,19 @@ impl Store {
         if held.local.ended.get(&participant) == Some(&added_at) {
             return Err(not_participant());
         }
+        // An invite that a roster this host already holds supersedes (it
+        // dropped the target, or added it again later) admits nothing.
+        let superseded = held.roster != r.roster
+            && held.roster.version >= r.roster.version
+            && held
+                .roster
+                .participants
+                .iter()
+                .find(|p| p.id.as_deref() == Some(participant.as_str()))
+                .is_none_or(|p| p.added_at != added_at);
+        if superseded {
+            return Err(not_participant());
+        }
         if self.open_count(&tx, &participant)? >= MAX_OPEN {
             return Err(coded_error(429, "limit", OPEN_LIMIT));
         }
@@ -2460,6 +2492,7 @@ impl Store {
                     next_attempt_at: Some(later(10)),
                     note: None,
                     offered: 0,
+                    added_at: at.clone(),
                 },
             )?;
         }
@@ -3308,14 +3341,17 @@ async fn attempt(store: Arc<Store>, kind: String, key: String) {
             return;
         };
         let (i, p) = (id.clone(), participant.clone());
-        let Ok(Some((peer, body))) =
+        let Ok(Some((peer, body, generation))) =
             blocking(store.clone(), move |s| s.prepare_invite(&i, &p)).await
         else {
             return;
         };
         let outcome = send(&store, &peer, "/peer/v1/conversations/invites", &body).await;
         let (i, p) = (id.clone(), participant.clone());
-        let _ = blocking(store, move |s| s.finish_invite(&i, &p, outcome)).await;
+        let _ = blocking(store, move |s| {
+            s.finish_invite(&i, &p, &generation, outcome)
+        })
+        .await;
     }
 }
 
