@@ -566,7 +566,7 @@ On home, an invite for a person that home itself is bound to is a pending invite
 
 | Route | Body / query | Answer |
 | --- | --- | --- |
-| `GET /v1/conversations/invites` | | 200 `{invites: [INVITE VIEW]}`: the current pending invites on this host, newest `added_at` first. 409 `not_bound` without a bound person. |
+| `GET /v1/conversations/invites` | | 200 `{invites: [INVITE VIEW]}`: the current pending invites on this host, newest `added_at` first; `{invites: []}` when there are none, also on a host whose binding has lapsed. |
 | `POST /v1/conversations/{id}/join` | `{}` | 200 `{conversation: VIEW}` once home confirmed. |
 | `POST /v1/conversations/{id}/decline` | `{}` | 200 `{conversation_id, state: "declined"}`. |
 
@@ -575,19 +575,19 @@ On home, an invite for a person that home itself is bound to is a pending invite
 **Invite view:** `{conversation_id, title, home_host_id, person_id, added_by, added_by_label, note, added_at, expires_at, participants: [{id, label, kind, state}]}`, from the pending invite's roster; `title` and `note` are null when absent; labels are derived here.
 
 **Joining**, in order:
-1. 409 `not_bound` without a bound person.
-2. No current pending invite here for this host's person in that conversation: 404 `{code: "not_found", error: "No pending invite to that conversation on this host."}`.
+1. No current pending invite here in that conversation (for this host's bound person, or for any person when this host has none): 404 `{code: "not_found", error: "No pending invite to that conversation on this host."}`.
+2. 409 `not_bound` without a bound person.
 3. This host's person participant already joined here in 200 open conversations: 429 `limit` with C2's text.
 4. On home: the local join commits as home's peer join route below would for this host. Elsewhere: this host records an outstanding join and sends `POST /peer/v1/conversations/{id}/join` to home, waiting at most 15 seconds:
    - 200 `{roster}`: in one transaction this host admits its person participant, stores the roster, drops the pending invite and the outstanding join. Answer 200 `{conversation: VIEW}`.
-   - 404: the pending invite and the outstanding join are dropped; answer 404 `not_found` with step 2's text.
+   - 404: the pending invite and the outstanding join are dropped; answer 404 `not_found` with step 1's text.
    - 409 `closed`: dropped; answer 409 `closed` with C2's text. 409 `conflict`: dropped; answer 409 `{code: "conflict", error: "That person already takes part from another host."}`.
    - 403: dropped; answer 403 `{code: "forbidden", error: "The home host refused the join."}`.
    - Anything else, or no answer within 15 seconds: the pending invite and the outstanding join stay, and the answer is 503 `{code: "unavailable", error: "The home host did not answer; run conversation join again."}`. The host does not retry by itself; running `join` again sends again, and home answers a repeat as a success.
 
 The outstanding join ends with a final answer, when the pending invite stops being current, or when a roster from home admits the person.
 
-**Declining**, in order: 409 `not_bound`; 404 `not_found` as for joining; then, in one transaction, this host drops the pending invite (it is no longer current here) and records a decline for home. On home the decline commits at once (as home's leave route below). Elsewhere this host sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:PERSON_ID"}` to home with C1's retry schedule until home answers 200, 400, 403 or 404, as C2 sends a leave. Answer 200 `{conversation_id, state: "declined"}` without waiting for home. A later push of a roster that still lists the person as `invited` does not bring the pending invite back.
+**Declining**, in order: 404 `not_found` as for joining; 409 `not_bound`; then, in one transaction, this host drops the pending invite (it is no longer current here) and records a decline for home. On home the decline commits at once (as home's leave route below). Elsewhere this host sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:PERSON_ID"}` to home with C1's retry schedule until home answers 200, 400, 403 or 404, as C2 sends a leave. Answer 200 `{conversation_id, state: "declined"}` without waiting for home. A later push of a roster that still lists the person as `invited` does not bring the pending invite back.
 
 **Leaving** (C2's `POST /v1/conversations/{id}/leave` without `agent`) now works for a person participant joined here on any host: off home it sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:HOST_ID/PERSON_ID"}` as C2 does for agents.
 
@@ -601,7 +601,7 @@ The outstanding join ends with a final answer, when the pending invite stops bei
 | `conversation start TARGET...`, `conversation add ID TARGET` | as in C2, with person targets |
 | `conversation remove ID PARTICIPANT` | as in C2, also for persons not yet joined |
 
-For `join` and `decline`, `ID` is the full ID or `conv_` and at least 6 hex digits matching exactly one current pending invite on this host (C1's prefix rule, over pending invites): none exits 1 with `not_found` and step 2's text, several with `ambiguous`.
+For `join` and `decline`, `ID` is the full ID or `conv_` and at least 6 hex digits matching exactly one current pending invite on this host (C1's prefix rule, over pending invites): none exits 1 with `not_found` and step 1's text, several with `ambiguous`.
 
 **Status.** `GET /v1/status` (and `GET /v2/status`, the same object) gains `conversations: {open, invites}`: `open` is the number of open conversations in which this host's person participant is joined here, `invites` the number of current pending invites here (both 0 without a bound person). While `invites` is above 0, `attention` has one item `{kind: "conversation_invites", subject: "N", detail: "pending conversation invites: N", command: "peerspan conversations --invites"}`, N being `invites` in decimal; its kind sorts after every existing kind. `peerspan status` therefore exits 1 while an invite is pending, as for any attention item. Unread counts come with the read cursor in C6.
 
