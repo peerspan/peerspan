@@ -5104,7 +5104,6 @@ struct PageQueryAdapter {
     limit: Option<i64>,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReadQuery {
     participant: Option<String>,
 }
