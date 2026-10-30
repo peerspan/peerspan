@@ -939,25 +939,42 @@ function admissionFailure($, running, epoch, uncertain = false) {
 }
 async function admissionView($, running, epoch, value, extra = {}) {
   if (!await admissionCurrent($, running, epoch)) return;
+  // A response may have waited while host-side attachment/identity changed.
+  if (!await admissionParent($, running, epoch)) return;
   const now = await $.clock.now();
   if (!await admissionCurrent($, running, epoch)) return;
   if (!Number.isFinite(now)) throw new Error('Unavailable local review time');
   admissionExpiry?.cancel(); admissionExpiry = null;
-  const deadline = value?.admission?.state === 'review' ? Date.parse(value.admission.review.expires_at) : null;
+  const selected = value?.request ?? extra.selected ?? running.selected;
+  const knownNull = value?.admission === null || extra.knownNull === true;
+  const review = value?.admission?.state === 'review';
+  const deadline = review ? Date.parse(value.admission.review.expires_at)
+    : knownNull && selected ? Date.parse(selected.expires_at) : null;
+  const expired = deadline !== null && now >= deadline;
   const token = {};
-  admitting = { ...running, stage: running.selected ? 'selected' : 'choose', value, prefix: null,
-    selected: value?.request ?? running.selected, knownNull: value?.admission === null,
-    busy: false, message: null, expired: deadline !== null && now >= deadline, expiryAuthority: token, ...extra };
+  admitting = { ...running, stage: running.selected ? 'selected' : 'choose', prefix: null, ...extra,
+    value, selected, knownNull: knownNull && !expired, busy: false, expired, expiryAuthority: token,
+    message: expired ? 'Incoming action deadline elapsed. Check administrator consent for recorded evidence.' : null };
   if (deadline !== null && deadline > now) {
     admissionExpiry = $.clock.after(deadline - now, () => {
       if (admitting.expiryAuthority === token && epoch === generation) {
         admitting = { ...admitting, busy: false, value: null, prefix: null, knownNull: false, expired: true, expiryAuthority: null,
-          message: 'Administrator review deadline elapsed. Check administrator consent for recorded evidence; no automatic retry.' };
+          message: 'Incoming action deadline elapsed. Check administrator consent for recorded evidence; no automatic retry.' };
         $.ui.invalidate('ui.render');
       }
     });
   }
   $.ui.invalidate('ui.render');
+}
+async function admissionLive($, running, epoch, value) {
+  const now = await $.clock.now();
+  if (!await admissionCurrent($, running, epoch)) return false;
+  const r = value.request, observed = Date.parse(value.observed_at);
+  if (!earlyAdmission(r) || !Number.isFinite(now) || now < Date.parse(r.created_at) ||
+      observed < Date.parse(r.created_at) || observed > now + 30000 || Math.max(now, observed) >= Date.parse(r.expires_at)) {
+    throw new Error('Elapsed incoming request');
+  }
+  return true;
 }
 async function openAdmission($, previous, epoch) {
   const running = admissionStart($, previous, epoch);
@@ -982,10 +999,12 @@ async function readAdmission($, previous, epoch, prepare = false, selected = pre
     let value = await parseAdmission(raw, selected, running.parent, running.host);
     if (!await admissionCurrent($, running, epoch)) return;
     if (prepare && value.admission === null) {
+      if (!await admissionLive($, running, epoch, value)) return;
       raw = await admissionRun($, 'inspect', running);
       if (!await admissionCurrent($, running, epoch)) return;
       const inspected = await parseAdmissionInspection(raw, selected, running.parent, running.host);
       if (!await admissionCurrent($, running, epoch) || !await admissionParent($, running, epoch)) return;
+      if (!await admissionLive($, running, epoch, inspected)) return;
       sent = true;
       raw = await admissionRun($, 'prepare', running);
       if (!await admissionCurrent($, running, epoch)) return;
@@ -1008,8 +1027,8 @@ async function fetchAdmission($, previous, epoch) {
     const value = await parseAdmission(lookup, selected, running.parent, running.host);
     if (!await admissionCurrent($, running, epoch)) return;
     if (value.admission !== null) { await admissionView($, running, epoch, value); return; }
-    if (!earlyAdmission(value.request)) throw new Error('Incoming request no longer eligible');
     if (!await admissionParent($, running, epoch)) return;
+    if (!await admissionLive($, running, epoch, value)) return;
     sent = true;
     const raw = await admissionRun($, 'progress', running);
     if (!await admissionCurrent($, running, epoch)) return;
