@@ -2742,7 +2742,13 @@ mod tests {
                 .iter()
                 .chain(&["grant create", "network group set", "activity", "info"])
         {
-            assert!(advanced.iter().any(|p| p == path), "{path}");
+            // A group the root help names by itself lists its leaves here.
+            assert!(
+                advanced
+                    .iter()
+                    .any(|p| p == path || p.starts_with(&format!("{path} "))),
+                "{path}"
+            );
         }
     }
 

@@ -4784,6 +4784,7 @@ impl Store {
                     "person_id": person,
                     "added_by": pending.adder,
                     "added_by_label": self.label_of(&conn, roster, &pending.adder)?,
+                    "about": pending.roster.about,
                     "note": pending.note,
                     "added_at": pending.added_at,
                     "expires_at": pending.expires_at,

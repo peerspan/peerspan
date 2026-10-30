@@ -375,7 +375,10 @@ impl Store {
             if !valid_conversation_id(id) {
                 return Err(invalid("invalid conversation ID"));
             }
-            self.not_forgotten(id)?;
+            // The connection is exclusive: read through the one held here.
+            if self.held_opt(&conn, id)?.is_none_or(|h| h.local.forgotten) {
+                return Err(Error::NotFound);
+            }
         }
         let latest: i64 = conn
             .query_row(
@@ -580,7 +583,7 @@ pub(super) async fn events(
         query,
         &["after", "limit", "wait", "participant", "conversation"],
     )?;
-    let after = super::sync::number(q.get("after"), 0, 0..=i64::MAX)?;
+    let mut after = super::sync::number(q.get("after"), 0, 0..=i64::MAX)?;
     let limit = super::sync::number(q.get("limit"), 100, 1..=1_000)?;
     let wait = super::sync::number(q.get("wait"), 0, 0..=MAX_WAIT_SECONDS)?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(wait as u64);
@@ -597,6 +600,8 @@ pub(super) async fn events(
         if !empty || tokio::time::Instant::now() >= deadline {
             return Ok(Json(answer));
         }
+        // Entries passed over in this scan stay passed over in the next.
+        after = answer["next_after"].as_i64().unwrap_or(after);
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
