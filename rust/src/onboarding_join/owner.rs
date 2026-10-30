@@ -1,6 +1,7 @@
 //! Exact public consent over the existing ordinary unapproved owner intent.
 use super::*;
 use crate::decentralized::{ceremony, controls};
+mod finalization;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,7 +27,7 @@ pub fn decode_owner_input<T: DeserializeOwned>(
     }
     let fields = match operation {
         "prepare" | "lookup" => "context join_review_id",
-        "approve" => "context join_review_id owner_review_id",
+        "approve" | "inspect-finalization" => "context join_review_id owner_review_id",
         _ => return Err(invalid()),
     };
     let fields = if cli {
@@ -416,6 +417,10 @@ impl Store {
 }
 pub(super) fn routes() -> Router<Arc<Store>> {
     Router::new()
+        .route(
+            "/v1/onboarding/join-flows/{id}/owner/finalization/inspect",
+            post(finalization::inspect),
+        )
         .route("/v1/onboarding/join-flows/{id}/owner/lookup", post(lookup))
         .route(
             "/v1/onboarding/join-flows/{id}/owner/prepare",

@@ -100,6 +100,14 @@ async fn main() {
             // This selects only error redaction; typed parsing still owns dispatch.
             if e.use_stderr()
                 && raw
+                    .windows(4)
+                    .any(|path| path == ["onboarding", "join", "owner", "finalization"])
+            {
+                eprintln!("error: invalid original finalization inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw
                     .windows(2)
                     .any(|path| path == ["onboarding", "admission"])
             {

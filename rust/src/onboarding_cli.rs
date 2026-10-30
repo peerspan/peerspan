@@ -116,6 +116,11 @@ pub enum JoinCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum OwnerCommand {
+    /// Inspect verified administrator parents before original finalization
+    Finalization {
+        #[command(subcommand)]
+        command: OwnerFinalizationCommand,
+    },
     /// Explicitly sign only the exact approved original owner offer
     Sign {
         #[arg(long, required = true)]
@@ -133,6 +138,14 @@ pub enum OwnerCommand {
     },
     /// Approve the exact retained owner review without signing
     Approve {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum OwnerFinalizationCommand {
+    /// Read exact original consent and retained administrator evidence only
+    Inspect {
         #[arg(long, required = true)]
         stdin: bool,
     },
@@ -635,6 +648,9 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
 }
 
 async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
+    if let OwnerCommand::Finalization { .. } = command {
+        return finalization_inspect(socket).await;
+    }
     if let OwnerCommand::Sign { .. } = command {
         return crate::onboarding_owner_sign::from_stdin(socket).await;
     }
@@ -643,7 +659,7 @@ async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
         OwnerCommand::Prepare { .. } => "prepare",
         OwnerCommand::Lookup { .. } => "lookup",
         OwnerCommand::Approve { .. } => "approve",
-        OwnerCommand::Sign { .. } => unreachable!(),
+        OwnerCommand::Sign { .. } | OwnerCommand::Finalization { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid owner review input");
     let mut bytes = Vec::new();
@@ -673,4 +689,59 @@ async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
             value,
         )
         .await
+}
+
+async fn finalization_inspect(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid original finalization inspection input");
+    let unavailable = || {
+        anyhow::anyhow!(
+            "original finalization inspection unavailable; inspect the exact original consent and retained admission evidence"
+        )
+    };
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    ensure!(
+        bytes.len() <= 65536,
+        "invalid original finalization inspection input"
+    );
+    let mut value: Value =
+        peerspan_host::onboarding_join::decode_owner_input(&bytes, "inspect-finalization", true)
+            .map_err(|_| invalid())?;
+    let id = value
+        .as_object_mut()
+        .and_then(|v| v.remove("flow_id"))
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .filter(|s| {
+            s.strip_prefix("flow_").is_some_and(|v| {
+                v.len() == 32
+                    && v.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        })
+        .ok_or_else(invalid)?;
+    let input: peerspan_host::onboarding_join::OwnerApproval =
+        serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+    input.context.validate().map_err(|_| invalid())?;
+    for review in [&input.join_review_id, &input.owner_review_id] {
+        ensure!(
+            review.strip_prefix("review_").is_some_and(|v| v.len() == 64
+                && v.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))),
+            "invalid original finalization inspection input"
+        );
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(
+            format!("/v1/onboarding/join-flows/{id}/owner/finalization/inspect"),
+            value,
+        ),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
 }
