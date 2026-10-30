@@ -2931,3 +2931,13 @@ recorded with public references, without inventing marker/interface attribution.
 Leave clears owner/finalization/requester panes, requiring explicit reentry.
 Discarded: hidden prepare on historical recovery or retained actionable panes
 after Leave. These clarify section29 before production implementation.
+
+### GU.impl29b — Reject invented application references before commit retention
+
+Initial PR73 review found a P2: approved five-stage needs_commit validation
+checked only manifest absence, allowing invented activation/outcome references
+to survive preflight. Existing sections27/29 already require all three absent
+at this stage. Select the same strict invariant for approved and unapproved
+five-stage snapshots; preserve legitimate six/seven-stage advancement. Extend
+the independent projection/preflight corpus before its first execution.
+Discarded: weakening public stage checks or treating approval as application.

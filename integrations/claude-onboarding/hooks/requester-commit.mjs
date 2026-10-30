@@ -88,7 +88,7 @@ export async function snapshot(raw, flow, parent, host, original) {
   if (!action || c.next_action !== action || v.request.commit_approved !== approved ||
       !approved && (v.request.completed.length !== 5 || !['manifest_id', 'activation_id', 'outcome_id'].every(k => v.request[k] === '-')) ||
       c.state === 'review' && (v.request.state !== 'needs_commit' || Date.parse(v.observed_at) >= Date.parse(r.expires_at)) ||
-      v.request.completed.length === 5 && v.request.manifest_id !== '-' ||
+      v.request.completed.length === 5 && !['manifest_id', 'activation_id', 'outcome_id'].every(k => v.request[k] === '-') ||
       v.request.state === 'finalizing' && v.request.completed.length !== 6 ||
       v.request.state === 'needs_commit' && v.request.completed.length !== 5) throw new Error('Changed requester state');
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(
