@@ -2798,3 +2798,10 @@ approval still refuse missing F. Discarded: requiring fresh-prepare eligibility
 for a null observation or creating intent while reading. Final source review
 also retains raw lower/upper/stage/parent checks at the last observation before
 commit, rather than trusting an earlier clock read.
+
+### GU.impl27e — Correct the existing join-suite count
+
+The unchanged join suite has 12 cases and passed 12/12 in 99s against frozen
+production daf53e4. Section 27's join14 label was a stale count; correct it to
+join12. The file and every existing case/assertion/delay/timeout remain unchanged.
+Discarded: claiming 14 passing cases or adding duplicate tests to fit the label.

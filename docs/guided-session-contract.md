@@ -4775,7 +4775,7 @@ pure call; preserve strict whole-DB/state/home and BOTH full carrier counters.
    readiness is inferred; original private keys stay with their participants.
 
 Run Rust fmt/tests/Clippy/all-bin, native292, existing finalization signing6 and
-join14 plus new requester_commit6 serially locally; all23 suites and required PR
+join12 plus new requester_commit6 serially locally; all23 suites and required PR
 checks/fresh review on one final head. Record failures/corrections, hashes and
 source/manual limits. Existing transport hold/terminal cleanup isolation rules
 remain; no retries until green or assertion/timeout weakening.

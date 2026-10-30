@@ -410,7 +410,17 @@ retains initial failures, independent fixture corrections, source/binary hashes
 and mock/source/manual limits. PR64 records final combined-head gates after
 that evidence commit. Access/readiness, device flow and full acceptance stay open.
 
-The next requester-commit backend (section27) prepares or recovers one exact
-ordinary final-consent intent and approves it atomically under the captured
-review. Signing/publication/application and native controls remain separate;
-approved protocol work never implies agent access or connection readiness.
+Requester-commit consent (section27) prepares or recovers one exact ordinary
+final-consent intent and approves it atomically under the captured review.
+Lookup and retained preparation/approved replay stay pure. The approved ordinary
+worker may sign/publish before the response; local application uses separate
+explicit completion. Bounded completion and native controls follow.
+
+Independent requester_commit passes 6/6 on its first local run in 123s and in 92s
+in combined-head CI. Existing signing 6/6 in 146s, join 12/12 in 99s, native 292/292
+in 42.55s and all required Rust gates pass unchanged. The local new suite is 3s
+over the two-minute target; its unchanged CI run meets it. The
+[verification record](results/guided-requester-commit-consent-verification.json)
+retains exact source/binary/test/log provenance, SQL rollback and worker/source
+limits. PR66 records final-head gates after that record commit. Agent access,
+observed readiness, device flow and full acceptance remain open.
