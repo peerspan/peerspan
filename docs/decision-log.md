@@ -294,6 +294,23 @@ These are choices the [conversations proposal](conversations-proposal.md) left o
 - **DEC.impl61. No new schema version.** Admission, local departures and remembered participant names live in the conversation's `record`. Leaves go in `conversation_roster_outbound` with `kind` `leave:PARTICIPANT`, and pushes with `kind` `roster`. Discarded: new columns, which would need a migration that C1 meant to avoid.
 - **Implemented in:** [PR #70](https://github.com/peerspan/peerspan/pull/70).
 
+### DEC-impl: settled by the implementer in conversations C3, [PR #71](https://github.com/peerspan/peerspan/pull/71) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C3 contract section](conversations-contract.md#c3-people). The owner may revisit any of them.
+
+- **DEC.impl62. No departure record for a person who never joined.** A person dropped before joining (declined, removed, expired, unanswered after 10 minutes, or refused by every bound host) leaves `participants` without a `departed` entry, as C2 drops a refused invite. An invited person has `id` null in the roster and is named `person:PERSON_ID` in outcomes and in `remove`. Discarded: `departed` entries without an ID, which would change the entry's shape.
+- **DEC.impl63. `inviting`, then `invited`.** A person entry is `inviting` until the first bound host answers `invited`, then `invited`. Person invites reuse C2's offered-version rule. Discarded: `invited` at once, which would show an invite no host holds.
+- **DEC.impl64. One outcome per person, with `hosts`.** The outcome lists each bound host's answer. The overall state is `joined`, else `invited`, else `inviting`, else `unsupported` when every host answered 404, else `refused` with the first refusing host's code. Discarded: one outcome per host.
+- **DEC.impl65. Home bound to the invited person.** When home itself is bound to the invited person (for example, an agent creator inviting its owner), home holds the pending invite itself, with no peer request. Discarded: refusing such targets.
+- **DEC.impl66. One expiry.** An invite expires at the person entry's `added_at` plus 7 days on both sides; home drops the entry within 15 seconds after that. Discarded: each host counting from when it received the invite.
+- **DEC.impl67. `join` waits for home and does not retry by itself.** The join route waits up to 15 seconds and answers 503 `unavailable` without a final answer; running `join` again is safe, since home answers a repeat as a success. While a join has no final answer, a roster from home listing the person `joined` is home's confirmation. Discarded: a background join retry, which could join the person long after they gave up.
+- **DEC.impl68. `decline` drops the local copy first.** The pending invite ends here at once; the decline goes to home with retries, as a C2 leave does. Discarded: waiting for home.
+- **DEC.impl69. A pending invite is not a held conversation.** Reads and message routes treat a conversation known only through a pending invite as unknown; only `--invites`, `join`, `decline`, and the roster push and fetch use it. Discarded: showing invited conversations in `conversation show`.
+- **DEC.impl70. Status without `unread`.** Status gains `conversations: {open, invites}` and the `conversation_invites` attention item (subject the count, detail `pending conversation invites: N`), sorted after every existing kind. `unread` waits for the read cursor in C6. Discarded: an `unread` field that would always be 0.
+- **DEC.impl71. Route and texts.** Pending invites are listed at `GET /v1/conversations/invites`. New texts: `No pending invite to that conversation on this host.`, `That person already takes part from another host.`, `This host holds 20 pending conversation invites from that host.`, `The home host refused the join.`, and `The home host did not answer; run conversation join again.` Discarded: a separate `/v1/conversation-invites` resource.
+- **DEC.impl72. The adapter marks people not yet joined.** The events' `Participants:` line shows such a person as `LABEL (person, invited)` or `LABEL (person, inviting)`, and the `conversation_start` description mentions people. Discarded: leaving them out of the line.
+- **Implemented in:** [PR #71](https://github.com/peerspan/peerspan/pull/71).
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -1235,8 +1252,8 @@ These points were left open by the proposal and were settled by the implementer 
 - **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
-- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership). Not yet a roadmap milestone.
-- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61).
+- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership), [C3](conversations-contract.md#c3-people). Not yet a roadmap milestone.
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72).
 - **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".

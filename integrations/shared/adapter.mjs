@@ -342,7 +342,7 @@ export const tools = [
   {
     name: 'conversation_start',
     description:
-      'Start a Peerspan conversation with this agent as its creator. participants are agent addresses as list_agents shows them (PERSON/AGENT or HOST_ID/AGENT). Each participant\'s owner still decides who may message it: being in one conversation lets no one reach anyone new. The result reports each invite\'s outcome and, per new participant, which participants can reach it (reachable_from) and which it can reach (reaches). content, if given, is sent as the first message; note is shown to each new participant with its invite.',
+      'Start a Peerspan conversation with this agent as its creator. participants are agent addresses as list_agents shows them (PERSON/AGENT or HOST_ID/AGENT), or people as person:LABEL. Each participant\'s owner still decides who may message it: being in one conversation lets no one reach anyone new. People receive messages only after they join on one of their hosts. The result reports each invite\'s outcome and, per new participant, which participants can reach it (reachable_from) and which it can reach (reaches). content, if given, is sent as the first message; note is shown to each new participant with its invite.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -352,7 +352,7 @@ export const tools = [
           minItems: 1,
           maxItems: 15,
           items: { type: 'string', minLength: 1, maxLength: 256 },
-          description: 'Agent addresses, PERSON/AGENT or HOST_ID/AGENT.'
+          description: 'Agent addresses (PERSON/AGENT or HOST_ID/AGENT), or people (person:LABEL).'
         },
         title: { type: 'string', maxLength: 200, description: 'An optional title.' },
         content: { type: 'string', minLength: 1, maxLength: 65536, description: 'An optional first message.' },
@@ -364,7 +364,7 @@ export const tools = [
   {
     name: 'conversation_manage',
     description:
-      'Change a Peerspan conversation\'s membership. add and remove take a participant (an agent address to add; a participant ID or label to remove) and, like close, are only for the conversation\'s creator. leave takes this agent out of the conversation; close ends it for everyone, and it stays readable.',
+      'Change a Peerspan conversation\'s membership. add and remove take a participant (an agent address or person:LABEL to add; a participant ID or label to remove) and, like close, are only for the conversation\'s creator. leave takes this agent out of the conversation; close ends it for everyone, and it stays readable.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -402,6 +402,15 @@ export const lostConversationRecovery =
 // conversationEvent renders a claimed conversation notification as a
 // channel event. The adapter writes the header and every label; only
 // message content comes from peers.
+// participantLabel writes one entry of an event's Participants line: a
+// person not yet joined is marked invited or inviting.
+function participantLabel(p) {
+  if (p.kind === 'person') {
+    return p.state === 'invited' || p.state === 'inviting' ? `${p.label} (person, ${p.state})` : `${p.label} (person)`;
+  }
+  return p.you === true ? `${p.label} (you)` : p.label;
+}
+
 export function conversationEvent(claim) {
   const conversation = claim.conversation ?? {};
   const message = claim.messages?.[0] ?? {};
@@ -413,9 +422,7 @@ export function conversationEvent(claim) {
     return `[${m.author_label} ${hhmm(m.sent_at)}]${own} ${m.content}${cut}`;
   };
   const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
-  const participants = (conversation.participants ?? []).map((p) =>
-    p.kind === 'person' ? `${p.label} (person)` : p.you === true ? `${p.label} (you)` : p.label
-  );
+  const participants = (conversation.participants ?? []).map(participantLabel);
   const lines = [
     `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
     `Participants: ${participants.join(', ')}`
@@ -455,9 +462,7 @@ export function conversationRosterEvent(claim) {
   const conversation = claim.conversation ?? {};
   const change = claim.notification?.change ?? {};
   const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
-  const participants = (conversation.participants ?? []).map((p) =>
-    p.kind === 'person' ? `${p.label} (person)` : p.you === true ? `${p.label} (you)` : p.label
-  );
+  const participants = (conversation.participants ?? []).map(participantLabel);
   const lines = [
     `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
     `Participants: ${participants.join(', ')}`
