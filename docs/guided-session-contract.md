@@ -5104,7 +5104,13 @@ documented authenticated participant contact routes so each participant actually
 retains the other's newly advertised counted path before retry alignment;
 an isolated direct probe200 is not evidence that queued delivery knows that
 path. Bounded setup exchanges are outside the historical baseline and never
-create authority or replace a host key. Retain the existing two peer registrations, both syncs,
+create authority or replace a host key. A genuine short-lived contact-only
+invitation handoff may supply refreshed signed contacts after configuration
+restart; import the exact signed contact objects only through authenticated
+participant contact routes and verify their actual retention. Its expiry must
+remain before the original request deadline used by terminal cleanup; preserve
+that cleanup action and observe its ordinary secret/frame/read-cap retirement.
+Retain the existing two peer registrations, both syncs,
 one bounded retry alignment and unchanged5s strict all-outbox/journal wait.
 Ordinary workers must actually acknowledge and retire every queued category.
 Keep all earlier transport actions effective. Append all newly enabled UDP
