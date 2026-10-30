@@ -16,6 +16,9 @@ import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdent
 import { progress as parseJoinProgress, progressLines as joinProgressLines } from './join-progress.mjs';
 import { owner as parseOwner, reviewLines as ownerReviewLines, signature as parseOriginalSignature,
   sameOriginal, signable, signatureDeadline as ownerSignatureDeadline } from './owner.mjs';
+import { inventory as admissionInventory, consent as parseAdmission, progress as parseIncomingProgress,
+  inspection as parseAdmissionInspection, sameRequest, early as earlyAdmission, matchesInspection,
+  choiceLabel as admissionChoiceLabel, reviewLines as admissionReviewLines } from './admission.mjs';
 
 let options;
 let hostId = null;
@@ -35,6 +38,8 @@ let recipient = { stage: 'inactive', busy: false };
 let recipientExpiry = null;
 let joining = { stage: 'inactive', busy: false };
 let joiningExpiry = null;
+let admitting = { stage: 'inactive', busy: false };
+let admissionExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -79,6 +84,7 @@ function summary() {
 }
 
 async function refresh($) {
+  clearAdmission();
   const previousJoining = joining;
   clearJoining();
   const clearedJoining = joining;
@@ -175,6 +181,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  clearAdmission();
   clearJoining();
   clearRecipient();
   clearInvitation();
@@ -241,6 +248,8 @@ async function projectView($, running, epoch, context, agents, flow) {
       recipient.parent?.review_id !== flow.review_id || !same(recipient.parent?.review, flow.review))) clearRecipient();
   if (joining.stage !== 'inactive' && (stage !== 'attached' || joining.parent?.flow_id !== flow.flow_id ||
       joining.parent?.review_id !== flow.review_id || !same(joining.parent?.review, flow.review))) clearJoining();
+  if (admitting.stage !== 'inactive' && (stage !== 'attached' || admitting.parent?.flow_id !== flow.flow_id ||
+      admitting.parent?.review_id !== flow.review_id || !same(admitting.parent?.review, flow.review))) clearAdmission();
   const view = { stage, context, host: hostId, agents, flow, busy: false, page: 0,
     name: running.name ?? defaultName(context.project_root), owner: running.owner ?? 'local owner' };
   project = view;
@@ -871,6 +880,210 @@ async function connectAdapter($, previous, epoch) {
     $.ui.invalidate('ui.render');
   }
 }
+function clearAdmission() {
+  admissionExpiry?.cancel();
+  admissionExpiry = null;
+  admitting = { stage: 'inactive', busy: false };
+}
+function admissionStart($, previous, epoch) {
+  if (admitting !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
+  // Keep a live review timer authoritative while an action is in flight.
+  admitting = { ...previous, busy: true, value: null, prefix: null, knownNull: false, message: null,
+    parent: project.flow, context: project.context, host: hostId };
+  $.ui.invalidate('ui.render');
+  return admitting;
+}
+async function admissionCurrent($, running, epoch) {
+  if (admitting !== running || epoch !== generation || project.stage !== 'attached' ||
+      project.flow.flow_id !== running.parent.flow_id || project.flow.review_id !== running.parent.review_id ||
+      !same(project.flow.review, running.parent.review)) return false;
+  const current = await projectContext($), surfaces = await $.session.surfaces();
+  if (admitting !== running || epoch !== generation) return false;
+  if (!same(current, running.context) || current.native_session_id !== session || running.host !== hostId || !surfaces.includes('terminal')) {
+    if (runtime) stopRuntime('Adapter: stopped after project, conversation or surface change.');
+    clearProject();
+    $.ui.invalidate('ui.render');
+    return false;
+  }
+  return true;
+}
+async function admissionParent($, running, epoch) {
+  if (!await admissionCurrent($, running, epoch)) return null;
+  const raw = await projectRun($, ['inspect', running.parent.flow_id]);
+  if (!await admissionCurrent($, running, epoch)) return null;
+  const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
+  if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
+      !same(parent.review, running.parent.review)) throw new Error('Changed incoming project');
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await admissionCurrent($, running, epoch)) return null;
+  if (result.exitCode !== 0) throw new Error('Unavailable incoming host');
+  const requests = admissionInventory(result.stdout, running.host);
+  if (running.selected && !requests.some(r => sameRequest(r, running.selected))) throw new Error('Changed incoming selection');
+  return requests;
+}
+async function admissionRun($, command, running, captured = null) {
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+    'onboarding', 'admission', command, '--stdin'], { timeoutMs: 5000,
+    stdin: JSON.stringify({ context: adapterContext(running.parent), request_id: running.selected.request_id,
+      ...(captured ? { admission_review_id: captured.admission.review_id } : {}) }) });
+  if (result.exitCode !== 0) throw new Error('Unavailable administrator consent');
+  return result.stdout;
+}
+function admissionFailure($, running, epoch, uncertain = false) {
+  if (admitting !== running || epoch !== generation) return;
+  admissionExpiry?.cancel(); admissionExpiry = null;
+  admitting = { ...running, stage: running.selected ? 'selected' : 'unavailable', busy: false, value: null, prefix: null, knownNull: false, expiryAuthority: null,
+    message: uncertain ? 'Incoming action outcome unknown. Check administrator consent to read recorded evidence; no automatic retry.'
+      : 'Incoming review unavailable. Check administrator consent or leave and reopen; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function admissionView($, running, epoch, value, extra = {}) {
+  if (!await admissionCurrent($, running, epoch)) return;
+  const now = await $.clock.now();
+  if (!await admissionCurrent($, running, epoch)) return;
+  if (!Number.isFinite(now)) throw new Error('Unavailable local review time');
+  admissionExpiry?.cancel(); admissionExpiry = null;
+  const deadline = value?.admission?.state === 'review' ? Date.parse(value.admission.review.expires_at) : null;
+  const token = {};
+  admitting = { ...running, stage: running.selected ? 'selected' : 'choose', value, prefix: null,
+    selected: value?.request ?? running.selected, knownNull: value?.admission === null,
+    busy: false, message: null, expired: deadline !== null && now >= deadline, expiryAuthority: token, ...extra };
+  if (deadline !== null && deadline > now) {
+    admissionExpiry = $.clock.after(deadline - now, () => {
+      if (admitting.expiryAuthority === token && epoch === generation) {
+        admitting = { ...admitting, busy: false, value: null, prefix: null, knownNull: false, expired: true, expiryAuthority: null,
+          message: 'Administrator review deadline elapsed. Check administrator consent for recorded evidence; no automatic retry.' };
+        $.ui.invalidate('ui.render');
+      }
+    });
+  }
+  $.ui.invalidate('ui.render');
+}
+async function openAdmission($, previous, epoch) {
+  const running = admissionStart($, previous, epoch);
+  if (!running) return;
+  clearJoining(); clearRecipient(); clearInvitation(); clearAdapter();
+  try {
+    const requests = await admissionParent($, running, epoch);
+    if (!requests) return;
+    await admissionView($, running, epoch, null, { stage: 'choose', requests, selected: null, page: 0 });
+  } catch { admissionFailure($, running, epoch); }
+}
+async function readAdmission($, previous, epoch, prepare = false, selected = previous.selected) {
+  if (!selected || previous.stage === 'choose' && !previous.requests.includes(selected)) return;
+  const running = admissionStart($, previous, epoch);
+  if (!running) return;
+  running.selected = selected;
+  let sent = false;
+  try {
+    if (!await admissionParent($, running, epoch)) return;
+    let raw = await admissionRun($, 'lookup', running);
+    if (!await admissionCurrent($, running, epoch)) return;
+    let value = await parseAdmission(raw, selected, running.parent, running.host);
+    if (!await admissionCurrent($, running, epoch)) return;
+    if (prepare && value.admission === null) {
+      raw = await admissionRun($, 'inspect', running);
+      if (!await admissionCurrent($, running, epoch)) return;
+      const inspected = await parseAdmissionInspection(raw, selected, running.parent, running.host);
+      if (!await admissionCurrent($, running, epoch) || !await admissionParent($, running, epoch)) return;
+      sent = true;
+      raw = await admissionRun($, 'prepare', running);
+      if (!await admissionCurrent($, running, epoch)) return;
+      value = await parseAdmission(raw, selected, running.parent, running.host);
+      if (!await admissionCurrent($, running, epoch)) return;
+      if (!value.admission || !matchesInspection(value, inspected)) throw new Error('Changed prepared admission');
+    }
+    await admissionView($, running, epoch, value);
+  } catch { admissionFailure($, running, epoch, sent); }
+}
+async function fetchAdmission($, previous, epoch) {
+  if (!previous.knownNull || !earlyAdmission(previous.selected)) return;
+  const selected = previous.selected, running = admissionStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await admissionParent($, running, epoch)) return;
+    const lookup = await admissionRun($, 'lookup', running);
+    if (!await admissionCurrent($, running, epoch)) return;
+    const value = await parseAdmission(lookup, selected, running.parent, running.host);
+    if (!await admissionCurrent($, running, epoch)) return;
+    if (value.admission !== null) { await admissionView($, running, epoch, value); return; }
+    if (!earlyAdmission(value.request)) throw new Error('Incoming request no longer eligible');
+    if (!await admissionParent($, running, epoch)) return;
+    sent = true;
+    const raw = await admissionRun($, 'progress', running);
+    if (!await admissionCurrent($, running, epoch)) return;
+    const prefix = parseIncomingProgress(raw, selected, running.parent, running.host);
+    await admissionView($, running, epoch, null, { selected: prefix.request, prefix, knownNull: true });
+  } catch { admissionFailure($, running, epoch, sent); }
+}
+async function approveAdmission($, previous, epoch) {
+  if (previous.value?.admission?.state !== 'review' || previous.expired) return;
+  const captured = previous.value, running = admissionStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await admissionParent($, running, epoch)) return;
+    const raw = await admissionRun($, 'lookup', running);
+    if (!await admissionCurrent($, running, epoch)) return;
+    const current = await parseAdmission(raw, running.selected, running.parent, running.host);
+    if (!await admissionCurrent($, running, epoch)) return;
+    if (current.admission?.state !== 'review' || current.admission.review_id !== captured.admission.review_id ||
+        !same(current.admission.review, captured.admission.review)) throw new Error('Changed displayed admission');
+    if (!await admissionParent($, running, epoch)) return;
+    const now = await $.clock.now(), r = captured.admission.review, observed = Date.parse(current.observed_at);
+    if (!await admissionCurrent($, running, epoch)) return;
+    if (!Number.isFinite(now) || now < Date.parse(r.request_created_at) || now < Date.parse(r.created_at) ||
+        observed < Date.parse(r.created_at) || observed > now + 30000 || Math.max(now, observed) >= Date.parse(r.expires_at)) {
+      throw new Error('Elapsed administrator review');
+    }
+    sent = true;
+    const approvedRaw = await admissionRun($, 'approve', running, captured);
+    if (!await admissionCurrent($, running, epoch)) return;
+    const approved = await parseAdmission(approvedRaw, running.selected, running.parent, running.host);
+    if (!await admissionCurrent($, running, epoch)) return;
+    const completedAt = await $.clock.now();
+    if (!await admissionCurrent($, running, epoch)) return;
+    if (completedAt >= Date.parse(r.expires_at) || approved.admission?.state !== 'approved' ||
+        approved.admission.review_id !== captured.admission.review_id || !same(approved.admission.review, r)) throw new Error('Unknown administrator outcome');
+    await admissionView($, running, epoch, approved);
+  } catch { admissionFailure($, running, epoch, sent); }
+}
+function admissionControls($, { Text, Button }, epoch) {
+  if (project.stage !== 'attached' || project.busy) return [];
+  const previous = admitting, button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.stage === 'inactive') return [joining, recipient, invitation, adapter].every(v => v.stage === 'inactive')
+    ? [button('admission-open', 'Review incoming connections', () => openAdmission($, previous, epoch))] : [];
+  const leave = button('admission-leave', 'Leave incoming review', () => {
+    if (admitting === previous && epoch === generation) { clearAdmission(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.busy) return [Text({ children: ['Incoming connection: working…'] }), leave];
+  if (previous.stage === 'choose') {
+    const page = previous.page ?? 0;
+    const change = n => {
+      if (admitting === previous && epoch === generation) { admitting = { ...previous, page: n }; $.ui.invalidate('ui.render'); }
+    };
+    return [Text({ children: [previous.requests.length ? 'Choose a retained incoming connection. Claims require verification before consent.' : 'No retained incoming connections.'] }),
+      ...previous.requests.slice(page * 10, page * 10 + 10).map((r, i) => button(`admission-choice-${r.request_id}`,
+        admissionChoiceLabel(r, page * 10 + i), () => readAdmission($, previous, epoch, false, r))),
+      ...(page ? [button('admission-prev', 'Previous incoming connections', () => change(page - 1))] : []),
+      ...(previous.requests.length > (page + 1) * 10 ? [button('admission-next', 'More incoming connections', () => change(page + 1))] : []), leave];
+  }
+  const r = previous.selected, a = previous.value?.admission;
+  return [
+    ...(r ? [Text({ children: [admissionReviewLines(previous.value, r, previous.parent, previous.expired)] })] : []),
+    ...(previous.prefix ? [Text({ children: [previous.prefix.next_action === 'wait_for_original_owner' ? 'Waiting for the original owner.'
+      : previous.prefix.next_action === 'wait_for_requester_selection' ? 'Waiting for requester selection.'
+        : 'Original owner and requester selection verified. Review administrator consent separately.'] })] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []),
+    ...(previous.knownNull && earlyAdmission(r) ? [button('admission-fetch', 'Fetch incoming proofs', () => fetchAdmission($, previous, epoch)),
+      ...(r.state === 'needs_administrator' && r.owner_offer_id !== '-' && r.selection_id !== '-'
+        ? [button('admission-review', 'Review administrator consent', () => readAdmission($, previous, epoch, true))] : [])] : []),
+    ...(a?.state === 'review' && !previous.expired ? [button('admission-approve', 'Approve administrator consent', () => approveAdmission($, previous, epoch))] : []),
+    ...(r ? [button('admission-check', 'Check administrator consent', () => readAdmission($, previous, epoch))] : []), leave,
+  ];
+}
+
 function clearJoining() {
   joiningExpiry?.cancel();
   joiningExpiry = null;
@@ -1316,6 +1529,7 @@ function joinPage($, previous, epoch, page) {
   $.ui.invalidate('ui.render');
 }
 function joiningControls($, { Text, Button, Input }, epoch) {
+  if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = joining, button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.stage === 'inactive') return invitation.stage === 'inactive' && recipient.stage === 'inactive'
@@ -1476,6 +1690,7 @@ async function inspectRecipient($, previous, epoch) {
   } catch { recipientFailure($, running, epoch); }
 }
 function recipientControls($, { Text, Button, Input }, epoch) {
+  if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = recipient;
   const button = (key, label, onPress) => Button({ key, label, onPress });
@@ -1687,6 +1902,7 @@ async function replaceInvitation($, previous, epoch) {
   } catch { invitationFailure($, running, epoch); }
 }
 function invitationControls($, { Text, Button, Input }, epoch) {
+  if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = invitation;
   const button = (key, label, onPress) => Button({ key, label, onPress });
@@ -1731,6 +1947,7 @@ function invitationControls($, { Text, Button, Input }, epoch) {
 }
 
 function adapterControls($, { Text, Button }, epoch) {
+  if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive' || recipient.stage !== 'inactive' || joining.stage !== 'inactive') return [];
   const previous = adapter;
   const button = (key, label, onPress) => Button({ key, label, onPress });
@@ -1759,7 +1976,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'attached' && (joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+  if (previous.stage === 'attached' && (admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
@@ -1813,8 +2030,13 @@ export function register(on, configured = {}) {
   });
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== 'peerspan') return next(e);
-    if (e.surface !== 'terminal') { clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
+    if (e.surface !== 'terminal') { clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
     const epoch = generation;
+    if (admitting.stage !== 'inactive') {
+      const captured = admitting;
+      try { if (!await admissionCurrent($, captured, epoch) && admitting === captured) clearAdmission(); }
+      catch { if (admitting === captured) clearAdmission(); }
+    }
     if (invitation.stage !== 'inactive') {
       const captured = invitation;
       try { if (!await invitationCurrent($, captured, epoch) && invitation === captured) clearInvitation(); }
@@ -1844,6 +2066,7 @@ export function register(on, configured = {}) {
       ...invitationControls($, { Text, Button, Input }, epoch),
       ...recipientControls($, { Text, Button, Input }, epoch),
       ...joiningControls($, { Text, Button, Input }, epoch),
+      ...admissionControls($, { Text, Button }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
         Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',

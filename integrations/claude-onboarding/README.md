@@ -252,6 +252,32 @@ before using the key again. Leaving or navigation clears local confirmation and
 cannot retract an already-dispatched signature. No signature state is persisted
 by the plugin. Actual terminal signing and installed/model acceptance remain open.
 
+## Review incoming connections
+
+On the inviting computer, attach the project and press **Review incoming
+connections**. Choose a retained request by its full network, person and host
+identity. The list is a snapshot of claims; it does not grant admission.
+
+Selection first reads retained administrator consent. **Fetch incoming proofs**
+explicitly fetches missing original-owner and requester-selection evidence from
+already pinned carriers. A waiting result requires another participant; there
+is no automatic poll or approval. Once the prefix is present, press **Review
+administrator consent** to verify it and prepare the exact unapproved review.
+
+Read the complete network/current-root, person/host/device, finite powers,
+deadlines and effects before **Approve administrator consent**. Approval permits
+ordinary background root/host signing and administrator-offer publication.
+Original finalization, requester commit, agent access and connection readiness
+remain separate; later progress still uses advanced linking in this preview.
+
+**Check administrator consent** reads global protocol evidence only, including
+approved history after expiry. It never fetches, prepares, approves or retries
+an uncertain action. Leaving does not cancel or revoke consent and cannot
+retract a dispatched action. Leave, Refresh, Close, context loss and reload
+clear local selection and approval controls; reopen and choose the request to
+recover its retained record. No original keys, raw codes or signing bytes enter
+this flow, the model or plugin storage.
+
 ## Review and connect the adapter
 
 After attachment, press **Review adapter connection**. Review the full project,
@@ -373,8 +399,9 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-All184 independent native cases include20 inviter,14 recipient and22 joining cases,
-preserving the original128 project/adapter/message/task checks. The tests use Claude's actual mod runtime with public API effects
+The independent native suite now includes272 cases, including20 incoming
+administrator cases and the original252 project/adapter/message/task/invitation/
+joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the

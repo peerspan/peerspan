@@ -362,3 +362,8 @@ fetch missing original-owner/requester-selection evidence for an already returne
 request. It does not prepare or approve administrator work. Native controls
 will call this action explicitly before sections20/21's inspection and consent;
 ordinary broad link resume is not used as a guided observation.
+
+Native incoming review (section23) composes those backends through explicit
+request selection, bounded proof fetch, exact administrator preparation and
+approval, with pure Check recovery. Original finalization, requester commit,
+device linking and agent-access/readiness reviews remain separate work.
