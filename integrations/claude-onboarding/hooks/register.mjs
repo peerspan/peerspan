@@ -1603,10 +1603,14 @@ async function signFinalization($, previous, epoch) {
     if (!fresh) return;
     if (fresh.review_id !== inspection.review_id || !same(fresh.review, inspection.review)) throw new Error('Changed displayed finalization');
     if (!await inspectOwnerJoin($, running, epoch, flow)) return;
-    const now = await $.clock.now();
     if (!await joinCurrent($, running, epoch)) return;
-    if (!finalizationEligible(original, now) || Date.parse(fresh.observed_at) > now + 30000 ||
-        Math.max(now, Date.parse(fresh.observed_at)) >= ownerSignatureDeadline(original)) throw new Error('Elapsed finalization bounds');
+    // Use the clock after asynchronous context checks, then only synchronous
+    // callback-generation checks before dispatch. A slow preflight cannot keep
+    // an earlier timestamp alive past the signing deadline.
+    const dispatchNow = await $.clock.now();
+    if (joining !== running || epoch !== generation) return;
+    if (!finalizationEligible(original, dispatchNow) || Date.parse(fresh.observed_at) > dispatchNow + 30000 ||
+        Math.max(dispatchNow, Date.parse(fresh.observed_at)) >= ownerSignatureDeadline(original)) throw new Error('Elapsed finalization bounds');
     sent = true;
     const response = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
       'onboarding', 'join', 'owner', 'finalization', 'sign', '--stdin'], { timeoutMs: 95000,

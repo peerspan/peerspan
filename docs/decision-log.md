@@ -2715,3 +2715,12 @@ The exact earlier per-connection cause is unclassified. No product changes or
 unchanged rerun; native20 is committed separately before execution. Discarded:
 assuming invitation expiry/quiet gaps isolate requester polling, filtering any
 counter/category, disabling workers, row edits and retry-until-green.
+
+### GU.impl26c — Read the signing clock after asynchronous native guards
+
+Source review selected: read native time after the final asynchronous context
+check, then check callback generation synchronously before deadline validation
+and dispatch. A slow context check cannot preserve an earlier signing timestamp
+past expiry. Backend checks and final-check/dispatch race limits remain; no new
+API or test changes. Discarded: treating time captured before asynchronous
+preflight as the immediate dispatch deadline check.
