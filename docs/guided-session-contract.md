@@ -5875,7 +5875,9 @@ observation of an unapproved/unsigned record never makes it live or approved.
 ### Verification
 
 A separate contract-only author supplies six compact real-binary cases, with
-all26 old suites/harness/helpers unchanged and no fabricated authority/keys:
+all26 original suite assertions/actions/delays/timeouts and shared harness/
+helpers unchanged, except the independently contracted diagnostic-only additions
+below. No fabricated authority/keys:
 
 1. Genuine two people/two hosts and attached project: exact prepare/approve,
    null/unsigned read states, selected scope1 owned-device issuer signature
