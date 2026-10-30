@@ -2832,3 +2832,13 @@ partial-work/worker attribution and cancellation limits; retain the unclassified
 prior delivery timeout. Discarded: another journal, implicit approval, broad
 resume/polling, original-key selection, whole-attempt atomicity and local
 application as readiness.
+
+### GU.impl28a — Late application rollback and historical precedence
+
+Selected independent clarification: a schema-only dec_operations INSERT ABORT
+for the genuine request proves rollback of the whole application transaction,
+including its earlier network/provider/event/outcome/retirement writes. Another
+already authorized application winning before the fresh guarded transaction
+is verified historical evidence, even if parent/time subsequently changed.
+Discarded: editing authority rows, disabling workers, claiming competing work
+was this command or forcing a false refusal instead of pure historical recovery.
