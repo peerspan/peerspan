@@ -4371,7 +4371,14 @@ dec_outbox and a host.db-journal path (5/6 in48s). The precise latter lifecycle
 cause is unclassified; preserve both observations. Any fixture correction is
 independently authored from contracts before final rerun, retaining all original
 assertions. These failures are not passing evidence or permission to retry until
-green. No repeated native/host/build load overlap is allowed during diagnosis.
+green. New section25 suite first ran5/6 in121s: case3 hit a test-helper
+NameError because Suite.case executes at definition before a later helper
+declaration; no product assertion failed. Move pure mutation helpers above all
+case declarations. To retain the slim runtime target, the successful exact
+multi-identity agent / valid different generated-key stimulus may share case3
+'s genuine lost-B/D/F-only recovery ceremony, preserving every original key,
+three-signature, batching, no-replacement/home and privacy assertion. Unsafe/
+malformed/key-failure cases remain separate; no timeout or assertion is relaxed. No repeated native/host/build load overlap is allowed during diagnosis.
 
 ## 26. Remaining flow contract
 

@@ -2653,3 +2653,15 @@ expiry alone does not stop unfinished requester polling. The terminal outbox/
 journal cause remains unclassified pending evidence. Discarded: unmeasured quiet
 gaps as proof of no worker activity, filtering one carrier or storage category,
 editing protocol rows, disabling workers, longer timeouts or retry-until-green.
+
+
+### GU.impl25d — Order eager test helpers and share genuine agent recovery setup
+
+Independent first new signing suite5/6 in121s reached a test NameError in case3: 
+pure mutation helper declared after an eagerly executed Suite.case. Selected:
+move helpers before cases; share the genuine successful exact multi-identity
+agent/valid different generated-key stimulus with lost-B/D/F-only recovery,
+retaining all original three-signature/exact-key/batch/home/no-replacement and
+privacy assertions. Five other cases passed; lost firstB/D caps passed before
+the helper failure. No product assertion failed. Discarded: larger timeouts,
+dropping key-source checks, re-running unchanged or accepting a partial run.
