@@ -99,6 +99,10 @@ pub(crate) fn live(c: &Connection, store: &Store, p: &Pending) -> Result<String>
     let i = load(c, p)?;
     let (b, r) = check_current(c, store, p, &i)?;
     require(
+        stamp(&controls::local_decision_time()?)? >= stamp(&i.record.created_at)?,
+        "admission_review_unavailable",
+    )?;
+    require(
         stamp(&b.now)? >= stamp(&i.record.created_at)?
             && r.provider.kind == "root"
             && r.provider.signature_format == "ed25519"
@@ -137,6 +141,10 @@ pub(crate) fn apply(
         load(c, p)?
     };
     let (checked, _) = check_current(c, store, p, &i)?;
+    require(
+        stamp(&controls::local_decision_time()?)? >= stamp(&i.record.created_at)?,
+        "admission_review_unavailable",
+    )?;
     let public = public(p, &i)?;
     validate(&public, &checked.now)?;
     let changed = approve && !i.record.approved;
@@ -153,10 +161,13 @@ pub(crate) fn apply(
 }
 
 fn check_live_time(c: &Connection, p: &Pending) -> Result<()> {
-    let now = controls::guarded_decision(
-        c,
-        &p.record.expected_network_id,
-        &controls::local_decision_time()?,
+    let local = controls::local_decision_time()?;
+    let raw = stamp(&local)?;
+    require(
+        raw >= stamp(text(&p.packet()?.payload, "created_at")?)?
+            && (p.record.stage_at == "-" || raw >= stamp(&p.record.stage_at)?),
+        "admission_review_unavailable",
     )?;
+    let now = controls::guarded_decision(c, &p.record.expected_network_id, &local)?;
     require(p.view(&now)?["state"] != "expired", "review_expired")
 }
