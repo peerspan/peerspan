@@ -493,7 +493,7 @@ def _():
     pure(unsupported, "prepare", status=409, code="admission_review_unavailable")
     v = link_view(a, unsupported["rid"])
     status, ordinary = a.api("POST", "/v2/link/admissions", {
-        "code": "-", "request_id": unsupported["rid"], "network_id": unsupported["network"]["id"],
+        "code": unsupported["reply"], "network_id": unsupported["network"]["id"],
         "person_public_key": unsupported["person"], "provider_id": "network_root", "signature_format": "sshsig",
         "owner_offer_id": v["owner_offer_id"], "selection_id": v["selection_id"],
         "expected_host_public_key": v["host_public_key"], "expected_device_public_key": v["device_public_key"], "approve": False})
