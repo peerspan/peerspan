@@ -2736,3 +2736,14 @@ The new terms must name the fixed powers profile7 as contracted. Discarded:
 accepting unsupported catalog/provider forms in signing projections, testing
 unapproved advanced stages as valid owner approval, or treating a prepared
 globally approved consent as a missing-owner result. Preserve initial failures.
+
+### GU.impl26e — Bound transport holds to individual typed fault commands
+
+Corrected host fixture47a050d5/6 in132s preserved the original case3 proof but
+the new held-generation guard expired across case5's23-command corpus. Selected:
+keep its original aggregate DB/files equality; refresh/confirm outside each
+individual command, adding per-command strict DB/files/BOTHcounter/held-generation
+checks. No aggregate IO assertion existed or is removed. Ordinary inter-command
+writes remain caught by aggregate equality. Discarded: longer timeouts, stale
+hold flags, refreshing during measurement, omitting a command/category or retries
+until green. Independent author commits correction before its next full run.

@@ -4589,6 +4589,16 @@ Independent setup corrections retain all positive/negative/privacy/dispatch/
 timer assertions and original delays/timeouts. The first CI failures remain
 recorded; no unchanged local duplicate run is needed before reconciliation.
 
+The corrected host fixture47a050d ran5/6 in132s: original case3 passed, but its
+single held TLS generation expired across case5's aggregate23-command typed
+corpus (12.9s), causing the new guard to fail. Preserve the original whole-corpus
+DB/state/home equality unchanged. Refresh/confirm the transport hold outside
+each measured command and add per-command whole-DB/files, BOTH full relay
+counters and same-live-generation checks. There was no aggregate corpus IO
+assertion to remove. Refresh cannot occur inside an individual measurement;
+ordinary writes while refreshing still fail the retained aggregate DB/files
+equality. No longer TLS/command/test timeout, weaker guard or unchanged rerun.
+
 Selected: explicit pure finalization review, one bounded backend call and
 lookup-first recovery. Discarded: more protocol/proof APIs, combined consent/
 key use, frontend signer selection, hidden sign-as-read, retries/polling, new
