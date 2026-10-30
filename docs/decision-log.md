@@ -3048,3 +3048,14 @@ failure-only counter-delta diagnostics over existing captured tuples before
 another setup change. All assertions/actions/delays/timeouts stay intact and
 diagnostics normalize to exact prior bytes/AST. Discard attributing background
 IO to the replay without evidence, extra waits, uncounted paths or worker control.
+
+### GU.impl28k — Observe actual startup directory completion before history
+
+Retained diagnostic5/6in154s sees2datagrams/2400bytes toward the stopped issuer,
+with no replies or DB/files/TCP change. Specific caller remains unknown. Public
+contract requires in-memory startup directory queries. Select one bounded
+synchronous refresh for the exact network after the existing restart, validating
+the known stopped issuer's completed error before unchanged quiet/purity checks.
+No current permission is invented; refresh is not a global transport fence.
+Independent setup commits before execution. Discard attributing IO to replay,
+refresh/retry loops, larger sleeps/waits, worker controls and missing counters.

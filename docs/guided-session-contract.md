@@ -5139,6 +5139,30 @@ production. Keep every original assertion/action/delay/timeout and all TCP/UDP
 categories. No unchanged rerun, guessed cause, hidden transport exclusion,
 worker control or larger wait.
 
+GU.impl28k startup observation: the retained diagnostic run5/6in154s identifies
+only the issuer UDP counter changing during restarted API history:2 received
+datagrams/2400 bytes, zero return datagrams/bytes; DB/state/home and both TCP
+counters are unchanged. That is evidence of attempted traffic toward the stopped
+issuer, not attribution to a specific API or background subsystem. The public
+directory contract requires startup peer queries and keeps their results in
+memory; owner socket readiness and the fixture's short stable samples do not
+establish their completion.
+
+For this fixture's restarted phase only, immediately after the existing requester
+restart and before its unchanged quiet check/baseline, issue one owner-local
+`POST /v1/directory/refresh?network=EXACT_ID` with `{}`. Await its documented
+synchronous result (server at most10s, client bound12s), validate the exact
+network and the known issuer's completed non-pending entry; the intentionally
+stopped issuer's truthful state is error. Never require successful connection,
+invent grants, echo error text, clear peer state or reset authority. Verify
+ordinary current authority remains usable at fixture time. Keep all original
+actions, waits, sleeps, API/CLI history/refusal/DB/state/home and BOTH TCP plus
+all UDP assertions intact. This genuine setup observation establishes that
+refresh completion only, not a global transport fence or retrospective cause.
+No repeated refresh, larger original wait, arbitrary sleep, worker/path control
+or counter exclusion. An independent author commits before one corrected full
+run against unchanged frozen production; retain any further failure as evidence.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
