@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { adapterTransfer, conversationEvent, createAdapter, instructions } from './adapter.mjs';
+import { adapterTransfer, conversationEvent, conversationRosterEvent, createAdapter, instructions } from './adapter.mjs';
 const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
 const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
@@ -724,6 +724,163 @@ test('conversation_send validates, generates a message_id, and reports refusals 
       body.recovery,
       'Call conversation_send again with the same message_id and identical content; it returns the stored message instead of sending twice.'
     );
+  } finally {
+    await adapter.stop();
+  }
+});
+
+// Conversations contract, C2: the conversation_roster event and the
+// membership tools.
+const rosterClaim = (change) =>
+  claim({
+    notification: {
+      id: notificationId,
+      kind: 'roster',
+      conversation_id: conversationId,
+      session_id: sessionId,
+      change: {
+        by: 'person:host_a/person_a',
+        by_label: 'alice',
+        note: null,
+        roster_version: 3,
+        ...change
+      }
+    },
+    messages: []
+  });
+
+test('a conversation_roster event says what changed, with its meta', () => {
+  const header =
+    `Peerspan conversation ${conversationId} "Flaky test" (open)\n` +
+    'Participants: alice (person), bob/bert (you), carol/cleo\n';
+  const added = conversationRosterEvent(rosterClaim({ change: 'added' }));
+  assert.equal(
+    added.content,
+    header + 'alice added you to this conversation. Send with conversation_send; you see messages sent from now on.'
+  );
+  assert.deepEqual(added.meta, {
+    kind: 'conversation_roster',
+    conversation_id: conversationId,
+    notification_id: notificationId,
+    change: 'added',
+    by: 'person:host_a/person_a',
+    by_label: 'alice',
+    roster_version: 3,
+    session_id: sessionId,
+    redelivered: false
+  });
+  const noted = conversationRosterEvent(rosterClaim({ change: 'added', note: 'Please review.' }));
+  assert(noted.content.endsWith('\nNote from alice: Please review.'));
+  assert.equal(
+    conversationRosterEvent(rosterClaim({ change: 'removed' })).content,
+    header + 'alice removed you from this conversation; you can no longer send to it.'
+  );
+  assert.equal(
+    conversationRosterEvent(rosterClaim({ change: 'closed' })).content,
+    header + 'alice closed this conversation; it can still be read, but no one can send to it.'
+  );
+});
+
+test('the adapter emits a claimed roster notification as conversation_roster, then marks it forwarded', async () => {
+  let claimed = 0,
+    emitted,
+    forwardedAfter;
+  const seen = new Promise((resolve) => {
+    forwardedAfter = resolve;
+  });
+  const adapter = readyAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 10,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      if (path === '/adapter/v1/conversation-notifications/next')
+        return claimed++ === 0 ? rosterClaim({ change: 'closed' }) : null;
+      if (path === `/adapter/v1/conversation-notifications/${notificationId}/forwarded`) {
+        assert(emitted, 'forwarded before the event was emitted');
+        forwardedAfter();
+      }
+      return null;
+    },
+    notify: async (event) => {
+      if (event.meta.kind === 'conversation_roster') emitted = event;
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    await seen;
+    assert.equal(emitted.meta.change, 'closed');
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('the membership tools validate, call the daemon, and report refusals', async () => {
+  const calls = [];
+  let answer = () => ({});
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    for (const [name, args] of [
+      ['list_conversations', { extra: 1 }],
+      ['conversation_start', {}],
+      ['conversation_start', { participants: [] }],
+      ['conversation_start', { participants: ['bob/bert'], title: 'x'.repeat(201) }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'add' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'remove' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'close', participant: 'bob/bert' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'leave', participant: 'bob/bert' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'drop' }],
+      ['conversation_manage', { conversation_id: 'conv_x', action: 'close' }]
+    ]) {
+      const result = await adapter.callTool(name, args);
+      assert.equal(result.isError, true, `${name} ${JSON.stringify(args)}`);
+      assert.match(result.content[0].text, new RegExp(name));
+    }
+    assert.equal(calls.length, 0);
+
+    await adapter.callTool('list_conversations', {});
+    assert.deepEqual(calls.at(-1), { method: 'GET', path: '/adapter/v1/conversations', body: undefined });
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'], content: 'hi', note: 'n' });
+    assert.equal(calls.at(-1).path, '/adapter/v1/conversations');
+    assert.match(calls.at(-1).body.message_id, /^cmsg_[0-9a-f]{32}$/);
+    assert.deepEqual(calls.at(-1).body.participants, ['bob/bert']);
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'] });
+    assert.equal(calls.at(-1).body.message_id, undefined);
+    await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'remove', participant: 'bob/bert' });
+    assert.deepEqual(calls.at(-1), {
+      method: 'POST',
+      path: `/adapter/v1/conversations/${conversationId}/manage`,
+      body: { action: 'remove', participant: 'bob/bert' }
+    });
+
+    for (const [status, code, text] of [
+      [403, 'not_creator', "Only the conversation's creator can add, remove, or close."],
+      [409, 'closed', 'The conversation is closed; it can still be read with conversation_history.'],
+      [409, 'full', 'A conversation has at most 16 participants.']
+    ]) {
+      answer = () => {
+        throw Object.assign(new Error('refused'), { status, code, detail: { code, error: 'daemon text' } });
+      };
+      const refused = await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'close' });
+      assert.equal(refused.isError, true);
+      assert.deepEqual(JSON.parse(refused.content[0].text), {
+        conversation_id: conversationId,
+        code,
+        error: text,
+        recovery: null
+      });
+    }
   } finally {
     await adapter.stop();
   }

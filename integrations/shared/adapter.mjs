@@ -332,13 +332,70 @@ export const tools = [
       },
       required: ['conversation_id', 'content']
     }
+  },
+  {
+    name: 'list_conversations',
+    description:
+      'List the Peerspan conversations this agent takes part in: the open ones, and closed ones with messages not yet seen. Each has its conversation_id, title, state, participants with labels (you marks this agent), unseen, last_message_at, and creator (whether this agent created it).',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} }
+  },
+  {
+    name: 'conversation_start',
+    description:
+      'Start a Peerspan conversation with this agent as its creator. participants are agent addresses as list_agents shows them (PERSON/AGENT or HOST_ID/AGENT). Each participant\'s owner still decides who may message it: being in one conversation lets no one reach anyone new. The result reports each invite\'s outcome and, per new participant, which participants can reach it (reachable_from) and which it can reach (reaches). content, if given, is sent as the first message; note is shown to each new participant with its invite.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        participants: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 15,
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+          description: 'Agent addresses, PERSON/AGENT or HOST_ID/AGENT.'
+        },
+        title: { type: 'string', maxLength: 200, description: 'An optional title.' },
+        content: { type: 'string', minLength: 1, maxLength: 65536, description: 'An optional first message.' },
+        note: { type: 'string', maxLength: 4096, description: 'An optional note for the new participants.' }
+      },
+      required: ['participants']
+    }
+  },
+  {
+    name: 'conversation_manage',
+    description:
+      'Change a Peerspan conversation\'s membership. add and remove take a participant (an agent address to add; a participant ID or label to remove) and, like close, are only for the conversation\'s creator. leave takes this agent out of the conversation; close ends it for everyone, and it stays readable.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        conversation_id: { type: 'string', pattern: conversationIdPattern, description: 'The conversation.' },
+        action: {
+          type: 'string',
+          enum: ['add', 'remove', 'leave', 'close'],
+          pattern: '^(add|remove|leave|close)$',
+          description: 'add, remove, leave, or close.'
+        },
+        participant: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 256,
+          description: 'Required for add and remove; not allowed for leave and close.'
+        }
+      },
+      required: ['conversation_id', 'action']
+    }
   }
 ];
 
 const conversationRefusals = {
   not_participant: 'This agent is not in that conversation.',
-  conflict: 'This message_id was already used with different content.'
+  conflict: 'This message_id was already used with different content.',
+  not_creator: "Only the conversation's creator can add, remove, or close.",
+  closed: 'The conversation is closed; it can still be read with conversation_history.',
+  full: 'A conversation has at most 16 participants.'
 };
+export const lostStartRecovery = 'Check list_conversations before starting again; the conversation may exist.';
 export const lostConversationRecovery =
   'Call conversation_send again with the same message_id and identical content; it returns the stored message instead of sending twice.';
 
@@ -386,6 +443,44 @@ export function conversationEvent(claim) {
       addressed: message.addressed !== false,
       catch_up: false,
       unseen: conversation.unseen,
+      session_id: claim.notification?.session_id,
+      redelivered: claim.redelivered === true
+    }
+  };
+}
+
+// conversationRosterEvent renders a claimed roster notification (added,
+// removed, closed) as a conversation_roster channel event.
+export function conversationRosterEvent(claim) {
+  const conversation = claim.conversation ?? {};
+  const change = claim.notification?.change ?? {};
+  const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
+  const participants = (conversation.participants ?? []).map((p) =>
+    p.kind === 'person' ? `${p.label} (person)` : p.you === true ? `${p.label} (you)` : p.label
+  );
+  const lines = [
+    `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
+    `Participants: ${participants.join(', ')}`
+  ];
+  const by = change.by_label;
+  if (change.change === 'added') {
+    lines.push(`${by} added you to this conversation. Send with conversation_send; you see messages sent from now on.`);
+    if (typeof change.note === 'string' && change.note.length) lines.push(`Note from ${by}: ${change.note}`);
+  } else if (change.change === 'removed') {
+    lines.push(`${by} removed you from this conversation; you can no longer send to it.`);
+  } else {
+    lines.push(`${by} closed this conversation; it can still be read, but no one can send to it.`);
+  }
+  return {
+    content: lines.join('\n'),
+    meta: {
+      kind: 'conversation_roster',
+      conversation_id: conversation.conversation_id,
+      notification_id: claim.notification?.id,
+      change: change.change,
+      by: change.by ?? null,
+      by_label: by ?? null,
+      roster_version: change.roster_version,
       session_id: claim.notification?.session_id,
       redelivered: claim.redelivered === true
     }
@@ -973,6 +1068,46 @@ export function createAdapter({
         });
       }
     }
+    if (name === 'list_conversations' || name === 'conversation_start' || name === 'conversation_manage') {
+      if (!validArguments(name, name === 'list_conversations' ? (args ?? {}) : args))
+        return errorResult(`Invalid ${name} arguments.`);
+      const conversationId = args.conversation_id ?? null;
+      if (name === 'conversation_manage') {
+        const needs = args.action === 'add' || args.action === 'remove';
+        if (needs !== (args.participant !== undefined)) return errorResult(`Invalid ${name} arguments.`);
+      }
+      const messageId = name === 'conversation_start' && args.content !== undefined ? `cmsg_${randomBytes(16).toString('hex')}` : undefined;
+      try {
+        if (name === 'list_conversations') return textResult(await scopedCall('GET', '/adapter/v1/conversations'));
+        if (name === 'conversation_start')
+          return textResult(
+            await scopedCall('POST', '/adapter/v1/conversations', {
+              ...args,
+              ...(messageId !== undefined && { message_id: messageId })
+            })
+          );
+        const body = { action: args.action, ...(args.participant !== undefined && { participant: args.participant }) };
+        return textResult(await scopedCall('POST', `/adapter/v1/conversations/${conversationId}/manage`, body));
+      } catch (error) {
+        if (error.status >= 400 && error.status < 500 && error.code) {
+          const text =
+            error.code === 'no_directory'
+              ? refusal(error).error
+              : (conversationRefusals[error.code] ??
+                (typeof error.detail?.error === 'string' ? error.detail.error : error.message));
+          return errorResult({ conversation_id: conversationId, code: error.code, error: text, recovery: null });
+        }
+        if (messageId !== undefined)
+          return errorResult({
+            conversation_id: null,
+            message_id: messageId,
+            code: 'unknown',
+            error: error.message,
+            recovery: lostStartRecovery
+          });
+        return errorResult({ conversation_id: conversationId, code: 'unknown', error: error.message, recovery: null });
+      }
+    }
     if (name === 'list_destinations') {
       if (args && Object.keys(args).length)
         return { isError: true, content: [{ type: 'text', text: 'No arguments are accepted.' }] };
@@ -1501,7 +1636,11 @@ export function createAdapter({
             if (conversation.notification?.session_id !== sessionId)
               throw new AttachmentChanged('invalid conversation notification session');
             if (stop.signal.aborted) return;
-            await notify(conversationEvent(conversation));
+            await notify(
+              conversation.notification?.kind === 'roster'
+                ? conversationRosterEvent(conversation)
+                : conversationEvent(conversation)
+            );
             acknowledge.push(`/adapter/v1/conversation-notifications/${conversation.notification.id}/forwarded`);
           }
           while (acknowledge.length) {
