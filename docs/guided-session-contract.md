@@ -5937,6 +5937,9 @@ sleep/timeout and original proof capture/comparison order and short-circuiting:
   timing request class (`background`/`served`/`unknown`), static peer route class
   (`directory`/`contact`/`catalog`/`repair`/`other`), completion-serving count and
   bounded numeric duration/counts. Keep unknown when absent or unrecognized.
+  Directory classification follows the current launch contract:
+  `/peer/v1/networks/{network_id}/agents`; the old unscoped launch proposal is
+  not the current route contract. No request is sent by this classifier.
   No raw request number/path/ID/line/endpoint/body or provider diagnostic appears.
   These extra filesystem observations are diagnostic metadata, not SQL/state/
   home/carrier proof captures; the original actual tuples and assertions remain.
