@@ -323,3 +323,13 @@ Existing signing/application transactions recheck the guided binding; exact
 publication passes are bounded. Verified local application is separate from
 participant delivery, agent access and readiness. Completed replay is pure.
 No new schema, consent, original-key provider or peer/scoped route.
+
+
+## Guided project access inspection
+
+[Guided session contract section 30](guided-session-contract.md#30-project-bound-agent-access-inspection-gu-01t--gu-02u--gu-04u)
+defines owner-local `POST /v1/onboarding/access-inspection` and private-stdin
+`peerspan onboarding access inspect --stdin`. One held read binds the exact
+attached project to verified network/local-person/selected-person terms and the
+current policy. Signed body and locally enforced content remain distinct. This
+read opens no signer, creates no consent or grant, and establishes no readiness.

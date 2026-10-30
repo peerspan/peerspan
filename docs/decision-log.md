@@ -2975,3 +2975,9 @@ Discard membership as access, implicit label/network selection, copied frontend
 authority, a second authorization evaluator, new inspection storage and this
 read's digest as grant consent. Exact grant approval/signing, native controls and
 observed connection readiness follow separately; no full feature gate is complete.
+
+
+GU.impl30a — Before independent assertions, clarify Content's closed public
+shape as rules/capability_rules/trusted_hosts, retaining empty arrays. An
+unknown selected person is unavailable authority (409); only an absent network
+is 404. These settle the contract author's questions without adapting to runs.
