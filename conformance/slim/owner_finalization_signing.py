@@ -818,6 +818,24 @@ def settle_F(f):
     f['a'].stop(); f['a'].relay.mode = f['h'].relay.mode = 'drop'; quiet(f)
 
 
+def alter_packets(view, change):
+    for slot in view['signing_requests']:
+        if slot['object_type'] != 'owner_finalization_packet': continue
+        packet = json.loads(base64.b64decode(slot['template_base64'])); change(packet)
+        slot['template_base64'] = base64.b64encode(compact(packet)).decode(); slot['object_id'] = packet_id(packet)
+        slot['message_base64'] = base64.b64encode(packet_message(packet)).decode()
+
+
+def alter_statements(view, change):
+    for slot in view['signing_requests']:
+        if slot['object_type'] not in ('binding_lease', 'device_lease'): continue
+        envelope = json.loads(base64.b64decode(slot['template_base64']))
+        value = json.loads(base64.b64decode(envelope['payload_base64'])); change(value, envelope['kind'])
+        envelope['payload_base64'] = base64.b64encode(compact(value)).decode()
+        slot['template_base64'] = base64.b64encode(compact(envelope)).decode(); slot['object_id'] = statement_id(envelope)
+        slot['message_base64'] = base64.b64encode('\n'.join(('peerspan-decentralized-signature-v1', slot['object_id'], 'issuer', slot['public_key'])).encode()).decode()
+
+
 @suite.case('generated_original_exact_B_D_then_F_same_intent_real_proofs_and_no_commit', 'guided25 verification1')
 def _():
     f = fixture('gen'); target = install_key(f)
@@ -842,7 +860,7 @@ def _():
     check(target.is_file() and get(f['h'], '/v2/networks') == [], 'F action removed original or adopted network')
 
 
-@suite.case('safe_generated_sources_exact_multi_identity_agent_and_unavailable_signer_fail_closed', 'guided25 verification2')
+@suite.case('safe_generated_sources_and_unavailable_signer_fail_closed', 'guided25 verification2')
 def _():
     f = fixture('safe'); target = install_key(f); original = target.read_bytes()
     wrong = ssh_key(suite.work, 'PRIVATE_AGENT_COMMENT-wrong')
@@ -880,21 +898,14 @@ def _():
             failed.before = lambda _kind: failed.process.terminate()
             check(not command(f, proxy=proxy, agent=failed).ok and not proxy.submissions, 'failed genuine agent produced a submission')
     # Preserve this genuinely unsigned fixture for typed faults/guard tests.
-    f2 = fixture('agt'); different = install_key(f2, wrong); before_home = private_files(f2['h'].home)
-    with AgentProxy('a', [wrong, f2['key']]) as agent, HostProxy(f2['h'], 'ap') as proxy:
-        complete_once(f2, proxy, agent=agent)
-        check(all(message[0] in (11, 13) for message in agent.messages), 'CLI mutated agent identities')
-        for message in agent.signatures:
-            blob, _ = ssh_string(message, 1); algorithm, offset = ssh_string(blob); raw, _ = ssh_string(blob, offset)
-            check(algorithm == b'ssh-ed25519' and base64.b64encode(raw).decode() == f2['person'], 'agent signed with another original')
-        check(private_files(f2['h'].home) == before_home and different.is_file(), 'agent path replaced different generated original')
-    settle_F(f2); f2['h'].stop()
 
 
-@suite.case('lost_B_D_response_stops_F_then_one_explicit_F_only_recovery_and_keyless_refusal', 'guided25 verification3')
+@suite.case('exact_multi_identity_agent_lost_B_D_stops_F_then_F_only_recovery_and_keyless_refusal', 'guided25 verification3')
 def _():
     f = fixture('lost')
-    with AgentProxy('l', [f['key']]) as agent, HostProxy(f['h'], 'lp') as proxy:
+    wrong = ssh_key(suite.work, 'PRIVATE_AGENT_COMMENT-lost-wrong')
+    different = install_key(f, wrong); before_home = private_files(f['h'].home)
+    with AgentProxy('l', [wrong, f['key']]) as agent, HostProxy(f['h'], 'lp') as proxy:
         proxy.drop_signed = True; at = len(proxy.calls)
         answer = command(f, proxy=proxy, agent=agent)
         check(not answer.ok and len(proxy.submissions) == 1 and len(agent.signatures) == 2 and not retained(f, 4), 'lost issuer POST continued/retried F')
@@ -926,6 +937,11 @@ def _():
         check_batches(f, proxy.submissions[before_posts:], first='F'); assert_no_driver(proxy, at)
         check(len(agent.signatures) == 3, 'explicit remaining-F recovery re-signed issuer work')
         verify_F(f)
+        check(all(message[0] in (11, 13) for message in agent.messages), 'CLI mutated agent identities')
+        for message in agent.signatures:
+            blob, _ = ssh_string(message, 1); algorithm, offset = ssh_string(blob); raw, _ = ssh_string(blob, offset)
+            check(algorithm == b'ssh-ed25519' and base64.b64encode(raw).decode() == f['person'], 'agent signed with another original')
+        check(private_files(f['h'].home) == before_home and different.is_file(), 'agent path replaced different generated original')
     settle_F(f)
     with AgentProxy('k', [f['key']]) as agent, HostProxy(f['h'], 'kp') as proxy:
         altered = {**decision(f), 'finalization_review_id': 'review_' + 'f' * 64}
@@ -938,22 +954,8 @@ def _():
         keyless_refusal(generated, proxy, agent, data=compact({**decision(generated), 'finalization_review_id': 'review_' + 'e' * 64}))
 
 
-def alter_packets(view, change):
-    for slot in view['signing_requests']:
-        if slot['object_type'] != 'owner_finalization_packet': continue
-        packet = json.loads(base64.b64decode(slot['template_base64'])); change(packet)
-        slot['template_base64'] = base64.b64encode(compact(packet)).decode(); slot['object_id'] = packet_id(packet)
-        slot['message_base64'] = base64.b64encode(packet_message(packet)).decode()
 
 
-def alter_statements(view, change):
-    for slot in view['signing_requests']:
-        if slot['object_type'] not in ('binding_lease', 'device_lease'): continue
-        envelope = json.loads(base64.b64decode(slot['template_base64']))
-        value = json.loads(base64.b64decode(envelope['payload_base64'])); change(value, envelope['kind'])
-        envelope['payload_base64'] = base64.b64encode(compact(value)).decode()
-        slot['template_base64'] = base64.b64encode(compact(envelope)).decode(); slot['object_id'] = statement_id(envelope)
-        slot['message_base64'] = base64.b64encode('\n'.join(('peerspan-decentralized-signature-v1', slot['object_id'], 'issuer', slot['public_key'])).encode()).decode()
 
 
 @suite.case('authentic_typed_B_D_faults_strict_private_stdin_and_no_start_refuse_before_signer', 'guided25 verification5')
