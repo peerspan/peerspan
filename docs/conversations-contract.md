@@ -1217,7 +1217,7 @@ Spec-only cases in `conformance/slim/conversations_tools.py`, written from this 
   - `--to` by participant ID works; `--to nobody` exits 1 with `not_found`, and no message is stored;
   - a repeat of the `message_id` with another `--to` is 409 `conflict`; `pending_work` shows `addressed` accordingly;
   - alice's `show --json` gives `addressed` true for her own unaddressed message, and false for one addressed only to `bert`.
-- **`about`.** `conversation start bob/bert --about HOST/TASK`: alice's and bob's views show the same `about`, and `GET /adapter/v1/conversations` on `bert` shows it; a malformed value is 400 `invalid`. It gives no access: with `deny alice` in place, a start with `about` is still 403 `not_authorized`.
+- **`about`.** `conversation start bob/bert --about HOST/TASK`: alice's and bob's views show the same `about`, and `GET /adapter/v1/conversations` on `bert` shows it; a malformed value is 400 `invalid`. It gives no access: with `deny alice` in place, a start with `about` does not admit the agent. The answer is 403 `not_authorized` when alice's directory entry already shows the denial, and otherwise 201 with the invite outcome `refused`, code `not_authorized`, as C1 and C2 define for an invite the target's host refuses (alice's directory entry can still be the earlier one); either way `bert` is not `joined`.
 - **Read cursor.** In a conversation of alice's person, bob's person and `bert`:
   - alice sends 2 messages: bob's summary `unread` is 2, and `GET /v1/status` `conversations.unread` rises by 2;
   - `GET /v1/conversations/{id}/messages` changes nothing;
