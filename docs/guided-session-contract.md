@@ -5015,6 +5015,18 @@ requester before waiting for the recipient. That setup action is neither a
 guided completion replay nor evidence of transport performed by a pure reader.
 Keep the first independent CI execution before adapting any fixture expectation.
 
+The first independent requester_completion CI run on3ce0fe4 passed4/6 in95s.
+Its positive setup dropped every carrier while awaiting ordinary signed/framed
+progress, timed out at its existing15s observation bound, and left history's
+prerequisite missing. The missing/unapproved/privacy, late fault and actual
+parent-barrier cases passed. Preserve this result. To observe genuine ordinary
+worker progress, make its authentic retained mailbox carrier reachable before
+that bounded wait; drop/stall controls apply later, outside observations. This
+adds no signing/resume loop or approval. The independent author may correct this
+setup and the lifecycle/outbox/explicit-repair expectations clarified above,
+retaining every timeout, private corpus, cryptographic check and rollback/purity
+category. No unchanged rerun or production change is inferred from this failure.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
