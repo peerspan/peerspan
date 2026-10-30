@@ -2842,3 +2842,14 @@ already authorized application winning before the fresh guarded transaction
 is verified historical evidence, even if parent/time subsequently changed.
 Discarded: editing authority rows, disabling workers, claiming competing work
 was this command or forcing a false refusal instead of pure historical recovery.
+
+### GU.impl28b — Require real transport isolation for expiry evidence
+
+Selected independent clarification: never treat a partial-signature barrier as
+a live carrier hold. Exercise raw/signed expiry with genuine confirmed transport
+and retain existing partial signatures exactly. Record approved-but-unsigned
+stage expiry as a source/barrier limit when no reliable public stimulus exists;
+keep ordinary stage-timeout coverage and real application synchronization.
+Discarded: invented hold flags, omitted counters, worker disabling or timing
+retries. Historical precedence bypasses fresh eligibility checks, while pure
+metadata/context observations remain allowed.
