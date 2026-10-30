@@ -2629,3 +2629,13 @@ caps preserved. Initial completed-F refusal is pure regardless of a different
 well-typed inspection digest; it makes no historical attribution. Discarded:
 retry-until-green signing, assuming immediate dependent host work or silently
 continuing after an uncertain first mutation.
+
+
+### GU.impl25b — State the signing deadline at its actual cancellation boundary
+
+Selected:90s asynchronous orchestration deadline ends further work/submissions;
+already queued/dispatched blocking key/agent operations cannot be retracted and
+may delay process shutdown. Abandoned key results cannot submit another batch.
+The future native caller sets a separate process bound. This clarifies40fe2c3's
+whole-command wording before conformance assertions. Discarded: claiming Tokio
+future cancellation kills blocking work or retracts a dispatched signature POST.
