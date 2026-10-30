@@ -451,7 +451,7 @@ def _():
         **payload(f), "admission_review_id": "review_" + "0" * 64})
     prepared = op(f, "prepare")
     for patch in ({"admission_review_id": "review_" + "1" * 64},
-                  {"context": {**context(f["parent"]), "native_session_id": "different conversation"}},
+                  {"context": {**context(f["parent"]), "native_session_id": "different-conversation"}},
                   {"context": {**context(f["parent"]), "project_root": str(suite.work / "different root")}}):
         pure(f, "approve", prepared, status=409, code="review_changed", override={**payload(f, prepared), **patch})
     pure(f, "lookup", status=404, code="not_found", override={**payload(f), "request_id": "link_" + "0" * 64})
