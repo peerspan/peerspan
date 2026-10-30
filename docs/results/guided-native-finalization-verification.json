@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/64",
+  "scope": "Human-only native original finalization review, bounded signing and pure recovery; guided session contract section26",
+  "base_merge": "d2358444a95a4219c961761bc3ec4769e48713a2",
+  "contract_first_commit": "2802acf",
+  "clarifications": [
+    "06c9b8a/GU.impl26a: exact recorded label, private internal bindings, Leave returns to published outcome",
+    "5ae5c69/GU.impl26b: isolate signing suite's separate live inspection fixture without weakening checks",
+    "eed0c16/GU.impl26d: verified ds_ statement parents/issuer, consistent pending/approved/missing owner fixtures",
+    "cb8c6f5/GU.impl26e: per-command live transport holds plus unchanged aggregate DB/files corpus equality"
+  ],
+  "initial_frontend": "9cbfe3a988803c8952066ad0c8e5bf8e109389fc",
+  "final_frontend": "eed0c16e6d7e7410dd6a9924c1928690691ff280",
+  "source_review_fix": "de70b314352334ba97f30d68547369f7f3018a6e reads the dispatch clock after asynchronous native checks and verifies callback generation synchronously before deadline/dispatch; eed0c16 names the fixed powers profile7 in the review.",
+  "combined_local_verification_head": "0b886f094cf049bed29ec022d623f20bf82dd60d",
+  "rust_api_schema_protocol_unchanged": true,
+  "binary_sha256": "718c72fd8e7de4e70e46220e943c659d3c33eefe4811fbc944894933f7ccfde8",
+  "source_sha256": {
+    "integrations/claude-onboarding/hooks/register.mjs": "3553de5ec9c0cc84581cf34471fc0248f9fd00aa799948dcb5258aa2ba1e36e5",
+    "integrations/claude-onboarding/hooks/finalization.mjs": "77b962a88e8cd66469be596485e0e6e7c66603619889d7ab96c59d79cad1f963",
+    "integrations/claude-onboarding/tests/owner-finalization.test.ts": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+    "conformance/slim/owner_finalization_signing.py": "6dfd60ef946fdb791b52a1650ed5f6fb32ef4919f4ec435f8fdb84049f5956e9"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "contract_only": true,
+    "implementation_read": false,
+    "committed_before_execution": true,
+    "native_initial": {
+      "author_commit": "37dc205",
+      "integrated_commit": "8c0a188",
+      "new_cases": 20
+    },
+    "native_fixture_correction": {
+      "author_commit": "d81dba7",
+      "integrated_commit": "d4e5101",
+      "changes": "Correct root/issuer forms, pending-before-approval progression and consistent missing-owner preparation; all20 assertions/delays/timeouts retained"
+    },
+    "host_live_fixture": {
+      "author_commit": "47a050d",
+      "integrated_commit": "f76ff7f"
+    },
+    "host_per_command_fixture": {
+      "author_commit": "86dc2e0",
+      "integrated_commit": "0b886f0"
+    },
+    "preservation": "All original272 native cases/files/stimuli/assertions/delays/timeouts unchanged. All22 host suites remain; only signing fixture helpers changed, every original case/check/delay/timeout and aggregate DB/files equality preserved, additional per-command DB/files/BOTH full relay counters/live-generation assertions."
+  },
+  "local": {
+    "required_rust": {
+      "source": "9cbfe3a988803c8952066ad0c8e5bf8e109389fc",
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "fmt": "pass",
+      "clippy": "pass",
+      "all_bins_build": "pass",
+      "basis": "No Rust or protocol/API source changed anywhere in this slice"
+    },
+    "initial_native": {
+      "source": "9cbfe3a988803c8952066ad0c8e5bf8e109389fc",
+      "passed": 272,
+      "failed": 0,
+      "files": 13,
+      "seconds": 35.78,
+      "strict_validation": "pass"
+    },
+    "final_native": {
+      "head": "0b886f094cf049bed29ec022d623f20bf82dd60d",
+      "frontend": "eed0c16e6d7e7410dd6a9924c1928690691ff280",
+      "passed": 292,
+      "failed": 0,
+      "files": 14,
+      "seconds": 41.51,
+      "runtime": "2.1.303",
+      "strict_validation": "pass",
+      "first_corrected_local_run": true,
+      "unmodified_failed_baseline_not_repeated_locally": true
+    },
+    "owner_finalization": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 81,
+      "case_seconds": [
+        10.9,
+        23.4,
+        6.4,
+        12.9,
+        1.7,
+        25.5
+      ],
+      "binary_sha256": "718c72fd8e7de4e70e46220e943c659d3c33eefe4811fbc944894933f7ccfde8"
+    },
+    "owner_finalization_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 145,
+      "case3_seconds": 43.6,
+      "case5_seconds": 20.6,
+      "runtime_target": "Local145s exceeds two minutes; same corrected suite CI6/6 in104s satisfies CI target",
+      "fixture": "Confirmed consumed ClientHello and same live generation around individual reads/typed commands; original whole23-command DB/state/home equality retained, strict per-command DB/files/BOTH counters added"
+    }
+  },
+  "native_evidence": [
+    "Entry/approval/progress/Check owner/Refresh/reload are finalization-inert; exact live four-stage approved prefix gates explicit review",
+    "Complete quoted public identity/network/powers/end/selected root/P/H/administrator terms; internal flow/review/intent/native identifiers stay private",
+    "Double Sign makes one literal configured95s private-stdin command after authoritative parent/host/flow/native/owner/inspection/digest/time checks",
+    "Strict closed inspection and success corpus rejects changed/private/bare/invalid pins and markers without confirmation or raw output",
+    "Original review-window expiry preserves approved consent; request/fixed end disables controls, preflight crossing stops dispatch, post-dispatch crossing may confirm historical F",
+    "Unknown/lost/denied/raw/mismatched results preserve publication without retry; pure Check recovers completed F without inspect/sign or historical digest/UI attribution",
+    "Leave/navigation/context/end clear volatile authority and stale callbacks while established adapter/message/task/lease and durable invitation invariants remain"
+  ],
+  "retained_initial_failures": [
+    {
+      "gate": "Local original signing regression",
+      "source": "9cbfe3a",
+      "passed": 5,
+      "failed": 1,
+      "seconds": 93,
+      "case": 3,
+      "before": [
+        [
+          13,
+          69510
+        ],
+        [
+          11,
+          61849
+        ]
+      ],
+      "after": [
+        [
+          14,
+          69510
+        ],
+        [
+          12,
+          61849
+        ]
+      ],
+      "attribution": "Both relays added one connection with zero bytes; exact per-connection cause unclassified. This suite had its own unisolated Relay/quiet helpers."
+    },
+    {
+      "gate": "First independent live-hold correction47a050d",
+      "passed": 5,
+      "failed": 1,
+      "seconds": 132,
+      "case": 5,
+      "case_seconds": 12.9,
+      "reason": "New held-generation guard expired across aggregate23-command typed corpus; original case3 passed43.7s. Correction scopes the hold to each command and preserves original aggregate checks."
+    },
+    {
+      "gate": "Same first hold correction in CI",
+      "head": "f76ff7f9968120642aa26245473e9588d146188f",
+      "run": "https://github.com/peerspan/peerspan/actions/runs/41018024545",
+      "passed_suites": 21,
+      "total_suites": 22,
+      "failed_suite": "owner_finalization_signing",
+      "passed": 5,
+      "failed": 1,
+      "seconds": 103,
+      "case": 5,
+      "case_seconds": 7.3,
+      "reason": "Same aggregate transport-hold expiry"
+    },
+    {
+      "gate": "First combined native CI",
+      "head": "f76ff7f9968120642aa26245473e9588d146188f",
+      "run": "https://github.com/peerspan/peerspan/actions/runs/41018024454",
+      "passed": 275,
+      "failed": 17,
+      "seconds": 44.82,
+      "original_native_passed": 272,
+      "reason": "Invalid positive drs_ root/provider '-' issuer and inconsistent owner setup blocked baseline inspection/controls and downstream cases. Independent corrections follow explicit26d contract without assertion/timeout weakening. No unchanged local duplicate run."
+    }
+  ],
+  "preceding_remote_gates": {
+    "head": "0b886f094cf049bed29ec022d623f20bf82dd60d",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41018910266",
+    "all22": "pass",
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41018910450",
+    "result": "pass",
+    "native": {
+      "passed": 292,
+      "failed": 0,
+      "seconds": 41.75
+    },
+    "host_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 104
+    },
+    "limit": "These runs precede this evidence/documentation commit and are not final combined-head evidence."
+  },
+  "early_review": {
+    "head": "9cbfe3a988803c8952066ad0c8e5bf8e109389fc",
+    "status": "completed",
+    "findings": false,
+    "limit": "Fresh final combined-head review remains required"
+  },
+  "final_remote_gate_location": "PR64 and tracking PR35 record exact final combined head, all22 conformance, required PR checks and fresh review after this evidence commit; no earlier-head gate substitution.",
+  "execution": "RAM artifacts/builds/config/logs. Required Rust gates/build, original native272, initial host signing6, inspection6, independently corrected host runs and corrected native292 were sequential without overlapping local host/native/build load. New tests/corrections committed before execution; remote CI uses separate runners.",
+  "limits": [
+    "Native tests use the actual pinned mod runtime with mocked public CLI/HTTP projections. They do not verify actual private-key operations, process-kill behavior or protocol cryptography; existing real-host suites cover their backend boundaries.",
+    "95s native process bound is separate from90s backend asynchronous orchestration; dispatched work may commit and leaving/timeout cannot retract signatures/POSTs.",
+    "Old retained callback closures and microscopic final-check/dispatch intervals remain source/manual limits unless deterministic native fixtures exist.",
+    "Confirmed live holds isolate individual reads; no general scheduler/per-connection attribution is claimed. Aggregate DB/files checks still cover inter-command effects.",
+    "Real-host fixtures are local temporary hosts, not installed artifacts or physical machines; no terminal/model probe, physical exchange, upgrade or full-state recovery performed in this slice.",
+    "Previous automatically rejected terminal actions and unchanged quota-refused model probes were not repeated."
+  ],
+  "remaining_feature_work": [
+    "Separate guided requester final commit",
+    "Explicit agent-access review and observed connection readiness",
+    "Connect my other computer/device flow",
+    "Installed distinct-person/two-machine exchange, real Claude model receipt, schema23-to27 full-state upgrade/recovery, final combined feature review"
+  ],
+  "merge_policy": "Owner reviews/merges PR64 into the feature branch. Leave tracking PR35 unmerged and full acceptance gates incomplete."
+}

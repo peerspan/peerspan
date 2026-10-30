@@ -395,6 +395,17 @@ source/binary hashes and cancellation/attribution limits. PR62 records final
 combined-head CI and fresh review after that record commit. This is backend
 signing evidence; installed, physical-machine and actual-model gates remain open.
 
-The next native finalization slice (section26) adds explicit public review and
-one bounded signing control over the existing sections24/25. It preserves
-lookup-first recovery and keeps requester final commit as a separate decision.
+Native finalization (section26) adds explicit public review and one bounded
+signing control over the existing sections24/25. Fresh exact original/admin
+terms, parent/host/flow/native and time checks guard dispatch and display;
+lookup-first recovery reports global retained F without signing or attribution.
+Leave clears local controls without retracting dispatched work. Requester final
+commit remains a separate decision.
+
+Independent native292/292 pass locally in41.51s with all original272 unchanged;
+existing real-host inspection6/6 in81s and corrected signing6/6 in145s also pass.
+The corrected signing suite passed CI in104s; its local duration remains above
+the two-minute target. The [verification record](results/guided-native-finalization-verification.json)
+retains initial failures, independent fixture corrections, source/binary hashes
+and mock/source/manual limits. PR64 records final combined-head gates after
+that evidence commit. Access/readiness, device flow and full acceptance stay open.
