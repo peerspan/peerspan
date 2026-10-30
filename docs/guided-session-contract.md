@@ -3573,7 +3573,10 @@ profile, deadline, packet, approval boolean, code/file/key input. Local validati
 precedes IO. One literal5s local request, static redacted errors, no daemon/state
 initialization. Normal CLI help remains available; rejected arguments never echo
 input. Alternate API methods405; absent from scoped adapter, authenticated peer
-and bootstrap routers. No secret/template/signing bytes or provider/path errors.
+and bootstrap routers. No secret/template/signing bytes or provider/path errors. Successful operations
+return200. Malformed input400 invalid; cancellation or other incompatible live
+evidence409 admission_review_unavailable. A schema-abort failure is controlled
+non-2xx with full rollback; do not depend on its database diagnostics.
 
 Prepare is explicit work to create an unapproved ordinary administrator intent,
 not an approval of section20's inspection digest. The resulting exact review is
@@ -3673,6 +3676,12 @@ review/expired/invalidated/cancelled state. Actual installed/native/physical/mod
 and schema23-to27 full-state recovery acceptance remains open.
 
 ### Verification
+
+Negative retained-provider setup may explicitly use the ordinary unapproved
+admissions preview/link-admit path after a genuine prefix exists, solely to
+establish an authentic incompatible intent before the measured guided call.
+This is not setup for a positive guided result and is never called by these
+routes. Preserve its exact intent and prove guided refusal does not replace it.
 
 Separate contract-only author adds admission_consent6, each suite under2min;
 existing admission_onboarding6, signing6/owner6/join14, native252 and Rust155/
