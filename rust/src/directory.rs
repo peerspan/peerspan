@@ -717,6 +717,25 @@ impl Store {
             .and_then(|h| h.agents.iter().find(|a| a.agent_id == agent).cloned()))
     }
 
+    /// The authorization the cached directory offers for reaching `agent`
+    /// on `host`, in any network.
+    pub(crate) fn cached_choice(
+        &self,
+        host: &str,
+        agent: &str,
+        action: &str,
+        origin: Option<&str>,
+    ) -> Result<Option<Choice>, Error> {
+        Ok(self
+            .directory_cache()?
+            .networks
+            .values()
+            .filter_map(|n| n.hosts.get(host))
+            .flat_map(|h| h.agents.iter())
+            .filter(|a| a.agent_id == agent)
+            .find_map(|a| choose(a, action, origin)))
+    }
+
     /// `GET /v1/directory`: one network's cache.
     pub fn directory_view(&self, network: Option<String>) -> Result<Value, Error> {
         let network = self.directory_network(network)?;

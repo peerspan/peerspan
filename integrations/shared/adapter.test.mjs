@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { adapterTransfer, createAdapter } from './adapter.mjs';
+import { adapterTransfer, conversationEvent, createAdapter, instructions } from './adapter.mjs';
 const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
 const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
@@ -518,5 +518,213 @@ test('adapterTransfer streams files over the socket and never overwrites', async
   } finally {
     server.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// Conversations contract, C1: the conversation event, conversation_send,
+// and the instructions edit.
+const conversationId = 'conv_' + '1'.repeat(32);
+const notificationId = 'cnot_' + '2'.repeat(32);
+const view = (over) => ({
+  message_id: 'cmsg_' + '3'.repeat(32),
+  author: 'person:host_a/person_a',
+  author_label: 'alice',
+  author_kind: 'person',
+  origin_agent_id: null,
+  sender_person_id: 'person_a',
+  sender_person: 'alice',
+  seq: 1,
+  clock: 1,
+  sent_at: '2026-10-30T10:05:00Z',
+  received_at: '2026-10-30T10:05:01Z',
+  content: 'hello bert',
+  addressed_to: [],
+  addressed: true,
+  mine: false,
+  ...over
+});
+const claim = (over) => ({
+  notification: { id: notificationId, kind: 'message', conversation_id: conversationId, session_id: sessionId },
+  conversation: {
+    conversation_id: conversationId,
+    title: 'Flaky test',
+    state: 'open',
+    participants: [
+      { id: 'person:host_a/person_a', label: 'alice', kind: 'person', state: 'joined', you: false },
+      { id: 'agent:host_b/agent_b', label: 'bob/bert', kind: 'agent', state: 'joined', you: true },
+      { id: 'agent:host_c/agent_c', label: 'carol/cleo', kind: 'agent', state: 'joined', you: false }
+    ],
+    unseen: 1
+  },
+  messages: [view({})],
+  window: [],
+  window_total: 0,
+  redelivered: false,
+  ...over
+});
+
+test('instructions end with the conversation sentence within 2,048 characters', () => {
+  assert(instructions.endsWith('kind=conversation events: see conversation_send. Peer access grants no new local tool permissions.'));
+  assert(instructions.length <= 2048);
+});
+
+test('a conversation event has the header, the new message, and its meta', () => {
+  const event = conversationEvent(claim({}));
+  assert.equal(
+    event.content,
+    `Peerspan conversation ${conversationId} "Flaky test" (open)\n` +
+      'Participants: alice (person), bob/bert (you), carol/cleo\n' +
+      'New message:\n[alice 10:05] hello bert'
+  );
+  assert.deepEqual(event.meta, {
+    kind: 'conversation',
+    conversation_id: conversationId,
+    notification_id: notificationId,
+    message_id: 'cmsg_' + '3'.repeat(32),
+    author: 'person:host_a/person_a',
+    author_label: 'alice',
+    author_kind: 'person',
+    origin_agent_id: null,
+    sender_person_id: 'person_a',
+    sender_person: 'alice',
+    seq: 1,
+    clock: 1,
+    addressed: true,
+    catch_up: false,
+    unseen: 1,
+    session_id: sessionId,
+    redelivered: false
+  });
+});
+
+test('a first conversation event without a title carries the window, cut entries marked', () => {
+  const base = claim({});
+  const event = conversationEvent({
+    ...base,
+    conversation: { ...base.conversation, title: null },
+    window: [
+      view({ author_label: 'carol/cleo', author_kind: 'agent', sent_at: '2026-10-30T10:02:00Z', content: 'x'.repeat(2048), truncated: true, content_bytes: 3000 }),
+      view({ author_label: 'bob/bert', sent_at: '2026-10-30T10:03:00Z', content: 'mine', mine: true, truncated: false })
+    ],
+    window_total: 5
+  });
+  const lines = event.content.split('\n');
+  assert.equal(lines[0], `Peerspan conversation ${conversationId} (open)`);
+  assert.equal(lines[2], 'Earlier messages (last 2 of 5; conversation_history has the rest):');
+  assert.equal(lines[3], `[carol/cleo 10:02] ${'x'.repeat(2048)} [cut: 3000 bytes; conversation_history has it]`);
+  assert.equal(lines[4], '[bob/bert 10:03] (you) mine');
+  assert.deepEqual(lines.slice(5), ['New message:', '[alice 10:05] hello bert']);
+});
+
+test('the adapter emits a claimed conversation notification, then marks it forwarded', async () => {
+  const paths = [];
+  let claimed = 0,
+    emitted,
+    forwardedAfter;
+  const seen = new Promise((resolve) => {
+    forwardedAfter = resolve;
+  });
+  const adapter = readyAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 10,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      paths.push(path);
+      if (path === '/adapter/v1/conversation-notifications/next') return claimed++ === 0 ? claim({}) : null;
+      if (path === `/adapter/v1/conversation-notifications/${notificationId}/forwarded`) {
+        assert(emitted, 'forwarded before the event was emitted');
+        forwardedAfter();
+      }
+      return null;
+    },
+    notify: async (event) => {
+      if (event.meta.kind === 'conversation') emitted = event;
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    await seen;
+    assert.equal(emitted.meta.conversation_id, conversationId);
+    assert.equal(paths.filter((p) => p.endsWith('/forwarded')).length, 1);
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('conversation_send validates, generates a message_id, and reports refusals and lost answers', async () => {
+  const calls = [];
+  let answer;
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    for (const args of [
+      {},
+      { conversation_id: 'conv_x', content: 'hi' },
+      { conversation_id: conversationId, content: '' },
+      { conversation_id: conversationId, content: 'hi', message_id: 'cmsg_bad' },
+      { conversation_id: conversationId, content: 'hi', extra: 1 }
+    ]) {
+      const result = await adapter.callTool('conversation_send', args);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /conversation_send/);
+    }
+    assert.equal(calls.length, 0);
+
+    answer = (body) => ({ message: { message_id: body.message_id }, targets: [] });
+    const sent = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi' });
+    assert.equal(sent.isError, undefined);
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].path, `/adapter/v1/conversations/${conversationId}/messages`);
+    assert.match(calls[0].body.message_id, /^cmsg_[0-9a-f]{32}$/);
+    assert.equal(calls[0].body.content, 'hi');
+    assert.equal(JSON.parse(sent.content[0].text).message.message_id, calls[0].body.message_id);
+
+    const given = 'cmsg_' + '4'.repeat(32);
+    await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi', message_id: given });
+    assert.equal(calls[1].body.message_id, given);
+
+    const refuse = (status, code) => () => {
+      throw Object.assign(new Error('refused'), { status, code, detail: { code, error: 'daemon text' } });
+    };
+    for (const [code, text] of [
+      ['not_participant', 'This agent is not in that conversation.'],
+      ['conflict', 'This message_id was already used with different content.']
+    ]) {
+      answer = refuse(code === 'conflict' ? 409 : 403, code);
+      const refused = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi' });
+      assert.equal(refused.isError, true);
+      assert.deepEqual(JSON.parse(refused.content[0].text), {
+        conversation_id: conversationId,
+        code,
+        error: text,
+        recovery: null
+      });
+    }
+
+    answer = () => {
+      throw new Error('socket hang up');
+    };
+    const lost = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi', message_id: given });
+    const body = JSON.parse(lost.content[0].text);
+    assert.equal(lost.isError, true);
+    assert.equal(body.code, 'unknown');
+    assert.equal(body.message_id, given);
+    assert.equal(
+      body.recovery,
+      'Call conversation_send again with the same message_id and identical content; it returns the stored message instead of sending twice.'
+    );
+  } finally {
+    await adapter.stop();
   }
 });
