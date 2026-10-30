@@ -3118,3 +3118,12 @@ rollback. Discard pinning a new mandatory storage-failure code: injected interna
 storage failure is distinct from the specified corrupt-retained-state refusal.
 The implementation may return access_signing_unavailable; the independent
 case must retain every rollback capture/assertion without relying on that choice.
+
+### GU.impl32b — Preserve the existing access projection on reads
+
+The signing reader preserves section31's access object, including read-only
+current-state validation for unapproved receipts. Its no-probe boundary forbids
+external agent/key-file discovery or signing. Existing local retained-provider
+reads needed by that old projection stay read-only. Approved unsigned/signed
+history does not perform fresh authority/provider validation. Discard changing
+old access-state semantics or treating local reads as consent for signer IO.
