@@ -621,6 +621,24 @@ impl Store {
         }
         Ok(held)
     }
+    /// After a close, whether nothing is left to fetch for `target`: every
+    /// outbound record is final, or 30 days passed.
+    fn serving_ended(&self, conn: &Connection, held: &Held, target: &str) -> Result<bool, Error> {
+        if held.roster.state != "closed" {
+            return Ok(false);
+        }
+        let window_over = held
+            .local
+            .closed_at
+            .as_deref()
+            .is_none_or(|at| passed(at, CLOSED_SYNC_SECONDS));
+        let outstanding: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversation_targets WHERE conversation_id = ?1 AND target = ?2 AND direction = 'out' AND state NOT IN ('delivered', 'refused'))",
+            params![held.roster.conversation_id, target],
+            |r| r.get(0),
+        )?;
+        Ok(window_over || !outstanding)
+    }
     pub(super) fn serve_heads(&self, sender: &str, id: &str, target: &str) -> Result<Value, Error> {
         let conn = self.connection()?;
         let held = self.serves(&conn, sender, id, target)?;
@@ -632,6 +650,12 @@ impl Store {
                 Ok(json!({"author": r.get::<_, String>(0)?, "last_seq": r.get::<_, i64>(1)?}))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        // Heads advertise only what `messages` would still serve.
+        let authors = if self.serving_ended(&conn, &held, target)? {
+            Vec::new()
+        } else {
+            authors
+        };
         Ok(json!({"roster_version": held.roster.version, "authors": authors}))
     }
     pub(super) fn serve_messages(
@@ -649,20 +673,8 @@ impl Store {
             return Err(invalid("author must be a participant on this host"));
         }
         let held = self.serves(&conn, sender, id, target)?;
-        if held.roster.state == "closed" {
-            let window_over = held
-                .local
-                .closed_at
-                .as_deref()
-                .is_none_or(|at| passed(at, CLOSED_SYNC_SECONDS));
-            let outstanding: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM conversation_targets WHERE conversation_id = ?1 AND target = ?2 AND direction = 'out' AND state NOT IN ('delivered', 'refused'))",
-                params![id, target],
-                |r| r.get(0),
-            )?;
-            if window_over || !outstanding {
-                return Err(Error::NotFound);
-            }
+        if self.serving_ended(&conn, &held, target)? {
+            return Err(Error::NotFound);
         }
         let mut q = conn.prepare(
             "SELECT m.record, t.prev_seq, t.record FROM conversation_messages m JOIN conversation_targets t ON t.conversation_id = m.conversation_id AND t.message_id = m.message_id WHERE m.conversation_id = ?1 AND m.author = ?2 AND t.direction = 'out' AND t.target = ?3 AND m.seq > ?4 ORDER BY m.seq LIMIT ?5",
