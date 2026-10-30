@@ -740,7 +740,7 @@ test('old timers and delayed results cannot replace newer explicit selection and
   const delayed = delaySignal(w, 1000)
   w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'admission.progress') await delayed.wait(); return value }
   const pending = press(ui, 'Fetch incoming proofs'); void pending.catch(() => undefined); await delayed.started
-  await leave(ui); await choose(w, ui, 1); await review(ui)
+  await leave(ui); await begin(w, ui); await choose(w, ui, 1); await review(ui)
   const second = clone(w.admissions[id64('link', 2)])
   await w.clock.advance(1000); await pending
   expect(await ui.find({ type: 'Button', text: /^Approve administrator consent$/ })).toBeDefined()
@@ -766,8 +766,9 @@ test('administrator navigation preserves established adapter messages and tasks 
   const tools = w.tools.map(tool => tool.name), prompts = w.prompts.length
   const count = (path: string) => w.httpCalls.filter(call => call.url.endsWith(path)).length
   const readyCount = count('/adapter/v1/ready')
-  await back(ui); await begin(w, ui); await choose(w, ui); await review(ui); await press(ui, 'Approve administrator consent'); await leave(ui)
-  await back(ui); await press(ui, 'Close')
+  await press(ui, 'Back to Peerspan'); await press(ui, 'Connect this project')
+  await begin(w, ui); await choose(w, ui); await review(ui); await press(ui, 'Approve administrator consent'); await leave(ui)
+  await press(ui, 'Back to Peerspan'); await press(ui, 'Close')
   const messages = count('/adapter/v1/next'), tasks = count('/adapter/v1/tasks/next'), leases = count('/adapter/v1/connect')
   await w.clock.advance(5000)
   expect(count('/adapter/v1/next') > messages).toBe(true); expect(count('/adapter/v1/tasks/next') > tasks).toBe(true)
