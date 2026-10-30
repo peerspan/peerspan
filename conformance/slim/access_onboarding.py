@@ -4,8 +4,9 @@
 Independent contract-only suite: real temporary hosts, ordinary seven-stage
 admission, attached projects and public policy actions. SQLite is read only for
 whole-state comparisons; no authority, policy, intent or storage row is edited.
-Both configured bootstrap carriers are transparent counting TLS relays; QUIC
-advertisement is empty. No implementation imports or copied policy evaluator.
+Both bootstrap carriers are transparent counting TLS relays; every advertised
+normal QUIC path has an additional transparent datagram counter. No
+implementation imports or copied policy evaluator.
 
 Source/manual limits: if ordinary join already retains a local-person policy,
 the absent-policy assertion is explicitly reported as unexecuted. This compact
@@ -20,13 +21,14 @@ per person checks sorting and exact inclusion, not a multi-machine tie. Original
 signer file-open syscalls, microsecond expiry crossings, physical/model/native
 readiness and installed-bundle behavior remain separate gates. Startup's ordinary
 session detach is settled before restart purity measurement, never omitted from
-the aggregate snapshot. All pre-existing suites remain byte-for-byte unchanged.
+the aggregate snapshot. Original assertions, delays and timeouts remain intact.
 """
 import atexit
 import base64
 import hashlib
 import http.client
 import json
+import math
 import re
 import select
 import shutil
@@ -46,6 +48,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64,
                      wait_for)
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address
 
 
 suite = Suite("access_onboarding", __doc__)
@@ -158,9 +161,10 @@ class Relay:
 def host(name):
     h = suite.host(name, start=False, clock=Clock(suite.work / (name + ".clock")))
     h.relay = Relay(("127.0.0.1", h.bootstrap_port))
+    h.counted_peer = CountedUDP(("127.0.0.1", h.peer_port))
     config = h.root / "transport.json"
     config.write_bytes(compact({"format": 1, "advertise_bootstrap": [h.relay.address],
-                               "advertise_quic": [], "rendezvous": [], "relays": [],
+                               "advertise_quic": [h.counted_peer.address], "rendezvous": [], "relays": [],
                                "publish_contacts": False}))
     config.chmod(0o600)
     h.extra_args = ["--transport-config", config, "--person-key-file", h.root / "absent-person-key"]
@@ -193,15 +197,32 @@ def payload(parent, net, person):
     return {"context": context(parent), "network_id": net, "person_public_key": person}
 
 
+def make_world(tag):
+    suffix = "" if tag == "main" else "-" + tag
+    a, b = host("alice" + suffix), host("bob" + suffix)
+    net = create_network(a, "Access 東京" + suffix, "alice")
+    key = ssh_key(b.root, "bob")
+    rid = join_new_person(a, b, "bob", key, net["id"])
+    for local, remote in ((a, b), (b, a)):
+        local.ok("peer", "add", "--id", remote.id, "--public-key", remote.public_key,
+                 "--address", peer_address(remote))
+    exchange_current_contacts(suite, a, b, net["id"])
+    invitation_bounds = []
+    for local in (a, b):
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            invitation_bounds.extend(row[0] for row in db.execute(
+                "SELECT deadline FROM dec_pending WHERE request_id LIKE 'di_%'"))
+    check(invitation_bounds, "genuine invitation expiry observations missing")
+    return dict(a=a, b=b, net=net["id"], key=key, alice=net["person_public_key"],
+                bob=ssh_public_base64(key), pa=project(a, "alice" + suffix), pb=project(b, "bob" + suffix),
+                request_id=rid, request_deadline=get(b, "/v2/link/requests/" + rid)["expires_at"],
+                invitation_bounds=invitation_bounds)
+
+
 def world():
     if not state:
         state["building"] = True
-        a, b = host("alice"), host("bob")
-        net = create_network(a, "Access 東京", "alice")
-        key = ssh_key(b.root, "bob")
-        join_new_person(a, b, "bob", key, net["id"])
-        state.update(a=a, b=b, net=net["id"], key=key, alice=net["person_public_key"],
-                     bob=ssh_public_base64(key), pa=project(a, "alice"), pb=project(b, "bob"))
+        state.update(make_world("main"))
     check("pa" in state, "ordinary two-person fixture did not finish")
     return state
 
@@ -367,14 +388,18 @@ def rich_policy(f):
           "ordinary locally signed complete policy action failed")
 
 
-def records(h):
+def db_path(h):
     paths = []
     for path in h.state.glob("*.db"):
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 paths.append(path)
     check(len(paths) == 1, "expected exactly one ordinary host database")
-    with closing(sqlite3.connect(f"file:{paths[0]}?mode=ro", uri=True, timeout=5)) as db, db:
+    return paths[0]
+
+
+def records(h):
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -423,10 +448,36 @@ def access_purity_diagnostic(actual, expected, phase):
 
 
 def traffic(f):
-    return f["a"].relay.counts(), f["b"].relay.counts()
+    return (f["a"].relay.counts(), f["b"].relay.counts(),
+            f["a"].counted_peer.counts(), f["b"].counted_peer.counts())
 
 
-def quiet(f, h):
+def retired_transport(f):
+    for local in (f["a"], f["b"]):
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
+                return False
+            if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
+                return False
+            if db.execute("SELECT count(*) FROM dec_outbox").fetchone()[0]:
+                return False
+        if list(local.state.glob("*-journal")):
+            return False
+    return True
+
+
+def unsigned_maintenance(h):
+    key = ssh_key(suite.work, "access-maintenance-" + h.name)
+    status, spare = h.api("POST", "/v2/link/requests", {
+        "mode": "new", "network_id": "-", "person_public_key": ssh_public_base64(key),
+        "migration_proposal_id": "-", "contact_invitation": "-", "helpers": []})
+    check(status == 201 and not spare["selection_approved"] and not spare["commit_approved"],
+          "ordinary unsigned retirement maintenance created consent")
+    status, cancelled = h.api("POST", "/v2/link/requests/" + spare["request_id"] + "/cancel", {})
+    check(status == 200 and cancelled["state"] == "cancelled", "ordinary maintenance cancellation failed")
+
+
+def quiet(f, h, *, require_retirement=False):
     previous = snapshot(h), traffic(f)
     stable_since = time.monotonic()
     def settled():
@@ -435,7 +486,7 @@ def quiet(f, h):
         if current != previous:
             stable_since = time.monotonic()
         previous = current
-        return time.monotonic() - stable_since >= .3
+        return time.monotonic() - stable_since >= .3 and (not require_retirement or retired_transport(f))
     wait_for(settled, timeout=5, interval=.1, message="genuine whole-state and both-carrier quiescence")
 
 
@@ -546,7 +597,7 @@ def _():
 
 @suite.case("missing_original_signer_clock_rollback_expiry_and_revocation", "guided30 verification4")
 def _():
-    f = world()
+    f = make_world("expiry-revocation")
     h, net, person = f["b"], f["net"], f["bob"]
     status, selected = h.api("POST", f"/v2/networks/{net}/provider", {
         "provider_id": person, "person_public_key": person, "host_public_key": h.public_key, "approve": True})
@@ -575,15 +626,26 @@ def _():
     value = inspect(f["a"], f["pa"], net, person)
     check(value["review"]["participant"]["hosts"] == [], "revoked host remained current in selected person's machines")
     f["peer_revoked"] = True
+    f["a"].stop()
+    f["b"].stop()
 
 
 @suite.case("whole_state_both_carriers_repeat_refusal_and_restart_purity", "guided30 verification5")
 def _():
     f = world()
     h, net, person = f["a"], f["net"], f["alice"]
+    current = inspect(h, f["pa"], net, person)["review"]
+    own_person = next(p for p in get(h, f"/v2/networks/{net}/persons")["persons"] if p["person_public_key"] == person)
+    ends = [own_person["not_after"], current["owner"]["host"]["not_after"], current["policy"]["valid_until"]]
+    target = max([parse_time(value) for value in [*f["invitation_bounds"], f["request_deadline"]]] +
+                 [f["a"].now(), f["b"].now()]) + timedelta(seconds=1)
+    check(all(target < parse_time(value) for value in ends), "retirement crosses measured verified authority/policy bound")
     for peer in (f["a"], f["b"]):
-        peer.clock.set(1800)  # retire authentic invitation/return windows
-    quiet(f, h)
+        peer.clock.set(peer.clock.offset + math.ceil((target - peer.now()).total_seconds()))
+    check(all(h.now() < parse_time(value) for value in ends), "actual retirement clock crossed verified measured bounds")
+    for peer in (f["a"], f["b"]):
+        unsigned_maintenance(peer)
+    quiet(f, h, require_retirement=True)
     before, counters = snapshot(h), traffic(f)
     first = inspect(h, f["pa"], net, person)
     for _ in range(3):
@@ -593,13 +655,13 @@ def _():
     check(access_purity_diagnostic(snapshot(h), before, "repeat_refusal") == before, "repeat/refusal changed aggregate schema/DB rows, state or home files")
     check(traffic(f) == counters, "repeat/refusal attempted IO on either configured carrier")
     h.restart(kill=True)
-    quiet(f, h)
+    quiet(f, h, require_retirement=True)
     before, counters = snapshot(h), traffic(f)
     inspect(h, f["pa"], net, person, status=409, code="review_changed")
     inspect(h, f["pa"], net, person, status=409, code="review_changed")
     check(access_purity_diagnostic(snapshot(h), before, "post_startup_refusal") == before and traffic(f) == counters, "post-startup historical refusals changed records/files/carriers")
     f["pa"] = project(h, "restart", old=f["pa"])
-    quiet(f, h)
+    quiet(f, h, require_retirement=True)
     before, counters = snapshot(h), traffic(f)
     inspect(h, f["pa"], net, person)
     result = h.cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
@@ -657,8 +719,7 @@ def _():
         check(status in (404, 405), f"unsupported inspection method HTTP {status}")
         public(denied)
     check(snapshot(h) == before, "invalid input/CLI/methods changed aggregate DB/state/home")
-    # Use a genuine current peer on a fresh network after the main fixture's
-    # revocation. This also verifies explicit network choice with two networks.
+    # A fresh genuine network also verifies explicit choice with two networks.
     isolation = create_network(h, "route-isolation", "alice")
     join_new_person(h, f["b"], "bob", f["key"], isolation["id"])
     adapter = h.agent("inspection-boundary", ready=False)
