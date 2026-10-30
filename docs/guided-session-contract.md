@@ -5636,7 +5636,11 @@ guided work. A preexisting ordinary action may not be adopted as fresh guided
 consent; require a genuinely new action when first linking a receipt and return
 409 access_review_unavailable on collision, without refreshing payload/time. Advanced
 ordinary approval of a receipt's action without the exact guided receipt makes
-that receipt invalidated, never guided-approved by inference.
+that receipt invalidated, never guided-approved by inference. Refused live/nonlatest
+replacement, superseded approval and an unapproved receipt whose action was
+advanced-approved return409 review_changed; corrupt receipts return409
+access_review_unavailable. Approved but stale/expired work may be explicitly
+replaced under the same fresh-work liveness rule.
 
 ### Existing schema27 private record extension
 
