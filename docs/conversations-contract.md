@@ -272,3 +272,225 @@ One host schema version adds every table and the index in the proposal's [Persis
 - **Edges.** The claim route answers 409 before the channel is verified (a session attached with `ready=False`); a session without directory access gets `null` from the claim route and 403 `no_directory` from the sending route; `conversation say` by bob's person (not a participant) exits 1 with `not_participant`; `conversations --json` on both hosts lists the conversation; an ID prefix of `conv_` and 6 hex digits works with `show`.
 
 **Node adapter.** The slim suite cannot reach the Node adapter, so `integrations/shared` tests (run with `node --test`, as its existing tests are) cover: the `conversation` event's `meta` and content from a claim, with and without a title and a window, including a cut window entry; `forwarded` after the event; `conversation_send` input validation, a generated `message_id` when absent, the daemon call, and the `not_participant`, `conflict` and lost-response tool errors; and the instructions' new last sentence, within 2,048 characters.
+
+## C2: membership
+
+C2 adds more than two participants, agents as creators, local participants (decision 18), adding, removing, leaving and closing, roster pushes and fetches, and the agent tools for them. Everything in C1 stays as written unless this section changes it. Not in C2: person participants other than the home host's own person, person invites, `join` and `decline` (C3); the 10-minute conversation sync, `heads`, `acks`, gap fetches and the 24-hour push window (C4); seen, redelivery, `pending_work`, `conversation_history` and `conversation_undelivered` (C5); rate limits, `addressed_to` from local surfaces, the read cursor, the event log, `forget`, status, and `home_unavailable` (C6). CONV-24 still holds: none of the commands below are listed in the root help, the README or the quick start.
+
+### Roster changes
+
+**Shape.** The roster is C1's, with these values now possible:
+- `state` `open` or `closed`.
+- `created_by` a person participant or an agent participant on the home host.
+- `participants[].state` `inviting` or `joined` (`invited` is C3).
+- `departed` lists `{id, kind, reason, at}` for participants no longer in the conversation, with `reason` `left`, `removed` or `unanswered`, and `at` when home recorded it. An ID appears at most once in `participants` and `departed` together. Re-adding a departed participant removes its `departed` entry. A target whose invite was refused is dropped without a `departed` entry (it never joined).
+
+**Authority.** Only the home host changes the roster. Each change is one new roster with `version` one higher than home's current one, committed in one transaction with whatever caused it. After close (`state` `closed`), home commits no further version: no add, remove, leave, or `unanswered` drop changes a closed roster.
+
+**Admission.** A host decides itself which of its own participants are joined, and never takes a peer's word for it (C1, peer rules). It **admits** a local participant when:
+- it is the home host and creates the conversation with that participant as creator, or commits a local agent as `joined` (at start or by `add`); or
+- it accepts an invite for that agent (`POST /peer/v1/conversations/invites`, answered `joined`).
+
+A local participant is **joined here** while this host has admitted it, it has not left on this host, and no roster this host stored after the admission lists it in `departed` or omits it. A stored roster listing an admitted local participant as `inviting` (an older view of home's) does not end the admission. Every local check and view that C1 bases on "joined" (sending, message acceptance step 4, the claim, the list) uses "joined here" for local participants and the held roster for remote ones. Views on this host show a local participant that is not joined here, but that the held roster still lists, in `departed` with this host's own reason (`left` after a local leave).
+
+**Pushes.** After committing a version, home pushes its newest roster with `POST /peer/v1/conversations/{id}/roster` to every other host that has a participant in it (any state) or that has a participant this version moved to `departed`. Pushes to one host coalesce: only the newest roster is sent, and a push is done when that host answers 200 with a `version` at or above it. Home retries with the C1 retry schedule and concurrency (pushes share the 4 conversation attempts with invites and messages), without a time limit in C2. A 400, 403 or 404 answer ends the push of that roster to that host; a later version is pushed again.
+
+**Invites with several targets.** Home may have several invites outstanding. Each invite carries home's current roster with the target `joined` and `version` one higher. When the answer is `joined` and home's version is still the one the invite was built on, home commits exactly the invite's roster; otherwise it commits the target as `joined` in its current roster as the next version. Either way the target host later receives a push at or above the invite's version, so a host that stored an invite roster home did not commit at that version is corrected by the next push.
+
+### Starting, now with several participants and agent creators
+
+`POST /v1/conversations` body: `{participants, title?, content?, message_id?, note?, as?, network?}`. C1's steps apply with these changes:
+1. **Shape.** `participants` is 1 to 15 distinct strings of at most 256 characters, each an agent address (`PERSON/AGENT` or `HOST_ID/AGENT`). A person form is still 400 `invalid` with `person participants are not supported yet` (C3). `note` is 0 to 4,096 bytes of UTF-8. `as` names a local agent (its ID or name); the creator is then `agent:HOST_ID/AGENT_ID` instead of the person participant. An unknown `as` is 404 `not_found`.
+2. **Bound person.** Only without `as`: 409 `not_bound`. A start with `as` needs no bound person.
+3. **Resolution** as in C1, except that an address naming an agent on this host resolves to that local agent instead of 400 `local`. Local agents are matched beside the directory: `HOST_ID/AGENT` with this host's ID, or `PERSON/AGENT` where PERSON is this host's bound person's label and AGENT is registered here. An address matching a local agent and a remote one is 409 `ambiguous`. Two targets resolving to the same participant, or a target resolving to the creator, are 400 `invalid`.
+4. **Authorization** for each remote target as in C1, for the creator (an agent creator is the origin agent when choosing the citation). Any target failing is 403 `not_authorized` and nothing is persisted. Local agents need none (self access).
+5. **Limits.** The creator already joined here in 200 open conversations is 429 `{code: "limit", error: "A participant can be in at most 200 open conversations."}`, before anything is persisted.
+6. **Persist** roster version 1: the creator `joined`; each local agent target `joined` unless it is joined here in 200 open conversations, in which case it is left out with outcome `refused`, code `limit`; each remote target `inviting`.
+7. **Invites** to the remote targets, all at once, as in C1 and [Invites with several targets](#roster-changes); `note` is sent with each. The route waits at most 15 seconds for all of them together.
+8. **First message** with `content`, as in C1, to the participants `joined` at that moment.
+
+Each local agent admitted here, other than the creator, gets an `added` notification (below).
+
+Answer: 201 `{conversation: VIEW, invites: [INVITE OUTCOME], message: MESSAGE VIEW or null}`, with one invite outcome per target in the order given.
+
+**Invite outcome** gains `reachable_from` and `reaches`, and `refused` gains code `limit`: `{target, participant, label, state, code, error, reachable_from, reaches}`.
+- `state` is `joined`, `inviting`, `refused` or `unsupported`. `code` is `not_authorized` (403), `invalid` (400), `limit` (429), `not_participant` (403 `not_participant`) or `unsupported` (404), null otherwise.
+- `reachable_from` lists the IDs of the other participants (`joined` or `inviting`) that may send messages to this participant, and `reaches` those this participant may send to, as far as the home host knows, in roster order. Both are `[]` unless `state` is `joined` or `inviting`. Home decides each ordered pair X to Y this way: Y a person participant is reachable from every participant whose host and person this host has not blocked; Y an agent is reachable from X when X and Y are on one host, when both hosts are bound to the same person by current binding grants this host holds, or when Y's owner's current `policy` statement that this host holds, in a network shared by both hosts, allows `message.append` from X (X's `agent:` principal, X's host's person, `network`, `everyone`, or a group of them, for Y's agent name or `*`). Manual grants count only when this host is one of the two hosts. These lists are information; they authorize nothing, and each recipient still decides each message.
+
+### Managing
+
+`POST /v1/conversations/{id}/manage` body `{action, participant?, as?, network?}`; `action` is `add`, `remove` or `close`. `as` names the local agent acting (ID or name), otherwise the person participant acts (409 `not_bound` without a bound person). `network` is only for `add`. `participant` is required for `add` and `remove` and refused (400) for `close`. Checks, in order:
+1. Shape, then 404 `not_found` for an unknown conversation.
+2. The actor is the conversation's `created_by` and this host is home; otherwise 403 `{code: "not_creator", error: "Only the conversation's creator can add, remove, or close."}`. An actor that is the creator but no longer joined here is 403 `not_participant`.
+3. A closed conversation is 409 `{code: "closed", error: "This conversation is closed."}`, except `close`, which answers 200 with the view again.
+
+**`add`**: `participant` is an agent address, resolved and authorized as at start (resolution and authorization errors as there). A target already `joined` or `inviting` answers 200 with its current outcome and changes nothing. With 16 participants already `joined` or `inviting`, 409 `{code: "full", error: "A conversation has at most 16 participants."}`. A local agent is committed `joined` at once (or `refused` `limit`); a remote one is committed `inviting` and invited, the route waiting at most 15 seconds for the answer (it answers as soon as every invite it waits for has a final answer). Answer: 200 `{conversation: VIEW, invite: INVITE OUTCOME}`.
+
+**`remove`**: `participant` is a participant ID, or a label that matches exactly one participant in `participants` as this host shows it. No match is 404 `{code: "not_found", error: "No such participant in that conversation."}`; several are 409 `ambiguous` with the matching IDs in `matches`; the creator itself is 400 `invalid` (the creator leaves instead). The participant, `joined` or `inviting`, moves to `departed` with `reason` `removed`; an outstanding invite to it stops. Answer: 200 `{conversation: VIEW}`.
+
+**`close`**: home sets `state` `closed` in a new version and stops every outstanding invite (those participants stay `inviting` in the closed roster). Answer: 200 `{conversation: VIEW}`.
+
+**Unanswered invites.** A participant still `inviting` 10 minutes after its `added_at` (on home's clock) is moved by home to `departed` with `reason` `unanswered`, in a new version, within 15 seconds after the 10 minutes pass; its invite stops, and a later `joined` answer to it is ignored. This applies only while the conversation is open.
+
+### Leaving
+
+`POST /v1/conversations/{id}/leave` body `{agent?}`. Without `agent`, the person participant leaves (409 `not_bound` without a bound person); with `agent` (a local agent's ID or name, 404 `not_found` if unknown), the owner takes that agent out. The participant must be joined here, otherwise 403 `not_participant`; a conversation held as closed is 409 `closed`. Answer: 200 `{conversation: VIEW}`.
+
+Leaving takes effect on the leaving host at once, in one transaction: the participant is no longer joined here, so this host refuses messages to it (403 `not_participant`), sends none as it, and creates no further notification for it; an agent's unclaimed `message` notifications in the conversation are withdrawn and never offered. If this host is home, it then commits the participant to `departed` (`left`) as a new version and pushes it. Otherwise it sends `POST /peer/v1/conversations/{id}/leave` to home with the C1 retry schedule until home answers 200 (stored if its roster is newer) or 400, 403 or 404. The creator may leave; afterwards nobody can add, remove or close.
+
+A local agent that is removed, or whose departure arrives in a pushed roster, is treated the same way here: it stops being joined here and its unclaimed `message` notifications are withdrawn; it gets a `removed` notification when the reason is `removed`.
+
+### Closed conversations
+
+- **Authoring.** A host that holds a conversation as closed refuses new messages from local surfaces with 409 `{code: "closed", error: "This conversation is closed."}` (owner, CLI and adapter routes), and refuses `leave` the same way. Messages already stored keep their targets and retries.
+- **Acceptance step 5 (new).** Between C1's steps 4 (roster) and 5 (authorization): a conversation this host holds as closed is 409 `{code: "closed"}`, except a message whose `roster_version` is lower than the version of the closed roster this host holds. Such a message was authored before its author's host knew of the close, and is accepted if every other step passes.
+- **Views.** The conversation stays readable. `state` is `closed` everywhere, and `GET /v1/conversations?state=all` lists it.
+
+### Local participants
+
+A message whose target is on the author's host is delivered in the same transaction that stores it, with no peer request: its target record is created `delivered` with `attempts` 0, together with the inbound target record and, for an agent target, its notification. Self access authorizes it; it is still subject to "joined here" for both author and target. A remote author's message to several participants on one host is one peer request per target (C1), stored once.
+
+### Local API and CLI changes
+
+**Views.**
+- The conversation view gains `departed: [{id, kind, label, reason, at}]`, from the held roster and this host's own local departures.
+- `GET /v1/conversations` lists, by default, open conversations with a local participant joined here; `state=all` adds closed conversations and those whose local participants have all departed.
+- Target views gain codes `closed` (from a 409 `closed`) and `limit` (from a 429) for `refused`.
+
+C1's answer table becomes:
+
+| Answer | Target |
+| --- | --- |
+| 200 with a receipt for this `message_id` and target | `delivered` |
+| 400 | `refused`, `invalid` |
+| 403 `not_participant` | `refused`, `not_participant` |
+| any other 403 | `refused`, `not_authorized` |
+| 409 `closed` | `refused`, `closed` |
+| any other 409 | `refused`, `conflict` |
+| 429 | `refused`, `limit` |
+| 404 | `unsupported`, error `HOST_ID is running a Peerspan without conversations` |
+| anything else, or no answer | stays `sending`, retried |
+
+**CLI.** Each prints the route's JSON answer and exits 0, or exits 1 with `error: CODE: TEXT` (C1).
+
+| CLI | Route |
+| --- | --- |
+| `conversation start TARGET... [--title T] [--message TEXT] [--message-id ID] [--note TEXT] [--as AGENT] [--network ID]` | `POST /v1/conversations` |
+| `conversation add ID TARGET [--as AGENT] [--network ID]` | `POST /v1/conversations/{id}/manage` `add` |
+| `conversation remove ID PARTICIPANT [--as AGENT]` | `.../manage` `remove` |
+| `conversation close ID [--as AGENT]` | `.../manage` `close` |
+| `conversation leave ID [--agent NAME]` | `POST /v1/conversations/{id}/leave` |
+| `conversations [--all] [--json]` | `GET /v1/conversations`, `--all` as `state=all` |
+
+`ID` accepts a prefix as in C1. `--as AGENT` and `--agent NAME` take an agent name or ID on this host.
+
+### Peer routes
+
+All are on the peer router with C1's rules: per-request host authentication, the 1 MiB body limit, strict JSON (400 `invalid`), a sender that is not a current member of a shared coordinator-free network is 403 `forbidden`, and none is served on the first-contact listener, the completion listener or a helper. A route naming a conversation the receiver holds no roster for is 404 `{code: "not_found"}`.
+
+#### `POST /peer/v1/conversations/{id}/roster`
+
+Body `{roster}`, from home to a participant host. In order:
+1. **Shape.** As for an invite's roster in C1, with the C2 values above (`closed`, `departed`); `roster.conversation_id` equals the path's; otherwise 400 `invalid`.
+2. **Held.** No roster held for the conversation is 404 `not_found`.
+3. **Sender.** The authenticated sender is the held roster's `home_host_id`, and `roster.home_host_id` equals it; otherwise 403 `forbidden`.
+4. **Version.** A `version` at or below the held one changes nothing: 200 `{version}` with the held version.
+5. **Local participants.** A roster that lists a participant on this host as `joined` when that participant is not joined here is 400 `invalid` and nothing is stored, with one exception: a local agent that left here and whose leave home has not yet confirmed is accepted as listed, and stays not joined here. Listing a local participant as `inviting`, in `departed`, or not at all is accepted.
+6. **Store** the roster. Local participants it lists in `departed`, or omits after their admission, stop being joined here (as in [Leaving](#leaving)); each such agent with `reason` `removed` gets a `removed` notification, and each local agent still joined here when the roster first shows `state` `closed` gets a `closed` notification. Answer 200 `{version}` with the new version.
+
+Home creates the same `removed` and `closed` notifications for its own local agents when it commits the change, except for the agent that made it.
+
+#### `GET /peer/v1/conversations/{id}/roster`
+
+From a participant host to home. Home answers 200 `{roster}` with its current roster when the sender host holds a participant in it in any state or in `departed`; otherwise 404 `not_found`, which is also the answer of a host that is not home. The requester stores the answer as it stores a push (steps 3 to 6).
+
+A host fetches the roster from home when message acceptance step 4 meets a `roster_version` above the version it holds (it still answers 503 `unavailable`, so the author retries), at most one fetch per conversation at a time. A host that holds no roster for the conversation still answers 503 without a fetch (it does not know home).
+
+#### `POST /peer/v1/conversations/{id}/leave`
+
+Body `{participant}`, from a participant's host to home. `participant` is an `agent:` participant ID whose host is the authenticated sender, otherwise 403 `forbidden` (a `person:PERSON_ID` decline is C3 and is 400 here). Home moves it from `participants` to `departed` with `reason` `left` as a new version and pushes it; a participant already departed or not listed changes nothing; a closed conversation changes nothing. Answer: 200 `{roster}` with home's current roster.
+
+#### Changes to the C1 routes
+
+**`POST /peer/v1/conversations/invites`:**
+- The roster may list other agents on the receiver as `inviting`; it may list another agent on the receiver as `joined` only when that agent is joined here; any `person:RECEIVER/…` participant is still 400. Its `state` must be `open`, and it may carry `departed`.
+- The target agent joined here in 200 open conversations is 429 `{code: "limit", error: "A participant can be in at most 200 open conversations."}`.
+- The first acceptance admits the agent and creates an `added` notification for it, with the invite's `note`. A repeat for the same `(home, conversation_id, target)` whose roster gives the target the same `added_at` answers `{state: "joined", name}` again with no new notification while the agent is joined here, and 403 `not_participant` after it left or was removed. A repeat with a later `added_at` (a re-add) is a new invite.
+- The receiver stores the invite's roster when it holds none or a lower version.
+
+**`POST /peer/v1/conversations/{id}/messages`:** step 4 fetches the roster as above, and the new closed step comes before authorization. "Joined" for the target means joined here.
+
+### Notifications and adapter routes
+
+**Notification** gains `kind` `roster` beside `message`, and `change`: null for `message`, otherwise `{change, by, by_label, note, roster_version}`. `change` is `added` (this agent was admitted, by invite or at home), `removed` (home removed it), or `closed`. `by` is the participant that made the change (the adder, or the creator for `removed` and `closed`) and `by_label` its label here. `note` is the invite's note for `added`, null otherwise. The creator gets no `added` notification. Leaving creates no notification.
+
+The claim route claims the oldest unclaimed notification of either kind. A `roster` claim is `{notification, conversation, messages: [], window: [], window_total: 0, redelivered: false}`, with `conversation` the agent's summary after the change. A `roster` claim does not count as the session's first claim in the conversation for C1's window rule.
+
+**Agent summary** is C1's: `{conversation_id, title, state, home_host_id, participants: [{id, label, kind, state, you}], unseen, last_message_at, creator}`, `participants` excluding `departed`.
+
+| Route | Body / query | Answer |
+| --- | --- | --- |
+| `GET /adapter/v1/conversations` | | 200 `{conversations: [AGENT SUMMARY]}`: the open conversations this agent is joined in, and closed ones it was joined in at the close with `unseen` above 0, newest activity first. |
+| `POST /adapter/v1/conversations` | `{participants, title?, content?, note?, message_id?}` | As `POST /v1/conversations` with this agent as creator (`as`) and the first message's `origin` `{agent_id, session_id}`: 201 `{conversation: AGENT SUMMARY, invites: [INVITE OUTCOME], message: MESSAGE VIEW or null}`, the message view (with its `targets`) as the adapter sending route returns it. |
+| `POST /adapter/v1/conversations/{id}/manage` | `{action, participant?}` | `action` `add`, `remove`, `leave` or `close`. `add`, `remove`, `close` as the owner's manage route with this agent as actor; `leave` as the owner's leave route for this agent. 200 `{conversation: AGENT SUMMARY, invite}` with `invite` the outcome for `add` and null otherwise. |
+
+All three require directory access (403 `no_directory`) and work before the channel is verified. Their errors are the owner routes' (`not_found`, `not_participant`, `not_creator`, `closed`, `full`, `limit`, `ambiguous`, `unknown`, `not_authorized`, `invalid`). `participant` for `add` and `remove` follows the owner routes; for `leave` and `close` it is 400.
+
+### Node adapter
+
+**The `conversation_roster` event.** For a claim whose notification `kind` is `roster`, the adapter emits one channel event with `meta.kind` `conversation_roster`, then calls `forwarded`. `meta` is `{kind, conversation_id, notification_id, change, by, by_label, roster_version, session_id, redelivered}`, with C1's value encoding. The presentation title is `Peerspan conversation change`. The content, written by the adapter from the claim:
+
+```text
+Peerspan conversation CONVERSATION_ID "TITLE" (STATE)
+Participants: LABEL (person), LABEL (you), LABEL
+SENTENCE
+```
+
+The first two lines are as for the `conversation` event (`STATE` is the summary's state). `SENTENCE` is:
+- `added`: `BY_LABEL added you to this conversation. Send with conversation_send; you see messages sent from now on.`, followed, when there is a note, by a line `Note from BY_LABEL: NOTE`.
+- `removed`: `BY_LABEL removed you from this conversation; you can no longer send to it.`
+- `closed`: `BY_LABEL closed this conversation; it can still be read, but no one can send to it.`
+
+**Tools.** Each has `additionalProperties: false`; invalid arguments are a tool error naming the tool. Daemon refusals are tool errors `{conversation_id, code, error, recovery}` with `recovery` null and `conversation_id` null where there is none, using these texts, and the daemon's `error` for other codes:
+
+| `code` | `error` |
+| --- | --- |
+| `no_directory` | the existing `no_directory` text |
+| `not_participant` | `This agent is not in that conversation.` |
+| `not_creator` | `Only the conversation's creator can add, remove, or close.` |
+| `closed` | `The conversation is closed; it can still be read with conversation_history.` |
+| `full` | `A conversation has at most 16 participants.` |
+
+`conversation_send` uses the `closed` text too.
+
+| Tool | Input | Call |
+| --- | --- | --- |
+| `list_conversations` | `{}` | `GET /adapter/v1/conversations`; returns its JSON. |
+| `conversation_start` | `participants` (required, 1 to 15 strings of at most 256 characters), `title` (at most 200 characters), `content` (1 to 65,536 characters), `note` (at most 4,096 characters) | `POST /adapter/v1/conversations`, with a `message_id` the adapter generates when `content` is given; returns its JSON. A lost response with `content` is a tool error with code `unknown`, the generated `message_id`, and `recovery` `Check list_conversations before starting again; the conversation may exist.` |
+| `conversation_manage` | `conversation_id` (required, `^conv_[0-9a-f]{32}$`), `action` (required: `add`, `remove`, `leave`, `close`), `participant` (string of at most 256 characters, required for `add` and `remove`, not allowed for `leave` and `close`) | `POST /adapter/v1/conversations/{id}/manage`; returns its JSON. |
+
+The `conversation_start` description says that participants are agent addresses as `list_agents` shows them, that each participant's owner still decides who may message it, and that the result reports who can reach whom. The MCP server instructions do not change.
+
+### Persistence
+
+No new schema version: C1's tables hold everything (admission and local departures live in the conversation's `record`, roster pushes and leaves in `conversation_roster_outbound` with `kind` `roster` or `leave`, and `roster` notifications in `conversation_notifications`).
+
+### Verification
+
+The C1 suite gains C2 cases, written from this section by the same spec-only author, still under 2 minutes in total.
+
+**Setup.** A third host carol joins alice's network (`join_new_person`). carol registers fixture agent `cara` (`c.agent("cara")`). alice registers local agents with `a.agent(...)` for the local cases (or `POST /v1/agents` alone when no session is needed). Policies: bob runs `allow alice --no-tasks --person-key KEY` and carol runs the same, so alice's person and alice's agents reach `bert` and `cara`; neither bob nor carol allows the other, so `bert` and `cara` cannot reach each other. Wait for the policy versions on every host as in C1. Agents reach alice's person by her joining. Before a case that stops carol, `agents --refresh --json` on alice must list `carol/cara`, so resolution needs no answer from carol. The 10-minute case uses the debug test clock (`suite.use_clock()` before the hosts start, then `suite.set_offset(...)`). Raw peer requests use `peerspan-peer-probe` with the sending host's state directory, as C1's invite cases do; a probe sent with alice's state is a request from home. Fixture agents claim `roster` notifications with the same claim route as messages.
+
+**Cases** (the proposal's C2 column, made concrete):
+- **Add and push.** alice starts with `bob/bert`, then `conversation add ID carol/cara`: outcome `joined`, `reachable_from` and `reaches` both exactly `[alice's person participant]`. Within 20 seconds bob's and carol's `conversation show --json` report alice's roster version and three `joined` participants. `cara` claims a `roster` notification with `change.change` `added` and `by` alice's person.
+- **Unreachable pair.** `bert` sends through the adapter route: the target for alice's person becomes `delivered`, the one for `cara` `refused` with `not_authorized`; `cara` gets no `message` notification for it.
+- **Remove.** `conversation remove ID carol/cara` (by label) on alice: every host reaches the new version with `cara` in `departed`, reason `removed`; `cara` claims a `removed` notification; a probe message from alice to target `cara` on carol is 403 `not_participant`; alice's next message has no target for `cara`. `remove` by bob's person on bob is 403 `not_creator`.
+- **Leave.** `bert` leaves with `POST /adapter/v1/conversations/{id}/manage` `{action: "leave"}`: a probe message from alice to `bert` on bob is 403 `not_participant` at once; alice's roster then lists `bert` in `departed` with reason `left`. The owner form: bob's `conversation leave ID --agent bert` on a fresh conversation does the same.
+- **Close.** `conversation close ID` on alice: every participant host shows `state` `closed` at the new version; `bert` claims a `closed` notification; `conversation say` on alice exits 1 with `error: closed: This conversation is closed.`; `bert`'s adapter send is 409 `closed`; a probe message from alice with `roster_version` equal to the closed version is 409 `closed`, and one with a lower `roster_version` (a new `message_id`) is accepted with 200; `conversations --all --json` lists it as `closed`; `add` after close is 409 `closed`.
+- **Unanswered.** With carol stopped, `conversation add ID carol/cara` answers with outcome `inviting`; after the test clock moves 601 seconds, within 15 seconds alice's view lists `cara` in `departed` with reason `unanswered`. (Run it last: moving the clock 10 minutes outdates the hosts' signed contacts.)
+- **Local participants.** alice starts with two local agents (`alice/ada alice/abe`); `ada` sends through the adapter route; the target for `abe` is `delivered` with `attempts` 0 in the answer, and `abe` claims the message. Both local agents got an `added` notification.
+- **Agent creator.** `conversation start bob/bert --as ada` on alice gives `created_by` `agent:ALICE_HOST/ADA_ID`; `bert` sees `creator` false and `ada` `creator` true in `GET /adapter/v1/conversations`; `bert`'s `manage` `close` is 403 `not_creator`; `ada`'s `POST /adapter/v1/conversations` with `content` starts another conversation whose first message reaches `bert`.
+- **Full.** A conversation of alice's person and 15 local agents: adding a 16th local agent is 409 `full`.
+- **Roster route edges** (probe): a push from bob (not home) is 403 `forbidden`; a push from alice with a version at or below bob's held one answers 200 with the held version; a push from alice with a higher version that lists a bob agent never admitted (any agent registered on bob) as `joined` is 400 `invalid` and bob's version does not change; `GET .../roster` from carol after `cara` was removed answers 200 with the roster; a leave from bob naming carol's agent is 403 `forbidden`.
+
+**Node adapter** (`node --test` in `integrations/shared`, as in C1): the `conversation_roster` event's `meta` and content for `added` (with and without a note), `removed` and `closed`; `forwarded` after it; input validation of `conversation_start`, `conversation_manage` (`participant` required and not allowed) and `list_conversations`; the generated `message_id` of `conversation_start`; and the `not_creator`, `closed` and `full` tool errors.
