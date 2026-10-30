@@ -517,8 +517,8 @@ async function finalizationInspection(w: World) {
     host_public_key: owner.host_public_key, device_public_key: owner.device_public_key,
     request_packet_id: request.request_packet_id, owner_offer_id: request.owner_offer_id,
     selection_id: request.selection_id, administrator_offer_id: request.administrator_offer_id,
-    root_state_id: id64('drs', 101), person_lease_id: id64('ds', 102), host_lease_id: id64('ds', 103),
-    administrator: { signer_public_key: GENESIS_KEY, host_public_key: HELPER_KEY, signature_format: 'ed25519', issuer_id: '-' },
+    root_state_id: id64('ds', 101), person_lease_id: id64('ds', 102), host_lease_id: id64('ds', 103),
+    administrator: { signer_public_key: GENESIS_KEY, host_public_key: HELPER_KEY, signature_format: 'ed25519', issuer_id: id64('ds', 101) },
     scopes: 7, binding_scopes: 2, not_after: owner.not_after, created_at: request.created_at,
     expires_at: request.expires_at, effects: clone(finalEffects) }
   return { version: 1, host_id: w.host, flow_id: w.joining.flow_id, join_review_id: w.joining.review_id,
@@ -632,8 +632,10 @@ const configuredFinalization: TestOptions & { options: Record<string, string> } 
 
 // Group1: explicit entry and complete meaning, never read-as-sign.
 test('entry owner approval progress Check Refresh and reentry are finalization inert', async ($, on) => {
-  const w = fixture(on), ui = await finalEligible($, w, { state: 'review' })
+  const w = fixture(on), ui = await finalEligible($, w, { state: 'review', requestState: 'pending' })
   await press(ui, 'Approve owner powers'); expect(finalCalls(w)).toHaveLength(0)
+  // Separate already-approved ordinary work supplies the verified prefix.
+  w.requestState = 'needs_owner_finalization'; w.ownerValue.next_action = 'follow_join_progress'
   await press(ui, 'Check owner consent'); expect(finalCalls(w)).toHaveLength(0)
   await press(ui, 'Leave owner review'); await press(ui, 'Check join progress'); await press(ui, 'Refresh')
   await w.clock.advance(1000); expect(finalCalls(w)).toHaveLength(0)
@@ -653,7 +655,9 @@ test('only exact approved live requester four-stage prefix offers finalization r
   ]
   for (const [label, change] of variants) {
     await leaveIfPresent(ui)
-    w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e); if (kind === 'join.owner.lookup') change(value); return value }
+    w.run = async (kind, payload, e) => { const value = await normal(kind, payload, e)
+      if (kind === 'join.owner.lookup' || (label === 'missing owner' && kind === 'join.owner.prepare')) change(value)
+      return value }
     await reviewOwner(ui)
     expect(await ui.find({ type: 'Button', text: /^Review original finalization$/ }), label).toBeUndefined(); await noFinalSign(ui, label)
   }
@@ -711,7 +715,7 @@ test('changed owner consent immutable request keys or selected prefix stop prefl
 test('fresh reinspection cannot silently rebind digest root P H administrator or fixed powers', async ($, on) => {
   const w = fixture(on), ui = await finalEligible($, w), normal = w.run
   const variants: [string, (v: any) => void][] = [
-    ['digest', v => { v.review_id = id64('review', 99) }], ['root', v => { v.review.root_state_id = id64('drs', 99) }],
+    ['digest', v => { v.review_id = id64('review', 99) }], ['root', v => { v.review.root_state_id = id64('ds', 99) }],
     ['P', v => { v.review.person_lease_id = id64('ds', 99) }], ['H', v => { v.review.host_lease_id = id64('ds', 99) }],
     ['administrator signer', v => { v.review.administrator.signer_public_key = RELAY_KEY }],
     ['administrator writer', v => { v.review.administrator.host_public_key = RELAY_KEY }],
@@ -791,7 +795,7 @@ test('closed review effects canonical keys parent IDs and raw or decorated priva
     ['null', v => { v.review = null }], ['extra', v => { v.review.extra = RAW }], ['effect', v => { v.review.effects.commit_request = true }],
     ['unknown effect', v => { v.review.effects.extra = false }], ['profile type', v => { v.review.scopes = '7' }],
     ['binding', v => { v.review.binding_scopes = 7 }], ['key', v => { v.review.person_public_key = KEY.slice(1) }],
-    ['same P H', v => { v.review.person_lease_id = v.review.host_lease_id }], ['root type', v => { v.review.root_state_id = id64('ds', 101) }],
+    ['same P H', v => { v.review.person_lease_id = v.review.host_lease_id }], ['root type', v => { v.review.root_state_id = id64('drs', 101) }],
     ['administrator extra', v => { v.review.administrator.provider = RAW }], ['administrator null', v => { v.review.administrator = null }],
     ['fixed created', v => { v.review.created_at = stamp(NOW - 31_000) }], ['private', v => { v.review.member = 'psi2-SHORT_FINAL_SECRET' }],
     ['private OSC', v => { v.review.network.name = '\x1b]0;tok\u202e\x1b[31men_SHORT_FINAL_SECRET\x07visible' }],
