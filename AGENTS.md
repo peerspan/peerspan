@@ -90,3 +90,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `access_consent`: exact project/person policy-action review, nonsigning receipt,
   atomic ordinary-action approval, replacement/history and privacy (section31).
+
+- `access_signing`: bounded exact dual-approved policy issuer signature storage,
+  configured signer boundaries, atomic rollback and pure recovery (section32).
