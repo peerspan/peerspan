@@ -956,7 +956,32 @@ def report_terminal_failure(h, issuer, sync_results):
     print('terminal_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
 
 
-def terminal_delivery_baseline(h, issuer, network_id):
+def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds):
+    """One genuine clock advance before the purity baseline (GU.impl28g)."""
+    retry_times = []
+    for local in (h, issuer):
+        with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+            rows = db.execute("SELECT json_extract(record,'$.next_attempt_at') FROM dec_outbox").fetchall()
+        try:
+            retry_times.extend(parse_time(row[0]) for row in rows)
+        except (ValueError, TypeError):
+            check(False, 'retained retry timestamp is not a canonical fixture time')
+    bounds = [parse_time(value) for value in live_bounds]
+    for result in sync_results:
+        authority = result['network']['authority']
+        check(authority['state'] == 'usable', 'terminal retry fixture lacks live participant authority')
+        if authority['not_after'] != '-':
+            bounds.append(parse_time(authority['not_after']))
+    shared_now = max(h.now(), issuer.now())
+    target = max([shared_now, *retry_times]) + timedelta(seconds=1)
+    check(target <= shared_now + timedelta(seconds=61) and all(target < bound for bound in bounds),
+          'recorded retry eligibility exceeds the genuine retry/request/authority window')
+    for local in (h, issuer):
+        advance_to(local, target)
+    check(all(max(h.now(), issuer.now()) < bound for bound in bounds), 'fixture clock advance crossed a live protocol bound')
+
+
+def terminal_delivery_baseline(h, issuer, network_id, live_bounds):
     sync_results = []
     for local, remote in ((h, issuer), (issuer, h)):
         local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', remote.peer_address)
@@ -964,6 +989,7 @@ def terminal_delivery_baseline(h, issuer, network_id):
         status, value = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
         check(status == 200 and value['unavailable'] == [], 'genuine terminal sync setup')
         sync_results.append(value)
+    make_terminal_retries_eligible(h, issuer, sync_results, live_bounds)
     def retired():
         for local in (h, issuer):
             with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
@@ -1241,7 +1267,8 @@ def _():
     check(status == 200 and repaired['state'] == 'linked', 'one explicit completed-requester delivery repair failed')
     public(repaired, f['code'], f['reply'])
     wait_linked(a, f['rid'], timeout=25)
-    terminal_delivery_baseline(h, a, f['network']['id'])
+    terminal_delivery_baseline(h, a, f['network']['id'],
+                               (f['view']['expires_at'], approved['commit']['review']['not_after']))
     a.stop(); terminal_cleanup(f); a.relay.mode = h.relay.mode = 'drop'; quiet(f)
     check(not (h.home / '.config/peerspan/person_ed25519').exists() and not (h.root / 'absent-agent.sock').exists(),
           'external original unexpectedly installed in requester daemon or agent')
