@@ -80,3 +80,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `requester_commit`: exact durable requester final-commit review, ordinary
   intent/request atomic approval, rollback, privacy and pure history (section27).
+
+- `requester_completion`: bounded exact approved requester signing/publication/
+  local application and pure verified replay, without new consent (section28).
