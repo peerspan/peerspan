@@ -4720,6 +4720,15 @@ wrong flow/context/join/commit digest409 review_changed; detached fresh parent
 request_unavailable; unsupported/missing/corrupt/ambiguous projection or absent
 intent409 commit_review_unavailable. Other HTTP methods405. CLI failures are
 controlled nonzero, no retry/stdout or stderr echo of supplied private values.
+Successful lookup/prepare/approve are HTTP200. Atomic fault fixtures may install
+temporary schema-only BEFORE INSERT requester_commit-intent and BEFORE UPDATE
+approval-record ABORT triggers for the genuine operation, then remove them
+before exact rollback comparison; require controlled non2xx, not an invented
+SQL-error code. Fresh needs_commit has manifest/activation/outcome all '-'; a
+mock mapper that invents manifest at that stage does not override real protocol
+evidence. Keyless history may use absent original generated/agent sources with
+the external original never installed; unavailable owned-device seed lacks a
+public deletion operation and remains an explicit source/fault limit.
 
 ### Verification
 
