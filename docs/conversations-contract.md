@@ -513,7 +513,7 @@ C3 lets a person be invited to a conversation, join it on one host bound to them
 - it is home and creates the conversation with that person as creator (C1); or
 - the person runs `conversation join` here and home confirms it: a 200 answer to `POST /peer/v1/conversations/{id}/join` from this host, or, on home, the local join committing.
 
-While this host has an *outstanding join* for the conversation (it sent a join that got no final answer), a roster from home that lists this host's person participant as `joined` is also home's confirmation and admits the person. Nothing else admits a local person: an invite never does, and a roster listing a person on this host as `joined` without an admission or an outstanding join is 400 `invalid`, as C2's roster step 5 says for agents.
+While this host has an *outstanding join* for the conversation (it sent a join that got no final answer), a roster from home that lists this host's person participant as `joined`, with the pending invite's `added_at` and a version at or above the pending invite's roster, is also home's confirmation and admits the person, while the pending invite is current. Nothing else admits a local person: an invite never does, and a roster listing a person on this host as `joined` without an admission or an outstanding join is 400 `invalid`, as C2's roster step 5 says for agents.
 
 **Expiry.** A person entry still `inviting` or `invited` 7 days after its `added_at` (on home's clock) is dropped by home in a new version, within 15 seconds after the 7 days pass. C2's 10-minute `unanswered` rule applies to a person entry still `inviting`, dropping it without a `departed` entry. Both apply only while the conversation is open.
 
@@ -587,7 +587,7 @@ On home, an invite for a person that home itself is bound to is a pending invite
 
 The outstanding join ends with a final answer, when the pending invite stops being current, or when a roster from home admits the person.
 
-**Declining**, in order: 404 `not_found` as for joining; 409 `not_bound`; then, in one transaction, this host drops the pending invite (it is no longer current here) and records a decline for home. On home the decline commits at once (as home's leave route below). Elsewhere this host sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:PERSON_ID"}` to home with C1's retry schedule until home answers 200, 400, 403 or 404, as C2 sends a leave. Answer 200 `{conversation_id, state: "declined"}` without waiting for home. A later push of a roster that still lists the person as `invited` does not bring the pending invite back.
+**Declining**, in order: 404 `not_found` as for joining; 409 `not_bound`; then, in one transaction, this host drops the pending invite (it is no longer current here) and records a decline for home. On home the decline commits at once (as home's leave route below). Elsewhere this host sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:PERSON_ID", added_at}` (the declined invite's `added_at`) to home with C1's retry schedule until home answers 200, 400, 403 or 404, as C2 sends a leave. Answer 200 `{conversation_id, state: "declined"}` without waiting for home. A later push of a roster that still lists the person as `invited` does not bring the pending invite back.
 
 **Leaving** (C2's `POST /v1/conversations/{id}/leave` without `agent`) now works for a person participant joined here on any host: off home it sends `POST /peer/v1/conversations/{id}/leave` `{participant: "person:HOST_ID/PERSON_ID"}` as C2 does for agents.
 
@@ -635,7 +635,7 @@ From a person's host to home. Body `{person_id}`. In order:
 
 `participant` may also be:
 - `person:SENDER/PERSON_ID`, a person participant on the sender host: leave, as C2 for agents.
-- `person:PERSON_ID`, a decline: the sender must be bound to that person by a current binding grant in a network both hosts share, otherwise 403 `forbidden`. Home drops the person's `inviting` or `invited` entry in a new version and pushes it; a person not listed that way changes nothing (a joined person is not removed by a decline). Answer 200 `{roster}`.
+- `person:PERSON_ID` with `added_at`, a decline: the sender must be bound to that person by a current binding grant in a network both hosts share, otherwise 403 `forbidden`. Home drops the person's `inviting` or `invited` entry whose `added_at` equals the body's in a new version and pushes it; anything else changes nothing (a joined person is not removed by a decline, and a repeated decline never drops a newer invite). Answer 200 `{roster}`. `added_at` comes with this form only: missing here, or present with any other `participant`, is 400 `invalid`.
 
 #### Roster push and fetch
 
