@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/69",
+  "scope": "Bounded completion of existing exact approved requester consent; guided contract section 28. Native commit controls follow separately.",
+  "base_merge": "4342b399179b29f9d686e1496a0d39560f04eeca",
+  "contract_first_commit": "ad881c82992e3def39a2319e8afac37f31437eb0",
+  "clarifications": [
+    "8055f00 / GU.impl28a: late genuine application INSERT fault and verified historical precedence.",
+    "8fa1e4c / GU.impl28b: confirmed real transport holds; unsigned-stage interval remains a source/barrier limit.",
+    "4d4c58c / GU.impl28c: retain native timeout evidence and make one corrected idle-host run.",
+    "2a1f033 / GU.impl28d: exact intent lifecycle, proof-outbox application rollback and separate ordinary delivery repair.",
+    "6116103 / GU.impl28e: retain first CI failure and correct authentic ordinary-worker carrier setup before one corrected run.",
+    "b5f11ff / GU.impl28f: retain second CI5/6 and diagnose strict terminal retry eligibility without changing its 5s wait."
+  ],
+  "frozen_production": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
+  "combined_local_verification_head": "048da445f384de0c6d8b4e07ade84d6e271c74cb",
+  "production_changes_after_freeze": 0,
+  "schema_protocol_existing_host_and_native_tests_unchanged": true,
+  "binary_sha256": {
+    "peerspan-host": "ebce95f6deaf48faddc557cfccd82fdc5cfccb4a79956c536318f1d470d7777b",
+    "peerspan-peer-probe": "25607a27f7b81b67908f40a7dd4ef238a61d883d421e34335961c33d2c76b9da",
+    "peerspan-helper": "9ca257811c8b681511e90b208b875224a7f57665ffb4fbdd6ad0fa1327094281"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "contract_only": true,
+    "implementation_read": false,
+    "committed_before_execution": true,
+    "registration_author_commit": "3127f1512a203e0d2e6b71b9f8c88a50adf5b857",
+    "registration_integrated_commit": "794411a",
+    "initial_suite_author_commit": "8294a6d98fdac534cb84d6d79718ce268e2a3cd9",
+    "initial_suite_integrated_commit": "3ce0fe425c4ecd8fee119015f52c084d20755baa",
+    "correction_author_commit": "06cc298c51c4c2a7b665c4232ac61e55765ee3e6",
+    "correction_integrated_commit": "c6868314d5c8036b753d1d7f0ea1251c5f827273",
+    "suite_file": "conformance/slim/requester_completion.py",
+    "cases": 6,
+    "correction_scope": "Keep the genuine requester mailbox reachable for the existing 15s ordinary signed/framed prerequisite, then apply faults. Require exact previous intent except terminal=applied, include proof outbox in strict application rollback, and use one separate explicit completed-requester resume before historical recipient-delivery setup. All old suite/native sources and original new-suite timeouts/categories remain unchanged. The separate repair has an explicit 35s bound.",
+    "diagnostic_author_commit": "08162420a152cd52a753fafc8d8df398f2acaddf",
+    "diagnostic_integrated_commit": "048da44",
+    "diagnostic_scope": "GU.impl28f failure-only closed retry metadata; every original action/assertion/delay/timeout is AST-identical after removing observer/result capture/failure wrapper. Committed before one retained local run."
+  },
+  "local": {
+    "scheduling": "Primary-owned build/native/host runs are serial. Other Claude work can start independently; retain observed overlaps rather than claiming global exclusivity.",
+    "required_rust": {
+      "source": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "fmt": "pass",
+      "clippy": "pass",
+      "all_bins_build": "pass"
+    },
+    "native_first": {
+      "runtime": "Claude Code 2.1.303",
+      "strict_validation": "pass",
+      "passed": 287,
+      "failed": 5,
+      "files": 14,
+      "seconds": 71.32,
+      "failure": "Five existing tests reached their unchanged 5000ms timeouts; no assertion mismatch. An external Clippy compilation overlapped. Exact per-case attribution remains unproven.",
+      "log": "/dev/shm/peerspan-gu-completion-native.log"
+    },
+    "native_isolation_correction": {
+      "contract": "4d4c58c / GU.impl28c",
+      "runs": 1,
+      "source_and_timeouts_unchanged": true,
+      "passed": 292,
+      "failed": 0,
+      "files": 14,
+      "seconds": 41.44,
+      "isolation": "Escalated process observations found no external compile/host test before or after this run; no continuous formal resource isolation is claimed.",
+      "log": "/dev/shm/peerspan-gu-completion-native-isolated.log"
+    },
+    "existing_requester_commit": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 132,
+      "source_unchanged": true,
+      "runs": 1,
+      "limit": "Above the two-minute slim target. An external Claude cargo test/compile began after the idle start. No attribution, timeout change or rerun.",
+      "log": "/dev/shm/peerspan-gu-completion-requester-commit.log"
+    },
+    "existing_delivery": {
+      "passed": 16,
+      "failed": 0,
+      "seconds": 70,
+      "source_unchanged": true,
+      "runs": 1,
+      "log": "/dev/shm/peerspan-gu-completion-delivery.log"
+    },
+    "requester_completion": {
+      "first_local_run": true,
+      "source": "08162420a152cd52a753fafc8d8df398f2acaddf; integrated as048da44",
+      "passed": 6,
+      "failed": 0,
+      "expected_failures": 0,
+      "unexpected_passes": 0,
+      "skipped": 0,
+      "seconds": 125,
+      "runs": 1,
+      "retained_fixture": "/dev/shm/peerspan-gu-ci-temp/slim-requester_completion-zfbl12t9",
+      "log": "/dev/shm/peerspan-gu69-requester-completion-diagnostic-first.log",
+      "limit": "Five seconds above the two-minute slim target. This diagnostic-source first local run passed, so its failure-only observer was not exercised. The earlier CI quiescence failure remains unclassified, not a proven backoff bug or fixed product regression. A long-lived earlier gu46 smoke daemon was retained untouched; no formal global resource isolation is claimed.",
+      "case_seconds": [
+        29.0,
+        25.6,
+        10.8,
+        38.4,
+        13.3,
+        8.3
+      ],
+      "resource_observations": "Independent author: escalated pre/post scans found zero active cargo/rustc/Clippy/conformance; mid-run compiler scan also zero. Earlier gu46 smoke daemon retained untouched. No continuous resource-isolation guarantee."
+    }
+  },
+  "first_source_ci": {
+    "head": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41039973489",
+    "conformance_conclusion": "failure",
+    "other_suites_passed": 22,
+    "owner_finalization": {
+      "job_id": 124010761319,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 63,
+      "case": "same_request_explicit_original_F_and_requester_commit_then_pure_refusal_and_owner_history",
+      "failure": "Pure inspection logical DB comparison changed dec_contacts; files unchanged and relay_changed=False.",
+      "classification": "Unclassified. CI runner retained state was discarded. All 23 old suites then passed on the first combined suite head with identical Rust and old suite source. That later pass does not classify this failure."
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41039973294",
+    "pr_checks_conclusion": "success",
+    "native": {
+      "passed": 292,
+      "failed": 0,
+      "seconds": 55.27
+    },
+    "rust": "155 passed, 2 ignored; fmt, Clippy and shipped binaries pass"
+  },
+  "first_combined_ci": {
+    "head": "3ce0fe425c4ecd8fee119015f52c084d20755baa",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41040637155",
+    "conformance_conclusion": "failure",
+    "existing_suites_passed": 23,
+    "requester_completion": {
+      "job_id": 124012816227,
+      "passed": 4,
+      "failed": 2,
+      "seconds": 95,
+      "primary_failure": "The all-carriers-drop fixture could not observe the genuine already-signed/framed ordinary prerequisite within its existing 15s wait.",
+      "dependent_failure": "Historical replay setup had no successful completion.",
+      "correction": "Contract GU.impl28d/e preceded the independent 06cc298 correction. No production changes or unchanged CI retry. This was the initial suite's only execution; no original-source local run is claimed."
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41040637350",
+    "pr_checks_conclusion": "success"
+  },
+  "first_corrected_ci": {
+    "head": "c6868314d5c8036b753d1d7f0ea1251c5f827273",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41042001432",
+    "conformance_conclusion": "failure",
+    "existing_suites_passed": 23,
+    "existing_requester_commit": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 94
+    },
+    "existing_delivery": {
+      "passed": 16,
+      "failed": 0,
+      "seconds": 60
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41042001345",
+    "pr_checks_conclusion": "success",
+    "requester_completion": {
+      "job_id": 124017396490,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 88,
+      "failure": "Historical replay setup timed out after the unchanged 5s wait for actual terminal outbox retirement and journal quiescence. Genuine completion, time guards, late SQL rollback and real parent-detach barrier cases passed.",
+      "classification": "Unclassified: the first retained diagnostic-source local run passed6/6in125s without invoking its failure-only observer. A later pass does not identify the failed CI category or establish a production fix. Final fresh CI retains the observer."
+    },
+    "native": {
+      "passed": 292,
+      "failed": 0,
+      "seconds": 37.58
+    }
+  },
+  "initial_review": {
+    "head": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
+    "completed": true,
+    "findings": 0,
+    "unresolved_threads": 0,
+    "receipt": "https://github.com/peerspan/peerspan/pull/69#issuecomment-6520409834"
+  },
+  "evidence_boundaries": [
+    "Genuine distinct people and temporary loopback hosts reach original/admin/F evidence through ordinary public protocol/signing actions. No authority rows are fabricated and workers are not disabled.",
+    "Pure refusals/history measure complete logical DB/schema/version, state/home files and BOTH full carrier counters under confirmed live ClientHello holds. Global authorized worker IO is not attributed to this route.",
+    "A real schema-only late dec_operations INSERT ABORT tests application transaction rollback, including proof outbox; earlier authorized intent/signature/frame/clock phases are separate. The actual dec.apply.before_transaction barrier permits a genuine public parent detach before fresh application checks.",
+    "Exact existing requester consent remains unchanged except its ordinary applied terminal lifecycle. A lost response is recovered through verified saved application. Local application says participant delivery, agent access and connection readiness are not_verified.",
+    "The narrow approved-but-unsigned stage-expiry interval remains source/barrier coverage without a reliable public stimulus; existing ordinary stage-expiry coverage stays unchanged.",
+    "Unavailable owned-device/root/corrupt/pruned evidence, fresh incompatible adoption without a genuine bounded stimulus, global worker attribution, 90/95s boundary crossings and microscopic final check-to-key/commit races remain explicit source/fault limits.",
+    "No installed bundle, physical-machine, actual-model receipt, schema23-to27/full-state upgrade/recovery or complete feature readiness is inferred. Earlier rejected terminal/quota probes were not retried.",
+    "PR66's original inviter-application delivery timeout remains unclassified; its independent failure-only observer is preserved unchanged."
+  ],
+  "remaining_feature_work": [
+    "Native requester-commit review/approval/completion/recovery controls",
+    "Explicit agent-access review and observed connection readiness",
+    "Connect my other computer/device flow",
+    "Installed distinct-person/two-machine exchange, actual Claude receipt, schema23-to27/full-state upgrade/recovery and final combined feature review"
+  ],
+  "final_exact_head_gates": "PR69 records all 24 conformance suites, standard PR checks and fresh Codex review after this evidence commit. Do not infer final success from prior CI or classify retained failures from later passes.",
+  "merge_policy": "Owner reviews/merges PR69 into the feature branch. Leave tracking PR35 unmerged and full acceptance gates incomplete.",
+  "source_sha256": {
+    "rust/src/decentralized.rs": "3dc1548924828f39128c26b8e10110a2e64872c3c6954a003d7651ce626c3c70",
+    "rust/src/decentralized/completion.rs": "b01b6daeade7eb7dabb0542fc260acf66093d218a8e29327efecf0fd685d8106",
+    "rust/src/decentralized/requester.rs": "61a9ed2ae5f9ae13c0930668ca579c9018a0f0294452eb6245689ba5de6ba915",
+    "rust/src/decentralized/requester_commit.rs": "efedd0f6d7c00abff26a9b582958c1eea75e4dfefd2c0dc316d0991013301d5d",
+    "rust/src/onboarding_cli.rs": "a9a6aaa482b77e2e67cf91e8143cb77e42be0547145c744b3121007f22a46b17",
+    "rust/src/onboarding_join/owner/commit.rs": "694317f369be73931d4419989d33b0c2a7e053ec40459d376075614f9481d494",
+    "rust/src/onboarding_join/owner/commit/complete.rs": "e88a3f2454da0a6714672a42de83266f80660f04ed0f8903a90d05a656227685",
+    "conformance/slim/requester_completion.py": "575103c9ee7b0a42a117d25158201d6b2e0597c7e620bd3dc5c6c14523540083",
+    "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+    "conformance/slim/delivery.py": "4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971",
+    "conformance/slim/owner_finalization.py": "72951d6366a6aa9a843ba41ee88f95f67783adca271b08d835ee5338f7e6bf35",
+    ".github/workflows/conformance.yml": "0dd2fec27e7d511d259589d686f3f012e4ab9ae4b719e7d71623325038947eab",
+    "integrations/claude-onboarding/hooks/register.mjs": "3553de5ec9c0cc84581cf34471fc0248f9fd00aa799948dcb5258aa2ba1e36e5"
+  },
+  "runtime_log_sha256": {
+    "peerspan-gu-completion-rust-final.log": "80039e8713a75b75ce2e514e04b85d8ef5b39d72dff2f7c594d129cd08c9a17c",
+    "peerspan-gu-completion-clippy-first.log": "fde928f0d56083c9fe8b4d7c2127706960c365d5e494e91d89277eaf3d4b63aa",
+    "peerspan-gu-completion-build-final.log": "4b627ca6b0a1741ada2eadb23c8ae47cab2c50f65b8eac66057a2844fe9541d6",
+    "peerspan-gu-completion-native-validate.log": "2c1ba45804741e99094ff7d091c2903aaaa3c396bec24f356e93b9f5962250a6",
+    "peerspan-gu-completion-native.log": "6cef5c4789194c83d3d3d7674e93d95cadd1eb0d100680aa4291719da065a9d0",
+    "peerspan-gu-completion-native-isolated.log": "dd338a30b2a892098b608a9c1b17b0ed86166f3f448502deebc289a5ee678c3c",
+    "peerspan-gu-completion-requester-commit.log": "611f65a86124dceba57817c0d096df8004ac8dabda68df093cbf78cb5aec5939",
+    "peerspan-gu-completion-delivery.log": "8dd23a93d5dd5695c5ea6a07cfbc9905e5bd0461f932fe607ae9b46465f3a80e",
+    "peerspan-gu69-requester-completion-diagnostic-first.log": "db1c3fce54744baf7fcb1cb52bb36756dc979c7edfdc4080b509f8cb1323ec96"
+  }
+}

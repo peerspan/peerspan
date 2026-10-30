@@ -433,8 +433,22 @@ with every assertion/action/delay/timeout preserved. The verification record
 keeps both results and source limits; PR66 records subsequent exact-head gates.
 
 
-The next backend slice (section 28) explicitly completes an already approved
+Requester completion (section 28) explicitly completes an already approved
 requester commit through bounded ordinary signing/publication/local application.
 It returns verified local application without implying peer delivery or agent
 readiness, and recovers an applied operation purely. Native commit controls
 follow separately so both changes stay independently reviewable.
+
+Independent completion6/6 passes in125s on frozen production `baf62ba`, including
+genuine post-review-window completion, late application SQL rollback, an actual
+application-barrier parent detach and pure API/CLI expiry/detach/restart history.
+Existing consent6/6in132s, delivery16/16in70s, native292/292in41.44s and all Rust
+gates pass. The local completion/consent durations exceed the two-minute target.
+The [verification record](results/guided-requester-completion-verification.json)
+retains both earlier new-suite CI failures, the unclassified terminal quiescence
+failure and old inspection contact-state change, initial native timeout/load
+evidence, independent fixture/diagnostic provenance and exact limits. A passing
+retained diagnostic run does not classify the earlier CI failure. PR69 records
+fresh final-head all24 CI and review after the evidence commit. Native controls,
+access/readiness, device flow and installed/physical/model/upgrade acceptance
+remain open.
