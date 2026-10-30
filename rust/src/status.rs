@@ -26,7 +26,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 26] = [
+pub const ATTENTION_ORDER: [&str; 27] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -53,6 +53,7 @@ pub const ATTENTION_ORDER: [&str; 26] = [
     "policy_edit_unsettled",
     "policy_edit_dropped",
     "call_approval_pending",
+    "conversation_invites",
 ];
 
 fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> {
@@ -531,6 +532,15 @@ impl Store {
         if let Some((subject, detail, command)) = self.approval_attention(connection)? {
             attention.push(item("call_approval_pending", subject, detail, command));
         }
+        let (open_conversations, invites) = self.conversation_status(connection)?;
+        if invites > 0 {
+            attention.push(item(
+                "conversation_invites",
+                invites.to_string(),
+                format!("pending conversation invites: {invites}"),
+                "peerspan conversations --invites".into(),
+            ));
+        }
         let capabilities = self.capabilities_summary(connection)?;
         attention.sort_by(|a, b| {
             let rank = |k: &str| ATTENTION_ORDER.iter().position(|x| *x == k);
@@ -548,6 +558,7 @@ impl Store {
                 "pending_bytes": pending_bytes,
             },
             "capabilities": capabilities,
+            "conversations": {"open": open_conversations, "invites": invites},
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
     }

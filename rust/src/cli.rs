@@ -26,7 +26,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum ConversationCommand {
-    /// Start a conversation with agents, each PERSON/AGENT or HOST_ID/AGENT
+    /// Start a conversation with agents (PERSON/AGENT or HOST_ID/AGENT) and
+    /// people (person:LABEL, person:PERSON_ID, or a bare label)
     Start {
         #[arg(value_name = "TARGET", required = true, num_args = 1..)]
         targets: Vec<String>,
@@ -47,7 +48,7 @@ pub enum ConversationCommand {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
     },
-    /// Add an agent to a conversation you created
+    /// Add an agent or a person to a conversation you created
     Add {
         #[arg(value_name = "ID")]
         id: String,
@@ -93,6 +94,16 @@ pub enum ConversationCommand {
         /// Reuse an ID to retry a send without sending twice
         #[arg(long, value_name = "ID")]
         message_id: Option<String>,
+    },
+    /// Join a conversation you were invited to, on this host
+    Join {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Decline a conversation invite
+    Decline {
+        #[arg(value_name = "ID")]
+        id: String,
     },
     /// Show a conversation and its latest messages
     Show {
@@ -299,8 +310,11 @@ pub enum Command {
     #[command(hide = true)]
     Conversations {
         /// Include closed conversations
-        #[arg(long)]
+        #[arg(long, conflicts_with = "invites")]
         all: bool,
+        /// List pending invites to conversations
+        #[arg(long)]
+        invites: bool,
         /// Print the daemon's answer as JSON
         #[arg(long)]
         json: bool,

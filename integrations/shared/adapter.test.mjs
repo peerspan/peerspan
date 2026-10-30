@@ -888,3 +888,46 @@ test('the membership tools validate, call the daemon, and report refusals', asyn
     await adapter.stop();
   }
 });
+
+// Conversations contract, C3: people not yet joined in the Participants
+// line, and person targets in the membership tools.
+test('a person not yet joined is marked invited or inviting in both events', () => {
+  const conversation = {
+    ...claim({}).conversation,
+    participants: [
+      ...claim({}).conversation.participants,
+      { id: null, label: 'dave', kind: 'person', state: 'invited', you: false },
+      { id: null, label: 'erin', kind: 'person', state: 'inviting', you: false }
+    ]
+  };
+  const line = 'Participants: alice (person), bob/bert (you), carol/cleo, dave (person, invited), erin (person, inviting)';
+  assert.equal(conversationEvent(claim({ conversation })).content.split('\n')[1], line);
+  assert.equal(conversationRosterEvent({ ...rosterClaim({ change: 'added' }), conversation }).content.split('\n')[1], line);
+});
+
+test('conversation_start and conversation_manage take person targets', async () => {
+  const calls = [];
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return {};
+    }
+  });
+  try {
+    const started = await adapter.callTool('conversation_start', { participants: ['person:bob', 'dave'] });
+    assert.equal(started.isError, undefined);
+    assert.deepEqual(calls.at(-1).body.participants, ['person:bob', 'dave']);
+    for (const participant of ['person:bob', 'dave']) {
+      const added = await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'add', participant });
+      assert.equal(added.isError, undefined);
+      assert.deepEqual(calls.at(-1).body, { action: 'add', participant });
+    }
+  } finally {
+    await adapter.stop();
+  }
+});

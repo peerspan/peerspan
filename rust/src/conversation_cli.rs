@@ -1,5 +1,5 @@
-//! `conversations` and `conversation start|say|show|add|remove|close|leave`
-//! (conversations contract, C1 and C2). Unlisted in the root help until C6 (CONV-24).
+//! `conversations` and `conversation start|say|show|add|remove|close|leave|join|decline`
+//! (conversations contract, C1 to C3). Unlisted in the root help until C6 (CONV-24).
 use crate::{
     admin::Local,
     cli::{Command, ConversationCommand},
@@ -39,7 +39,37 @@ use crate::cli::encoded;
 async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
     let local = Local(socket);
     match command {
-        Command::Conversations { all, json } => {
+        Command::Conversations {
+            invites: true,
+            json,
+            ..
+        } => {
+            let value = local.get("/v1/conversations/invites".into()).await?;
+            if json {
+                return print(&value);
+            }
+            let list = value["invites"].as_array().cloned().unwrap_or_default();
+            if list.is_empty() {
+                println!("No pending conversation invites.");
+            }
+            for i in &list {
+                let mut line = text(&i["conversation_id"])
+                    .chars()
+                    .take(13)
+                    .collect::<String>();
+                if let Some(title) = i["title"].as_str() {
+                    line.push_str(&format!("  \"{title}\""));
+                }
+                line.push_str(&format!(
+                    "  from {}  expires {}",
+                    text(&i["added_by_label"]),
+                    text(&i["expires_at"])
+                ));
+                println!("{line}");
+            }
+            Ok(())
+        }
+        Command::Conversations { all, json, .. } => {
             let state = if all { "all" } else { "open" };
             let value = local
                 .get(format!("/v1/conversations?state={state}"))
@@ -146,6 +176,22 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                     .await?,
             )
         }
+        Command::Conversation(ConversationCommand::Join { id }) => {
+            let id = resolve_invite(&local, &id).await?;
+            print(
+                &local
+                    .post(format!("/v1/conversations/{id}/join"), json!({}))
+                    .await?,
+            )
+        }
+        Command::Conversation(ConversationCommand::Decline { id }) => {
+            let id = resolve_invite(&local, &id).await?;
+            print(
+                &local
+                    .post(format!("/v1/conversations/{id}/decline"), json!({}))
+                    .await?,
+            )
+        }
         Command::Conversation(ConversationCommand::Say {
             id,
             text: content,
@@ -235,6 +281,33 @@ async fn resolve(local: &Local<'_>, id: &str) -> anyhow::Result<String> {
         .collect();
     match matches.as_slice() {
         [] => bail!("not_found: no conversation {id}"),
+        [one] => Ok(one.clone()),
+        many => bail!("ambiguous: {id} matches {}", many.join(", ")),
+    }
+}
+
+/// A full ID, or `conv_` and at least 6 hex digits naming exactly one
+/// current pending invite on this host.
+async fn resolve_invite(local: &Local<'_>, id: &str) -> anyhow::Result<String> {
+    const NONE: &str = "not_found: No pending invite to that conversation on this host.";
+    let hex = id.strip_prefix("conv_").unwrap_or_default();
+    if hex.len() == 32 {
+        return Ok(id.to_owned());
+    }
+    if hex.len() < 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!(NONE);
+    }
+    let all = local.get("/v1/conversations/invites".into()).await?;
+    let mut matches: Vec<String> = all["invites"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| text(&c["conversation_id"]).to_owned())
+        .filter(|c| c.starts_with(id))
+        .collect();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => bail!(NONE),
         [one] => Ok(one.clone()),
         many => bail!("ambiguous: {id} matches {}", many.join(", ")),
     }
