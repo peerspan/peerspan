@@ -438,12 +438,90 @@ def whole(f):
     return snapshot(f["a"]), snapshot(f["b"])
 
 
+def purity_file_categories(actual, expected):
+    """Project only already captured entry counts, never names/modes/hashes."""
+    changed = [name for name in set(expected) | set(actual) if expected.get(name) != actual.get(name)]
+    result = {"before_count": len(expected), "after_count": len(actual), "changed_count": len(changed),
+              "added_count": len(set(actual) - set(expected)), "removed_count": len(set(expected) - set(actual)),
+              "file_count": 0, "directory_count": 0, "socket_count": 0, "other_count": 0}
+    for name in changed:
+        mode = (actual.get(name) or expected[name])[0] & 0o170000
+        category = {0o100000: "file_count", 0o040000: "directory_count", 0o140000: "socket_count"}.get(mode, "other_count")
+        result[category] += 1
+    return result
+
+
+def purity_snapshot_diagnostic(actual, expected, phase, participant):
+    """Failure only: return the original captured snapshot without extra IO."""
+    try:
+        if actual != expected:
+            phases = {"prepare_pair", "prepare_cli", "prepare_fault", "approve_fault", "device_approval",
+                      "original_approval", "restart_history", "input_refusal", "nonsigning_route",
+                      "pure_lookup", "pure_prepare", "pure_approve"}
+            changed = [name for name in sorted(set(expected[0]) | set(actual[0]))
+                       if expected[0].get(name) != actual[0].get(name)]
+            summary = {"phase": phase if phase in phases else "unknown", "category": "snapshot",
+                       "participant": participant if participant in {"alice", "bob"} else "unknown",
+                       "changed_table_count": len(changed), "changed_tables": []}
+            for name in changed[:128]:
+                summary["changed_tables"].append({"name": name if name in {"$schema", "$version"}
+                    or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name) else "unknown",
+                    "before_count": len(expected[0].get(name, ())), "after_count": len(actual[0].get(name, ()))})
+            summary["state_entries"] = purity_file_categories(actual[1], expected[1])
+            summary["home_entries"] = purity_file_categories(actual[2], expected[2])
+            print("access_purity_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Diagnostics cannot replace the original complete verdict.
+    return actual
+
+
+def purity_whole_diagnostic(actual, expected, phase):
+    """Both existing participant captures; preserve their original comparison."""
+    try:
+        if actual != expected:
+            for index, participant in enumerate(("alice", "bob")):
+                purity_snapshot_diagnostic(actual[index], expected[index], phase, participant)
+    except Exception:
+        pass
+    return actual
+
+
+def purity_missing_files_diagnostic(actual, expected):
+    """The original absent-daemon file capture, without exposing its root."""
+    try:
+        if actual != expected:
+            print("access_purity_failure_public=" + json.dumps({"phase": "missing_daemon", "category": "files",
+                "participant": "absent", "root_entries": purity_file_categories(actual, expected)}, sort_keys=True), flush=True)
+    except Exception:
+        pass
+    return actual
+
+
+def purity_traffic_diagnostic(actual, expected, phase):
+    """Every captured TCP/UDP counter delta, with no reset or carrier filter."""
+    try:
+        if actual != expected:
+            phases = {"prepare_pair", "prepare_cli", "prepare_fault", "approve_fault", "device_approval",
+                      "original_approval", "restart_history", "input_refusal", "nonsigning_route",
+                      "pure_lookup", "pure_prepare", "pure_approve"}
+            summary = {"phase": phase if phase in phases else "unknown", "category": "carriers", "carriers": []}
+            for index, participant, kind in ((0, "alice", "tcp"), (1, "bob", "tcp"), (2, "alice", "udp"), (3, "bob", "udp")):
+                fields = ("connections", "received_bytes") if kind == "tcp" else (
+                    "received_datagrams", "received_bytes", "returned_datagrams", "returned_bytes")
+                summary["carriers"].append({"participant": participant, "kind": kind,
+                    "deltas": {field: actual[index][column] - expected[index][column] for column, field in enumerate(fields)}})
+            print("access_purity_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass
+    return actual
+
+
 def pure(f, h, parent, person, action, prepared=None, **options):
     stable(f)
     before, counters = whole(f), traffic(f)
     value = op(h, parent, f["net"], person, action, prepared, **options)
-    check(whole(f) == before, f"pure {action} changed whole schema/DB/state/home on either participant")
-    check(traffic(f) == counters, f"pure {action} used original TCP or an enabled UDP carrier")
+    check(purity_whole_diagnostic(whole(f), before, "pure_" + action) == before, f"pure {action} changed whole schema/DB/state/home on either participant")
+    check(purity_traffic_diagnostic(traffic(f), counters, "pure_" + action) == counters, f"pure {action} used original TCP or an enabled UDP carrier")
     return value
 
 
@@ -609,7 +687,7 @@ def _():
     before, remote, counters = snapshot(h), snapshot(f["a"]), traffic(f)
     prepared = op(h, parent, net, f["alice"], "prepare", inspected=inspected)
     assert_new_pair(before, snapshot(h), prepared)
-    check(snapshot(f["a"]) == remote and traffic(f) == counters, "preparation granted/published remotely or used a carrier")
+    check(purity_snapshot_diagnostic(snapshot(f["a"]), remote, "prepare_pair", "alice") == remote and purity_traffic_diagnostic(traffic(f), counters, "prepare_pair") == counters, "preparation granted/published remotely or used a carrier")
     access, review = prepared["access"], prepared["access"]["review"]
     check(access["state"] == "review" and review["inspection"] == inspected["review"] and review["replaces_access_id"] == "-",
           "first exact inspection receipt/lineage/state")
@@ -649,7 +727,7 @@ def _():
         result = h.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
         check(result.ok and result.json["access"] == access, "exact private stdin API/CLI parity or idempotence")
         validate(h, parent, result.json, expected=prepared)
-        check(whole(f) == before and traffic(f) == counters, "lookup/repeated prepare CLI changed state/files/carriers")
+        check(purity_whole_diagnostic(whole(f), before, "prepare_cli") == before and purity_traffic_diagnostic(traffic(f), counters, "prepare_cli") == counters, "lookup/repeated prepare CLI changed state/files/carriers")
         public(result.stderr)
 
 
@@ -746,7 +824,7 @@ def _():
             "inspection_review_id": inspected["review_id"]}, timeout=8)
         check(not 200 <= status < 300, "late INSERT fault unexpectedly succeeded")
         public(denied, "PRIVATE_ACCESS_ABORT")
-        check(whole(f) == before and traffic(f) == counters, "late preparation fault left one row, clock, files or IO")
+        check(purity_whole_diagnostic(whole(f), before, "prepare_fault") == before and purity_traffic_diagnostic(traffic(f), counters, "prepare_fault") == counters, "late preparation fault left one row, clock, files or IO")
     finally:
         with closing(sqlite3.connect(db_path(h))) as db, db:
             db.execute("DROP TRIGGER access_prepare_abort")
@@ -766,7 +844,7 @@ def _():
             "access_id": receipt_id, "access_review_id": prepared["access"]["review_id"]}, timeout=8)
         check(not 200 <= status < 300, "late UPDATE fault unexpectedly succeeded")
         public(denied, "PRIVATE_ACCESS_ABORT")
-        check(whole(f) == before and traffic(f) == counters, "late approval fault left partial receipt/action/clock/files/IO")
+        check(purity_whole_diagnostic(whole(f), before, "approve_fault") == before and purity_traffic_diagnostic(traffic(f), counters, "approve_fault") == counters, "late approval fault left partial receipt/action/clock/files/IO")
     finally:
         with closing(sqlite3.connect(db_path(h))) as db, db:
             db.execute("DROP TRIGGER access_approve_abort")
@@ -777,7 +855,7 @@ def _():
     check(approved["access"]["state"] == "approved", "exact genuine policy consent was not approved")
     validate(h, parent, approved, expected=prepared)
     assert_approved_pair(h, prepared, before, snapshot(h))
-    check(snapshot(f["a"]) == remote and traffic(f) == counters, "consent published, signed or used remote carrier")
+    check(purity_snapshot_diagnostic(snapshot(f["a"]), remote, "device_approval", "alice") == remote and purity_traffic_diagnostic(traffic(f), counters, "device_approval") == counters, "consent published, signed or used remote carrier")
     for command in ("lookup", "prepare", "approve"):
         check(pure(f, h, parent, f["alice"], command, prepared)["access"] == approved["access"], "approved replay changed exact receipt/action/time")
     f["approved"] = approved
@@ -796,7 +874,7 @@ def _():
     check(result.ok and result.json["access"]["state"] == "approved", "private CLI consent probed absent original signer")
     validate(a, external_parent, result.json, expected=external)
     assert_approved_pair(a, external, before, snapshot(a))
-    check(snapshot(h) == remote and traffic(f) == counters, "original consent produced a signature/publication/remote request")
+    check(purity_snapshot_diagnostic(snapshot(h), remote, "original_approval", "bob") == remote and purity_traffic_diagnostic(traffic(f), counters, "original_approval") == counters, "original consent produced a signature/publication/remote request")
     public(result.stderr, str(a.root / "absent-person-key"))
     f["external"] = external_parent, external, result.json
 
@@ -887,8 +965,8 @@ def _():
     pending_after = op(h, pending_parent, net, f["alice"], "lookup")
     check(pending_after["access"]["review"] == pending["access"]["review"] and pending_after["access"]["state"] == "invalidated",
           "restarted unapproved history refreshed or inferred consent")
-    check(whole(f) == before, "historical API/CLI changed aggregate schemas/DB/state/home on either host")
-    check(traffic(f) == counters, "historical API/CLI used either original TCP or any enabled UDP path")
+    check(purity_whole_diagnostic(whole(f), before, "restart_history") == before, "historical API/CLI changed aggregate schemas/DB/state/home on either host")
+    check(purity_traffic_diagnostic(traffic(f), counters, "restart_history") == counters, "historical API/CLI used either original TCP or any enabled UDP path")
     check(intent(h, prepared["access"]["access_id"]) == original_record and
           intent(h, prepared["access"]["review"]["intent_id"]) == action_record, "historical replay changed exact approved_at/template/signature/action bytes")
     if "external" in f:
@@ -958,7 +1036,7 @@ def _():
             status, denied = h.api(method, BASE + "/" + command, data, timeout=8)
             check(status == 405, f"unsupported {command} method HTTP {status}")
             public(denied)
-    check(whole(f) == before and traffic(f) == counters, "invalid input/method/CLI changed whole DB/files or any carrier")
+    check(purity_whole_diagnostic(whole(f), before, "input_refusal") == before and purity_traffic_diagnostic(traffic(f), counters, "input_refusal") == counters, "invalid input/method/CLI changed whole DB/files or any carrier")
     # A valid adapter credential and genuine mutually authenticated peer cannot
     # reach owner-local receipt preparation or approval.
     attached = project(h, "router")
@@ -1006,7 +1084,7 @@ def _():
         "intent_id": prepared["access"]["access_id"], "signatures": [{"slot_id": 1, "role": "issuer", "signature": base64.b64encode(bytes(64)).decode()}]}, timeout=8)
     check(not 200 <= status < 300, "nonsigning receipt reached ordinary action signature submission")
     public(denied)
-    check(whole(f) == before and traffic(f) == counters, "nonsigning-route refusal mutated metadata, clock, signature or carrier")
+    check(purity_whole_diagnostic(whole(f), before, "nonsigning_route") == before and purity_traffic_diagnostic(traffic(f), counters, "nonsigning_route") == counters, "nonsigning-route refusal mutated metadata, clock, signature or carrier")
     check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (27,), "new access metadata changed schema27 SQL/version")
     absent = suite.host("absent", start=False)
     shutil.rmtree(absent.state)
@@ -1018,7 +1096,7 @@ def _():
         elif command == "approve":
             data.update(access_id=prepared["access"]["access_id"], access_review_id=prepared["access"]["review_id"])
         result = absent.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
-        check(not result.ok and files(absent.root) == before and not absent.state.exists(), "private CLI initialized missing daemon state")
+        check(not result.ok and purity_missing_files_diagnostic(files(absent.root), before) == before and not absent.state.exists(), "private CLI initialized missing daemon state")
         public(result.stdout + result.stderr, data["context"]["project_root"], data["context"]["native_session_id"], str(absent.state))
     # Offline corruption is limited to one nonsigning duplicated host field;
     # restore the genuine original Record bytes in finally, never fabricate a
