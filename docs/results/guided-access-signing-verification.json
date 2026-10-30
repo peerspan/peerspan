@@ -1,5 +1,5 @@
 {
-  "status": "Local verification complete. Final evidence-head CI and fresh bot/root review must be recorded on PR79/35 without changing this evidence commit.",
+  "status": "New signing/local regression pass and candidate325df66 has clean review/PR checks, but two old CI history purity failures remain. Contract-first independent bounded diagnostic correction and final diagnostic-head CI/review pending. Local unchanged diagnosis passes do not attribute or erase failures.",
   "base": "2a362108647baea9cb16ec91759d1b29b75a7c0c",
   "pr": "https://github.com/peerspan/peerspan/pull/79",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
@@ -115,6 +115,20 @@
       "seconds": 109.17,
       "log": "/dev/shm/g32/access-signing-canonical.log",
       "sha256": "02e8c4e3b8a67b354d24c5e88c5e259419bb2aa6ebe0f517150e519c74dec171"
+    },
+    {
+      "label": "requester_completion-ci-diagnosis",
+      "exit": 0,
+      "seconds": 138.77,
+      "log": "/dev/shm/g32/requester_completion-ci-diagnosis.log",
+      "sha256": "9b5b2781f1041eab9374366b1c9d113c37ba581c3772e588a2076debeb1becc7"
+    },
+    {
+      "label": "owner_finalization-ci-diagnosis",
+      "exit": 0,
+      "seconds": 78.82,
+      "log": "/dev/shm/g32/owner_finalization-ci-diagnosis.log",
+      "sha256": "734b0eae056ea98775d0a23e9d6296f2a37785fcf4227295fcdd1007fa2f54b6"
     }
   ],
   "initial_failures": [
@@ -126,6 +140,20 @@
       "cause": "Cases1/2/3 use an impossible fourth colon-separated observation time component; cases5/6 fail their genuine completed-signature prerequisites. Case4 passes.",
       "correction_contract": "ca221e63de039bd9a6d903a60989666d0b6f7740",
       "correction": "Independent63d0a23 fixes only the impossible fourth time component. Root restoration byte/AST audit passes; frozen production unchanged. Corrected full run6/6 in109.17s."
+    },
+    {
+      "run": 41136343519,
+      "job": 124340379078,
+      "suite": "requester_completion",
+      "case": "verification6 detached API historical replay",
+      "evidence": "Issuer UDP +2receiveddatagrams/+2400receivedbytes,0 returned; prior DB/state/home assertion passed. Caller remains unclassified."
+    },
+    {
+      "run": 41136343519,
+      "job": 124340379250,
+      "suite": "owner_finalization",
+      "case": "verification6 terminal historical inspection",
+      "evidence": "Only dec_contacts changed,3rows before/after, TCP unchanged. Existing diagnostic rejects documented unbound contact rows and leaves keys/fields unknown. Changed row and cause remain unclassified."
     }
   ],
   "ci_before_implementation": {
@@ -171,5 +199,23 @@
     "Real wrong-role/key/message/format/signature agent result faults and separate late signature/clock SQLite ABORT preserve all prior state.",
     "Signed device/file/agent replay after expiry, provider/policy/consent/project change, detach, restart and missing/broken signer: whole schemas/DB/state/home, BOTH bootstrap TCP and every enabled UDP counter pure; no agent probe.",
     "Closed bounded input/privacy/argv/method/no-daemon/owner-router isolation, restored genuine receipt/reference/signature/completed corruption."
-  ]
+  ],
+  "first_candidate_ci": {
+    "head": "325df66e006fb2e1a7f5550b83a03c2cea575247",
+    "merge_head": "d4ca310274e729376c41f862c082ad19d566aa28",
+    "conformance_run": 41136343519,
+    "conformance": "25 of27 suites pass; unchanged requester_completion5/6in84s and owner_finalization5/6in62s fail strict history purity",
+    "pr_checks_run": 41136343522,
+    "pr_checks": "success; native312/312in40.50s, Rust155/2ignored/fmt/Clippy/build",
+    "new_signing": "6/6in79s",
+    "bot_review_comment": 6534577496,
+    "bot_review": "completed, no findings, exact candidate325df66",
+    "decoded_job_log_sha256": {
+      "124340379078": "bee66bd4027e5b182bb91c23dcd521ff6ab49f284e792c13762af0a56c9a64a5",
+      "124340379250": "ab74dd62c5293505f148e892dcf6cdbdffc851d48dc924ba378c36f7fb844ad9",
+      "124340379117": "d2fc381015ba587d4daa164632214670955268431e114623bcb7fdcb9405c241",
+      "124339626513": "8abb3325a693aaf4250b7d595e6440f3df9c1b1e7fc409085fb8eac8e43e9579"
+    }
+  },
+  "diagnostic_followup_contract": "5c59214 (section32/GU.impl32d), committed before independent changes; no production change."
 }
