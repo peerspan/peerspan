@@ -18,6 +18,9 @@ import { owner as parseOwner, reviewLines as ownerReviewLines, signature as pars
   sameOriginal, signable, signatureDeadline as ownerSignatureDeadline } from './owner.mjs';
 import { inspection as parseFinalization, result as parseFinalizationResult, eligible as finalizationEligible,
   recorded as finalizationRecorded, samePrefix as sameFinalizationPrefix, reviewLines as finalizationReviewLines } from './finalization.mjs';
+import { snapshot as parseRequester, result as parseRequesterCompletion, sameConsent as sameRequesterConsent,
+  applied as requesterApplied, eligible as requesterEligible, canPrepare as requesterCanPrepare,
+  deadline as requesterDeadline, reviewLines as requesterReviewLines } from './requester-commit.mjs';
 import { inventory as admissionInventory, consent as parseAdmission, progress as parseIncomingProgress,
   inspection as parseAdmissionInspection, sameRequest, early as earlyAdmission, matchesInspection,
   choiceLabel as admissionChoiceLabel, reviewLines as admissionReviewLines } from './admission.mjs';
@@ -1119,6 +1122,8 @@ function joinStart($, previous, epoch, extra = {}) {
     ownerCanSign: false, ownerSignExpired: false, originalSignature: false,
     finalization: null, finalizationActive: false, finalizationError: null, finalizationCanReview: false,
     finalizationCanSign: false, finalizationExpired: false,
+    requester: null, commitActive: false, commitOperation: false, commitError: null,
+    commitCanApprove: false, commitCanComplete: false, commitCanPrepare: false, commitExpired: false,
     parent: project.flow, context: project.context, host: hostId, ...extra };
   $.ui.invalidate('ui.render');
   return joining;
@@ -1201,16 +1206,27 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const finalizationCanReview = finalizationEligible(extra.owner, now);
   const finalizationCanSign = !!extra.finalization && !finalizationExpired && finalizationCanReview &&
     Date.parse(extra.finalization.observed_at) <= now + 30000;
+  const requester = extra.requester ?? null;
+  if (requester && Date.parse(requester.observed_at) > now + 30000) throw new Error('Future requester observation');
+  const commitDeadline = extra.commitActive ? requesterDeadline(requester) : null;
+  const commitExpired = commitDeadline !== null && Math.max(now, Date.parse(requester.observed_at)) >= commitDeadline;
+  const commitCanApprove = !!extra.commitActive && requesterEligible(requester, now, true);
+  const commitCanComplete = !!extra.commitActive && requesterEligible(requester, now);
+  const commitCanPrepare = !!extra.commitActive && requester?.commit === null && requesterCanPrepare(extra.owner, now);
   const secret = ['choose', 'create_review', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
-    ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired };
-  const activeDeadline = deadline && stage !== 'expired' ? Date.parse(deadline) : ownerDeadline && !ownerExpired ? Date.parse(ownerDeadline)
+    ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired,
+    commitExpired, commitCanApprove, commitCanComplete, commitCanPrepare };
+  const activeDeadline = commitDeadline !== null && !commitExpired ? commitDeadline
+    : deadline && stage !== 'expired' ? Date.parse(deadline) : ownerDeadline && !ownerExpired ? Date.parse(ownerDeadline)
     : signingDeadline && !ownerSignExpired ? signingDeadline : finalizationDeadline && !finalizationExpired ? finalizationDeadline : null;
   if (activeDeadline !== null) {
     joiningExpiry = $.clock.after(activeDeadline - now, () => {
       if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
-        joining = finalizationDeadline
+        joining = commitDeadline !== null
+          ? { ...joining, commitCanApprove: false, commitCanComplete: false, commitCanPrepare: false, commitExpired: true, busy: false }
+          : finalizationDeadline
           ? { ...joining, finalizationCanReview: false, finalizationCanSign: false, finalizationExpired: true, busy: false }
           : ownerDeadline || signingDeadline
           ? { ...joining, ownerExpired: !!ownerDeadline, ownerCanSign: false, ownerSignExpired: !!signingDeadline, busy: false }
@@ -1628,23 +1644,141 @@ async function signFinalization($, previous, epoch) {
       finalization: null, finalizationError: null, secret: null });
   } catch { finalizationFailure($, running, epoch, sent); }
 }
+function requesterPayload(running, flow, captured = null) {
+  return { flow_id: flow.flow_id, context: adapterContext(running.parent), join_review_id: flow.review_id,
+    ...(captured ? { commit_review_id: captured.commit.review_id } : {}) };
+}
+function requesterFailure($, running, epoch, uncertain = false, complete = false) {
+  if (joining !== running || epoch !== generation) return;
+  joiningExpiry?.cancel(); joiningExpiry = null;
+  joining = { ...running, busy: false, code: '', secret: null, owner: null, ownerOperation: false,
+    requester: null, commitActive: true, commitOperation: false, commitCanApprove: false,
+    commitCanComplete: false, commitCanPrepare: false, commitExpired: false,
+    commitError: uncertain
+      ? complete ? 'Requester completion outcome unknown. Check requester consent for public evidence; no automatic retry. Leaving cannot retract prior or dispatched work.'
+        : 'Requester consent outcome unknown. Check requester consent for public evidence; no automatic retry. Recorded consent may already authorize ordinary work.'
+      : 'Requester commit unavailable. Check requester consent for public evidence; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function requesterLookup($, running, epoch, flow, capturedOwner = null) {
+  if (!await inspectOwnerJoin($, running, epoch, flow)) return null;
+  const ownerRaw = await joinRun($, ['owner', 'lookup', '--stdin'], ownerPayload(running, flow));
+  if (!await joinCurrent($, running, epoch)) return null;
+  const original = await parseOwner(ownerRaw, flow, running.parent, running.host);
+  if (!await joinCurrent($, running, epoch)) return null;
+  if (original.owner?.state !== 'approved' || capturedOwner &&
+      (!sameOriginal(capturedOwner, original) || !sameFinalizationPrefix(capturedOwner, original) ||
+       capturedOwner.request.owner_finalization_id !== original.request.owner_finalization_id)) throw new Error('Changed requester original');
+  const raw = await joinRun($, ['commit', 'lookup', '--stdin'], requesterPayload(running, flow));
+  if (!await joinCurrent($, running, epoch)) return null;
+  const value = await parseRequester(raw, flow, running.parent, running.host, original);
+  if (!await joinCurrent($, running, epoch)) return null;
+  return { original, value };
+}
+async function requesterView($, running, epoch, flow, original, value) {
+  if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+  const now = await $.clock.now();
+  if (!await joinCurrent($, running, epoch)) return;
+  if (Date.parse(value.observed_at) > now + 30000) throw new Error('Future requester evidence');
+  await joinView($, running, epoch, flow, { owner: original, ownerOperation: false, requester: value,
+    commitActive: true, commitOperation: false, commitError: null, secret: null });
+}
+async function readRequester($, previous, epoch, prepare = false) {
+  if (previous.stage !== 'requested' || previous.flow?.state !== 'requested') return;
+  const flow = previous.flow, captured = previous.owner;
+  const running = joinStart($, previous, epoch, { commitOperation: true, commitActive: true });
+  if (!running) return;
+  try {
+    const loaded = await requesterLookup($, running, epoch, flow, captured);
+    if (!loaded) return;
+    const original = loaded.original;
+    let value = loaded.value;
+    if (prepare && value.commit === null) {
+      if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+      const now = await $.clock.now();
+      if (joining !== running || epoch !== generation) return;
+      if (!requesterCanPrepare(original, now)) throw new Error('Requester preparation is not live');
+      const raw = await joinRun($, ['commit', 'prepare', '--stdin'], requesterPayload(running, flow));
+      if (!await joinCurrent($, running, epoch)) return;
+      value = await parseRequester(raw, flow, running.parent, running.host, original);
+      if (!await joinCurrent($, running, epoch)) return;
+      if (!value.commit) throw new Error('Missing requester review');
+    }
+    await requesterView($, running, epoch, flow, original, value);
+  } catch { requesterFailure($, running, epoch); }
+}
+async function decideRequester($, previous, epoch, complete = false) {
+  if (previous.stage !== 'requested' || !previous.commitActive ||
+      !(complete ? previous.commitCanComplete : previous.commitCanApprove) || !previous.requester?.commit) return;
+  const flow = previous.flow, captured = previous.requester, capturedOwner = previous.owner;
+  const running = joinStart($, previous, epoch, { commitOperation: true, commitActive: true });
+  if (!running) return;
+  let sent = false;
+  try {
+    const loaded = await requesterLookup($, running, epoch, flow, capturedOwner);
+    if (!loaded) return;
+    const { original, value } = loaded;
+    if (!sameRequesterConsent(captured, value)) throw new Error('Changed displayed requester consent');
+    if (complete ? requesterApplied(value) : value.commit.state === 'approved') {
+      await requesterView($, running, epoch, flow, original, value);
+      return;
+    }
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    // Sample time after all asynchronous preflight. Only synchronous authority
+    // checks separate this read from the one explicitly requested dispatch.
+    const dispatchNow = await $.clock.now();
+    if (joining !== running || epoch !== generation) return;
+    if (!requesterEligible(value, dispatchNow, !complete)) throw new Error('Requester decision is no longer eligible');
+    sent = true;
+    const reply = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+      'onboarding', 'join', 'commit', complete ? 'complete' : 'approve', '--stdin'], {
+      timeoutMs: complete ? 95000 : 5000,
+      stdin: JSON.stringify({ ...requesterPayload(running, flow, captured),
+        ...(complete ? { decision: 'complete_requester_commit' } : {}) }) });
+    if (!await joinCurrent($, running, epoch)) return;
+    if (reply.exitCode !== 0) throw new Error('Requester outcome unknown');
+    const outcome = complete
+      ? await parseRequesterCompletion(reply.stdout, flow, running.parent, running.host, original, captured)
+      : await parseRequester(reply.stdout, flow, running.parent, running.host, original);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (outcome.commit?.state !== 'approved' || !sameRequesterConsent(captured, outcome)) throw new Error('Changed requester approval');
+    await requesterView($, running, epoch, flow, original, outcome);
+  } catch { requesterFailure($, running, epoch, sent, complete); }
+}
+function requesterControls($, { Text, Button }, previous, epoch) {
+  const button = (key, label, onPress) => Button({ key, label, onPress });
+  return [
+    ...(previous.requester ? [Text({ children: [requesterReviewLines(previous.requester, previous.parent, previous.commitExpired)] })] : []),
+    ...(previous.commitError ? [Text({ children: [previous.commitError] })] : []),
+    ...(previous.commitCanPrepare ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
+    ...(previous.commitCanApprove ? [button('commit-approve', 'Approve requester commit', () => decideRequester($, previous, epoch))] : []),
+    ...(previous.commitCanComplete ? [button('commit-complete', 'Complete requester commit', () => decideRequester($, previous, epoch, true))] : []),
+    ...(previous.commitExpired ? [Text({ children: ['Requester decision deadline elapsed. Check retained public consent; no automatic retry.'] })] : []),
+    button('commit-check', 'Check requester consent', () => readRequester($, previous, epoch)),
+    button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch)),
+  ];
+}
 function leaveOwner($, previous, epoch) {
   if (joining !== previous || epoch !== generation) return;
   joiningExpiry?.cancel(); joiningExpiry = null;
   joining = { ...previous, owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
     ownerCanSign: false, ownerSignExpired: false, originalSignature: false, busy: false, expiryAuthority: null,
     finalization: null, finalizationActive: false, finalizationError: null, finalizationCanReview: false,
-    finalizationCanSign: false, finalizationExpired: false };
+    finalizationCanSign: false, finalizationExpired: false,
+    requester: null, commitActive: false, commitOperation: false, commitError: null, commitExpired: false,
+    commitCanApprove: false, commitCanComplete: false, commitCanPrepare: false };
   $.ui.invalidate('ui.render');
 }
 function ownerControls($, { Text, Button }, previous, epoch) {
   const button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.commitActive) return requesterControls($, { Text, Button }, previous, epoch);
   if (previous.finalizationActive) return [
     ...(previous.finalization ? [Text({ children: [finalizationReviewLines(previous.finalization, previous.parent)] })] : []),
     ...(finalizationRecorded(previous.owner) ? [Text({ children: ['Original finalization: recorded',
       `\nFinalization packet: ${previous.owner.request.owner_finalization_id}`,
       '\nThis is global durable protocol evidence; it does not identify which interface signed it or attribute a historical inspection digest.',
       '\nRequester final commit is separate. Current adopted powers, agent access, reachability and model receipt are not verified.'] })] : []),
+    ...(finalizationRecorded(previous.owner) ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
     ...(previous.finalizationError ? [Text({ children: [previous.finalizationError] })] : []),
     ...(previous.finalizationCanSign ? [button('finalization-sign', 'Sign original finalization', () => signFinalization($, previous, epoch))] : []),
     ...(previous.finalizationExpired ? [Text({ children: ['Original finalization deadline elapsed. Check public evidence; no automatic retry.'] })] : []),
@@ -1667,6 +1801,7 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     ...(finalizationRecorded(previous.owner) ? [Text({ children: ['Original finalization: recorded',
       `\nFinalization packet: ${previous.owner.request.owner_finalization_id}`,
       '\nGlobal public evidence, without signing-interface or historical inspection attribution. Requester commit and access/readiness remain separate.'] })] : []),
+    ...(finalizationRecorded(previous.owner) ? [button('commit-review', 'Review requester commit', () => readRequester($, previous, epoch, true))] : []),
     ...(previous.owner?.owner === null ? [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))] : []),
     button('owner-check', 'Check owner consent', () => readOwner($, previous, epoch, false)),
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),
@@ -1692,6 +1827,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   });
   if (previous.busy) return [Text({ children: [previous.stage === 'requested'
     ? 'Join request: publication recorded\n' + joinReviewLines(previous.flow, null) + '\nJoining: working…' : 'Joining: working…'] }),
+    ...(previous.commitOperation ? [button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch))] : []),
     ...(previous.ownerOperation ? [button(previous.finalizationActive ? 'finalization-leave' : 'owner-leave',
       previous.finalizationActive ? 'Leave finalization review' : 'Leave owner review', () => leaveOwner($, previous, epoch))] : []),
     ...(previous.stage === 'create_review' ? [cancelCreation] : []), back];
