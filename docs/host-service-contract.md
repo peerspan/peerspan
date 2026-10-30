@@ -313,3 +313,13 @@ and approval over the existing ordinary requester intent, as specified in
 These routes retain public immutable terms and atomic consent, with pure
 history recovery. They do not sign, transport or apply the link, grant agent
 access or establish readiness. Bounded completion/native controls follow.
+
+
+Guided requester completion (guided session contract section 28) adds owner-local
+POST /v1/onboarding/join-flows/{id}/commit/complete and private-stdin
+`onboarding join commit complete --stdin`. It requires the exact already
+approved requester review and explicit complete_requester_commit decision.
+Existing signing/application transactions recheck the guided binding; exact
+publication passes are bounded. Verified local application is separate from
+participant delivery, agent access and readiness. Completed replay is pure.
+No new schema, consent, original-key provider or peer/scoped route.

@@ -431,3 +431,10 @@ run passed 16/16 in 67s; the CI cause remains unclassified. GU.impl27f adds only
 independently authored bounded public diagnostics after the original wait fails,
 with every assertion/action/delay/timeout preserved. The verification record
 keeps both results and source limits; PR66 records subsequent exact-head gates.
+
+
+The next backend slice (section 28) explicitly completes an already approved
+requester commit through bounded ordinary signing/publication/local application.
+It returns verified local application without implying peer delivery or agent
+readiness, and recovers an applied operation purely. Native commit controls
+follow separately so both changes stay independently reviewable.

@@ -2817,3 +2817,18 @@ assertion/action/delay/timeout and rethrowing the original failure. Keep the
 failed run and one retained local diagnostic run. Discarded: calling the failure
 a proven flake, retrying unchanged until green, weakening the timeout or dumping
 private DB/state artifacts into CI. Production remains frozen.
+
+
+### GU.impl28 — Bounded continuation of exact approved requester consent
+
+Selected: a private explicit completion action over the existing approved
+requester intent, with checks inside its ordinary signing and application
+transactions, bounded exact-request publication and pure verified application
+replay. Section 28 precedes production and independent requester_completion6.
+Native commit controls follow as a separate small PR. Keep approval history,
+local application, participant delivery and agent readiness distinct. The human
+approval window does not revoke already recorded protocol consent. Document
+partial-work/worker attribution and cancellation limits; retain the unclassified
+prior delivery timeout. Discarded: another journal, implicit approval, broad
+resume/polling, original-key selection, whole-attempt atomicity and local
+application as readiness.
