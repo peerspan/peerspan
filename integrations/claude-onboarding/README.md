@@ -432,9 +432,9 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite now includes272 cases, including20 incoming
-administrator cases and the original252 project/adapter/message/task/invitation/
-joining/owner cases. The tests use Claude's actual mod runtime with public API effects
+The independent native suite now includes292 cases:20 original-finalization
+cases,20 incoming administrator cases and the original252 project/adapter/
+message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
