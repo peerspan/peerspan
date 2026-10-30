@@ -6004,7 +6004,11 @@ approval timestamps, fixed policy payload/provider and its sole issuer slot.
 It is pure for every state: no key/agent lookup, maintenance, clock save, signing,
 publication, event, transport or policy write. An unsigned record never becomes
 signed/applied through observation. An advanced-only ordinary approval or apply
-cannot create or replace guided human consent.
+cannot create or replace guided human consent. If its guided receipt remains
+unapproved, pure observation preserves section31's access state (including
+invalidated) and application:null; explicit apply refuses409review_changed.
+Approved unsigned/signed observation remains historical after expiry, detach,
+replacement or provider/head changes; only first apply requires fresh liveness.
 
 For first apply, require BOTH exact approvals and the fully stored, verified
 single signature. Require latest receipt, attached exact project/session/agent,
