@@ -461,6 +461,7 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::link_runtime::peer::routes())
         .merge(crate::decentralized::peer::routes(store.clone()))
         .merge(crate::directory::peer_routes())
+        .merge(crate::conversations::peer_routes())
         .merge(crate::agent_lookup::peer_routes())
         .merge(crate::coordinator_move::peer_routes())
         .layer(axum::middleware::from_fn_with_state(

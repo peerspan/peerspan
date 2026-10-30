@@ -259,6 +259,24 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 - **DEC.impl30. Verified DEC results are reused for identical inputs.** Reading a catalog, loading a network's snapshot and building a projection are pure functions of their exact inputs, and one owner command repeated each of them dozens of times. The daemon keeps the latest results in memory, keyed by a hash of every input: the descriptor and exact catalog bytes; every row `Snapshot::load` reads for the network, with the network and own host key; and the descriptor, prior state, candidate bytes, decision time and operation of a projection. Only successes are kept, at most 32 per kind and about 32 MiB of catalog bytes, and a full memo starts over; nothing is persisted, so any changed row, byte or second misses and is verified in full. Discarded: invalidating on writes (every writer of the DEC tables would have to take part) and the host crate at `opt-level = 1` again (DEC.impl11 revision).
 - **Implemented in:** [PR #27](https://github.com/peerspan/peerspan/pull/27).
 
+### DEC-impl: settled by the implementer in conversations C1, [PR #68](https://github.com/peerspan/peerspan/pull/68) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C1 contract section](conversations-contract.md#c1-two-hosts-one-message-each-way). The owner may revisit any of them.
+
+- **DEC.impl31. One agent target in C1.** `conversation start` and `POST /v1/conversations` take exactly one participant, an agent address. Person forms (`person:…`, or a value without `/`) are 400 `invalid` until C3, and more than one participant is 400 until C2. Discarded: several agent targets now, which would need the roster pushes that C2 adds.
+- **DEC.impl32. `not_bound`.** A host with no bound person answers person starts, sends and reads with 409 `{code: "not_bound"}` and the proposal's text. Discarded: 403 (nothing is forbidden; the host lacks a binding).
+- **DEC.impl33. The invite carries the roster home will commit.** The invite's `roster` is the next version with the target `joined`, and the name in the answer is the authoritative one. A final refusal commits the next version without the target. Discarded: sending the `inviting` roster, which would leave the target's host without a roster in which its agent is joined.
+- **DEC.impl34. The first message from `start` goes only to joined targets.** `start` waits at most 15 seconds for the invite. A target still `inviting` then gets no target record for the first message, as for any message. Discarded: holding the first message until the invite settles.
+- **DEC.impl35. No citation for person targets.** A request to a person target carries none of `policy`, `grant_id` and `self`; persons are authorized by joining, not by policy. Discarded: citing a policy the receiver would ignore.
+- **DEC.impl36. Cite something, and let the receiver decide.** When nothing the author's host holds allows a target, it still cites the target owner's newest policy, so the receiver gives the final answer. With no policy at all, the target is `refused` with `not_authorized` locally, without a request. Discarded: refusing locally whenever the directory shows no allowing rule, because the directory can be stale.
+- **DEC.impl37. 403 `forbidden` on the wire, `not_authorized` in views.** The receiver answers authorization failures as one-to-one messages do (403 `forbidden`), and the sender records them as `refused` with code `not_authorized`. Content over every allowing rule's `max_message_bytes` is such a 403. Discarded: a new peer error code.
+- **DEC.impl38. `prev_seq` is omitted for the first message.** Peer bodies are strict JSON in which null is 400, so the first message to a target has no `prev_seq` key. Discarded: allowing null for this one field.
+- **DEC.impl39. `unseen` counts unforwarded notifications until C5.** Before seen tracking exists, `unseen` in the claim counts the agent's message notifications in the conversation that have not been forwarded yet, the claimed one included. Discarded: a constant 1.
+- **DEC.impl40. No directory access, nothing to claim.** A session without directory access gets `null` from the conversation claim route, so its adapter keeps polling quietly, while the sending route refuses with 403 `no_directory`. Discarded: 403 from the claim route, which the adapter's loop would treat as an authorization failure.
+- **DEC.impl41. The daemon cuts the window.** Window entries arrive already cut to 2,048 bytes, with `truncated` and `content_bytes`. The claim adds `window_total`, the N in the header's "last K of N", which is 0 whenever the window is empty. Discarded: sending full contents for the adapter to cut, which can pass the claim's size bound.
+- **DEC.impl42. `addressed_to` on the wire only.** The peer route accepts, checks and stores `addressed_to`, and `meta.addressed` follows it. No C1 local route or tool sets it; C6 adds that. Discarded: refusing it on the wire until C6, which would break hosts that run C6 against C1 hosts.
+- **Implemented in:** [PR #68](https://github.com/peerspan/peerspan/pull/68).
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -1200,8 +1218,8 @@ These points were left open by the proposal and were settled by the implementer 
 - **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
-- **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
-- **Implementing PRs:** none yet.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way). Not yet a roadmap milestone.
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl31 to DEC.impl42).
 - **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".

@@ -779,6 +779,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::live_delivery::adapter_routes())
         .merge(crate::agent_calls::adapter_routes())
         .merge(crate::approvals::adapter_routes())
+        .merge(crate::conversations::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

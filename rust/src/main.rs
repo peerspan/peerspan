@@ -4,6 +4,7 @@ mod admin;
 mod builtin_discovery;
 mod capability_cli;
 mod cli;
+mod conversation_cli;
 mod decentralized_action_cli;
 mod decentralized_admin_cli;
 mod decentralized_cli;
@@ -170,6 +171,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     };
     if let cli::Command::Status { json } = command {
         return status(&directory, json).await;
+    }
+    if conversation_cli::handles(&command) {
+        return conversation_cli::run(command, &directory.join("admin.sock")).await;
     }
     if let Some(network) = command.network_mut()
         && network.is_none()
@@ -1183,6 +1187,7 @@ async fn run_daemon(
     let reply_workers =
         peerspan_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let retries = peerspan_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
+    let conversations = peerspan_host::conversations::worker(store.clone(), peer_shutdown.clone());
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
@@ -1211,6 +1216,10 @@ async fn run_daemon(
         },
         async {
             retries.await;
+            Ok(())
+        },
+        async {
+            conversations.await;
             Ok(())
         },
         async {

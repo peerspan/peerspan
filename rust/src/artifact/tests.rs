@@ -794,7 +794,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     rusqlite::Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
+            "DROP TABLE conversation_events; DROP TABLE conversation_reads; DROP TABLE conversation_notifications; DROP TABLE conversation_roster_outbound; DROP TABLE conversation_invites; DROP TABLE conversation_targets; DROP TABLE conversation_messages; DROP TABLE conversations; DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();
@@ -802,7 +802,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",

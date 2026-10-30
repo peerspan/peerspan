@@ -25,6 +25,49 @@ pub struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum ConversationCommand {
+    /// Start a conversation with one agent, PERSON/AGENT or HOST_ID/AGENT
+    Start {
+        #[arg(value_name = "TARGET")]
+        target: String,
+        #[arg(long, value_name = "TEXT")]
+        title: Option<String>,
+        /// Send this as the first message
+        #[arg(long, value_name = "TEXT")]
+        message: Option<String>,
+        /// The first message's ID (cmsg_ and 32 hex digits)
+        #[arg(long, value_name = "ID", requires = "message")]
+        message_id: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Send a message as this host's person
+    Say {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Reuse an ID to retry a send without sending twice
+        #[arg(long, value_name = "ID")]
+        message_id: Option<String>,
+    },
+    /// Show a conversation and its latest messages
+    Show {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long, value_name = "N", default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+        #[arg(long, value_name = "MESSAGE_ID")]
+        before: Option<String>,
+        /// Read as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// Link or renew this machine without copying an original person key
     Link(crate::link_cli::LinkArgs),
@@ -209,6 +252,19 @@ pub enum Command {
         #[arg(last = true, allow_hyphen_values = true, value_name = "HARNESS_ARGS")]
         harness_args: Vec<String>,
     },
+    /// List conversations of this host's person and agents
+    #[command(hide = true)]
+    Conversations {
+        /// Include closed conversations
+        #[arg(long)]
+        all: bool,
+        /// Print the daemon's answer as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start, send in, and show conversations
+    #[command(subcommand, hide = true)]
+    Conversation(ConversationCommand),
     /// Show the agents you can reach, your own, and who can reach yours
     Agents {
         #[arg(long, value_name = "ID")]
@@ -1664,7 +1720,10 @@ fn about(command: &clap::Command, path: &str) -> String {
         .unwrap_or_default()
 }
 fn leaves(command: &clap::Command, prefix: &str, entries: &mut Vec<(String, String)>) {
-    for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
+    for sub in command
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+    {
         let path = format!("{prefix}{}", sub.get_name());
         if sub.has_subcommands() {
             // A group that also runs by itself, like `task TARGET TEXT`.
@@ -1803,6 +1862,8 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)
+            | Self::Conversations { .. }
+            | Self::Conversation(_)
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))

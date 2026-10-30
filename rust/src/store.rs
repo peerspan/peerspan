@@ -174,7 +174,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=23).contains(&version) {
+        if !(0..=24).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -249,6 +249,9 @@ impl Store {
         }
         if version < 23 {
             tx.execute_batch(crate::decentralized::storage::SCHEMA)?;
+        }
+        if version < 24 {
+            tx.execute_batch(crate::conversations::SCHEMA)?;
         }
         crate::decentralized::storage::check_schema(&tx)?;
         if version < 23
