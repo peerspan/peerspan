@@ -1,6 +1,6 @@
 # Conversations contract
 
-Launch-plan track 3. The design and its settled decisions are in the [conversations proposal](conversations-proposal.md) and the owner decisions [CONV-1 to CONV-26](decision-log.md#conv-conversations-2026-10-25). Feature slice 1 is built as PRs C1 to C6 ([Slices](conversations-proposal.md#slices)); each PR adds its section here. Where this contract and the proposal differ, this contract applies; anything the proposal gives to a later PR is not part of an earlier section.
+Launch-plan track 3. The design and its settled decisions are in the [conversations proposal](conversations-proposal.md) and the owner decisions [CONV-1 to CONV-27](decision-log.md#conv-conversations-2026-10-25). Feature slice 1 is built as PRs C1 to C6 ([Slices](conversations-proposal.md#slices)); each PR adds its section here. Where this contract and the proposal differ, this contract applies; anything the proposal gives to a later PR is not part of an earlier section.
 
 It builds on the [messaging contract](peer-messaging-contract.md) (authorization citations, retry), [sending by address](launch-contract.md#sending-by-address) and [directory sessions](launch-contract.md#directory-sessions), the [adapter](agent-adapter-contract.md) and [live delivery](live-delivery-contract.md) contracts, and the [coordinator-free spec](decentralized-spec.md) for membership, owner policies and sync. Rust is the only host.
 
