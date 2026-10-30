@@ -26,6 +26,7 @@ pub(crate) mod peer;
 mod probe;
 pub(crate) mod product;
 mod project_access;
+pub(crate) mod project_access_application;
 mod project_access_consent;
 pub(crate) mod project_access_signing;
 mod provider;
