@@ -2638,6 +2638,17 @@ impl Store {
                 "message ID reused with different fields".into(),
             ));
         }
+        // A refusal recorded at a fetch is final: a later push meets it.
+        let refused: Option<String> = tx
+            .query_row(
+                "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'refused' AND peer = ?4",
+                params![id, m.message_id, r.target, sender],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(refused) = refused {
+            return Err(sync::saved_refusal(refused)?);
+        }
         let Some(held) = self.held_opt(&tx, id)? else {
             return Err(unavailable(
                 "this host does not hold that conversation's roster",
@@ -2750,11 +2761,6 @@ impl Store {
             prev_seq: r.prev_seq,
             receipt: receipt.clone(),
         };
-        // A refusal recorded at an earlier fetch gives way to an acceptance.
-        tx.execute(
-            "DELETE FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'refused'",
-            params![id, m.message_id, r.target],
-        )?;
         tx.execute(
             "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
             params![id, m.message_id, r.target, sender, r.prev_seq, serde_json::to_string(&inbound)?],

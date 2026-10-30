@@ -79,6 +79,18 @@ struct Refused {
     acked: bool,
 }
 
+/// The answer to a push of a message already refused at a fetch.
+pub(super) fn saved_refusal(record: String) -> Result<Error, Error> {
+    let refused: Refused = json(record)?;
+    Ok(match &refused.code[..] {
+        "not_participant" => super::not_participant(),
+        "closed" => super::closed(),
+        "conflict" => Error::Conflict("message ID reused with different fields".into()),
+        "invalid" => invalid("refused as invalid at a fetch"),
+        _ => Error::Forbidden,
+    })
+}
+
 /// This host's sync with one other participant host, in
 /// `conversation_roster_outbound` with `kind` `sync` (never `sending`).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
