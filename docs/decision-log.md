@@ -3038,3 +3038,13 @@ alignment/strict5s retirement and every historical assertion. Add UDP accounting
 to both existing TCP counters. Independent author commits before execution.
 Discard more clock steps, sync as ACK evidence, early transport bypasses,
 uncounted carriers, queue edits, forced ACK, worker controls and longer waits.
+
+### GU.impl28j — Identify the observed historical carrier before changing setup
+
+First corrected local access6/6in97s passes strict state/files/all TCP+UDP purity.
+Old completion5/6in131s passes real delivery/ACK retirement, then its restarted
+API replay sees carrier IO with unchanged DB/state/home. Select independent
+failure-only counter-delta diagnostics over existing captured tuples before
+another setup change. All assertions/actions/delays/timeouts stay intact and
+diagnostics normalize to exact prior bytes/AST. Discard attributing background
+IO to the replay without evidence, extra waits, uncounted paths or worker control.
