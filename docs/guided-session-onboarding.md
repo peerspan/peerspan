@@ -456,3 +456,9 @@ duration remain recorded. The earlier missing-category failure stays unclassifie
 fresh final-head all24 CI and review after the evidence commit. Native controls,
 access/readiness, device flow and installed/physical/model/upgrade acceptance
 remain open.
+
+The next native slice (section29) exposes separate requester Review, Approve and
+Complete actions over sections27/28, with pure lookup-first recovery. Original
+and administrator approvals remain separate. Local application is not delivery,
+agent access or connection readiness. Contract GU.impl29 precedes implementation
+and independent native tests; installed/physical/model/full-feature gates stay open.
