@@ -4314,6 +4314,9 @@ impl Store {
             return Err(Error::NotFound);
         }
         let mut next = held.roster.clone();
+        // A person who left or was removed and joins again leaves `departed`.
+        next.departed
+            .retain(|d| d["id"].as_str() != Some(id.as_str()));
         for p in &mut next.participants {
             if p.id.is_none() && p.person_id.as_deref() == Some(person) {
                 p.id = Some(id.clone());
@@ -4425,6 +4428,18 @@ impl Store {
                 let Some(roster) = roster else {
                     return Err(unanswered());
                 };
+                // A push already settled this join (and a newer roster may
+                // have removed the person since): the answer changes nothing.
+                if pending.state != "pending" {
+                    let joined = self
+                        .held_opt(&tx, id)?
+                        .is_some_and(|h| h.joined_here(&participant));
+                    return if joined {
+                        Ok(())
+                    } else {
+                        Err(not_participant())
+                    };
+                }
                 let added_at = roster
                     .joined(&participant)
                     .map(|p| p.added_at.clone())
@@ -4436,6 +4451,13 @@ impl Store {
                     Some(mut h) => {
                         if roster.version > h.roster.version {
                             self.apply_roster(&tx, &mut h, roster, None)?;
+                        } else if h.roster.joined(&participant).is_none() {
+                            // A newer roster held here no longer lists the
+                            // person joined: home removed them since.
+                            pending.state = "dropped".into();
+                            self.save_pending(&tx, id, &person, &pending)?;
+                            tx.commit()?;
+                            return Err(not_participant());
                         }
                         h
                     }
