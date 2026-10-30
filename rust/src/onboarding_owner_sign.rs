@@ -32,22 +32,45 @@ struct Input {
     owner_review_id: String,
     decision: Decision,
 }
+pub(crate) struct Consent {
+    pub flow_id: String,
+    pub context: AdapterContext,
+    pub join_review_id: String,
+    pub owner_review_id: String,
+}
+impl From<Input> for Consent {
+    fn from(input: Input) -> Self {
+        let Input {
+            flow_id,
+            context,
+            join_review_id,
+            owner_review_id,
+            decision: Decision::SignOriginalOwnerOffer,
+        } = input;
+        Self {
+            flow_id,
+            context,
+            join_review_id,
+            owner_review_id,
+        }
+    }
+}
 fn unavailable() -> anyhow::Error {
     anyhow::anyhow!(
         "original owner signing unavailable; inspect the recorded owner consent before another explicit attempt"
     )
 }
-fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
+pub(crate) fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str().ok_or_else(unavailable)
 }
-fn id(s: &str, prefix: &str, n: usize) -> bool {
+pub(crate) fn id(s: &str, prefix: &str, n: usize) -> bool {
     s.strip_prefix(prefix).is_some_and(|s| {
         s.len() == n
             && s.bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
 }
-fn decode(s: &str, max: usize) -> Result<Vec<u8>> {
+pub(crate) fn decode(s: &str, max: usize) -> Result<Vec<u8>> {
     ensure!(
         s.len() <= max.div_ceil(3) * 4,
         "bounded original signing material required"
@@ -59,7 +82,7 @@ fn decode(s: &str, max: usize) -> Result<Vec<u8>> {
     );
     Ok(raw)
 }
-fn time(s: &str) -> Result<DateTime<Utc>> {
+pub(crate) fn time(s: &str) -> Result<DateTime<Utc>> {
     let t = DateTime::parse_from_rfc3339(s)?.with_timezone(&Utc);
     ensure!(
         t.to_rfc3339_opts(SecondsFormat::Secs, true) == s,
@@ -67,7 +90,7 @@ fn time(s: &str) -> Result<DateTime<Utc>> {
     );
     Ok(t)
 }
-fn hash(domain: &str, v: &Value) -> String {
+pub(crate) fn hash(domain: &str, v: &Value) -> String {
     format!(
         "review_{}",
         hex::encode(Sha256::digest(
@@ -75,7 +98,7 @@ fn hash(domain: &str, v: &Value) -> String {
         ))
     )
 }
-fn private(s: &str) -> bool {
+pub(crate) fn private(s: &str) -> bool {
     let stripped:String=s.chars().filter(|c|!c.is_control() && !matches!(*c,'\u{200b}'..='\u{200f}'|'\u{2028}'..='\u{202e}'|'\u{2060}'..='\u{206f}'|'\u{feff}')).collect();
     [s, &stripped].iter().any(|s| {
         [
@@ -94,10 +117,10 @@ fn private(s: &str) -> bool {
 fn label(s: &str) -> bool {
     !s.trim().is_empty() && s.len() <= 128 && !s.chars().any(char::is_control) && !private(s)
 }
-fn owner_body(input: &Input) -> Value {
+fn owner_body(input: &Consent) -> Value {
     json!({"context":input.context,"join_review_id":input.join_review_id})
 }
-async fn http(local: &Local<'_>, path: String, body: Option<Value>) -> Result<Value> {
+pub(crate) async fn http(local: &Local<'_>, path: String, body: Option<Value>) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(5), async {
         match body {
             Some(body) => local.post(path, body).await,
@@ -110,14 +133,14 @@ async fn http(local: &Local<'_>, path: String, body: Option<Value>) -> Result<Va
 fn effects() -> Value {
     json!({"approve_owner_intent":true,"authorize_original_signature":true,"authorize_bounded_owner_finalization":true,"auto_select_single_offer_after_signature":true,"publish_owner_offer_after_signature":true,"grant_membership":false,"grant_agent_access":false,"approve_network_administrator":false,"commit_request":false,"share_files":false,"share_conversation":false,"capability_calls":false})
 }
-fn strict_request(p: &Value) -> Result<()> {
+pub(crate) fn strict_request(p: &Value) -> Result<()> {
     shape(
         p,
         "request_id role mode state network_id context_id migration_proposal_id person_public_key host_public_key device_public_key created_at expires_at request_packet_id owner_offer_id selection_id administrator_offer_id owner_finalization_id manifest_id activation_id outcome_id selection_approved commit_approved completed attention next",
     )?;
     view(p)
 }
-fn checked(v: &Value, input: &Input) -> Result<()> {
+fn checked(v: &Value, input: &Consent) -> Result<()> {
     shape(
         v,
         "version host_id flow_id join_review_id context observed_at request owner",
@@ -285,7 +308,7 @@ fn checked(v: &Value, input: &Input) -> Result<()> {
     );
     Ok(())
 }
-async fn lookup(local: &Local<'_>, input: &Input) -> Result<Value> {
+pub(crate) async fn lookup(local: &Local<'_>, input: &Consent) -> Result<Value> {
     let v = http(
         local,
         format!(
@@ -298,7 +321,7 @@ async fn lookup(local: &Local<'_>, input: &Input) -> Result<Value> {
     checked(&v, input)?;
     Ok(v)
 }
-fn same_request(a: &Value, b: &Value) -> Result<()> {
+pub(crate) fn same_request(a: &Value, b: &Value) -> Result<()> {
     ensure!(
         a["owner"]["review"] == b["owner"]["review"],
         "changed original review"
@@ -354,11 +377,21 @@ fn live(v: &Value) -> Result<()> {
 }
 async fn binding(
     local: &Local<'_>,
-    input: &Input,
+    input: &Consent,
     v: &Value,
     parent: Option<&Value>,
 ) -> Result<Value> {
     live(v)?;
+    let parent = project_binding(local, input, v, parent).await?;
+    live(v)?;
+    Ok(parent)
+}
+pub(crate) async fn project_binding(
+    local: &Local<'_>,
+    input: &Consent,
+    v: &Value,
+    parent: Option<&Value>,
+) -> Result<Value> {
     let current = tokio::time::timeout(
         Duration::from_secs(5),
         crate::onboarding_identity_cli::parent(local, &input.context),
@@ -430,7 +463,6 @@ async fn binding(
             .any(|n| n["id"] == v["request"]["network_id"]),
         "original network already adopted"
     );
-    live(v)?;
     Ok(current.0)
 }
 struct Offer {
@@ -616,7 +648,7 @@ fn offer(v: &Value, ordinary: &Value) -> Result<Option<Offer>> {
     }
     Ok(selected)
 }
-async fn signer(public: String) -> Result<PersonSigner> {
+pub(crate) async fn signer(public: String) -> Result<PersonSigner> {
     tokio::task::spawn_blocking(move || {
         if let Some(key) = crate::onboarding_identity_create::read_existing()? {
             let selected = PersonSigner::File(key);
@@ -629,7 +661,7 @@ async fn signer(public: String) -> Result<PersonSigner> {
     .await
     .map_err(|_| unavailable())?
 }
-async fn sign(local: &Local<'_>, input: &Input) -> Result<Value> {
+async fn sign(local: &Local<'_>, input: &Consent) -> Result<Value> {
     let first = lookup(local, input).await?;
     if first["request"]["owner_offer_id"] != "-" {
         return Ok(recorded(first));
@@ -704,7 +736,6 @@ pub(crate) async fn from_stdin(socket: &Path) -> Result<Value> {
         "flow_id context join_review_id owner_review_id decision",
     )
     .map_err(|_| invalid())?;
-    let Decision::SignOriginalOwnerOffer = input.decision;
     input.context.validate().map_err(|_| invalid())?;
     ensure!(
         id(&input.flow_id, "flow_", 32)
@@ -714,7 +745,7 @@ pub(crate) async fn from_stdin(socket: &Path) -> Result<Value> {
             && !private(&input.context.native_session_id),
         "invalid original owner signing input"
     );
-    sign(&Local(socket), &input)
+    sign(&Local(socket), &input.into())
         .await
         .map_err(|_| unavailable())
 }
