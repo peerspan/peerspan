@@ -120,19 +120,23 @@ def start(*adapters, title=None):
 
 
 def say(conv, adapter, *texts):
-    """alice's person sends TEXTS; wait for ADAPTER's target to be `delivered`. Returns the message IDs."""
-    ids = [a.ok("conversation", "say", conv, text)["message"]["message_id"] for text in texts]
-    last = {}
+    """alice's person sends TEXTS, each after ADAPTER's target for the one before is `delivered`, since a claim's order
+    is arrival order and quick sends can arrive in either (C6 Verification Claim order). Returns the message IDs."""
+    ids = []
+    for text in texts:
+        mid = a.ok("conversation", "say", conv, text)["message"]["message_id"]
+        ids.append(mid)
+        last = {}
 
-    def delivered():
-        view = a.ok("conversation", "show", conv, "--json", "--limit", "100")
-        last["t"] = [target_of(find_message(view, mid), participant(adapter)) for mid in ids]
-        check(all(t["state"] in ("sending", "delivered") for t in last["t"]), f"targets {last['t']}")
-        return all(t["state"] == "delivered" for t in last["t"])
-    try:
-        wait_for(delivered, timeout=30, interval=0.3, message="delivery")
-    except AssertionError as error:
-        raise AssertionError(f"{error}; targets {last.get('t')}") from None
+        def delivered(mid=mid):
+            view = a.ok("conversation", "show", conv, "--json", "--limit", "100")
+            last["t"] = target_of(find_message(view, mid), participant(adapter))
+            check(last["t"]["state"] in ("sending", "delivered"), f"target {last['t']}")
+            return last["t"]["state"] == "delivered"
+        try:
+            wait_for(delivered, timeout=30, interval=0.1, message="delivery")
+        except AssertionError as error:
+            raise AssertionError(f"{error}; target {last.get('t')}") from None
     return ids
 
 

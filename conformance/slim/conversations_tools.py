@@ -561,17 +561,20 @@ def _():
     deny(wait=True)
     try:
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
-        if status == 201:  # alice's directory entry can still be the earlier one: bob refuses the invite
-            outcome = body["invites"][0]
-            check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
-            denied = body["conversation"]["conversation_id"]
-            check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
-                  f"ana is in the denied conversation: {body['conversation']}")
-            status, listed = ana.call("GET", "/adapter/v1/conversations")
-            check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
-                  f"ana lists the denied conversation: {status} {listed}")
-        else:
-            api_error(status, body, 403, "not_authorized")
+        # A policy sync does not update alice's directory entry: bob's host refuses the invite.
+        check(status == 201, f"a denied start with the earlier directory entry: {status} {body}, want 201")
+        outcome = body["invites"][0]
+        check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
+        denied = body["conversation"]["conversation_id"]
+        check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
+              f"ana is in the denied conversation: {body['conversation']}")
+        status, listed = ana.call("GET", "/adapter/v1/conversations")
+        check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
+              f"ana lists the denied conversation: {status} {listed}")
+        # After a refresh the directory no longer lists the agent.
+        a.ok("agents", "--refresh", "--json")
+        status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
+        api_error(status, body, 404, "unknown")
     finally:
         allow()
 
@@ -682,12 +685,13 @@ def _():
         watch.wait_text(text("again in the first"))
         # An `invited` and a `roster_changed` line each name their conversation.
         invited = start("person:bob", join=None)
-        watch.wait_text(invited[:13])
+        wait_for(lambda: any(x.startswith(invited[:13]) for x in watch.text().splitlines()), timeout=20, interval=0.1,
+                 message="a line starting with the invited conversation's ID")
         lines_before = len(watch.text().splitlines())
         b.ok("conversation", "join", invited, timeout=60)
         wait_for(lambda: len(watch.text().splitlines()) > lines_before, timeout=20, interval=0.2,
                  message="a roster line after joining")
-        check(invited[:13] in watch.text().splitlines()[-1], f"the roster line: {watch.text()[-300:]!r}")
+        check(watch.text().splitlines()[-1].startswith(invited[:13]), f"the roster line: {watch.text()[-300:]!r}")
         watch.stop()
     # `--as`: reads as the agent and moves no person's cursor.
     wes = new_agent("wes")
@@ -825,6 +829,8 @@ def _():
     after = events(b, f"{query}&after={reader}")
     check(s1 not in {e["message_id"] for e in after["events"]}, f"s1 came back to the stream: {after['events']}")
     check(s3 in {e["message_id"] for e in after["events"]}, f"the stream lacks s3: {after['events']}")
+    # A new read from an earlier `after` decides afresh: s1 is visible now.
+    check(s1 in {e["message_id"] for e in events(b, query + "&after=0")["events"]}, "after=0 lacks s1 once allowed")
     check(claim_message(hal, s1)["messages"][0]["content"] == text("s1 hidden from hal"), "the claim of s1")
 
 
@@ -1012,18 +1018,14 @@ def _():
     status, body = peer(a, b, "POST", f"/peer/v1/conversations/{conv}/roster", {"roster": roster})
     api_error(status, body, 400, "invalid")
     check(view_as(b, conv, bob_p)["title"] is None, "the roster with a control character was stored")
-    # C1's rule says "control characters" without listing them: U+009B is refused, or it is printed escaped.
-    status, body = a.api("POST", "/v1/conversations", {"participants": ["person:bob"],
-                                                       "title": f"{TITLE_WORD} \x9b2J"})
-    if status != 400:
-        check(status == 201, f"a title with U+009B: {status} {body}")
-        titled = body["conversation"]["conversation_id"]
-        wait_invite(b, titled)
-        b.ok("conversation", "join", titled, timeout=60)
-        readable(b.cli("conversation", "show", titled), r"\u009b2J")
-        readable(b.cli("conversations"), r"\u009b2J")
-        readable(b.cli("conversations", "--all"))
-        check(json_output(b.cli("conversations", "--json")) is not None, "`conversations --json`")
+    # U+007F to U+009F are control characters too (C6 Names), from the owner route and in a peer's roster.
+    for control in ("\x9b2J", "\x7f", "\x80"):
+        status, body = a.api("POST", "/v1/conversations", {"participants": ["person:bob"],
+                                                           "title": f"{TITLE_WORD} {control}"})
+        api_error(status, body, 400, "invalid")
+        status, answer = peer(a, b, "POST", f"/peer/v1/conversations/{conv}/roster",
+                              {"roster": {**roster, "title": f"{TITLE_WORD} {control}"}})
+        api_error(status, answer, 400, "invalid")
     # A plain title still prints.
     plain_title = f"{TITLE_WORD} plain"
     titled = start("person:bob", "--title", plain_title)
