@@ -278,7 +278,7 @@ pub(super) fn action_id(context: &str, kind: &str, statement: &str, provider: &s
         ]))
     )
 }
-fn template(
+pub(super) fn template(
     p: &Projection,
     provider: &Resolved,
     kind: &str,
@@ -611,6 +611,104 @@ fn completed_retry(
     )?;
     Ok(Some(b64(&old.record.result_base64, 32 << 20)?))
 }
+pub(super) fn intent_in(
+    connection: &Connection,
+    store: &Store,
+    snapshot: &Snapshot,
+    p: &Projection,
+    provider: &Resolved,
+    fixed: &FixedStatement,
+    capability: Option<&str>,
+) -> Result<(Intent, bool)> {
+    let kind = fixed.typed().kind.as_str();
+    let network = &snapshot.descriptor.network_id;
+    let claim = capability.is_some();
+    let id = action_id(
+        &snapshot.network.context_id,
+        if claim { "policy_claim" } else { kind },
+        fixed.statement_id(),
+        &provider.concrete_id,
+    );
+    let original_binding = kind == "binding_lease" && provider.provider.kind == "original";
+    let existing = load(
+        connection,
+        network,
+        &id,
+        if claim { "policy_claim" } else { "action" },
+    );
+    let new = matches!(&existing,Err(e) if e.code=="not_found");
+    let i = match existing {
+        Ok(i) => {
+            require(
+                i.record.templates[0].template_base64 == encode(fixed.bytes()),
+                "operation_conflict",
+            )?;
+            i
+        }
+        Err(e) if e.code == "not_found" => {
+            let total: i64 = connection
+                .query_row("SELECT COUNT(*) FROM dec_intents", [], |r| r.get(0))
+                .map_err(db)?;
+            let unsigned:i64=connection.query_row("SELECT COUNT(*) FROM dec_intents WHERE json_extract(record,'$.terminal')='-' AND json_extract(record,'$.completed')=0",[],|r|r.get(0)).map_err(db)?;
+            require(total < 4096 && unsigned < 64, "quota_exceeded")?;
+            let s = fixed.typed();
+            let warning = if claim {
+                format!(
+                    "prepare capability claim: {}",
+                    capability.ok_or_else(|| Error::new("invalid"))?
+                )
+            } else {
+                "bounded authority cannot prove that no unseen revocation exists".into()
+            };
+            let public_provider =
+                provider.public(p, &store.identity().public_key, original_binding)?;
+            let r = json!({"kind":if claim {"policy_claim"}else{kind},"statement_id":s.id,"provider":public_provider,"subject":subject(s)?,"sequence":if restriction(kind){0}else{s.sequence()?},"not_after":s.payload.get("not_after").and_then(Value::as_str).unwrap_or("-"),"authority_warning":warning});
+            Intent {
+                id: crate::store::new_id("dint").map_err(|_| Error::new("internal"))?,
+                network_id: network.into(),
+                context_id: p.descriptor.context_id(),
+                kind: if claim { "policy_claim" } else { "action" }.into(),
+                record: Record {
+                    format: 1,
+                    operation_id: id.clone(),
+                    approved: false,
+                    approved_at: "-".into(),
+                    review_base64: encode(&bytes(&r)?),
+                    provider: provider.provider.clone(),
+                    root_state_id: p.root_state_id()?.into(),
+                    person_public_key: text(&provider.actor, "person_public_key")?.into(),
+                    host_public_key: store.identity().public_key,
+                    device_public_key: text(&provider.actor, "device_public_key")?.into(),
+                    scopes: num(
+                        object(r.get("provider").ok_or_else(|| Error::new("invalid"))?)?,
+                        "scopes",
+                    )?,
+                    not_after: s
+                        .payload
+                        .get("not_after")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .into(),
+                    created_at: p.decision_time.clone(),
+                    expires_at: at(s.issued_at()?, 300)?,
+                    templates: vec![Template {
+                        slot_id: 1,
+                        object_type: kind.into(),
+                        template_base64: encode(fixed.bytes()),
+                    }],
+                    signatures: Vec::new(),
+                    completed: false,
+                    terminal: "-".into(),
+                    result_base64: "-".into(),
+                },
+                secret: None,
+            }
+        }
+        Err(e) => return Err(e),
+    };
+    Ok((i, new))
+}
+
 pub(crate) fn prepare(store: &Store, network: &str, request: &Obj, claim: bool) -> Result<Vec<u8>> {
     fields(
         request,
@@ -667,86 +765,20 @@ pub(crate) fn prepare(store: &Store, network: &str, request: &Obj, claim: bool) 
         )?;
         edits::check_policy(&tx, &p, fixed.typed(), &store.identity().public_key, claim)?;
         preflight(&tx, &p, &s, &fixed)?;
-        let id = action_id(
-            &s.network.context_id,
-            if claim { "policy_claim" } else { kind },
-            fixed.statement_id(),
-            &provider.concrete_id,
-        );
-        let original_binding = kind == "binding_lease" && provider.provider.kind == "original";
-        let existing = load(
+        let (mut i, new) = intent_in(
             &tx,
-            network,
-            &id,
-            if claim { "policy_claim" } else { "action" },
-        );
-        let new = matches!(&existing,Err(e) if e.code=="not_found");
-        let mut i = match existing {
-            Ok(i) => {
-                require(
-                    i.record.templates[0].template_base64 == encode(fixed.bytes()),
-                    "operation_conflict",
-                )?;
-                i
-            }
-            Err(e) if e.code == "not_found" => {
-                let total: i64 = tx
-                    .query_row("SELECT COUNT(*) FROM dec_intents", [], |r| r.get(0))
-                    .map_err(db)?;
-                let unsigned:i64=tx.query_row("SELECT COUNT(*) FROM dec_intents WHERE json_extract(record,'$.terminal')='-' AND json_extract(record,'$.completed')=0",[],|r|r.get(0)).map_err(db)?;
-                require(total < 4096 && unsigned < 64, "quota_exceeded")?;
-                let s = fixed.typed();
-                let warning = if claim {
-                    format!("prepare capability claim: {}", text(request, "capability")?)
-                } else {
-                    "bounded authority cannot prove that no unseen revocation exists".into()
-                };
-                let public_provider =
-                    provider.public(&p, &store.identity().public_key, original_binding)?;
-                let r = json!({"kind":if claim {"policy_claim"}else{kind},"statement_id":s.id,"provider":public_provider,"subject":subject(s)?,"sequence":if restriction(kind){0}else{s.sequence()?},"not_after":s.payload.get("not_after").and_then(Value::as_str).unwrap_or("-"),"authority_warning":warning});
-                Intent {
-                    id: crate::store::new_id("dint").map_err(|_| Error::new("internal"))?,
-                    network_id: network.into(),
-                    context_id: p.descriptor.context_id(),
-                    kind: if claim { "policy_claim" } else { "action" }.into(),
-                    record: Record {
-                        format: 1,
-                        operation_id: id.clone(),
-                        approved: false,
-                        approved_at: "-".into(),
-                        review_base64: encode(&bytes(&r)?),
-                        provider: provider.provider.clone(),
-                        root_state_id: p.root_state_id()?.into(),
-                        person_public_key: text(&provider.actor, "person_public_key")?.into(),
-                        host_public_key: store.identity().public_key,
-                        device_public_key: text(&provider.actor, "device_public_key")?.into(),
-                        scopes: num(
-                            object(r.get("provider").ok_or_else(|| Error::new("invalid"))?)?,
-                            "scopes",
-                        )?,
-                        not_after: s
-                            .payload
-                            .get("not_after")
-                            .and_then(Value::as_str)
-                            .unwrap_or("-")
-                            .into(),
-                        created_at: p.decision_time.clone(),
-                        expires_at: at(s.issued_at()?, 300)?,
-                        templates: vec![Template {
-                            slot_id: 1,
-                            object_type: kind.into(),
-                            template_base64: encode(fixed.bytes()),
-                        }],
-                        signatures: Vec::new(),
-                        completed: false,
-                        terminal: "-".into(),
-                        result_base64: "-".into(),
-                    },
-                    secret: None,
-                }
-            }
-            Err(e) => return Err(e),
-        };
+            store,
+            &s,
+            &p,
+            &provider,
+            &fixed,
+            if claim {
+                Some(text(request, "capability")?)
+            } else {
+                None
+            },
+        )?;
+        let id = i.record.operation_id.clone();
         if i.record.terminal == "applied" {
             return b64(&i.record.result_base64, 32 << 20);
         }

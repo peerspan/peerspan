@@ -184,6 +184,7 @@ impl Intent {
                         | "migration_identity"
                         | "selection"
                         | "requester_commit"
+                        | "access_review"
                 ),
         )?;
         let r = &self.record;
@@ -285,6 +286,22 @@ impl Intent {
         )?;
         if r.review_base64 != "-" {
             parse(&b64(&r.review_base64, 1 << 20)?, 1 << 20)?;
+        }
+        if self.kind == "access_review" {
+            check(
+                ident(&r.operation_id, "arev_")
+                    && r.completed
+                    && r.terminal == "-"
+                    && r.result_base64 == "-"
+                    && r.review_base64 != "-"
+                    && r.templates.is_empty()
+                    && r.signatures.is_empty()
+                    && self.secret.is_none()
+                    && matches!(r.provider.kind.as_str(), "original" | "device")
+                    && key(&r.person_public_key)
+                    && key(&r.host_public_key)
+                    && ident(&r.root_state_id, "ds_"),
+            )?;
         }
         if self.kind == "migration_identity" {
             check(

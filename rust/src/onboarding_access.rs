@@ -58,65 +58,79 @@ impl Store {
         input.validate()?;
         let mut c = self.connection()?;
         let tx = c.transaction()?;
-        let unavailable = || coded("access_inspection_unavailable");
-        let e = inspect_project_access(&tx, self, &input.network_id, &input.person_public_key)
-            .map_err(|e| {
-                if e.code == "not_found" {
-                    // Only the network's absence is a 404. An unknown person or
-                    // missing current policy ancestry is unavailable evidence.
-                    let exists: bool = tx
-                        .query_row(
-                            "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
-                            [&input.network_id],
-                            |r| r.get(0),
-                        )
-                        .unwrap_or(true);
-                    if exists {
-                        unavailable()
-                    } else {
-                        Error::NotFound
-                    }
-                } else {
-                    unavailable()
-                }
-            })?;
-        let observed = e["observed_at"].as_str().ok_or_else(unavailable)?;
-        let now = chrono::DateTime::parse_from_rfc3339(observed)
-            .map_err(|_| unavailable())?
-            .with_timezone(&chrono::Utc);
-        let (parent, attached) = input.context.project(&tx, now)?;
-        if !attached {
-            return Err(coded("review_changed"));
-        }
-        let review = json!({"version":1,"kind":"inspect_project_agent_access",
-            "host_id":self.identity().id,"context":input.context,"agent":parent["agent"],
-            "network":e["network"],"root_state_id":e["root_state_id"],"owner":e["owner"],
-            "participant":e["participant"],"policy":e["policy"],
-            "effects":{"inspect_current_membership":true,"inspect_current_policy":true,
-                "prepare_access":false,"approve_access":false,"sign_policy":false,
-                "publish_policy":false,"grant_agent_access":false,"share_files":false,
-                "share_conversation":false,"capability_calls":false}});
-        let digest = format!(
-            "review_{}",
-            codec::hash(
-                format!(
-                    "peerspan-project-access-inspection-v1\n{}",
-                    crate::canonical::value_text(&review),
-                )
-                .as_bytes()
-            )
-        );
-        let result = json!({"version":1,"host_id":self.identity().id,"context":input.context,
-            "observed_at":observed,"review_id":digest,"review":review,
-            "next_action":"review_agent_access"});
-        if !crate::onboarding_admission::safe(&result)
-            || serde_json::to_vec(&result)?.len() > 2 << 20
-        {
-            return Err(unavailable());
-        }
-        // Drop the read transaction: no intent, cleanup, clock or event save.
-        Ok(result)
+        let now = crate::decentralized::controls::local_decision_time()
+            .map_err(|_| coded("access_inspection_unavailable"))?;
+        inspect_in(&tx, self, &input, &now)
     }
+}
+pub(crate) fn inspect_in(
+    c: &rusqlite::Connection,
+    store: &Store,
+    input: &Inspect,
+    observed_time: &str,
+) -> Result<Value, Error> {
+    let unavailable = || coded("access_inspection_unavailable");
+    let e = inspect_project_access(
+        c,
+        store,
+        &input.network_id,
+        &input.person_public_key,
+        observed_time,
+    )
+    .map_err(|e| {
+        if e.code == "not_found" {
+            // Only the network's absence is a 404. An unknown person or
+            // missing current policy ancestry is unavailable evidence.
+            let exists: bool = c
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
+                    [&input.network_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(true);
+            if exists {
+                unavailable()
+            } else {
+                Error::NotFound
+            }
+        } else {
+            unavailable()
+        }
+    })?;
+    let observed = e["observed_at"].as_str().ok_or_else(unavailable)?;
+    let now = chrono::DateTime::parse_from_rfc3339(observed)
+        .map_err(|_| unavailable())?
+        .with_timezone(&chrono::Utc);
+    let (parent, attached) = input.context.project(c, now)?;
+    if !attached {
+        return Err(coded("review_changed"));
+    }
+    let review = json!({"version":1,"kind":"inspect_project_agent_access",
+        "host_id":store.identity().id,"context":input.context,"agent":parent["agent"],
+        "network":e["network"],"root_state_id":e["root_state_id"],"owner":e["owner"],
+        "participant":e["participant"],"policy":e["policy"],
+        "effects":{"inspect_current_membership":true,"inspect_current_policy":true,
+            "prepare_access":false,"approve_access":false,"sign_policy":false,
+            "publish_policy":false,"grant_agent_access":false,"share_files":false,
+            "share_conversation":false,"capability_calls":false}});
+    let digest = format!(
+        "review_{}",
+        codec::hash(
+            format!(
+                "peerspan-project-access-inspection-v1\n{}",
+                crate::canonical::value_text(&review),
+            )
+            .as_bytes()
+        )
+    );
+    let result = json!({"version":1,"host_id":store.identity().id,"context":input.context,
+        "observed_at":observed,"review_id":digest,"review":review,
+        "next_action":"review_agent_access"});
+    if !crate::onboarding_admission::safe(&result) || serde_json::to_vec(&result)?.len() > 2 << 20 {
+        return Err(unavailable());
+    }
+    // Drop the read transaction: no intent, cleanup, clock or event save.
+    Ok(result)
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new().route("/v1/onboarding/access-inspection", post(inspect))
