@@ -377,3 +377,7 @@ Independent section24 verification passes all six real-host cases on frozen
 production `f34b100`, including same-request advanced original finalization and
 separate requester commit. Exact provenance, source/binary hashes and limits:
 [verification record](results/guided-owner-finalization-inspection-verification.json).
+
+The next original-finalization signing slice (section25) reuses the existing
+approved requester worker for proof progress. One exact explicit CLI decision
+bounds original B/D/F signing; requester final commit stays separate.

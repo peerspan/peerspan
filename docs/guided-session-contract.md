@@ -4195,7 +4195,151 @@ bounded original signing and requester commit. Discarded: using broad resume for
 observation, creating draft IDs during inspection, new approval storage, assuming
 administrator consent is owner consent or requester commit, and key use on entry.
 
-## 25. Remaining flow contract
+## 25. Bounded local original finalization signing
+
+This CLI slice completes only the original B/D/F signatures already authorized
+by section16, after the exact independently verified section24 inspection. The
+ordinary requester/approver worker already fetches mailbox evidence and performs
+approved local host work. Reuse that progress; another guided fetch endpoint is
+unnecessary. Waiting, inspection and recovery never invoke broad resume or key
+use. No new HTTP route, schema, consent/signature journal or native control.
+
+### Explicit private decision and binding
+
+`peerspan onboarding join owner finalization sign --stdin` accepts exactly
+`{flow_id,context,join_review_id,owner_review_id,finalization_review_id,
+ decision:"sign_original_finalization"}`. Apply strict64KiB input, duplicate/
+unknown/null/type/typed-ID/context validation and private-prefix protection as
+sections18/24. No key/path/provider selector, codes, scopes, lifetime, supplied
+messages/templates/signatures or raw administrator references. CLI starts no
+host/state, creates/imports no key and exposes only controlled public errors.
+
+Begin with pure section16 owner lookup and its complete closed/digest/pin checks.
+Require approved exact original consent and its completed exact owner offer.
+If F is already recorded, refuse read-only before key/agent IO, ordinary signing
+lookup or submission; existing owner lookup/progress is recovery. This fresh-only
+command does not create signature attribution or make a historical signing
+success claim for an unverified caller-supplied finalization digest.
+
+Before fresh key use, obtain pure section24 inspection; require its complete
+closed result/review/effects and domain-separated digest equal the captured
+finalization_review_id. Bind every original/flow/context/request/network/member/
+key/fixed-term pin to section16 and its immutable publication outcome. Exact
+requester/new/nonmigration, this host, approved selection, pending original F,
+no requester commit/terminal artifacts or adopted network, live signed deadline,
+ordinary stage bound and fixed not_after. Use fresh attached parent/agent and
+host identity and exact current published flow/outcome, never latest selection.
+Recheck these bindings before every original key operation and signature batch
+submission; different root/P/H/admin/selection/review or parent refuses. The old
+15min approval-review deadline may have elapsed; no renewal of its consent.
+
+### Fixed typed work, never a protocol driver
+
+Read the existing ordinary `/v2/link/requests/{id}/approval` view, validate its
+closed request/review/signing_requests, same original intent, target and stage
+owner_finalization. Its root/P/H/owner/selection/admin references and profile7/
+fixed lifetime must equal the verified section24 review; the provider remains
+possession-only original_person for this original and this host, SSHSIG, with
+device/lease/root '-', scopes0 and not_after '-'. B/D IDs are nonempty distinct
+concrete ordinary ds_ IDs; materialization comes from the existing approved
+worker, never this CLI. Missing drafts/ready slots refuse; no polling or resume.
+
+Only slots2 binding_lease issuer,3 device_lease issuer and4
+owner_finalization_packet authority are eligible for this nonfolded new-original
+profile. Validate every returned ready entry before any key/agent IO for that
+batch, including owned F host entries; reject any other slot/stage/role/format,
+foreign/mixed intent/key/template, duplicate or out-of-order entry. At most two
+B/D issuer entries form the first batch, including a subset if one was already
+recorded. An F authority (and optional own host/Ed25519 pending slot) forms the
+second batch. Never mix B/D and F in one response/batch. Owned host slots are
+verified but never signed by the CLI; binding host consent remains ordinary.
+
+Reuse shared typed FixedStatement/FixedPacket verification, canonical bounded
+Base64, object IDs, exact derived messages/public key/SSHSIG and existing typed
+link-slot validation. Inspect complete B/D payloads: exact operation/current root,
+original issuer kind person and key; person/host/device targets, member '-',
+binding scope2/device scope7, exact fixed end; exact subject_person, subject_host,
+issuer_person P/H parents, plus D's subject_binding equal reviewed B. No other
+issuer/delegation/renewal/retained/resolution authority. Issued_at equals
+not_before, at/after signed request creation and no later than current verified
+observation/effective local time; expiry remains fixed and live. Standard typed
+sequence/predecessor validation remains in shared protocol types and the daemon.
+F packet must match selected request, original signer/writer/issuer '-', SSHSIG,
+root/P/H/selection/admin and contain the exact reviewed B/D IDs with their same
+bounded payloads and valid recorded original issuer signatures. No foreign or
+additional embedded grant. Verify all nested typed signatures that are present;
+ordinary allowed pending binding-host consent is not fabricated by this CLI.
+
+Use section18's same pinned, non-creating generated-original reader or exact
+SSH-agent identity, with unsafe/malformed destination refusal and no provider
+fallback. Reuse this implementation, not path-based broad discovery. Run key
+selection/signatures off the async executor. Every signature is locally verified
+against its exact typed object before submission. Never return/log raw templates,
+messages, signatures, keys/paths, agent comments, codes, seeds or private diagnostics.
+
+At most two ordered submission batches and three original SSHSIG operations per
+invocation: the remaining B/D issuers, then F authority. No retry, unbounded loop,
+extra original offer/administrator/root/device/commit signing. Every daemon call
+has5s bound. After the first POST, obtain one fresh ordinary view for the dependent
+F batch; the ordinary daemon may have already materialized/signed its approved
+host work. If F is not ready or any previous issuer entry reappears, refuse with
+controlled outcome-unknown recovery, never re-sign or advance it. An invocation
+starting directly at F makes at most one submission. Rechecks immediately before
+each key use and dispatch do not retract an already used key or committed batch.
+A failed/lost response may leave B/D or F recorded; recover through pure owner
+lookup/progress and a later explicit command signs only remaining typed slots.
+No hidden broad action engine call or new public consent is authorized.
+
+### Public outcome and verification
+
+After submitting the typed F authority once, one pure owner lookup must retain
+the same immutable review/target/owner/selection/admin and exact typed F packet
+ID before success. Return exactly section16's owner wrapper plus
+`original_finalization:{state:"recorded",review_id:finalization_review_id,
+ packet_id:<typed F ID>}`. It reports the exact original finalization is retained,
+not requester commit, current adopted powers, agent access, reachability or model
+receipt. An already-completed concurrent F without that verified submission
+reports controlled outcome unknown; no extra key operation or automatic retry.
+All failures are controlled nonzero CLI results, with pure read recovery.
+Original private bytes stay on their original machine; no new scoped/peer/
+bootstrap endpoint. Whole-process native controls and installed/manual gates
+follow separately; leaving after dispatch cannot cancel a retained signature.
+
+A separate contract-only author adds small owner_finalization_signing coverage;
+preserve old21 suites/native272 assertions/delays/timeouts. Use genuine distinct
+people/two temporary hosts and ordinary approved worker progress. Typed local
+fake-daemon faults derive from genuine public private-signing templates and
+contracts, without production imports or fabricated authority DB rows.
+
+1. Exact generated-original B/D then F signing under approved section16 and
+   captured section24 digest; at most2 batches/3 signatures, same ordinary intent,
+   exact profile/parents/fixed terms. No requester commit, access or new schema.
+2. Exact SSH-agent among multiple identities, absent/wrong/unsafe/malformed
+   generated sources and agent failure; no original replacement or fallback.
+   Full key-source boundary stimulus may reuse section18's independent helpers.
+3. Initial already recorded F refuses before any ordinary/key/agent operation,
+   including detached/expired/restarted history; pure lookup confirms unchanged
+   immutable original consent. Lost response/partial B/D retry signs only the
+   remaining typed slots, no duplicate issuer or hidden resume.
+4. Genuine missing/unapproved/changed parent/review/key/request/root/P/H/admin,
+   expiry/cancellation/adopted/committed or unavailable-ready work fails closed.
+   Microscopic races lacking a deterministic public stimulus stay source limits.
+5. Genuine-derived typed slot faults: wrong slot/role/intent/key/format/message/
+   ID/profile/parent/lifetime, duplicate/order/mixed phase, foreign host or extra
+   nested grant. No key/submission for a rejected first batch; no later key use
+   or retry after an uncertain first POST. Strict stdin/CLI/privacy/no-startup.
+6. Same request reaches retained F via this CLI, then an existing separate
+   explicit requester commit completes the real ceremony. Original keys stay
+   with their participant; historical lookup/digest stays stable, repeated Sign
+   refuses purely. No native/installed/physical/model readiness is inferred.
+
+Selected: existing approved requester-worker progress plus one explicit bounded
+original B/D/F action. Discarded: duplicate guided proof-fetch API, historical
+success with an unverified finalization digest, per-slot UI prompts, a broad
+sign/resume loop, new consent storage, signer/provider fallback and implicit
+requester commit. Pure reads remain recoverable independent of key availability.
+
+## 26. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

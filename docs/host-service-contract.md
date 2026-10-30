@@ -295,3 +295,13 @@ cryptographic administrator/owner preparation over retained root/P/H evidence,
 returns a closed public review/digest and never fetches, creates drafts, selects
 a provider, signs, commits or adopts membership. Restart retains consent history
 but follows existing project detach. No schema/native/peer/scoped API change.
+
+
+Guided bounded original finalization signing (guided session contract section25)
+adds private-stdin `onboarding join owner finalization sign --stdin`, bound to
+exact section16 consent and section24 inspection digest. It signs only remaining
+original B/D issuers then F authority through existing typed private signing
+interfaces, at most2 submissions/3 signatures, with fresh context/terms rechecks.
+Existing approved requester-worker progress supplies evidence/drafts. No new
+HTTP/schema, broader resume, signer fallback, agent grant or requester commit.
+Already-completed F refuses Sign purely; existing owner lookup/progress recovers.
