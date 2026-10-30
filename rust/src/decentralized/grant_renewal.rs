@@ -464,11 +464,23 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
         .map(|s| s.id.clone())
         .collect();
     let mut kept: BTreeSet<String> = heads.clone();
-    // A compatible renewal fork temporarily makes dependents fail `active`:
-    // their parent lookup needs one head. Check each predecessor branch as it
-    // stood before resolution. A child dropped by either branch must stay
-    // dropped; the resolver cannot revive it by listing it again.
-    let mut branch = (heads.len() > 1).then(|| p.clone());
+    // A compatible renewal fork (spec 7.1), of the renewed stream or of any
+    // stream a child depends on, temporarily makes dependents fail `active`:
+    // their parent lookup needs one head. Check every combination of the
+    // forked streams' branches as they stood before resolution. A child
+    // dropped by any branch must stay dropped; listing it cannot revive it.
+    let forks: Vec<(&Vec<String>, &BTreeSet<String>)> = p
+        .streams
+        .values()
+        .filter(|s| s.key[0] != "root" && s.heads.len() > 1)
+        .filter(|s| p.renewable_heads(&s.key).is_ok())
+        .map(|s| (&s.key, &s.heads))
+        .collect();
+    let combinations = forks
+        .iter()
+        .try_fold(1usize, |n, (_, heads)| n.checked_mul(heads.len()))
+        .filter(|n| *n <= 64);
+    let mut branch = (!forks.is_empty()).then(|| p.clone());
     for other in p.streams.values() {
         if other.key[0] == "root" || other.key == stream {
             continue;
@@ -478,22 +490,29 @@ fn retained(p: &Projection, stream: &[String], heads: &BTreeSet<String>) -> Resu
             if !(lease(&child.kind) || matches!(child.kind.as_str(), "policy" | "group")) {
                 continue;
             }
-            let active = if let Some(branch) = &mut branch {
-                let mut all = true;
-                for head in heads {
-                    branch
-                        .streams
-                        .get_mut(stream)
-                        .ok_or_else(|| Error::new("proof_required"))?
-                        .heads = BTreeSet::from([head.clone()]);
-                    if branch.active(id).is_err() {
-                        all = false;
-                        break;
+            let active = match (&mut branch, combinations) {
+                // With no fork, or too many simultaneous forks to check, keep
+                // only what is active as it stands.
+                (None, _) | (_, None) => p.active(id).is_ok(),
+                (Some(branch), Some(count)) => {
+                    let mut all = true;
+                    for mut index in 0..count {
+                        for (key, heads) in &forks {
+                            let head = heads.iter().nth(index % heads.len()).cloned();
+                            index /= heads.len();
+                            branch
+                                .streams
+                                .get_mut(*key)
+                                .ok_or_else(|| Error::new("proof_required"))?
+                                .heads = head.into_iter().collect();
+                        }
+                        if branch.active(id).is_err() {
+                            all = false;
+                            break;
+                        }
                     }
+                    all
                 }
-                all
-            } else {
-                p.active(id).is_ok()
             };
             if !active {
                 continue;
@@ -745,4 +764,181 @@ pub(crate) fn renew(store: &Store, network: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decentralized::statement::Descriptor;
+    use serde_json::Value;
+
+    /// Owner-requested regression for the renewal-fork retention finding on
+    /// #21: alice's network with three linked machines, its root-signed
+    /// grants renewed and its bindings not yet due, captured from real hosts.
+    const FIXTURE: &str = include_str!("testdata/renewal_fork.json");
+
+    fn device(p: &Projection, person: &str, renewer: &Value) -> Signer_ {
+        let public = renewer["public"].as_str().unwrap().to_owned();
+        let seed = b64(renewer["seed"].as_str().unwrap(), 32).unwrap();
+        let stream = ["device".to_owned(), person.to_owned(), public.clone()];
+        let lease = p.head(&stream).unwrap().id.clone();
+        Signer_::Device {
+            seed: seed.try_into().unwrap(),
+            public,
+            scopes: p.effective_scopes(&lease).unwrap(),
+            lease,
+            person: person.to_owned(),
+        }
+    }
+    /// The signed renewal `plan` drafts against `basis`.
+    fn signed(basis: &Projection, plan: &Plan) -> (String, Vec<u8>, String) {
+        let (kind, template, id) = draft(basis, plan).unwrap().expect("renewal applies");
+        let message = signature_message(&id, "issuer", plan.signer.public());
+        let key = SigningKey::from_bytes(&plan.signer.seed().unwrap());
+        let mut body = parse(&template, MAX_OBJECT).unwrap();
+        body["signatures"][0]["signature"] = json!(encode(&key.sign(&message).to_bytes()));
+        (kind, actions::bytes(&body).unwrap(), id)
+    }
+    /// Admit a signed renewal into `into` as a fresh statement.
+    fn admit(
+        d: &Descriptor,
+        into: &Projection,
+        (kind, body, id): (String, Vec<u8>, String),
+    ) -> Projection {
+        let candidate = actions::candidate(into, &kind, &body).unwrap();
+        let next = Projection::build(
+            d,
+            &into.next_prior(),
+            Some(&candidate),
+            &into.decision_time,
+            "fresh",
+        )
+        .unwrap();
+        assert!(next.admitted.contains(&id), "renewal {id} was not admitted");
+        next
+    }
+
+    /// Two eligible devices renew the forked host's binding concurrently;
+    /// `during` runs while the binding is forked; then the first renewer,
+    /// whose own binding is unaffected, resolves the fork. The dependent
+    /// device grant must survive and stay renewable.
+    fn fork_then_resolve(during: impl Fn(&Descriptor, Projection, &Signer_) -> Projection) {
+        let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+        let d = Descriptor::from_value(&fixture["descriptor"]).unwrap();
+        let person = fixture["person"].as_str().unwrap();
+        let binding = vec![
+            "binding".to_owned(),
+            fixture["forked_host"].as_str().unwrap().to_owned(),
+        ];
+        let dependent_stream = vec![
+            "device".to_owned(),
+            person.to_owned(),
+            fixture["forked_device"].as_str().unwrap().to_owned(),
+        ];
+        let captured = stamp(fixture["prior"]["clock_guard"].as_str().unwrap()).unwrap();
+        let now = format(captured + chrono::TimeDelta::seconds(3600));
+        let mut base = Projection::build(&d, &fixture["prior"], None, &now, "read").unwrap();
+        // The captured grants all end together. The root renews alice's person
+        // grant and the forked host's grant first, so the binding can renew.
+        let root = Signer_::Root {
+            seed: Some(
+                b64(fixture["root_seed"].as_str().unwrap(), 32)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            ),
+            public: d.genesis_root_public_key.clone(),
+        };
+        for stream in [
+            vec!["person".to_owned(), person.to_owned()],
+            vec!["host".to_owned(), binding[1].clone()],
+        ] {
+            let plan = Plan {
+                stream,
+                signer: root.clone(),
+            };
+            base = admit(&d, &base, signed(&base, &plan));
+        }
+        let dependent = base.head(&dependent_stream).unwrap().id.clone();
+        base.active(&dependent).unwrap();
+
+        let renewers = fixture["renewers"].as_array().unwrap();
+        let [x, y] = [&renewers[0], &renewers[1]].map(|renewer| Plan {
+            stream: binding.clone(),
+            signer: device(&base, person, renewer),
+        });
+        let (from_x, from_y) = (signed(&base, &x), signed(&base, &y));
+        let one = admit(&d, &base, from_x);
+        let forked = admit(&d, &one, from_y);
+        assert_eq!(forked.streams[&binding].heads.len(), 2);
+        assert!(
+            forked.active(&dependent).is_err(),
+            "a fork has no single head"
+        );
+
+        let later = format(captured + chrono::TimeDelta::seconds(3660));
+        let forked = Projection::build(&d, &forked.next_prior(), None, &later, "read").unwrap();
+        let forked = during(&d, forked, &root);
+        assert_eq!(forked.streams[&binding].heads.len(), 2);
+        let resolver = Plan {
+            stream: binding.clone(),
+            signer: device(&forked, person, &renewers[0]),
+        };
+        let resolution = signed(&forked, &resolver);
+        let envelope = parse(&resolution.1, MAX_OBJECT).unwrap();
+        let payload = parse(
+            &b64(
+                text(object(&envelope).unwrap(), "payload_base64").unwrap(),
+                MAX_PAYLOAD,
+            )
+            .unwrap(),
+            MAX_PAYLOAD,
+        )
+        .unwrap();
+        assert!(
+            payload["retained_statement_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|id| id == dependent.as_str()),
+            "the resolver's retention list drops the dependent device grant"
+        );
+        let resolved = admit(&d, &forked, resolution);
+        assert_eq!(resolved.streams[&binding].heads.len(), 1);
+        resolved
+            .active(&dependent)
+            .expect("the dependent device grant survives resolution");
+
+        // A sibling device still renews the dependent device grant.
+        let renew = Plan {
+            stream: dependent_stream.clone(),
+            signer: device(&resolved, person, &renewers[0]),
+        };
+        let renewed = signed(&resolved, &renew);
+        let renewed_id = renewed.2.clone();
+        let after = admit(&d, &resolved, renewed);
+        assert_eq!(after.head(&dependent_stream).unwrap().id, renewed_id);
+        after.active(&renewed_id).unwrap();
+    }
+
+    #[test]
+    fn resolving_a_binding_renewal_fork_keeps_its_dependent_device() {
+        fork_then_resolve(|_, forked, _| forked);
+    }
+
+    #[test]
+    fn renewing_a_parent_during_a_binding_renewal_fork_keeps_its_dependent_device() {
+        // The root renews the person grant the dependent device also names
+        // while the binding is still forked.
+        fork_then_resolve(|d, forked, root| {
+            let stream = vec![
+                "person".to_owned(),
+                forked.streams.keys().find(|k| k[0] == "person").unwrap()[1].clone(),
+            ];
+            let plan = Plan {
+                stream,
+                signer: root.clone(),
+            };
+            admit(d, &forked, signed(&forked, &plan))
+        });
+    }
 }
