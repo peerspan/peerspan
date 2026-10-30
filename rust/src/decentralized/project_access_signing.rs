@@ -110,7 +110,14 @@ fn attempt(
     let time = chrono::DateTime::parse_from_rfc3339(&now)
         .map_err(|_| unavailable())?
         .with_timezone(&chrono::Utc);
-    let (parent, attached) = input.context.project(&tx, time)?;
+    let (parent, attached) = input.context.project(&tx, time).map_err(|e| match e {
+        HostError::NotFound
+        | HostError::Coded {
+            code: "review_changed",
+            ..
+        } => e,
+        _ => unavailable(),
+    })?;
     let id = input.access_id.as_deref().ok_or_else(unavailable)?;
     let mut r = consent::load(&tx, store, input, &parent, id, &raw).map_err(dec)?;
     require(
