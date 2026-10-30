@@ -3109,3 +3109,12 @@ Discard a new signing protocol/table/receipt, implicit approval, broad key
 fallback, copied/refreshed policy, and combining signatures with application,
 peer delivery or native readiness. Independent section32 conformance precedes
 runtime execution; full acceptance and PR35 remain open.
+
+### GU.impl32a — Fault-response verification boundary
+
+For section32 late schema-only SQLite ABORT injection, select a controlled
+non2xx response with no private detail and exact signature/clock/all-state
+rollback. Discard pinning a new mandatory storage-failure code: injected internal
+storage failure is distinct from the specified corrupt-retained-state refusal.
+The implementation may return access_signing_unavailable; the independent
+case must retain every rollback capture/assertion without relying on that choice.

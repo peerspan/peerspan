@@ -5856,6 +5856,9 @@ Atomically save only that ordinary intent's single signature/completed flag and
 the ordinary monotonic clock guard. Preserve both approvals/timestamps, every
 template/review/provider and all unrelated rows, policy maxima/edits/outbox/
 events/files. Late SQLite failure rolls back the entire signature/clock write.
+A schema-only injected SQLite ABORT is checked as a controlled non2xx response
+without private detail and exact rollback; no particular storage-error code is
+required. Documented corrupt-retained-state refusals remain409access_signing_unavailable.
 No ordinary signed-submission path that automatically applies the policy is
 used. Existing terminal signed history may be observed without fresh work.
 
