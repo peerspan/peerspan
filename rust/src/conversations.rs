@@ -1266,6 +1266,10 @@ impl Store {
             || r.roster.home_host_id != sender
             || r.roster.version < 1
             || !consistent(&r.roster)
+            // A person on this host joins only here, never by a peer's roster.
+            || r.roster.participants.iter().any(|p| {
+                p.kind == "person" && p.host_id.as_deref() == Some(own.as_str())
+            })
             || r.roster.joined(&participant).is_none()
             || !cited
             || r.note.as_ref().is_some_and(|n| n.len() > MAX_NOTE)
@@ -1315,6 +1319,19 @@ impl Store {
             && held.home_host_id != sender
         {
             return Err(Error::Forbidden);
+        }
+        // Another local agent is in the roster only if this host already
+        // holds it as joined: an invite joins its own target and nothing else.
+        let stray = r.roster.participants.iter().any(|p| {
+            let id = p.id.as_deref().unwrap_or_default();
+            p.host_id.as_deref() == Some(own.as_str())
+                && id != participant
+                && held.as_ref().is_none_or(|h| h.joined(id).is_none())
+        });
+        if stray {
+            return Err(invalid(
+                "an invite cannot join another participant on this host",
+            ));
         }
         if held.as_ref().is_none_or(|h| h.version < r.roster.version) {
             save_roster(&tx, &r.roster)?;
@@ -1472,9 +1489,13 @@ impl Store {
         if m.roster_version > roster.version {
             return Err(unavailable("this host holds an older roster"));
         }
+        // A local person counts as joined only when this host joined it: in
+        // C1, as the creator of a conversation homed here (C3 adds joins).
+        let person_joined_here = roster.home_host_id == own && roster.created_by == r.target;
         if target_host != own
             || roster.joined(&r.target).is_none()
             || roster.joined(&m.author).is_none()
+            || (target_kind == "person" && !person_joined_here)
         {
             return Err(not_participant());
         }
