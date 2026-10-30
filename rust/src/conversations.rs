@@ -4118,6 +4118,20 @@ impl Store {
                             }
                         }
                         self.commit_as(&tx, &mut held, next, None, Some(invite.offered))?;
+                    } else if listed && held.roster.version > invite.offered {
+                        // Home moved on while this host's answer was in
+                        // flight: send it the current roster.
+                        let push = Push {
+                            version: held.roster.version,
+                            state: "sending".into(),
+                            attempts: 0,
+                            error: None,
+                            next_attempt_at: Some(now()),
+                        };
+                        tx.execute(
+                            "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                            params![id, host, serde_json::to_string(&push)?],
+                        )?;
                     }
                 }
             }
