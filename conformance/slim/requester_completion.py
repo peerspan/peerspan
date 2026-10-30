@@ -44,6 +44,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, commit,
                      create_network, finalize, link_view, parse_time, pull_until,
                      rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked)
+from counted_peer import configure_terminal_peers, exchange_current_contacts, peer_address
 
 suite = Suite("requester_completion", __doc__)
 BASE = "/v1/onboarding/join-flows"
@@ -476,7 +477,8 @@ def sign_original(f):
 
 
 def traffic(f):
-    return tuple(h.relay.counts() for h in (f['a'], f['h']) if h.relay)
+    return (tuple(h.relay.counts() for h in (f['a'], f['h']) if h.relay) +
+            tuple(h.counted_peer.counts() for h in (f['a'], f['h']) if getattr(h, 'counted_peer', None)))
 
 
 def quiet(f):
@@ -914,6 +916,14 @@ def terminal_cleanup(f):
     check(status == 200 and cancelled['state'] == 'cancelled', 'maintenance request cancellation')
 
 
+def terminal_transport_retired(h):
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=2)) as db:
+        pending = db.execute('SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL').fetchone()[0]
+        frames = db.execute('SELECT count(*) FROM dec_frames').fetchone()[0]
+        outbox = db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0]
+    return pending == frames == outbox == 0 and not list(h.state.glob('*-journal'))
+
+
 def terminal_diagnostic_capture(diagnostics, phase, local, h, issuer, rows):
     """GU.impl28h: retain a closed generation projection in memory only."""
     if diagnostics is None:
@@ -1077,8 +1087,10 @@ def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds, diagnos
 def terminal_delivery_baseline(h, issuer, network_id, live_bounds):
     sync_results = []
     terminal_diagnostics = {}
+    configure_terminal_peers(h, issuer)
     for local, remote in ((h, issuer), (issuer, h)):
-        local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', remote.peer_address)
+        local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', peer_address(remote))
+    exchange_current_contacts(suite, h, issuer, network_id, live_bounds[0])
     for local in (h, issuer):
         status, value = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
         check(status == 200 and value['unavailable'] == [], 'genuine terminal sync setup')
@@ -1364,6 +1376,7 @@ def _():
     terminal_delivery_baseline(h, a, f['network']['id'],
                                (f['view']['expires_at'], approved['commit']['review']['not_after']))
     a.stop(); terminal_cleanup(f); a.relay.mode = h.relay.mode = 'drop'; quiet(f)
+    check(terminal_transport_retired(h), 'ordinary cleanup did not retire short contact handoffs, request frames/read-cap or delivery work')
     check(not (h.home / '.config/peerspan/person_ed25519').exists() and not (h.root / 'absent-agent.sock').exists(),
           'external original unexpectedly installed in requester daemon or agent')
     for phase in ('expired', 'detached', 'restarted'):
