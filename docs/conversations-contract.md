@@ -69,7 +69,7 @@ C1 lets a person on the home host start a conversation with one remote agent, an
 
 **Labels.** Each host derives labels itself, never from the home host's or a message's text: for a person participant, the member label of the person bound to the participant's host in this host's verified records; for an agent, that label, `/`, and the agent's `name` in the roster. Without a known person, the host ID stands in for the label (`HOST_ID`, `HOST_ID/NAME`).
 
-**Errors** are `{code, error}` with the HTTP statuses of the host service contract. CLI successes print JSON (except the readable views below) and exit 0. CLI failures exit 1 and write the daemon's `error` text to stderr.
+**Errors** are `{code, error}` with the HTTP statuses of the host service contract. CLI successes print JSON (except the readable views below) and exit 0. CLI failures exit 1 and write `error: CODE: TEXT` to stderr, with the daemon's `code` and `error`. The texts C1 fixes are `not_participant: This participant is not in that conversation.`, `conflict: This message_id was already used with different content.`, and `not_bound: This host is not bound to a person; conversations need one (peerspan join).`
 
 ### Who may see what
 
@@ -119,8 +119,8 @@ The person participant of this host is `person:HOST_ID/PERSON_ID`, with this hos
 
 **Sending** (`POST /v1/conversations/{id}/messages`, and the adapter route below):
 - `content` 1 to 65,536 bytes; `message_id` optional (generated when absent). Unknown fields and nulls are 400.
-- The author must be `joined` in the roster this host holds; otherwise 403 `{code: "not_participant"}`.
-- **Repeats.** A `message_id` this host already holds for the same author and conversation with identical `content` returns 200 with the stored message and the current targets, without a second message or target. The same `message_id` with other content, another author, or in another conversation is 409 `{code: "conflict"}`.
+- The author must be `joined` in the roster this host holds; otherwise 403 `{code: "not_participant", error: "This participant is not in that conversation."}`.
+- **Repeats.** A `message_id` this host already holds for the same author and conversation with identical `content` returns 200 with the stored message and the current targets, without a second message or target. The same `message_id` with other content, another author, or in another conversation is 409 `{code: "conflict", error: "This message_id was already used with different content."}`.
 - In one transaction the host assigns `seq` and `clock`, stores the message, and creates one outbound target record (`sending`) per other `joined` participant in its roster. It answers once that commits, without waiting for delivery, so targets are usually `sending` in the answer.
 
 #### CLI
@@ -161,7 +161,7 @@ Home records 200 `joined` as `joined`; 400 as `refused` (`invalid`); 403 as `ref
 Body: `{message, target, prev_seq?, policy | grant_id | self}`. `target` is a participant ID on the receiving host. `prev_seq` is the `seq` of the author's previous message sent to this target, omitted for the first one since the target joined; C1 sends and stores it and does not act on gaps (C4).
 
 **Acceptance**, in order:
-1. **Shape.** IDs, sizes and the citation rule above; `message.conversation_id` equals the path's; `seq`, `clock` and `roster_version` at least 1; content within the recipient's `max_message_bytes` from the allowing rule or grant, when it has one. Otherwise 400 `invalid`. A `deadline` field is 400, as any unknown field.
+1. **Shape.** IDs, sizes and the citation rule above; `message.conversation_id` equals the path's; `seq`, `clock` and `roster_version` at least 1; otherwise 400 `invalid`. (Content larger than the `max_message_bytes` of every rule or grant that would allow it is not allowed: 403 at step 5.) A `deadline` field is 400, as any unknown field.
 2. **Author's host.** The host in `message.author` is the authenticated sender; otherwise 403 `forbidden`.
 3. **Repeat.** A request whose `(sender host, message_id, target)` this host already accepted returns the saved receipt when `message`, `target` and `prev_seq` are identical (whatever it cites), and 409 `{code: "conflict"}` when any differs, before any later step.
 4. **Roster.** A conversation this host holds no roster for, or a `roster_version` above the version it holds, is 503 `{code: "unavailable"}` (C2 adds fetching the roster). The target not `joined` here, or the author not `joined` in the held roster, is 403 `{code: "not_participant"}`.
@@ -170,7 +170,7 @@ Body: `{message, target, prev_seq?, policy | grant_id | self}`. `target` is a pa
 
 A host never stores a message whose `message_id` it already holds with different `message` fields: such a request is 409 `conflict`.
 
-**Fan-out and retry.** After committing a message, the author's host sends one request per outbound target, citing the authorization it holds at that moment for the author to reach that target (self, then the target owner's newest policy, then a grant, as sending by address chooses). When none of these allows it, it cites the target owner's newest policy it holds, so the receiver decides; when it holds no policy of that owner and no grant or self access applies, the target becomes `refused` with `not_authorized` without a request. The retry schedule is milestone 5's: the first attempt at once, then the first retry 10 seconds after the message was stored, then 1 second doubling to 60 seconds with ±20% jitter, persisted. At most 4 automatic conversation attempts (invites and messages together) run at once per daemon, separate from other retries. Overdue records after a restart are spread as in the messaging contract. The answer decides the target's state:
+**Fan-out and retry.** After committing a message, the author's host sends one request per outbound target, citing the authorization it holds at that moment for the author to reach that target (self, then the target owner's newest policy, then a grant, as sending by address chooses). When none of these allows it, it cites the target owner's newest policy it holds, so the receiver decides; when it holds no policy of that owner and no grant or self access applies, the target becomes `refused` with `not_authorized` without a request. The retry schedule is milestone 5's: the first attempt at once; a new target record is due 10 seconds after it was stored, so one whose first attempt never finished is still retried; after any attempt that leaves it `sending`, the next is 1 second later, doubling to 60 seconds with ±20% jitter, persisted in the record. At most 4 automatic conversation attempts (invites and messages together) run at once per daemon, separate from other retries. Overdue records after a restart are spread as in the messaging contract. The answer decides the target's state:
 
 | Answer | Target |
 | --- | --- |
@@ -192,7 +192,7 @@ They use the adapter's credential and lease, as `/adapter/v1/next` does, and are
 | --- | --- | --- |
 | `POST /adapter/v1/conversations/{id}/messages` | `{content, message_id?}` | As the local sending route, with the agent's participant as author and `origin` `{agent_id, session_id}` from the credential. Works before the channel is verified. |
 | `POST /adapter/v1/conversation-notifications/next` | `{}` | 200 with a claim, or 200 `null`. |
-| `POST /adapter/v1/conversation-notifications/{id}/forwarded` | `{}` | 200 `{notification}`. Idempotent. 404 `not_found` for an unknown notification or another agent's. |
+| `POST /adapter/v1/conversation-notifications/{id}/forwarded` | `{}` | 200 `{notification}`. Idempotent: a repeat returns the same notification, with the first call's `forwarded_at`. 404 `not_found` for an unknown notification or another agent's. |
 
 - **Directory access.** A credential without directory access gets 403 `{code: "no_directory"}` from the sending route, and `null` from the claim route.
 - **Sending errors.** 404 `not_found` for a conversation this host does not hold; 403 `not_participant` when the agent is not `joined`; 409 `conflict` and 400 `invalid` as for the local route.
@@ -204,7 +204,7 @@ They use the adapter's credential and lease, as `/adapter/v1/next` does, and are
 - `conversation` is the agent's summary `{conversation_id, title, state, home_host_id, participants: [{id, label, kind, state, you}], unseen, last_message_at, creator}`, where `you` marks this agent and `creator` is whether this agent created the conversation. `unseen` counts this agent's message notifications in the conversation not yet forwarded, this one included (C5 replaces forwarding with seen).
 - `messages` is a list of adapter message views, in C1 exactly the notification's message: `{message_id, author, author_label, author_kind, origin_agent_id, sender_person_id, sender_person, seq, clock, sent_at, received_at, content, addressed_to, addressed, mine}`. `origin_agent_id` is null for person authors. `sender_person_id` and `sender_person` are the person bound to the author's host and its member label, as for one-to-one handoffs, null when unbound. `addressed` is true when `addressed_to` is empty or includes this agent.
 - `window` is non-empty only on the first notification of this conversation that this session claims: the messages this agent may see that sort before the new one in display order, at most the newest 10 and 16,384 bytes of (cut) content, newest kept, in display order. Each window entry is an adapter message view whose `content` is cut to its first 2,048 bytes at a UTF-8 boundary, with `truncated: true` and `content_bytes` (the full length) when cut, and `truncated: false` otherwise. Otherwise `window` is `[]`.
-- `window_total` is the number of messages this agent may see before the new one (0 when `window` is empty because there are none).
+- `window_total` is the number of messages this agent may see before the new one when `window` is filled (the session's first claim in the conversation), and 0 whenever `window` is `[]`.
 - `redelivered` is always false in C1.
 
 ### Node adapter
@@ -270,3 +270,5 @@ One host schema version adds every table and the index in the proposal's [Persis
 - **Repeats.** The same `message_id` with the same content returns the stored message (same `seq`, no new message in `show`); with other content, 409 `conflict`. The same for `conversation say --message-id` on alice.
 - **Refused after deny.** After bob runs `deny alice`, alice's next `conversation say` gets a target for `bert` that becomes `refused` with `code` `not_authorized`, and `bert` gets no notification for it.
 - **Edges.** The claim route answers 409 before the channel is verified (a session attached with `ready=False`); a session without directory access gets `null` from the claim route and 403 `no_directory` from the sending route; `conversation say` by bob's person (not a participant) exits 1 with `not_participant`; `conversations --json` on both hosts lists the conversation; an ID prefix of `conv_` and 6 hex digits works with `show`.
+
+**Node adapter.** The slim suite cannot reach the Node adapter, so `integrations/shared` tests (run with `node --test`, as its existing tests are) cover: the `conversation` event's `meta` and content from a claim, with and without a title and a window, including a cut window entry; `forwarded` after the event; `conversation_send` input validation, a generated `message_id` when absent, the daemon call, and the `not_participant`, `conflict` and lost-response tool errors; and the instructions' new last sentence, within 2,048 characters.
