@@ -5086,6 +5086,31 @@ checks remain unchanged. One retained diagnostic run may follow; a passing run
 cannot classify the earlier failure or be called a timing fix. No repeated
 clock advances, forced ACK, extra protocol calls or unchanged retries.
 
+GU.impl28i terminal transport prerequisite: diagnostic CI4d262bf5/6in84s
+identifies the same requester proof row at attempts3/due-now before and after
+alignment, then attempts4/transport_unavailable with11s until retry. Thus a real
+retry failed after alignment; further clock stepping does not establish
+reachability. The diagnostic local6/6in131s is retained without claiming a fix.
+The fixture advertised no QUIC path. Bootstrap repair/successful catalog sync
+does not establish normal authenticated peer publication or queued ACK.
+
+For terminal_delivery_baseline only, after both genuine participant applications
+and all earlier bootstrap hold/barrier cases, configure supported daemon
+transport/restart with real advertised normal peer QUIC paths through transparent
+counting UDP proxies. Preserve exact identities and original state; before
+relying on delivery, observe genuine authenticated peerspan-peer/1 catalog200
+in both directions. Retain the existing two peer registrations, both syncs,
+one bounded retry alignment and unchanged5s strict all-outbox/journal wait.
+Ordinary workers must actually acknowledge and retire every queued category.
+Keep all earlier transport actions effective. Append all newly enabled UDP
+datagram/byte counters to traffic accounting, preserving BOTH original TCP
+relay counters and all original DB/state/home/counter assertions, actions,
+delays and timeouts. No authority/queue edits, forced ACK, worker controls,
+unmeasured bypass, extra retry-clock/protocol loop or unchanged CI retry. A
+separate contract-only author commits setup before one corrected retained run
+against frozen production. This correction does not classify prior runs that
+discarded their missing evidence.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
@@ -5470,7 +5495,9 @@ plus one second, checking the target stays before the measured local person's,
 host's and policy's verified effective bounds. Observe ordinary invitation
 return-secret and request-frame/read-cap retirement and actual delivery/journal
 settlement within the original five-second setup bound. Do not infer retirement
-from a quiet interval. Isolate the expiry/revocation stimuli in their own genuine
+from a quiet interval. Ordinary unsigned request creation/cancellation may
+trigger documented maintenance outside every measured baseline; verify actual
+retirement afterward. Isolate the expiry/revocation stimuli in their own genuine
 two-person fixture so they cannot enqueue work in the purity fixture. Retain
 every existing case, assertion, refusal, restart, delay and timeout. All enabled
 transport paths must be counted, preserving both original bootstrap counters;

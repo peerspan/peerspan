@@ -3026,3 +3026,15 @@ original carrier counters and all strict measured assertions/timeouts. A separat
 author commits setup before execution. Discard a larger magic clock constant,
 quiet samples as retirement proof, discarded categories, uncounted transports,
 queue/authority edits, worker controls, forced ACK and unchanged reruns.
+
+### GU.impl28i — Establish counted normal peer delivery before terminal history
+
+Diagnostic CI4d262bf5/6in84s proves the same queued proof row attempted3→4
+after alignment and failed transport_unavailable. The local6/6in131s does not
+fix that failure. Select a genuinely advertised, authenticated and counted QUIC
+path only after both applications/all earlier bootstrap barriers; verify both
+normal peer routes, then preserve existing peer registrations/syncs/one clock
+alignment/strict5s retirement and every historical assertion. Add UDP accounting
+to both existing TCP counters. Independent author commits before execution.
+Discard more clock steps, sync as ACK evidence, early transport bypasses,
+uncounted carriers, queue edits, forced ACK, worker controls and longer waits.
