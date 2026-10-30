@@ -801,7 +801,7 @@ def _():
     f = world(); h = f["b"]
     parent, prepared = consent(f, h, "main", approve=False, parent=f["pb"])
     check(pure(f, h, parent, prepared)["application"] is None, "unapproved receipt acquired application state")
-    pure(f, h, parent, prepared, "apply", status=409, code="access_application_unavailable")
+    pure(f, h, parent, prepared, "apply", status=409, code="review_changed")
     parent, prepared = consent(f, h, "main", parent=parent)
     check(pure(f, h, parent, prepared)["application"]["state"] == "unsigned", "approved unsigned observation signed/applied")
     pure(f, h, parent, prepared, "apply", status=409, code="access_application_unavailable")
@@ -1112,7 +1112,7 @@ def _():
         for extra in ("provider_id", "person_key_file", "signature_format", "signature", "template", "payload_base64", "approve"):
             malformed.append(compact({**data, extra: "PRIVATE_APPLICATION_INPUT"}))
         malformed += [compact({**data, "access_id": "dint_bad"}), compact({**data, "access_review_id": "review_bad"}),
-            compact({**data, "network_id": "net_bad"}), compact({**data, "person_public_key": base64.b64encode(b"\xff" * 32).decode()}),
+            compact({**data, "network_id": "net_bad"}), compact({**data, "person_public_key": base64.b64encode(b"\xff" * 31).decode()}),
             compact({**data, "context": {**data["context"], "extra": "PRIVATE_APPLICATION_INPUT"}}),
             compact({**data, "decision": "sign_project_agent_access" if command == "apply" else "apply_project_agent_access"})]
         for n, invalid in enumerate(malformed):
