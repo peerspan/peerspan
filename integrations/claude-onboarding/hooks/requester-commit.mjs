@@ -35,6 +35,7 @@ export function eligible(v, now, approve = false) {
       v.request.completed.length < 5 || v.request.completed.length > (approve ? 5 : 6)) return false;
   const r = v.commit.review, observed = Date.parse(v.observed_at);
   return Number.isFinite(now) && now >= Date.parse(v.request.created_at) && now >= Date.parse(r.created_at) &&
+    observed >= Date.parse(r.created_at) &&
     observed <= now + 30000 && Math.max(now, observed) < deadline(v);
 }
 export function canPrepare(original, now) {
@@ -75,6 +76,7 @@ export async function snapshot(raw, flow, parent, host, original) {
       r.provider.host_public_key !== r.host_public_key || r.provider.device_public_key !== r.device_public_key ||
       r.provider.signature_format !== 'ed25519' || !['created_at', 'expires_at', 'not_after'].every(k => time(r[k])) ||
       Date.parse(r.created_at) < Date.parse(v.request.created_at) ||
+      Date.parse(v.observed_at) < Date.parse(r.created_at) ||
       Date.parse(r.not_after) !== Date.parse(v.request.created_at) + 7 * 86400000 ||
       Date.parse(r.expires_at) !== Math.min(Date.parse(r.created_at) + 900000, Date.parse(v.request.expires_at), Date.parse(r.not_after)) ||
       Date.parse(r.expires_at) <= Date.parse(r.created_at) ||
