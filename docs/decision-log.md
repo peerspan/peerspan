@@ -3166,3 +3166,18 @@ auto retry and treating a local commit as peer delivery or connection readiness.
 Native access controls/readiness and the full feature acceptance remain open;
 PR35 stays unmerged. Preserve PR79's unclassified failures and all existing
 strict assertions rather than guessing another refresh/sync/quiet fence.
+
+### GU.impl33a — Check ordinary provenance without an unsupported discriminator
+
+First independent application execution on unchanged production a8ccff3 is
+2/6 in62.31s. Cases1/4 stop at a literal basis.kind=current assertion; cases5/6
+then lack the positive fixture. Case2 current guards and case3 late all-state
+rollback pass. The retained first application has exact policy/proof references,
+terminal applied, and ordinary retention provenance with13 evidence IDs.
+Storage section4 permits current/retention/migration and fresh section33 guards
+do not promise that private discriminator. Select an independently authored
+closed ordinary provenance/structure/reference check while preserving all
+signature/payload/current-enforcement/evidence assertions and every action,
+wait, capture and carrier comparison. Discard changing ordinary admission
+semantics or accepting a provenance label as proof. Retain the first failure
+and its dependent cases; no production change or unchanged retry is justified.

@@ -6018,7 +6018,13 @@ not before receipt creation and ordinary guarded time within the original
 five-minute consent deadline. Revalidate under the same final transaction that
 applies; do not refresh/rewrite the payload, issuer, signature or consent. The
 full signed statement must be admitted under fresh ordinary policy rules and
-all ordinary catalog/edit/outbox bounds. No network-root fallback or new signer
+all ordinary catalog/edit/outbox bounds. Fresh eligibility does not pin the
+ordinary private admission marker to basis.kind=current: storage section4's
+current/retention/migration provenance describes the verified dependency closure,
+which may include older ancestors/predecessors. Verify its closed format/kind/
+proof/time/basis shape, sorted unique well-formed evidence IDs and exact admitted
+statement/root/direct-parent evidence, alongside the exact signature/payload and
+ordinary enforced current body. A provenance label alone is never authority. No network-root fallback or new signer
 IO, membership/ownership change, file sharing, capability grant or delegation.
 
 In one ordinary transaction, merge the exact signed policy proof and its
