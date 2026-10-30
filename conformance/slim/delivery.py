@@ -32,6 +32,64 @@ def need(*names):
     return [state[n] for n in names]
 
 
+def report_join_failure(committed, requester, inviter, request_id):
+    """Failure-only, closed public evidence (GU.impl27f); never print raw responses."""
+    unknown = "unknown"
+    states = {"pending", "needs_selection", "needs_administrator", "needs_owner_finalization",
+              "needs_commit", "finalizing", "linked", "cancelled", "expired", "blocked"}
+    stages = ("request_created", "owner_offered", "owner_selected", "administrator_offered",
+              "owner_finalized", "commit_persisted", "locally_applied")
+
+    def enum(value, allowed):
+        return value if isinstance(value, str) and value in allowed else unknown
+
+    def present(value, prefix):
+        if value == "-":
+            return False
+        if (isinstance(value, str) and value.startswith(prefix) and len(value) == len(prefix) + 64
+                and all(c in "0123456789abcdef" for c in value[len(prefix):])):
+            return True
+        return unknown
+
+    def summarize(status, response):
+        response = response if isinstance(response, dict) else {}
+        request = response.get("request", response)
+        request = request if isinstance(request, dict) else {}
+        review = response.get("review")
+        review = review if isinstance(review, dict) else {}
+        completed = request.get("completed")
+        attention_values = request.get("attention")
+        return {
+            "http_status": status if type(status) is int and 100 <= status <= 599 else unknown,
+            "state": enum(request.get("state"), states),
+            "stage": enum(review.get("stage"), {"selection", "commit"}),
+            "completed": [enum(item, stages) for item in completed[:7]]
+            if isinstance(completed, list) else unknown,
+            "attention": [enum(item, {"delivery_pending"}) for item in attention_values[:32]]
+            if isinstance(attention_values, list) else unknown,
+            "retained": {field: present(request.get(field), prefix) for field, prefix in (
+                ("request_packet_id", "dpk_"), ("owner_offer_id", "dpk_"),
+                ("selection_id", "dpk_"), ("administrator_offer_id", "dpk_"),
+                ("owner_finalization_id", "dpk_"), ("manifest_id", "dm_"),
+                ("activation_id", "da_"), ("outcome_id", "dpk_"))},
+            "selection_approved": request.get("selection_approved")
+            if type(request.get("selection_approved")) is bool else unknown,
+            "commit_approved": request.get("commit_approved")
+            if type(request.get("commit_approved")) is bool else unknown,
+            "locally_applied": "locally_applied" in completed
+            if isinstance(completed, list) else unknown,
+        }
+
+    summary = {"commit": summarize(200, committed)}
+    for role, host in (("requester", requester), ("inviter", inviter)):
+        try:
+            status, response = host.api("GET", f"/v2/link/requests/{request_id}", timeout=2)
+            summary[role] = summarize(status, response)
+        except Exception:
+            summary[role] = summarize(unknown, None)
+    print("join_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
+
+
 def H(data):
     return hashlib.sha256(data if isinstance(data, bytes) else data.encode()).hexdigest()
 
@@ -336,10 +394,17 @@ def _():
     view = pull_until(f, rid, "administrator_offer_id", timeout=60)
     finalize(f, view, key)
     view = pull_until(f, rid, "owner_finalization_id", timeout=60)
-    commit(f, view)
+    committed = commit(f, view)
     # Neither host can reach the other's first-contact listener (both advertise a dead one), so the activation
     # can only arrive over QUIC completion through the relay (path 3).
-    wait_linked(f, e, rid, timeout=60)
+    try:
+        wait_linked(f, e, rid, timeout=60)
+    except Exception:
+        try:
+            report_join_failure(committed, f, e, rid)
+        except Exception:
+            pass  # Diagnostic errors must never mask the original wait failure.
+        raise
     members = {m["host_public_key"] for m in e.api("GET", f"/v2/networks/{net['id']}/members")[1]["members"]}
     check(f.public_key in members, "erin does not list finn after the join")
     state["linked"] = True
