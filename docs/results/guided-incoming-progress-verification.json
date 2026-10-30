@@ -1,0 +1,144 @@
+{
+  "date": "2026-10-30",
+  "kind": "independent contract-derived bounded incoming original/selection proof progress verification",
+  "merged_base": "9502b8c290feeb1005b669bd44bbae73a5b3f8ab",
+  "contract_commit": "b691c20",
+  "contract_clarification_commits": [
+    "93f0a6b",
+    "ef08f6e",
+    "14f9d9e"
+  ],
+  "initial_production_source_commit": "e885811",
+  "catalog_hardening_commit": "3d0b64a0dc2fb51e52f82a083d16e812147cd04d",
+  "production_source_commit": "d0fa9e9cdae5622fd92d25fcb5c49da0cc0de671",
+  "binary_sha256": "0e4e631964052be9c8070b4fd4d58a7947914585cd120ededb039fc539eaa671",
+  "independent_test_commits": [
+    "2044885",
+    "881e877",
+    "ddaeb37",
+    "55cd128"
+  ],
+  "integrated_test_commits": [
+    "3f884498240d3b5db9c3757c18a617840e17ccd9",
+    "87b07e1",
+    "90751fa",
+    "64c633f889ee5bd002e52e35c9efed7b14b3412f"
+  ],
+  "existing19_suite_and_native252_sources_unchanged": true,
+  "local_results": {
+    "rust": {
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "final_frozen_source": true
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "incoming_progress": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 83,
+      "final_frozen_source": true,
+      "all_six_assertions_preserved": true,
+      "command": "TMPDIR=/dev/shm/peerspan-gu-ci-temp python3 -u conformance/slim/incoming_progress.py --bin /dev/shm/peerspan-gu-target/debug",
+      "cases": [
+        {
+          "case": "exact_fetch_and_cached_no_io",
+          "seconds": 5.3,
+          "result": "pass"
+        },
+        {
+          "case": "request_only_stable_stage_and_valid_fallback",
+          "seconds": 9.8,
+          "result": "pass"
+        },
+        {
+          "case": "strict_cli_api_and_router_isolation",
+          "seconds": 5.7,
+          "result": "pass"
+        },
+        {
+          "case": "unsupported_terms_and_offline_budget",
+          "seconds": 17.6,
+          "result": "pass"
+        },
+        {
+          "case": "barrier_context_cancel_deadline_and_abort_rollback",
+          "seconds": 17.8,
+          "result": "pass"
+        },
+        {
+          "case": "same_prefix_consent_F_commit_and_history",
+          "seconds": 26.6,
+          "result": "pass"
+        }
+      ]
+    }
+  },
+  "coverage": [
+    "Genuine automatic incoming request for two hosts/two people, remote-only original owner and selection; progress alone obtains prefix without administrator resume/preview/import as setup, no consent/intents/authority/contact-learning effects",
+    "Exact public waiting/complete actions, stable stage timestamps on duplicate request-only evidence; complete cached retry with remote unavailable and transparent TLS relay counters proves no carrier IO",
+    "Strict private CLI/API64KiB inputs, alternate methods, unknown/changed/detached contexts, requester/later-stage/cancelled/expired refusals and scoped/peer/bootstrap isolation",
+    "Genuine incompatible profile/lifetime, offline transport and bounded stalled relay refuse with complete rollback and controlled errors",
+    "Protected pre-retention barrier exposes genuine parent replacement, cancellation and monotonic deadline; schema-only ABORT after frame insertion proves atomic rollback followed by one exact successful retry",
+    "Exact fetched prefix supports subsequent separate guided administrator consent, ordinary explicitly resumed root offer, external original F and requester commit; progress then refuses and administrator consent lookup remains pure"
+  ],
+  "findings_and_corrections": [
+    {
+      "kind": "implementation_review_hardening",
+      "observed": "Ordinary Evidence parsing may ignore a catalog with an unknown context before an owner descriptor is retained.",
+      "correction": "Validate every cached/fetched catalog against the known adopted pinned descriptor, including request-only snapshots.",
+      "fix_commit": "3d0b64a0dc2fb51e52f82a083d16e812147cd04d"
+    },
+    {
+      "kind": "independent_static_fixture_corrections",
+      "observed": "Before first local execution, author identified possible upstream/relay port reuse, requester transport still mutating snapshots, and partially published barrier markers.",
+      "correction": "Distinct relay endpoints, settle requester transport, atomic0600 complete marker publication and exact entered-request contents. All semantic assertions unchanged.",
+      "independent_commits": [
+        "881e877",
+        "ddaeb37"
+      ]
+    },
+    {
+      "kind": "initial_ci_failure",
+      "observed": "Initial CI on3f88449 with original2044885 suite:2pass/4fail in48s. Cases1/3 reported cached/refused carrier IO, case5 attached project replacement409, case6 passive approved-root publication timeout15s.",
+      "run": 40986080279,
+      "job": 123837674125,
+      "correction": "Relay/settling/barrier static corrections plus documented genuine public parent replacement and post-consent ordinary root driver; retain all no-retention/purity/F/commit/history assertions."
+    },
+    {
+      "kind": "first_local_failure",
+      "observed": "Frozen3d0b64a binary a4df700608b69b2aebc79a2e78c49491697408e91d82d371c93004cc77fd1a49 with integrated static corrections:4pass/2fail in64s. Cases1-4pass; case5 attached project replacement409; case6 no passive approved-root publication in15s.",
+      "decision": "GU.impl22b",
+      "correction": "Public detach before explicit replacement/approval; ordinary explicit resume only after action alone fetched prefix and exact guided consent approved. No longer passive waits, weakened assertions or retry of unchanged failures.",
+      "independent_commit": "55cd128"
+    },
+    {
+      "kind": "bot_P2_product_fix",
+      "observed": "Initial review4419621721 on3f88449: outer-envelope-only endpoint acceptance lets an authenticated invalid ciphertext/plaintext poison the union with a healthy carrier.",
+      "decision": "GU.impl22a",
+      "correction": "Decrypt and validate every frame in each endpoint snapshot before treating it as successful; discard invalid endpoint as a unit. Preserve subsequent transactional validation and cross-snapshot ambiguity refusal.",
+      "fix_commit": "d0fa9e9cdae5622fd92d25fcb5c49da0cc0de671",
+      "fault_coverage_limit": "Authenticated invalid ciphertext requires a genuine malicious writer; transparent TLS relays cannot manufacture it. This exact branch has source review, not claimed black-box crypto corruption coverage."
+    }
+  ],
+  "limits": [
+    "Owner-only interval before automatic requester selection, ambiguous genuine offers, cryptographically authenticated corrupt frames/proofs and incoming renewal refusal remain explicit source/fault limits where no bounded genuine public fixture exists.",
+    "Transparent pinned TLS byte relays observe connections, offline/stall and no-IO cached behavior; they do not decrypt transport or independently prove exact GET-versus-POST internals. Source review covers the one-GET/no-publication branch.",
+    "Narrow final-check/commit and live root-rotation races are not exhaustively executed. Barrier coverage pauses after IO before transaction without a DB lock; schema-only ABORT proves full rollback.",
+    "Progress retains pending evidence only. Separate exact administrator consent permits ordinary owned-root/host signing; subsequent ordinary resume in the completion fixture is after proof fetch and consent. No automatic protocol engine, frontend control, authority adoption or readiness claim is added.",
+    "Earlier PR57 signing historical-purity intermittence remains documented and unclassified; unchanged-suite passes do not diagnose it.",
+    "No actual native terminal, physical/installed two-machine/distinct-person, model receipt or schema23-to27 full-state upgrade/recovery acceptance is claimed. Earlier rejected terminal actions and unchanged quota-refused probes were not retried.",
+    "All20 final-head conformance suites, native252/Rust checks and fresh bot review are recorded in PR59/tracking35 after this local evidence commit. Full feature acceptance remains open."
+  ],
+  "preserved_verification": {
+    "source": "3d0b64a0dc2fb51e52f82a083d16e812147cd04d",
+    "method": "Initial CI before per-endpoint plaintext fix and final fixture corrections",
+    "existing19_suites": "pass",
+    "pr_checks": "pass",
+    "conformance_run": 40986080279,
+    "pr_checks_run": 40986080290,
+    "note": "New incoming_progress was2/6; final-head all20 gates are required and recorded in PR59."
+  }
+}
