@@ -144,6 +144,11 @@ pub enum OwnerCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum OwnerFinalizationCommand {
+    /// Sign only the exact reviewed original B/D/F finalization
+    Sign {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read exact original consent and retained administrator evidence only
     Inspect {
         #[arg(long, required = true)]
@@ -648,8 +653,13 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
 }
 
 async fn owner_command(command: &OwnerCommand, socket: &Path) -> Result<Value> {
-    if let OwnerCommand::Finalization { .. } = command {
-        return finalization_inspect(socket).await;
+    if let OwnerCommand::Finalization { command } = command {
+        return match command {
+            OwnerFinalizationCommand::Inspect { .. } => finalization_inspect(socket).await,
+            OwnerFinalizationCommand::Sign { .. } => {
+                crate::onboarding_owner_finalization_sign::from_stdin(socket).await
+            }
+        };
     }
     if let OwnerCommand::Sign { .. } = command {
         return crate::onboarding_owner_sign::from_stdin(socket).await;
