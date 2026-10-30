@@ -469,6 +469,7 @@ def _():
     h, net, person = f["a"], f["net"], f["bob"]
     parent = project(h, "binding")
     correct = payload(parent, net, person)
+    unknown_person = ssh_public_base64(ssh_key(suite.work, "unknown-person"))
     quiet(f, h)
     before = snapshot(h)
     for key, replacement, status, code in (
@@ -479,7 +480,7 @@ def _():
         ("integration", "other", 400, "invalid")):
         inspect(h, parent, net, person, body={**correct, "context": {**correct["context"], key: replacement}}, status=status, code=code)
     inspect(h, parent, net, person, body={**correct, "network_id": "net_" + "f" * 64}, status=404, code="not_found")
-    inspect(h, parent, net, person, body={**correct, "person_public_key": base64.b64encode(b"\xff" * 32).decode()},
+    inspect(h, parent, net, person, body={**correct, "person_public_key": unknown_person},
             status=409, code="access_inspection_unavailable")
     check(snapshot(h) == before, "binding/selection refusals created project, identity, request or other durable state")
     h.ok("session", "detach", parent["review"]["session_id"])
