@@ -2884,3 +2884,15 @@ approved-worker progress, then apply transport faults outside measurements.
 Apply GU.impl28d's exact lifecycle/outbox/repair corrections before one corrected
 run. Discarded: longer waits, hidden signing/resume loops, weaker expectations,
 unclassified failure deletion or changing production to fit an offline fixture.
+
+### GU.impl28f — Diagnose terminal retry eligibility before changing setup
+
+Corrected CI c686831 passed 5/6 in 88s: repair, actual recipient application,
+both peer registrations and both bounded sync calls succeeded, then the existing
+five-second terminal outbox/journal wait failed. Runtime retry backoff can be up
+to 60s; sync success alone does not prove an outbox ACK. The failed category and
+cause remain unclassified. Selected: independent failure-only closed diagnostics
+at that exact wait, followed by one retained local run. Keep all original waits,
+assertions and purity categories. Discarded: assuming a future retry or wrong
+target without evidence, increasing the timeout, dropping queued categories,
+editing authority/queue rows, disabling workers or repeating unchanged CI.
