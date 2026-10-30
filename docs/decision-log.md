@@ -3059,3 +3059,19 @@ the known stopped issuer's completed error before unchanged quiet/purity checks.
 No current permission is invented; refresh is not a global transport fence.
 Independent setup commits before execution. Discard attributing IO to replay,
 refresh/retry loops, larger sleeps/waits, worker controls and missing counters.
+
+
+### GU.impl31 — Exact project-bound consent over one ordinary policy action
+
+After merged75, select separate durable consent before bounded completion.
+Section31 precedes implementation and independent conformance. The first fixed
+profile adds messages/tasks (65536 message bytes, zero artifacts, no delegation,
+capability/trust/offline sharing). Disclose ordinary owner-wide agent-NAME scope
+alongside the exact project/agent ID; no new authorization evaluator. Reuse
+schema27 dec_intents with one strict nonsigning access_review receipt plus one
+ordinary unsigned policy action, atomically prepared/approved with full current
+scope1/head/edit/clock guards. Preserve raw signed baseline fields and unrelated
+rules. Exact history/replacement is recoverable; no signer probe/signature or
+publication in this slice. Discard a new SQL table/schema for metadata, a second
+signing protocol, advanced approval as guided consent, silent payload refresh,
+automatic reapply, root fallback and a combined consent/signing press.

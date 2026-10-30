@@ -333,3 +333,14 @@ defines owner-local `POST /v1/onboarding/access-inspection` and private-stdin
 attached project to verified network/local-person/selected-person terms and the
 current policy. Signed body and locally enforced content remain distinct. This
 read opens no signer, creates no consent or grant, and establishes no readiness.
+
+
+### Guided project agent-access consent
+
+[Guided session section31](guided-session-contract.md#31-exact-project-agent-access-consent-gu-01u--gu-02v--gu-04v)
+pins owner-local access-consent lookup/prepare/approve and the private stdin CLI.
+They bind one exact project/person/current inspection and full ordinary policy
+action, with a separate human receipt; no key probe, signing/publication or
+readiness claim. Fixed first profile and ordinary owner-wide agent-name scope
+are explicit. Schema27 SQL stays unchanged; strict nonsigning private intent
+metadata and ordinary action approval commit atomically.

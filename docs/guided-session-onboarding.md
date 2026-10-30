@@ -498,3 +498,14 @@ Exact agent-grant consent/signing is next, followed by native access controls
 and observed readiness. Other-computer and installed/physical/actual-model/
 schema23→27/full-state upgrade/recovery/final combined acceptance remain open.
 Full feature acceptance remains incomplete; tracking PR35 stays unmerged.
+
+
+### Next slice: exact project agent-access consent
+
+Section31 / GU.impl31 freezes the complete existing ordinary policy action and
+its exact project/person/provider context before separate explicit approval.
+The first profile enables messages/tasks with zero artifacts and ordinary
+owner-wide agent-name scope shown explicitly. A nonsigning typed local receipt
+reuses dec_intents; no new SQL/schema or signature/publication during consent.
+Implementation, independent conformance and final reviewed evidence follow;
+bounded signing/publication and native controls remain separate later slices.
