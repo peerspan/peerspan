@@ -3138,3 +3138,16 @@ in section32, and have the independent author correct that one regex typo.
 Discard changing runtime clock format or weakening time/shape/other assertions.
 Keep the initial log and dependent missing-signature-fixture failures as evidence.
 No production change or unchanged retry is attributed to this correction.
+
+### GU.impl32d — Preserve and diagnose old purity failures
+
+New signing passes local6/6in109s and CI6/6in79s; candidate325df66 has a clean
+review and passing PR checks. Existing completion history5/6in84s observes two
+issuer UDP datagrams/2400bytes; existing finalization history5/6in62s observes
+only dec_contacts3-to3 rows. Causes remain unclassified. A single unchanged local
+completion diagnosis6/6in138s does not erase that evidence. Select separately
+authored diagnostic-only support for documented unbound contact rows and bounded
+daemon-only timing categories under section32, retaining all original strict
+verdicts and complete proof captures. Discard guessing startup/anti-entropy
+causes, refresh as a global fence, filtering traffic or unchanged retry-to-green.
+No production or authority change is inferred.
