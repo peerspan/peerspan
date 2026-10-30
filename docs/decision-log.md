@@ -2853,3 +2853,12 @@ keep ordinary stage-timeout coverage and real application synchronization.
 Discarded: invented hold flags, omitted counters, worker disabling or timing
 retries. Historical precedence bypasses fresh eligibility checks, while pure
 metadata/context observations remain allowed.
+
+### GU.impl28c — Preserve native timeout evidence and restore host isolation
+
+The first unchanged native run passed287/292 in71.32s; five existing cases hit
+their5000ms timeout while an external Clippy build overlapped. Selected: retain
+the failed run and observed load, then run the full unchanged suite once after
+the host is actually idle. Exact per-case load attribution remains unproven.
+Discarded: changing tests/timeouts, calling the failure a proven product bug or
+retrying unchanged until green. Runtime and host suites stay serial locally.
