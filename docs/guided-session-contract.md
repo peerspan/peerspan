@@ -4530,7 +4530,7 @@ finalization review controls. A later owner/finalization review is explicit.
 A separate contract-only author adds one compact native finalization test file,
 without reading product hooks/Rust or importing implementation helpers. Preserve
 all original272 native files/assertions/stimuli/delays/timeouts and all22 host
-suites. Genuine delayed fixtures signal dispatch/registration before navigation
+suites' assertions/stimuli/delays/timeouts. Genuine delayed fixtures signal dispatch/registration before navigation
 or virtual time advances. Cover:
 
 1. Inert entry/approval/progress/Check owner/Refresh/reload; only the exact live
@@ -4559,6 +4559,19 @@ Record exact source/binary/test provenance, initial failures/corrections and
 source/mock/manual limits. The test kit invokes current drawings; old retained
 closures/narrow final-check-to-dispatch intervals remain source limits unless
 a genuine deterministic fixture is available.
+
+The first PR64 local owner_finalization_signing regression5/6 in93s exposed its
+own unisolated case3 pure-inspection traffic baseline: each relay gained one
+connection and zero bytes, ((13,69510),(11,61849)) to ((14,69510),(12,61849)).
+Exact per-connection attribution remains unclassified; no product source changed
+from PR62's passing binary. This suite has its own Relay/quiet helpers rather
+than using the corrected section24 fixture. A separate contract-only author may
+adapt section25's documented actual consumed-ClientHello/live-generation hold
+setup to this suite before its one corrected full run. Keep every original
+check, delay, timeout, DB/state/home category and BOTH complete relay counters.
+No row edits, worker disabling, inferred stale holds, retry-until-green or omitted
+categories. The initial failure remains evidence, not a pass; new native cases
+are independently committed before any execution and are not changed to hide it.
 
 Selected: explicit pure finalization review, one bounded backend call and
 lookup-first recovery. Discarded: more protocol/proof APIs, combined consent/
