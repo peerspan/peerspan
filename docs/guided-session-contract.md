@@ -5288,6 +5288,22 @@ observer is the only permitted old-host-test change; normalized original source
 and all original strict DB/files/BOTH-carrier assertions remain identical.
 Neither another pass nor this table name alone proves a cause or product fix.
 
+First combined native CI on bfdffd0 ran312 cases:308 passed/4 failed in48.25s.
+One original case requires the still-supported advanced-administration fallback;
+retain it while directing normal participant approvals to explicit reviews.
+Three new fixture failures occur before the intended assertions: changed-flow
+transport/privacy expectations bind to mutable replacement IDs instead of the
+captured requested flow, and short request deadlines retain an owner review
+expiry beyond that signed request. Preserve these failures. An authoritative
+changed reply must be returned for the captured old inspection request (or a
+controlled not-found), never require silent rebinding to the replacement ID.
+Fixture original-review expiry follows section16's minimum of its finite human
+window and signed request bound before deadline/lifecycle races are exercised.
+Independently correct only these invalid setup/expected-binding values, keeping
+all20 native cases, all privacy/argv/time/parent/refusal/result assertions, actual
+dispatch barriers, original delays/timeouts and all old292 unchanged. Commit
+before one corrected full local run; no unchanged retry or weaker validation.
+
 Selected: compose existing exact backends through separate native review,
 approval and completion with pure lookup-first recovery. Discarded: combining
 consent and completion, blanket agent access, frontend signing/provider choice,

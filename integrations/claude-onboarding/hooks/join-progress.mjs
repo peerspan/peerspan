@@ -81,6 +81,6 @@ export function progressLines(v) {
     `Requester owner selection approved: ${r.selection_approved ? 'yes' : 'no'}`,
     `Requester final commit approved: ${r.commit_approved ? 'yes' : 'no'}`, next[r.state][2],
     ...(r.attention.includes('delivery_pending') ? ['Transport: delivery pending. Arrival is not verified.'] : []),
-    'Use each participant\'s explicit review for remaining approvals.',
+    'Advanced linking remains available for administration. Use each participant\'s explicit review for remaining approvals.',
     'Snapshot only. Current authority, agent access, reachability and model receipt are not verified.'].join('\n');
 }

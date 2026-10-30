@@ -2951,3 +2951,14 @@ failure-only snapshot metadata observer and one retained local diagnosis,
 preserving the whole original test after removing that observer. Discarded:
 guessing a cause, skipping contact state, raw dumps, larger waits or unchanged
 CI retry. Keep earlier69 missing-evidence failures unclassified.
+
+### GU.impl29d — Preserve captured flow bindings and valid short-deadline fixtures
+
+First combined native CI bfdffd0 passed308/312 in48.25s. Retain one old fallback
+wording failure and three new invalid fixture setup failures. Select truthful
+advanced-administration fallback plus separate participant review guidance;
+independent fixtures must respond to the captured old inspection flow after
+authoritative replacement, and bound original review expiry by signed request
+deadline before timing/lifecycle stimuli. Preserve every case/assertion/barrier/
+delay/timeout. Discarded: silently rebinding a click to new IDs, accepting invalid
+owner history or relaxing timing, privacy or exact-argv assertions.
