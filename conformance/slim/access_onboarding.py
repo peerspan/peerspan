@@ -328,7 +328,10 @@ def validate(h, parent, net, person, value):
         check([{**rule, "max_artifact_bytes": rule.get("max_artifact_bytes", 0)} for rule in enforced["rules"]] ==
               [{**rule, "max_artifact_bytes": rule.get("max_artifact_bytes", 0)} for rule in body["rules"]],
               "settled rules lost actions, principals, byte bounds or default values")
-        check(observed < parse_time(policy["valid_until"]) <= parse_time(signed["not_after"]), "policy effective ancestry bound")
+        # Every fixture policy ends within 24h and its genuine P/H/B/device
+        # parents last seven days. Its own signed end is the ancestry minimum.
+        check(observed < parse_time(policy["valid_until"]) and policy["valid_until"] == signed["not_after"],
+              "exact policy effective ancestry bound")
     check(review["effects"] == EFFECTS, "membership/policy observation inferred consent, operation access, sharing or readiness")
     digest = hashlib.sha256(b"peerspan-project-access-inspection-v1\n" +
         json.dumps(review, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
