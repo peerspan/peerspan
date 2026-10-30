@@ -1283,6 +1283,26 @@ pub(crate) async fn resolve(
     to: &str,
     network: Option<&str>,
 ) -> Result<Candidate, Error> {
+    resolve_in(store, to, network, false).await
+}
+
+/// Resolves a conversation participant's address: as `resolve`, except that
+/// an agent on this host is a local participant rather than 400 `local`
+/// (conversations contract, C2).
+pub(crate) async fn resolve_participant(
+    store: &Arc<Store>,
+    to: &str,
+    network: Option<&str>,
+) -> Result<Candidate, Error> {
+    resolve_in(store, to, network, true).await
+}
+
+async fn resolve_in(
+    store: &Arc<Store>,
+    to: &str,
+    network: Option<&str>,
+    local: bool,
+) -> Result<Candidate, Error> {
     parts(to)?;
     let (address, given) = (to.to_owned(), network.map(str::to_owned));
     let networks = {
@@ -1305,7 +1325,7 @@ pub(crate) async fn resolve(
             format!("no agent in the directory has the address {to}"),
             json!({ "matches": [] }),
         )),
-        [one] if one.local => Err(coded(
+        [one] if one.local && !local => Err(coded(
             400,
             "local",
             format!("{to} names an agent on this host; Peerspan has no local delivery"),

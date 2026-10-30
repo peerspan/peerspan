@@ -1,5 +1,5 @@
-//! `conversations` and `conversation start|say|show` (conversations
-//! contract, C1). Unlisted in the root help until C6 (CONV-24).
+//! `conversations` and `conversation start|say|show|add|remove|close|leave`
+//! (conversations contract, C1 and C2). Unlisted in the root help until C6 (CONV-24).
 use crate::{
     admin::Local,
     cli::{Command, ConversationCommand},
@@ -69,13 +69,15 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             Ok(())
         }
         Command::Conversation(ConversationCommand::Start {
-            target,
+            targets,
             title,
             message,
             message_id,
+            note,
+            as_agent,
             network,
         }) => {
-            let mut body = json!({ "participants": [target] });
+            let mut body = json!({ "participants": targets });
             if let Some(title) = title {
                 body["title"] = json!(title);
             }
@@ -85,10 +87,64 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             if let Some(id) = message_id {
                 body["message_id"] = json!(id);
             }
+            if let Some(note) = note {
+                body["note"] = json!(note);
+            }
+            if let Some(agent) = as_agent {
+                body["as"] = json!(agent);
+            }
             if let Some(network) = network {
                 body["network"] = json!(network);
             }
             print(&local.post("/v1/conversations".into(), body).await?)
+        }
+        Command::Conversation(ConversationCommand::Add {
+            id,
+            target,
+            as_agent,
+            network,
+        }) => {
+            let id = resolve(&local, &id).await?;
+            let mut body = json!({ "action": "add", "participant": target });
+            if let Some(agent) = as_agent {
+                body["as"] = json!(agent);
+            }
+            if let Some(network) = network {
+                body["network"] = json!(network);
+            }
+            manage(&local, &id, body).await
+        }
+        Command::Conversation(ConversationCommand::Remove {
+            id,
+            participant,
+            as_agent,
+        }) => {
+            let id = resolve(&local, &id).await?;
+            let mut body = json!({ "action": "remove", "participant": participant });
+            if let Some(agent) = as_agent {
+                body["as"] = json!(agent);
+            }
+            manage(&local, &id, body).await
+        }
+        Command::Conversation(ConversationCommand::Close { id, as_agent }) => {
+            let id = resolve(&local, &id).await?;
+            let mut body = json!({ "action": "close" });
+            if let Some(agent) = as_agent {
+                body["as"] = json!(agent);
+            }
+            manage(&local, &id, body).await
+        }
+        Command::Conversation(ConversationCommand::Leave { id, agent }) => {
+            let id = resolve(&local, &id).await?;
+            let mut body = json!({});
+            if let Some(agent) = agent {
+                body["agent"] = json!(agent);
+            }
+            print(
+                &local
+                    .post(format!("/v1/conversations/{id}/leave"), body)
+                    .await?,
+            )
         }
         Command::Conversation(ConversationCommand::Say {
             id,
@@ -150,6 +206,14 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
         }
         _ => unreachable!("not a conversation command"),
     }
+}
+
+async fn manage(local: &Local<'_>, id: &str, body: Value) -> anyhow::Result<()> {
+    print(
+        &local
+            .post(format!("/v1/conversations/{id}/manage"), body)
+            .await?,
+    )
 }
 
 /// A full ID, or `conv_` and at least 6 hex digits naming exactly one.
