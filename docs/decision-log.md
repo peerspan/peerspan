@@ -236,7 +236,7 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 ### DEC-impl: settled by the implementer for renewal-fork retention (not owner decisions)
 
 - **DEC.impl38. Retention across compatible renewal forks (spec 4.2, 7.1, 7.2).** While a stream holds a fork of identical plain renewals (the kind spec 7.1 resolves automatically), a child that depends on it fails `active` only because its parent lookup needs one head. An automatic renewal's retention list therefore judges each candidate child under every combination of the branches of all such forks, as they stood before resolution, and lists it only if it is live in every combination. This applies whether the fork is in the renewed stream (the resolver) or in another stream the child depends on (for example the root renewing a person grant while one of that person's bindings is forked), so the device grant under the forked binding is not dropped and stays renewable after resolution. A child dropped by any branch stays dropped, so listing cannot revive it, and forks other than identical plain renewals are not collapsed: they wait for the owner. Above 64 combinations the list keeps only children live without collapsing any fork. Discarded: checking only the renewed stream's own fork (a parent renewed during another stream's fork still dropped the child); accepting a child live in any one branch (it would revive a child one branch dropped).
-- **Implemented in:** PR (pending).
+- **Implemented in:** [PR #63](https://github.com/peerspan/peerspan/pull/63).
 
 ### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
 
