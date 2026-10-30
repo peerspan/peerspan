@@ -3885,7 +3885,136 @@ network polling in read APIs, broad link-resume/observer/signing engines,
 automatic provider/approval/selection/commit, arbitrary new endpoints/contact
 learning, arrival-order choice, half-retained failed results or a new schema.
 
-## 23. Remaining flow contract
+## 23. Native incoming proof progress and exact administrator consent
+
+This frontend composes sections20–22 in the existing terminal conversation.
+No Rust/API/schema, manual code import, key access, new protocol engine or model
+tool. It handles retained incoming new-original requests only. Root consent
+authorizes ordinary background root/host signing/publication; it does not finish
+original F, requester commit, membership application, agent access or readiness.
+
+### Explicit entry, selection and recovery
+
+Only an attached project offers **Review incoming connections**. Initial load,
+headless entry, ordinary Refresh, adapter/model work and invitation issuance do
+not list, fetch, prepare or approve admissions automatically. Explicit entry
+rechecks terminal, native root/conversation, exact attached parent and host and
+reads the owner onboarding observation. Validate its host and bounded4096
+request collection, unique typed request IDs and exact public LINK_VIEW shapes.
+List only role approver, mode new, nonmigration requests with complete typed
+network/context/person pins; keep terminal history selectable for pure lookup.
+Requester/renewal/migration records never become admission candidates. No first
+candidate, sole-candidate selection or arbitrary ID/code input. Ten per page;
+empty/multiple/duplicate-identity candidates remain explicit choices.
+
+Choice labels show the full public network/person/host identity and creation
+time, with an ordinal to distinguish otherwise identical records. Do not display
+request/intent/flow/session/review IDs or digests. These are retained request
+claims, not yet verified admission terms. Selection captures immutable request
+ID, network/context/person/host/device tuple, request packet and signed times.
+Lookup is always first, using section21's private stdin. A retained consent
+review/history is displayed without fetch, inspection or preparation. Null
+lookup displays the request snapshot and separate explicit actions below.
+
+**Check administrator consent** calls lookup only after fresh parent/host
+checks. It never fetches, prepares, approves, resumes or recreates missing work.
+Approved history remains readable even when request/review dates elapsed;
+native project must still be current and attached to display owner controls.
+Other historical states have no approval control. **Leave incoming review**
+clears local selection/confirmation without declining, cancelling or revoking
+anything. An already dispatched action cannot be retracted by leaving.
+
+### Missing proof and exact review actions
+
+**Fetch incoming proofs** is available only for a live early incoming request
+with null consent. Recheck parent/host and selected immutable pins in a fresh
+observation, then lookup again. If an intent now exists, display that consent
+instead of fetching. Otherwise make one literal
+`onboarding admission progress --stdin` call with exactly {context,request_id},
+five-second timeout and no other command/provider/code/endpoint. Strictly check
+section22's entire result and selection pins. Show its waiting action or verified
+prefix and invite a separate review; never prepare/approve automatically, poll
+or call ordinary link resume. A timeout/failure shows controlled uncertain-result
+text and requires explicit lookup or another explicit fetch after revalidation.
+
+**Review administrator consent** first repeats pure lookup. If null, call
+section20 inspect, verify its closed shape/digest/exact selected prefix and
+current parent/host, then section21 prepare once. The prepared review must match
+inspection's network/current root/member/identity/owner/selection/fixed terms.
+Existing consent is reused, never replaced. A failed/uncertain preparation is
+recovered through Check, not an automatic prepare retry. A prepared intent is
+not approval; inspection's digest never goes to approve.
+
+Before offering **Approve administrator consent**, validate the exact section21
+closed response, review digest, kind/version/context/host/agent, all typed public
+IDs/keys, current root/key and P/H dependencies, fixed profile7 and
+request.created_at+7day lifetime, signed request bounds, intent creation and
+min(request expiry,intent creation+15min) review expiry, exact effects and state/
+next-action. Incoming selection evidence does not require or fabricate the
+requester's local selection_approved boolean on an approver. Reject inconsistent
+recorded stages. Recursively reject unknown fields/private code or credential
+markers, including control/bidi/zero-width decorated forms, in every result
+before presentation. Quote all human strings reversibly. Show the full project,
+agent/owner/capabilities, network/genesis/current root, person/host/device/member,
+finite powers/times and every effect; public root-state and P/H references may
+be shown as exact authority dependencies. No raw diagnostic/provider/key/path/
+template/packet/signature data enters drawings, prompts, tools, logs or storage.
+
+### Exact approval and volatile authority
+
+Approve captures the exact rendered review and synchronously excludes double
+presses. Freshly recheck native terminal/context, parent and host, then lookup
+the same request. Require state review and byte-equivalent canonical review plus
+digest and unchanged selected immutable request pins. Check canonical observation
+and local time no earlier than request/intent creation, observation at most30s
+ahead of local time, and both before review expiry. Recheck context immediately
+before one five-second `onboarding admission approve --stdin` with exactly
+{context,request_id,admission_review_id}. No signing/transport/resume follows.
+Only the same exact approved review confirms recorded global ordinary consent;
+it does not attribute approval/signatures to this interface. Malformed, failed,
+lost or late results hide approval and show outcome unknown; Check only reads.
+
+Local review expiry removes approval and invalidates in-flight local authority.
+Back, Leave, Close/Escape, Refresh, terminal/root/conversation/host/parent loss,
+session end and reload clear selection/review/timers and reject stale callbacks
+or completions. No persisted frontend approval/journal. Opening another flow
+cannot retain admission authority. Existing established adapter/message/task
+runtime navigation rules remain intact. No admission action calls prompt APIs,
+registers model tools or performs filesystem/clipboard/network effects directly.
+
+### Verification
+
+A separate contract-only author adds20 pinned native cases in a new test file,
+preserving all original252 assertions/delays/timeouts/files. Public runtime
+effects only, no product imports. Cover: (1) inert/headless/Refresh/model paths;
+(2) attached entry, bounded sorted unique inventory; (3) empty/filtering;
+(4) multiple/page/duplicate identity explicit selection; (5) lookup-first and
+historical recovery; (6) one explicit fetch and waiting/complete mapping;
+(7) lookup preventing fetch after intent; (8) no automatic prepare after fetch;
+(9) inspect-before-explicit-prepare with exact matching; (10) existing review
+reuse; (11) complete rendered terms/effects/privacy; (12) exact lookup-before-
+approve and one stdin submission/double press; (13) changed review/root/tuple/
+parent/context refusal; (14) expiry/raw/future clock bounds; (15) approved
+history without fresh expiry veto; (16) malformed/private/decorated/extra-field
+responses hide controls; (17) failed/lost results recover lookup-only;
+(18) in-flight navigation/context/terminal invalidation; (19) timer/stale async
+authority and reload; (20) existing runtime survives permitted navigation and no
+prompt/tools/persistence/ordinary resume/signature/secret side effects.
+The pinned kit does not retain old drawing callbacks; their exact closure checks
+remain source/manual evidence, not fabricated execution coverage.
+
+Run final native272 plus incoming_progress6 and admission_consent6 locally
+sequentially against the unchanged frozen host, and all20 final-head CI/native/
+Rust checks with fresh bot review. Record every failure, exact source/hash and
+explicit gaps. No physical/installed/model/schema23→27 acceptance is inferred;
+prior rejected terminal actions and unchanged quota-refused probes stay deferred.
+
+Selected: explicit incoming choice, separate bounded fetch/review/approval and
+lookup-only recovery using existing host APIs. Discarded: automatic polling or
+consent on entry, raw ID/code input, ordinary broad resume, frontend signing,
+provider fallback, duplicate approval storage and consent as connection readiness.
+
+## 24. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
