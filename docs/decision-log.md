@@ -277,6 +277,23 @@ These are choices the [conversations proposal](conversations-proposal.md) left o
 - **DEC.impl50. `addressed_to` on the wire only.** The peer route accepts, checks and stores `addressed_to`, and `meta.addressed` follows it. No C1 local route or tool sets it; C6 adds that. Discarded: refusing it on the wire until C6, which would break hosts that run C6 against C1 hosts.
 - **Implemented in:** [PR #68](https://github.com/peerspan/peerspan/pull/68).
 
+### DEC-impl: settled by the implementer in conversations C2, [PR #70](https://github.com/peerspan/peerspan/pull/70) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C2 contract section](conversations-contract.md#c2-membership). The owner may revisit any of them.
+
+- **DEC.impl51. A host admits its own participants.** Each host records which of its local participants it admitted (by creating the conversation, committing a local agent at home, or accepting an invite), and "joined" for a local participant means admitted and not left. A roster listing an admitted participant as `inviting` does not end the admission. A pushed or fetched roster that lists an unadmitted local participant as `joined` is 400 `invalid`, except an agent that left here and whose leave home has not confirmed yet. Discarded: storing such a roster and ignoring the entry, which would leave views and checks disagreeing about one version.
+- **DEC.impl52. Invites carry home's roster plus one version.** Each invite carries home's current roster with its target `joined`, one version higher. A `joined` answer commits the next version from home's current roster, which equals the invite's roster when nothing changed in between. Pushes coalesce to the newest roster, so a host that stored an invite roster home did not commit at that version is corrected by the next push. Discarded: sending invites one at a time.
+- **DEC.impl53. `unanswered` is a departure reason.** An invite unanswered for 10 minutes moves its target to `departed` with reason `unanswered`, so a host that admitted the agent but whose answer was lost learns of it from the push. A refused invite is still dropped without a `departed` entry. Discarded: dropping unanswered targets silently.
+- **DEC.impl54. A closed roster is final.** After close, home commits no further version. Pending invites stop, and their targets stay `inviting` in the closed roster. The closing version is the closed roster's version. Discarded: dropping pending invites at close, which would add a version after the close.
+- **DEC.impl55. Lenient `add` and `remove`.** Adding a participant already `inviting` or `joined` answers 200 with its current outcome. `remove` takes a participant ID or a label that matches exactly one participant. Removing the creator is 400; the creator leaves instead. Discarded: 409 for a repeated add.
+- **DEC.impl56. Reachability from what home holds.** `reachable_from` and `reaches` count self access, same-host pairs, and the target owner's current policy statements that home holds. Manual grants count only when home is one of the two hosts. Discarded: asking each participant host, which would need a new peer route.
+- **DEC.impl57. No roster, no fetch.** A message for a conversation the receiver holds no roster for stays 503 without a fetch, since the receiver does not know home. A `roster_version` above the one held fetches the roster from home, at most one fetch per conversation at a time. Discarded: carrying `home_host_id` in every message.
+- **DEC.impl58. Roster notifications.** `added`, `removed` and `closed` are `roster` notifications with a `change` object, claimed through the same route as messages. Leaving creates none, and the participant that made a change gets none for it. Leaving or removal withdraws the agent's unclaimed message notifications in that conversation. Discarded: a separate claim route for roster changes.
+- **DEC.impl59. New refusal codes.** 409 `full`, 403 `not_creator`, 409 `closed`, and 429 `limit` (200 open conversations), each with fixed text. Target views gain `closed` and `limit`. Discarded: reusing `conflict` and `forbidden`.
+- **DEC.impl60. A lost `conversation_start` answer.** The tool's lost-response error carries the generated `message_id` and the recovery text `Check list_conversations before starting again; the conversation may exist.` Discarded: retrying the start automatically, which could create two conversations.
+- **DEC.impl61. No new schema version.** Admission, local departures and remembered participant names live in the conversation's `record`. Leaves go in `conversation_roster_outbound` with `kind` `leave:PARTICIPANT`, and pushes with `kind` `roster`. Discarded: new columns, which would need a migration that C1 meant to avoid.
+- **Implemented in:** [PR #70](https://github.com/peerspan/peerspan/pull/70).
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -1218,8 +1235,8 @@ These points were left open by the proposal and were settled by the implementer 
 - **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
-- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way). Not yet a roadmap milestone.
-- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50).
+- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership). Not yet a roadmap milestone.
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61).
 - **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
