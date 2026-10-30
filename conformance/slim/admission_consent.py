@@ -604,14 +604,16 @@ def _():
     with closing(sqlite3.connect(db_path(a))) as db, db:
         db.execute(f"CREATE TRIGGER consent_abort BEFORE UPDATE OF record ON dec_intents WHEN OLD.intent_id='{iid}' "
                    "BEGIN SELECT RAISE(ABORT, 'PRIVATE_ABORT_INJECTION'); END")
-    before = snapshot(a)
-    actual, denied = a.api("POST", BASE + "/approve", payload(f, prepared))
-    check(not 200 <= actual < 300, f"injected approval unexpectedly succeeded: HTTP {actual}")
-    public(denied, "PRIVATE_ABORT_INJECTION", f["code"], f["reply"])
-    check(snapshot(a) == before and intent(a, iid)["record"]["approved"] is False and
-          intent(a, iid)["record"]["approved_at"] == "-", "ABORT left partial approval/clock/reference/schema/private writes")
-    with closing(sqlite3.connect(db_path(a))) as db, db:
-        db.execute("DROP TRIGGER consent_abort")
+    try:
+        before = snapshot(a)
+        actual, denied = a.api("POST", BASE + "/approve", payload(f, prepared))
+        check(not 200 <= actual < 300, f"injected approval unexpectedly succeeded: HTTP {actual}")
+        public(denied, "PRIVATE_ABORT_INJECTION", f["code"], f["reply"])
+        check(snapshot(a) == before and intent(a, iid)["record"]["approved"] is False and
+              intent(a, iid)["record"]["approved_at"] == "-", "ABORT left partial approval/clock/reference/schema/private writes")
+    finally:
+        with closing(sqlite3.connect(db_path(a))) as db, db:
+            db.execute("DROP TRIGGER consent_abort")
     check(records(a)["$schema"] == before_schema, "fault injection left storage schema behind")
     approved = op(f, "approve", prepared)
     check(approved["admission"]["state"] == "approved" and approved["admission"]["review"] == prepared["admission"]["review"] and
