@@ -330,6 +330,28 @@ fn participant_parts(id: &str) -> Option<(&'static str, &str, &str)> {
     };
     (valid_id(host, "host", 32) && local_ok).then_some((kind, host, local))
 }
+/// Whether every participant's fields agree with its ID, and IDs are unique.
+fn consistent(roster: &Roster) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    roster.participants.iter().all(|p| {
+        let Some(id) = p.id.as_deref() else {
+            return false;
+        };
+        let Some((kind, host, local)) = participant_parts(id) else {
+            return false;
+        };
+        let fields = if kind == "agent" {
+            p.agent_id.as_deref() == Some(local) && p.name.is_some()
+        } else {
+            p.agent_id.is_none() && p.person_id.as_deref() == Some(local)
+        };
+        seen.insert(id)
+            && p.kind == kind
+            && p.host_id.as_deref() == Some(host)
+            && fields
+            && matches!(&p.state[..], "inviting" | "joined")
+    })
+}
 fn valid_content(content: &str) -> bool {
     !content.is_empty() && content.len() <= MAX_CONTENT
 }
@@ -431,7 +453,12 @@ impl Store {
     }
     /// A participant's label, derived from this host's verified records.
     fn label(&self, conn: &Connection, p: &Participant) -> Result<String, Error> {
-        let host = p.host_id.clone().unwrap_or_default();
+        // The host comes from the participant ID, which messages are
+        // checked against, never from the roster's other fields.
+        let host = match p.id.as_deref().and_then(participant_parts) {
+            Some((_, host, _)) => host.to_owned(),
+            None => p.host_id.clone().unwrap_or_default(),
+        };
         let person = crate::adapter::sender_person(self, conn, &host)?.1;
         let base = person.unwrap_or(host);
         Ok(match (&p.kind[..], &p.name) {
@@ -1238,6 +1265,7 @@ impl Store {
             || r.roster.conversation_id != r.conversation_id
             || r.roster.home_host_id != sender
             || r.roster.version < 1
+            || !consistent(&r.roster)
             || r.roster.joined(&participant).is_none()
             || !cited
             || r.note.as_ref().is_some_and(|n| n.len() > MAX_NOTE)
