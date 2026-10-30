@@ -3758,7 +3758,11 @@ indicates a pending consent step, never membership/access/connection/model readi
 Unknown request/project404; malformed400 invalid; changed/detached parent409
 review_changed; unsupported/expired/cancelled/clock/ambiguous/invalid proof,
 transport failure or timeout409 incoming_progress_unavailable. A changed exact
-request/root/parent pin during IO409 review_changed. No partial local proof
+request/root/parent pin during IO409 review_changed (including cancellation
+after preflight); cancellation already present at entry is unavailable. Actual
+request/stage or monotonic deadline expiry is unavailable, not a changed-pin
+claim. Schema-only abort failures need only be controlled non-2xx with exact
+rollback, without raw database diagnostics. No partial local proof
 retention on failure, including public-redaction or schema-only abort failures.
 Timeout/response loss cannot prove that an earlier complete retention did not
 commit; explicit retry rechecks the real current state.
@@ -3839,7 +3843,9 @@ No implementer tests or invented protocol/authority rows.
    Exact public request/action; no administrator intent/approval/signature,
    authority/access/registry/event/new schema/key or secret journal. One frozen
    cached retry with remote stopped proves complete-prefix purity/no IO.
-2. Request-only and genuine owner-only mailbox produce waiting actions; repeated
+2. Request-only and, where a bounded genuine public fixture exists, owner-only
+   mailbox produce waiting actions; unavailable owner-only observation before
+   ordinary automatic selection remains explicit source/fault coverage. Repeated
    identical evidence does not renew stage timestamp or create authority. Exact
    retained request remains the same; no endpoint/contact learning or POSTs.
 3. Strict CLI/API/64KiB/private-input/method/missing-daemon and scoped adapter/
