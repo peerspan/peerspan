@@ -10,10 +10,11 @@
     "4d4c58c / GU.impl28c: retain native timeout evidence and make one corrected idle-host run.",
     "2a1f033 / GU.impl28d: exact intent lifecycle, proof-outbox application rollback and separate ordinary delivery repair.",
     "6116103 / GU.impl28e: retain first CI failure and correct authentic ordinary-worker carrier setup before one corrected run.",
-    "b5f11ff / GU.impl28f: retain second CI5/6 and diagnose strict terminal retry eligibility without changing its 5s wait."
+    "b5f11ff / GU.impl28f: retain second CI5/6 and diagnose strict terminal retry eligibility without changing its 5s wait.",
+    "8a98187 / GU.impl28g: actual CI diagnostics show next retry eight seconds ahead; make recorded retry eligible once before unchanged strict terminal baseline."
   ],
   "frozen_production": "baf62ba04922bbadb353fe59a261fdc26a89e4d2",
-  "combined_local_verification_head": "048da445f384de0c6d8b4e07ade84d6e271c74cb",
+  "combined_local_verification_head": "d1ec1333bfd6e78a358119bfa3c72173c8dabe33",
   "production_changes_after_freeze": 0,
   "schema_protocol_existing_host_and_native_tests_unchanged": true,
   "binary_sha256": {
@@ -37,7 +38,10 @@
     "correction_scope": "Keep the genuine requester mailbox reachable for the existing 15s ordinary signed/framed prerequisite, then apply faults. Require exact previous intent except terminal=applied, include proof outbox in strict application rollback, and use one separate explicit completed-requester resume before historical recipient-delivery setup. All old suite/native sources and original new-suite timeouts/categories remain unchanged. The separate repair has an explicit 35s bound.",
     "diagnostic_author_commit": "08162420a152cd52a753fafc8d8df398f2acaddf",
     "diagnostic_integrated_commit": "048da44",
-    "diagnostic_scope": "GU.impl28f failure-only closed retry metadata; every original action/assertion/delay/timeout is AST-identical after removing observer/result capture/failure wrapper. Committed before one retained local run."
+    "diagnostic_scope": "GU.impl28f failure-only closed retry metadata; every original action/assertion/delay/timeout is AST-identical after removing observer/result capture/failure wrapper. Committed before one retained local run.",
+    "eligibility_author_commit": "9ebe3435854f56dae87e17e64abda34a35b9ccf7",
+    "eligibility_integrated_commit": "d1ec1333bfd6e78a358119bfa3c72173c8dabe33",
+    "eligibility_scope": "GU.impl28g: read every documented pending retry timestamp on both participants, bound one shared-clock target by current+61s and all live signed-request/fixed/participant-authority ends, then advance each existing debug clock once before the unchanged strict5s outbox/journal wait. All original protocol actions/assertions/delays/timeouts and failure observer remain unchanged."
   },
   "local": {
     "scheduling": "Primary-owned build/native/host runs are serial. Other Claude work can start independently; retain observed overlaps rather than claiming global exclusivity.",
@@ -110,6 +114,29 @@
         8.3
       ],
       "resource_observations": "Independent author: escalated pre/post scans found zero active cargo/rustc/Clippy/conformance; mid-run compiler scan also zero. Earlier gu46 smoke daemon retained untouched. No continuous resource-isolation guarantee."
+    },
+    "requester_completion_eligibility": {
+      "first_corrected_source_run": true,
+      "source": "9ebe3435854f56dae87e17e64abda34a35b9ccf7; integrated asd1ec133",
+      "passed": 6,
+      "failed": 0,
+      "expected_failures": 0,
+      "unexpected_passes": 0,
+      "skipped": 0,
+      "seconds": 152,
+      "case_seconds": [
+        40.0,
+        25.7,
+        13.6,
+        46.1,
+        14.4,
+        12.1
+      ],
+      "runs": 1,
+      "retained_fixture": "/dev/shm/peerspan-gu-ci-temp/slim-requester_completion-au9mvs1i",
+      "log": "/dev/shm/peerspan-gu69-requester-completion-eligible-first.log",
+      "result": "One genuine clock-eligibility setup followed by the unchanged strict5s actual outbox/journal retirement wait and complete DB/state/home/BOTH-carrier pure history checks passed. No failure observer emitted. All existing protocol actions/assertions/delays/timeouts retained.",
+      "resource_limit": "Preflight no active compiler/test; independent external c2impl/c2test cargo/rustc builds began during this run. Frozen immutable binaries remained unchanged. Retained older gu46 daemon untouched. No exact per-case load attribution or continuous global isolation claim. Local152s is above the two-minute slim target; no timeout change or rerun."
     }
   },
   "first_source_ci": {
@@ -216,7 +243,7 @@
     "rust/src/onboarding_cli.rs": "a9a6aaa482b77e2e67cf91e8143cb77e42be0547145c744b3121007f22a46b17",
     "rust/src/onboarding_join/owner/commit.rs": "694317f369be73931d4419989d33b0c2a7e053ec40459d376075614f9481d494",
     "rust/src/onboarding_join/owner/commit/complete.rs": "e88a3f2454da0a6714672a42de83266f80660f04ed0f8903a90d05a656227685",
-    "conformance/slim/requester_completion.py": "575103c9ee7b0a42a117d25158201d6b2e0597c7e620bd3dc5c6c14523540083",
+    "conformance/slim/requester_completion.py": "fda891b4e8d39007675e5c611b6370935efb34fa89989536c03c01e059d4e6b4",
     "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
     "conformance/slim/delivery.py": "4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971",
     "conformance/slim/owner_finalization.py": "72951d6366a6aa9a843ba41ee88f95f67783adca271b08d835ee5338f7e6bf35",
@@ -232,6 +259,58 @@
     "peerspan-gu-completion-native-isolated.log": "dd338a30b2a892098b608a9c1b17b0ed86166f3f448502deebc289a5ee678c3c",
     "peerspan-gu-completion-requester-commit.log": "611f65a86124dceba57817c0d096df8004ac8dabda68df093cbf78cb5aec5939",
     "peerspan-gu-completion-delivery.log": "8dd23a93d5dd5695c5ea6a07cfbc9905e5bd0461f932fe607ae9b46465f3a80e",
-    "peerspan-gu69-requester-completion-diagnostic-first.log": "db1c3fce54744baf7fcb1cb52bb36756dc979c7edfdc4080b509f8cb1323ec96"
+    "peerspan-gu69-requester-completion-diagnostic-first.log": "db1c3fce54744baf7fcb1cb52bb36756dc979c7edfdc4080b509f8cb1323ec96",
+    "peerspan-gu69-requester-completion-eligible-first.log": "fc8c857f4f5b1ae6ed72db7aade3b09fbd2944619b573820c5787f36b28ea47b"
+  },
+  "diagnostic_candidate_ci": {
+    "head": "ec4d63df86d15fbffd4a1299a97de77444064a3f",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41043555410",
+    "conformance_conclusion": "failure",
+    "existing_suites_passed": 23,
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41043555403",
+    "pr_checks_conclusion": "success",
+    "native": {
+      "passed": 292,
+      "failed": 0,
+      "seconds": 54.72
+    },
+    "rust": "155 passed, 2 ignored; fmt, Clippy and shipped binaries pass",
+    "requester_completion": {
+      "job_id": 124022524437,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 95,
+      "closed_failure_evidence": {
+        "issuer": {
+          "outbox_count": 0,
+          "journal_present": false,
+          "sync_attempted_count": 1,
+          "sync_unavailable_count": 0
+        },
+        "requester": {
+          "outbox_count": 1,
+          "journal_present": false,
+          "sync_attempted_count": 1,
+          "sync_unavailable_count": 0,
+          "outbox": [
+            {
+              "kind": "proofs",
+              "attempts": 4,
+              "due_now": false,
+              "seconds_until_next": 8,
+              "error_code": "unknown",
+              "target_is_other_participant": true
+            }
+          ]
+        }
+      },
+      "classification": "That run ended its 5s fixture wait before the actual ordinary retry was eligible. The prior CI category remains unclassified. GU.impl28g contracts one bounded synchronized debug-clock eligibility step before strict retirement measurement; no production fix or timeout increase."
+    },
+    "fresh_review": {
+      "completed": true,
+      "findings": 0,
+      "summary": "https://github.com/peerspan/peerspan/pull/69#issuecomment-6520373323",
+      "reviewed_head": "ec4d63df86d15fbffd4a1299a97de77444064a3f"
+    }
   }
 }
