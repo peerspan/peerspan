@@ -5803,7 +5803,8 @@ timeout cannot retract already completed IO or a commit whose response was lost.
 Recovery is explicit read-only `signing`, with no transparent retry.
 
 Every successful operation returns200, exactly the section31 outer response
-plus `signing`. The original `access` object/review/digest remain unchanged.
+plus `signing`. `observed_at` is the captured ordinary canonical UTC timestamp
+`YYYY-MM-DDTHH:MM:SSZ` (three time components, no fractional seconds). The original `access` object/review/digest remain unchanged.
 `signing` is null until BOTH exact guided and ordinary approvals exist; advanced
 ordinary approval alone cannot become guided consent. Otherwise it is exactly:
 
