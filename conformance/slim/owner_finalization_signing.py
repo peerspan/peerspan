@@ -1114,8 +1114,16 @@ def _():
         for label, change in faults:
             changed = copy.deepcopy(authentic); change(changed)
             proxy.mutate = lambda method, path, body, status, value: (status, copy.deepcopy(changed) if path.endswith('/approval') else value)
+            # This corpus can exceed one handshake deadline. Refresh outside
+            # each command, retaining both the original whole-corpus comparison
+            # and strict per-command state/files/all-carrier observations.
+            quiet(f); command_before, command_network = snapshot(h), traffic(f)
             check(not command(f, proxy=proxy, agent=agent).ok, 'typed fault signed: ' + label)
             check(not agent.messages and not proxy.submissions, 'typed fault reached key/agent/submission: ' + label)
+            command_after = snapshot(h)
+            check(command_after == command_before,
+                  f'typed fault changed records/private files: {label}: {differences(command_before, command_after)}')
+            check(traffic(f) == command_network, 'typed fault attempted carrier IO: ' + label)
         check(snapshot(h) == before, 'rejected typed first batches changed daemon/key state')
         proxy.mutate = lambda method, path, body, status, value: (status, value)
         data = compact(decision(f)); maximum = data + b' ' * (65536 - len(data))
