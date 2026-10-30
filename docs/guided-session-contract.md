@@ -3644,8 +3644,13 @@ Wrong context/digest409 review_changed; no intent409 admission_review_unavailabl
 Before first approval, require attached parent, live needs_administrator request,
 unchanged selected original/selection/root/P/H/provider, ordinary current draft
 validation, observation no earlier than request/intent/stage creation, unexpired
-review/request and ten-minute stage inactivity. Recheck effective guarded time,
-parent and liveness before commit: crossing a bound rolls back. Expiry409
+review/request and ten-minute stage inactivity. For fresh preparation and first
+approval, raw local decision time as well as effective guarded time must be no
+earlier than request, intent (when present) and stage creation. The ordinary
+five-minute rollback clamp cannot satisfy this first-write creation bound by
+itself. Refuse409 admission_review_unavailable; do not change the shared ordinary
+clock rule or pure historical recovery. Recheck raw/effective time, parent and
+liveness before commit: crossing a bound rolls back. Expiry409
 review_expired; other incompatible evidence/provider409 admission_review_unavailable.
 A schema-only abort on the ordinary approved-intent update must roll back all
 writes. No separate frontend approval record or gap before protocol consent.

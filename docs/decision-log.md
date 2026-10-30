@@ -2440,3 +2440,15 @@ independent admission_consent6 and all19 CI, keeping existing gates intact.
 Discarded: automatic provider choice, original/device fallback, external key
 handling, separate frontend consent storage, hidden signing/polling/import and
 claiming an approved administrator intent is membership/access/readiness.
+
+### GU.impl21a — Refuse local time before fresh consent creation
+
+Selected: fresh administrator preparation/first approval checks raw local time
+as well as ordinary guarded time against request/intent/stage creation, again
+before commit. An independent stale-clock case observed approval because the
+ordinary five-minute rollback allowance clamped a two-minute-old local clock to
+the retained intent's creation. Pin this stricter first-write bound explicitly;
+keep shared protocol clock smoothing and pure approved-history recovery intact.
+Discarded: accepting the clamped value as proof of fresh local consent time,
+changing all ordinary clocks, disabling historical recovery or weakening the
+independent stale-clock refusal assertion. No new test stimulus or timeout.
