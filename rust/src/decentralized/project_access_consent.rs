@@ -26,7 +26,7 @@ fn key_for(input: &Input) -> String {
         )
     )
 }
-fn review_id(v: &Value) -> String {
+pub(super) fn review_id(v: &Value) -> String {
     format!(
         "review_{}",
         hash(
@@ -50,7 +50,7 @@ fn inspection_id(v: &Value) -> String {
         )
     )
 }
-fn latest(c: &Connection, input: &Input) -> Result<Option<String>> {
+pub(super) fn latest(c: &Connection, input: &Input) -> Result<Option<String>> {
     c.query_row("SELECT intent_id FROM dec_intents WHERE kind='access_review' AND network_id=?1 AND json_extract(record,'$.operation_id')=?2 ORDER BY rowid DESC LIMIT 1",
         rusqlite::params![input.network_id,key_for(input)],|r|r.get(0)).optional().map_err(db)
 }
@@ -107,12 +107,12 @@ fn make_review(
     )?;
     Ok(v)
 }
-struct Receipt {
-    meta: Intent,
-    action: Intent,
-    review: Value,
+pub(super) struct Receipt {
+    pub(super) meta: Intent,
+    pub(super) action: Intent,
+    pub(super) review: Value,
 }
-fn load(
+pub(super) fn load(
     c: &Connection,
     store: &Store,
     input: &Input,
@@ -217,7 +217,7 @@ fn load(
         review,
     })
 }
-fn live(
+pub(super) fn live(
     c: &Connection,
     store: &Store,
     input: &Input,
@@ -263,7 +263,7 @@ fn live(
     )?;
     actions::preflight(c, &p, &s, &fixed)
 }
-fn view(
+pub(super) fn view(
     c: &Connection,
     store: &Store,
     input: &Input,
