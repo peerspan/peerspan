@@ -5002,6 +5002,19 @@ the actual external compilation ends and the host is idle, with all292 cases,
 source/assertions/stimuli/delays/timeouts unchanged. Verify process isolation
 around the run; do not hide a failure by repeated unchanged execution.
 
+Successful ordinary application changes the completed requester intent's
+terminal lifecycle value to applied. Its prior record otherwise remains exact,
+including immutable consent, templates and signature bytes; do not require the
+pre-application terminal value to survive, or omit arbitrary intent fields from
+comparison. Application proof-publication dec_outbox state belongs to the
+application transaction and must roll back. It is distinct from earlier sealed
+carrier frames/acknowledgments; do not exclude the entire proof outbox as an
+earlier signing phase. Participant delivery after intentionally unavailable
+carriers may need a separate bounded ordinary repair on the already applied
+requester before waiting for the recipient. That setup action is neither a
+guided completion replay nor evidence of transport performed by a pure reader.
+Keep the first independent CI execution before adapting any fixture expectation.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
