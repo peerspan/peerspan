@@ -3127,3 +3127,14 @@ external agent/key-file discovery or signing. Existing local retained-provider
 reads needed by that old projection stay read-only. Approved unsigned/signed
 history does not perform fresh authority/provider validation. Discard changing
 old access-state semantics or treating local reads as consent for signer IO.
+
+### GU.impl32c — Canonical observation-time fixture correction
+
+First independent signing execution on frozen production fc8cdf4 reported1/6
+passing in46s. Its observation regex requires a fourth colon-separated time
+component, so it rejects the specified canonical RFC3339 UTC observation.
+Select the existing ordinary YYYY-MM-DDTHH:MM:SSZ timestamp, explicitly restated
+in section32, and have the independent author correct that one regex typo.
+Discard changing runtime clock format or weakening time/shape/other assertions.
+Keep the initial log and dependent missing-signature-fixture failures as evidence.
+No production change or unchanged retry is attributed to this correction.
