@@ -319,7 +319,7 @@ def _():
 
 @suite.case("refused_after_deny", "C1 Fan-out and retry (citation, 403 -> refused not_authorized); CLI show")
 def _():
-    bert, bert_p, key = need("bert", "bert_participant", "bob_key")
+    bert, bert_p, key, _conv = need("bert", "bert_participant", "bob_key", "conv")
     before = policy_version(b, state["bob_public"])
     b.ok("deny", "alice", "--person-key", key)
     version = policy_version(b, state["bob_public"])
