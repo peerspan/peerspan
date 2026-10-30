@@ -3013,3 +3013,16 @@ all existing assertions/actions/clock counts/delays/timeouts. Commit before one
 retained diagnostic run per suite. Discard repeated unchanged runs, larger
 waits, missing purity categories, queue/authority edits, forced ACK, worker
 controls and a second clock-advance/protocol loop.
+
+### GU.impl30e — Retire genuine setup work before access purity accounting
+
+The first diagnostic access run5/6in73s passed DB/files but caught carrier IO;
+the specific cause remains unknown. Source/spec evidence establishes1800s is
+before the fixture's actual3600s invitation/request windows, and preceding
+revocation creates unrelated delivery work. Select actual observed expiry and
+ordinary retirement prerequisites, bounded by live measured authority, plus a
+separate genuine revocation fixture. Count every enabled path and preserve both
+original carrier counters and all strict measured assertions/timeouts. A separate
+author commits setup before execution. Discard a larger magic clock constant,
+quiet samples as retirement proof, discarded categories, uncounted transports,
+queue/authority edits, worker controls, forced ACK and unchanged reruns.
