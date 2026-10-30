@@ -2426,3 +2426,17 @@ selects only the error redaction policy; it never accepts arguments, routes a
 command or performs IO. All admission values still require strict private stdin.
 Discarded: accepting a positional ID, removing the no-echo conformance assertion,
 filtering selected secret prefixes, and changing unrelated command diagnostics.
+
+### GU.impl21 — Exact durable root administrator consent
+
+Selected: explicit prepare/lookup/approve over the existing ordinary
+administrator intent, fixed network_root ed25519 using the current locally owned
+root seed. One transaction binds exact attached context, verified selected new
+original, current root and P/H drafts and approval digest; pure history reports
+global protocol consent without frontend attribution. No schema or second
+approval journal. Approval permits ordinary background root/host signatures and
+publication; original F/requester commit remain separate. Section21 defines
+independent admission_consent6 and all19 CI, keeping existing gates intact.
+Discarded: automatic provider choice, original/device fallback, external key
+handling, separate frontend consent storage, hidden signing/polling/import and
+claiming an approved administrator intent is membership/access/readiness.
