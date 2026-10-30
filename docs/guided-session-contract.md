@@ -4125,7 +4125,8 @@ keys/member/fixed lifetime match section16. Administrator is exactly
 administrator packet (writer host, authority format and issuer); these identify
 its signing authority, not a new consent attribution. Root/P/H are the exact
 independently verified administrator parents. B/D/F IDs are deliberately absent:
-this action does not create timestamp-dependent drafts. Expires_at is the signed
+this action does not create timestamp-dependent drafts. Created_at is exactly
+the signed request.created_at, never intent/admin/observation time. Expires_at is the signed
 request deadline, not a renewed inspection/consent window. Effects are exactly:
 
 ```
@@ -4165,10 +4166,14 @@ signing/transport and public setup; no fabricated protocol or authority rows.
    administrator approval. Inspect via API and CLI: closed shapes, exact pins,
    domain digest, root/P/H/administrator identity, profile7/binding2/fixed end and
    all false effects. No B/D/F materialization or requester commit occurs.
-2. Repeat inspection, restart and inspect again with unchanged evidence: stable
-   review/digest; strict logical DB/private-file and settled carrier no-IO
-   snapshots remain equal. Isolate independent invitation/transport workers
-   before measuring; retain every purity assertion and document setup limits.
+2. Repeat live inspection: stable review/digest and strict logical DB/private-file
+   and settled carrier no-IO snapshots remain equal. Restart follows the existing
+   project-session detach contract: after startup settles, inspection refuses
+   review_changed purely; section16 lookup retains the identical original consent
+   and ordinary evidence. No retry, approval replay or adapter reconnect is a
+   project resurrection. A substituted fresh project context cannot rebind the old
+   published join flow. Isolate independent invitation/transport workers before
+   measuring; retain every purity assertion and document setup limits.
 3. Missing/unapproved owner consent, absent original/selection/administrator,
    wrong/detached context or altered review IDs refuse without mutation/key IO.
    Use genuine alternative attempts/identities; no evidence-row edits.

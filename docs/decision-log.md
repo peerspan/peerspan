@@ -2590,3 +2590,15 @@ and native controls as following slices. This makes each dependency reviewable
 while the feature branch remains isolated. Discarded: broad resume as observation,
 new signing/consent journals, key use on inspection, silently approving final
 commit and treating pending administrator statements as adopted membership.
+
+
+### GU.impl24a — Preserve project detach on daemon restart
+
+Contract-only author review identified ambiguous restart-success wording.
+Selected: repeat live inspections keep a stable digest; after restart settles
+the existing detached parent causes a pure review_changed refusal, with immutable
+section16 consent and ordinary evidence preserved. Created_at is the signed
+request creation time. Materialized ordinary drafts during explicit setup are
+allowed; inspection changes none. Discarded: resurrecting the original attachment
+through approval replay/reconnect or rebinding an old published flow to a fresh
+context. Startup mutations stay outside the measured pure-inspection baseline.

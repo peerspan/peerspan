@@ -285,3 +285,13 @@ retains only validated incoming request/original/selection/proofs, atomically
 under rechecked context/request/root/time pins. Cached complete-prefix retry is
 pure; this never prepares consent, signs protocol packets, learns endpoints or
 invokes the ordinary resume/action engine. No schema/native control is added.
+
+
+Guided original finalization inspection (guided session contract section24) adds
+owner-local POST /v1/onboarding/join-flows/{id}/owner/finalization/inspect and
+`onboarding join owner finalization inspect --stdin`, binding exact context,
+join_review_id and approved owner_review_id. One read snapshot reuses ordinary
+cryptographic administrator/owner preparation over retained root/P/H evidence,
+returns a closed public review/digest and never fetches, creates drafts, selects
+a provider, signs, commits or adopts membership. Restart retains consent history
+but follows existing project detach. No schema/native/peer/scoped API change.
