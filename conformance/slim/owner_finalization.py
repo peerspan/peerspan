@@ -350,6 +350,108 @@ def differences(before, after):
             for label, old, new in zip(('tables', 'state_paths', 'home_paths'), before, after)}
 
 
+def report_contact_purity_failure(f, before, after):
+    """GU.impl29c: closed metadata from captured snapshots; never change a verdict."""
+    if after == before:
+        return
+    unknown = 'unknown'
+    summary = {key: unknown for key in ('before_contact_count', 'after_contact_count',
+        'added_primary_key_count', 'removed_primary_key_count', 'changed_primary_key_count',
+        'changed_existing_rows')}
+    try:
+        def canonical_base64(value):
+            return (type(value) is str and
+                    base64.b64encode(base64.b64decode(value, validate=True)).decode() == value)
+
+        def index(rows):
+            result = {}
+            for row in rows:
+                if (type(row) is not tuple or len(row) != 5 or
+                    not all(type(value) is str for value in row[:3]) or
+                    not re.fullmatch(r'net_[0-9a-f]{64}', row[0]) or
+                    not re.fullmatch(r'ctx_[0-9a-f]{64}', row[1]) or
+                    not canonical_base64(row[2]) or len(base64.b64decode(row[2])) != 32 or
+                    row[:3] in result):
+                    raise ValueError
+                result[row[:3]] = row
+            return result
+
+        def unique_object(pairs):
+            value = dict(pairs)
+            if len(value) != len(pairs):
+                raise ValueError
+            return value
+
+        def record(value):
+            try:
+                if type(value) is not str:
+                    return None
+                value = json.loads(value, object_pairs_hook=unique_object)
+                if (type(value) is not dict or
+                    set(value) != {'format', 'message_hashes', 'conflicted', 'contacts_base64'} or
+                    type(value['format']) is not int or value['format'] != 1 or
+                    type(value['conflicted']) is not bool or
+                    type(value['message_hashes']) is not list or
+                    not all(type(item) is str and re.fullmatch(r'[0-9a-f]{64}', item)
+                            for item in value['message_hashes']) or
+                    type(value['contacts_base64']) is not list or
+                    not all(canonical_base64(item) for item in value['contacts_base64'])):
+                    return None
+                return value
+            except Exception:
+                return None
+
+        def sequence(value):
+            return ((type(value) is int and 0 <= value < 2**63) or
+                    (type(value) is bytes and len(value) == 8 and
+                     int.from_bytes(value, 'big') >= 2**63))
+
+        old_rows, new_rows = before[0]['dec_contacts'], after[0]['dec_contacts']
+        if type(old_rows) is not tuple or type(new_rows) is not tuple:
+            raise ValueError
+        summary['before_contact_count'], summary['after_contact_count'] = len(old_rows), len(new_rows)
+        old, new = index(old_rows), index(new_rows)
+        old_keys, new_keys = set(old), set(new)
+        changed = [key for key in old_keys & new_keys if old[key] != new[key]]
+        summary.update(added_primary_key_count=len(new_keys - old_keys),
+                       removed_primary_key_count=len(old_keys - new_keys),
+                       changed_primary_key_count=len(changed))
+        metadata = []
+        for key in changed:
+            left, right = old[key], new[key]
+            item = {name: unknown for name in ('sequence_changed', 'matches_known_network_context',
+                'host_is_other_participant', 'format_changed', 'message_hashes_changed',
+                'conflicted_changed', 'contacts_base64_changed', 'before_message_hashes_count',
+                'after_message_hashes_count', 'before_contacts_count', 'after_contacts_count',
+                'before_conflicted', 'after_conflicted')}
+            if sequence(left[3]) and sequence(right[3]):
+                item['sequence_changed'] = left[3] != right[3]
+            known_context = f.get('owner', {}).get('request', {}).get('context_id')
+            known_network = f.get('network', {}).get('id')
+            if type(known_network) is str and type(known_context) is str:
+                item['matches_known_network_context'] = key[:2] == (known_network, known_context)
+            other = getattr(f.get('a'), 'public_key', None)
+            if type(other) is str:
+                item['host_is_other_participant'] = key[2] == other
+            left_record, right_record = record(left[4]), record(right[4])
+            if left_record is not None and right_record is not None:
+                for field in ('format', 'message_hashes', 'conflicted', 'contacts_base64'):
+                    item[field + '_changed'] = left_record[field] != right_record[field]
+            for side, value in (('before', left_record), ('after', right_record)):
+                if value is not None:
+                    item[side + '_message_hashes_count'] = len(value['message_hashes'])
+                    item[side + '_contacts_count'] = len(value['contacts_base64'])
+                    item[side + '_conflicted'] = value['conflicted']
+            metadata.append(item)
+        summary['changed_existing_rows'] = sorted(metadata, key=lambda item: json.dumps(item, sort_keys=True))
+    except Exception:
+        pass  # Retain unknown metadata without disclosing or replacing the original failure.
+    try:
+        print('contact_purity_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # A failed diagnostic output must not mask the unchanged assertion below.
+
+
 def public(value, *secrets):
     text = json.dumps(value, ensure_ascii=False, default=str)
     for n, marker in enumerate((*PREFIXES, 'payload_base64', 'template_base64', 'message_base64', 'secret_base64',
@@ -595,6 +697,7 @@ def inspect(f, *, status=200, code=None, body=None, path=None, pure=True):
         check(isinstance(value, dict) and value.get('code') == code, f'finalization error code {value.get("code") if isinstance(value, dict) else None}, want {code}')
     if pure:
         after, after_network = snapshot(h), traffic(f)
+        report_contact_purity_failure(f, before, after)
         check(after == before, f'pure finalization inspection changed state: {differences(before, after)}; relay_changed={network != after_network}')
         check(after_network == network, f'pure finalization inspection attempted carrier IO; before={network}, after={after_network}')
     if status == 200:
