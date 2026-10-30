@@ -21,7 +21,7 @@ state = {}
 
 CLAIM = "/adapter/v1/conversation-notifications/next"
 NOT_PARTICIPANT = "This participant is not in that conversation."
-BAD_SEEN = "ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs"
+BAD_SEEN = "invalid request: ids must be 1 to 100 delivery, request, task, call, conversation, or conversation message IDs"
 BUDGET = 262_144
 LARGE = 65_536
 DAY = 24 * 3600
@@ -431,8 +431,7 @@ def _():
     check(unseen(agent, conv) == 4, f"unseen with s4 unclaimed: {unseen(agent, conv)}, want 4")
     for bad in ("nope_" + os.urandom(16).hex(), "cnot_" + os.urandom(16).hex()):
         status, body = seen(agent, bad)
-        api_error(status, body, 400, "invalid")
-        check(BAD_SEEN in body["error"], f"seen {bad}: {body}")
+        api_error(status, body, 400, "invalid", BAD_SEEN)  # C5 `seen`: the exact text
     check(unseen(agent, conv) == 4, "a malformed seen marked something")
     # The catch-up's new message marks everything claimed with it.
     seen_ok(agent, m3)
