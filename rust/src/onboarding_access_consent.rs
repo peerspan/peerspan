@@ -77,8 +77,12 @@ pub fn decode_input(bytes: &[u8], operation: &str) -> Result<Value, Error> {
             "context network_id person_public_key inspection_review_id replace_access_id"
         }
         "prepare" => "context network_id person_public_key inspection_review_id",
-        "approve" | "signing" => "context network_id person_public_key access_id access_review_id",
-        "sign" => "context network_id person_public_key access_id access_review_id decision",
+        "approve" | "signing" | "application" => {
+            "context network_id person_public_key access_id access_review_id"
+        }
+        "sign" | "apply" => {
+            "context network_id person_public_key access_id access_review_id decision"
+        }
         _ => return Err(invalid()),
     };
     codec::fields(codec::object(&value).map_err(|_| invalid())?, fields).map_err(|_| invalid())?;
@@ -93,9 +97,12 @@ pub fn decode_input(bytes: &[u8], operation: &str) -> Result<Value, Error> {
     };
     let review = |v: &Option<String>| v.as_deref().is_some_and(|s| codec::ident(s, "review_"));
     if (operation == "prepare" && !review(&input.inspection_review_id))
-        || (matches!(operation, "approve" | "signing" | "sign")
-            && (!id(&input.access_id) || !review(&input.access_review_id)))
+        || (matches!(
+            operation,
+            "approve" | "signing" | "sign" | "application" | "apply"
+        ) && (!id(&input.access_id) || !review(&input.access_review_id)))
         || (operation == "sign" && input.decision.as_deref() != Some("sign_project_agent_access"))
+        || (operation == "apply" && input.decision.as_deref() != Some("apply_project_agent_access"))
         || (input.replace_access_id.is_some() && !id(&input.replace_access_id))
     {
         return Err(invalid());

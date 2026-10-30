@@ -53,6 +53,16 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum AccessCommand {
+    /// Read verified historical local policy application without publishing
+    Application {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Apply only the exact approved and already signed project policy
+    Apply {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read retained exact policy signature progress without signing
     Signing {
         #[arg(long, required = true)]
@@ -329,6 +339,8 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
             AccessCommand::Approve { .. } => access_consent(socket, "approve").await,
             AccessCommand::Signing { .. } => access_consent(socket, "signing").await,
             AccessCommand::Sign { .. } => access_consent(socket, "sign").await,
+            AccessCommand::Application { .. } => access_consent(socket, "application").await,
+            AccessCommand::Apply { .. } => access_consent(socket, "apply").await,
         }
         .map(Some);
     }
@@ -417,7 +429,11 @@ async fn access_consent(socket: &Path, operation: &str) -> Result<Value> {
         .map_err(|_| invalid())?;
     let unavailable = || anyhow::anyhow!("project access consent unavailable");
     tokio::time::timeout(
-        std::time::Duration::from_secs(if operation == "sign" { 95 } else { 5 }),
+        std::time::Duration::from_secs(if matches!(operation, "sign" | "apply") {
+            95
+        } else {
+            5
+        }),
         Local(socket).post(format!("/v1/onboarding/access-consent/{operation}"), input),
     )
     .await

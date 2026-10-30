@@ -34,6 +34,7 @@ pub mod network;
 pub mod oauth;
 pub mod onboarding;
 pub mod onboarding_access;
+pub(crate) mod onboarding_access_application;
 pub mod onboarding_access_consent;
 pub(crate) mod onboarding_access_signing;
 pub mod onboarding_adapter;

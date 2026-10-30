@@ -226,6 +226,30 @@ pub(super) fn live(
     attached: bool,
     now: &str,
 ) -> Result<()> {
+    live_phase(c, store, input, r, parent, attached, now, false)
+}
+pub(super) fn live_application(
+    c: &Connection,
+    store: &Store,
+    input: &Input,
+    r: &Receipt,
+    parent: &Value,
+    attached: bool,
+    now: &str,
+) -> Result<()> {
+    live_phase(c, store, input, r, parent, attached, now, true)
+}
+#[allow(clippy::too_many_arguments)]
+fn live_phase(
+    c: &Connection,
+    store: &Store,
+    input: &Input,
+    r: &Receipt,
+    parent: &Value,
+    attached: bool,
+    now: &str,
+    signed: bool,
+) -> Result<()> {
     require(
         attached && parent["agent"] == r.review["inspection"]["agent"],
         "review_changed",
@@ -234,8 +258,8 @@ pub(super) fn live(
     require(now < r.meta.record.expires_at.as_str(), "review_expired")?;
     require(
         r.action.record.terminal == "-"
-            && !r.action.record.completed
-            && r.action.record.signatures.is_empty()
+            && r.action.record.completed == signed
+            && r.action.record.signatures.len() == usize::from(signed)
             && r.action.record.approved == r.meta.record.approved,
         "review_changed",
     )?;
