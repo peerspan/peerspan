@@ -31,6 +31,7 @@ Contents:
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
   - [DEC-D1: replace the coordinator before launch](#dec-d1-replace-the-coordinator-before-launch-2026-10-26) (2026-10-26)
   - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
+  - [CONV-22 to CONV-26: conversations after the coordinator-free work](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
   - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
   - [LAUNCH-34: the `attach --no-start` sign-in check](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) (2026-10-24)
@@ -45,7 +46,7 @@ Contents:
 - **Question:** with the coordinator-free work on `main`, which feature comes next?
 - **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
 - **Chosen:** conversations.
-- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit are listed for the owner as CQ-1 to CQ-4 in its [open questions](conversations-proposal.md#open-questions-after-the-coordinator-free-work). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
+- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
 - **Recorded in:** the conversations refresh PR.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
@@ -1201,7 +1202,7 @@ These points were left open by the proposal and were settled by the implementer 
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
 - **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
 - **Implementing PRs:** none yet.
-- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; questions where they no longer fit as written are CQ-1 to CQ-4 in the proposal, not yet decided.
+- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-26-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
@@ -1383,6 +1384,62 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
   - (b) Agents only first; people from the CLI in the next slice.
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** The CLI is the only human surface today, and people in the conversation are the multiplayer case worth proving first.
+
+### CONV-22 to CONV-26: conversations after the coordinator-free work (2026-10-30)
+
+- **Date:** 2026-10-30.
+- **Area:** conversations, after the coordinator-free work (DEC-OWN11).
+- **Source:** [conversations-proposal.md, Questions resolved after the coordinator-free work](conversations-proposal.md#questions-resolved-after-the-coordinator-free-work), questions CQ-1 to CQ-4 of the refresh PR ([PR #65](https://github.com/peerspan/peerspan/pull/65)), and the owner's rename of "post".
+- **Recorded in:** this log and the proposal ([PR #65](https://github.com/peerspan/peerspan/pull/65)).
+- **Contract section:** none yet; `docs/conversations-contract.md` is written by the implementing PRs C1 to C6.
+- **Implementing PRs:** none yet.
+
+CONV-22 to CONV-25 were decided by accepting the question's recommendation. They change CONV-17, CONV-3 and CONV-21 only as stated; those entries stay.
+
+#### CONV-22. How long the author's host pushes, now that policies last at most 24 hours (CQ-1; refines CONV-17)
+
+- **Options:**
+  - (a) Keep the message rule. Pushes stop at the capped deadline; sync covers the rest. No design change.
+  - (b) Re-cite on each retry: the author's host cites its newest copy of the recipient owner's policy on every attempt, with a new deadline capped by it, up to 24 hours after `sent_at`. The repeat check (acceptance step 3) ignores `deadline` and the citation fields.
+  - (c) Posts carry no `deadline`. The author's host pushes until 24 hours after `sent_at`, and the receiver checks a pushed post as it checks a fetched one: under its own current policy, grants and block list, with no deadline bounds. The cited `policy` version is still sent, so a receiver behind it answers 503.
+- **Chosen:** (c). Conversation messages carry no deadline. The sender's host pushes for 24 hours, and the receiving host checks a pushed message against its own current policy, exactly as it checks a fetched one.
+- **Reason given:** It gives CONV-17's 24 hours as written, and makes a pushed and a fetched post pass the same checks, which removes a field and a rule instead of adding one.
+
+#### CONV-23. A home host that stops being a member (CQ-2; CONV-3)
+
+- **Options:**
+  - (a) As accepted: posting continues among participants whose hosts are members; membership changes wait for home. Each host shows `home_unavailable` in the conversation view while home is not a current member of any network they share, and any participant can still leave locally.
+  - (b) Bring CONV-3(c) forward: the creator may hand home to another participant host while home is still a member.
+  - (c) Automatic handover to a host of the same person, when home has been a non-member for 7 days.
+- **Chosen:** (a), as accepted. Handover stays in a later slice.
+- **Reason given:** Lapsed grants are renewed when the host returns, revocation is rare, and handover needs its own design for roster authority.
+
+#### CONV-24. What "first slice" means when it is built as six PRs (CQ-3; CONV-21)
+
+- **Options:**
+  - (a) C1 to C6 together are CONV-21's first slice. Each PR is complete for what it covers. The root help, README, and quick start mention conversations only from C6.
+  - (b) Agents first: list the commands from C2, and add people in C3 as a second user-visible step (CONV-21(b)).
+  - (c) Keep everything behind a build or runtime flag until C6.
+- **Chosen:** (a). C1 to C6 together are the first slice; the commands are listed in help, the README and the quick start only from C6.
+- **Reason given:** It keeps CONV-21's scope as the first thing users see, needs no flag, and each PR still runs in CI.
+
+#### CONV-25. The live run with real agents (CQ-4)
+
+- **Options:**
+  - (a) Keep it as a one-time manual run before C6 merges, recorded in `docs/results/` and linked from C6's PR. It does not gate CI.
+  - (b) Drop it; the slim suite with fixture adapters and the shared adapter's own tests are enough.
+  - (c) Make it a scripted CI job with real agents.
+- **Chosen:** (a). One manual live run, recorded in `docs/results/` before C6 merges; not a CI gate.
+- **Reason given:** The window, labels, and "you need not answer every post" guidance only show their value with real models, and a single recorded run is cheap. Real agents in CI need accounts and keys the project does not have.
+
+#### CONV-26. What to call one contribution to a conversation
+
+- **Options:**
+  - (a) "post", as in the accepted proposal (`post_id`, `post_…` IDs, `conversation_post`, `/posts` routes).
+  - (b) "message", or "conversation message" where it could be confused with the existing one-to-one messages.
+- **Chosen:** (b), the owner's decision of 2026-10-30, not a recommendation of the proposal.
+- **Names chosen in the proposal** (none collides with an existing name in `rust/src`, `integrations/shared` or the contracts): field `message_id` with IDs `cmsg_` plus 32 hex digits; routes `/peer/v1/conversations/{id}/messages`, `/adapter/v1/conversations/{id}/messages` and `/v1/conversations/{id}/messages`; agent tool `conversation_send` (was `conversation_post`), `before_message_id`; table `conversation_messages` and index `conversation_messages_order`; activity kinds `conversation.message_sent`, `conversation.message_received`, `conversation.message_refused`; local event kinds `message_received`, `message_sent`; CLI `conversation say --message-id`. Event kinds (`conversation`, `conversation_roster`, `conversation_undelivered`), the `conv_` conversation ID, and the one-to-one message names (`send`, `reply`, `/peer/v1/messages`, `request_id`, the `message.*` activity kinds) are unchanged.
+- **Effect on earlier entries:** CONV-1 to CONV-25 keep their wording; a "post" there is a conversation message.
 
 ### LIVE-5: protocol_version from every adapter (2026-10-25)
 
