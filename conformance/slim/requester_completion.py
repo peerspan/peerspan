@@ -914,12 +914,56 @@ def terminal_cleanup(f):
     check(status == 200 and cancelled['state'] == 'cancelled', 'maintenance request cancellation')
 
 
+def report_terminal_failure(h, issuer, sync_results):
+    """GU.impl28f: closed retry metadata only, never raw rows or error detail."""
+    unknown = 'unknown'
+    codes = {'-', 'invalid', 'forbidden', 'authority_expired', 'device_revoked', 'not_yet_valid',
+             'authority_would_be_invalidated', 'not_found', 'proof_required', 'state_conflict',
+             'operation_conflict', 'version_exhausted', 'quota_exceeded', 'clock_rollback',
+             'review_required', 'signer_unavailable', 'recovery_required', 'expired',
+             'upgrade_required', 'rate_limited', 'internal'}
+    summary = {}
+    for index, (role, local, other) in enumerate((('requester', h, issuer), ('issuer', issuer, h))):
+        observed = {'outbox_count': unknown, 'journal_present': unknown, 'outbox': unknown,
+                    'sync_attempted_count': unknown, 'sync_unavailable_count': unknown}
+        try:
+            value = sync_results[index]
+            for key in ('attempted', 'unavailable'):
+                observed['sync_' + key + '_count'] = len(value[key]) if isinstance(value.get(key), list) else unknown
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=2)) as db:
+                rows = db.execute("SELECT target_key,json_extract(record,'$.kind'),json_extract(record,'$.attempts'),"
+                                  "json_extract(record,'$.next_attempt_at'),json_extract(record,'$.last_error_code') "
+                                  "FROM dec_outbox ORDER BY delivery_id").fetchall()
+            observed['outbox_count'] = len(rows)
+            observed['journal_present'] = bool(list(local.state.glob('*-journal')))
+            metadata = []
+            for target, kind, attempts, next_attempt, code in rows:
+                due, seconds = unknown, unknown
+                try:
+                    delta = (parse_time(next_attempt) - local.now()).total_seconds()
+                    due, seconds = delta <= 0, max(0, math.ceil(delta))
+                except (ValueError, TypeError):
+                    pass
+                metadata.append({'kind': kind if kind in ('proofs', 'activation', 'migration') else unknown,
+                    'attempts': attempts if type(attempts) is int and 0 <= attempts <= 2**64 - 1 else unknown,
+                    'due_now': due, 'seconds_until_next': seconds,
+                    'error_code': code if code in codes else unknown,
+                    'target_is_other_participant': target == other.public_key})
+            observed['outbox'] = metadata
+        except Exception:
+            pass  # Never disclose a diagnostic exception or replace the original verdict.
+        summary[role] = observed
+    print('terminal_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+
+
 def terminal_delivery_baseline(h, issuer, network_id):
+    sync_results = []
     for local, remote in ((h, issuer), (issuer, h)):
         local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', remote.peer_address)
     for local in (h, issuer):
         status, value = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
         check(status == 200 and value['unavailable'] == [], 'genuine terminal sync setup')
+        sync_results.append(value)
     def retired():
         for local in (h, issuer):
             with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
@@ -928,7 +972,14 @@ def terminal_delivery_baseline(h, issuer, network_id):
             if list(local.state.glob('*-journal')):
                 return False
         return True
-    wait_for(retired, timeout=5, interval=.1, message='actual terminal outbox retirement and journal quiescence')
+    try:
+        wait_for(retired, timeout=5, interval=.1, message='actual terminal outbox retirement and journal quiescence')
+    except Exception:
+        try:
+            report_terminal_failure(h, issuer, sync_results)
+        except Exception:
+            pass
+        raise
 
 
 @suite.case('missing_unapproved_F_binding_cancellation_and_unknown_flow_refuse_without_new_consent', 'guided28 verification2')
