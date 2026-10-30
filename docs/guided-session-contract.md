@@ -4278,7 +4278,9 @@ against its exact typed object before submission. Never return/log raw templates
 messages, signatures, keys/paths, agent comments, codes, seeds or private diagnostics.
 
 At most two ordered submission batches and three original SSHSIG operations per
-invocation: the remaining B/D issuers, then F authority. No retry, unbounded loop,
+invocation: the remaining B/D issuers, then F authority. A90s whole-command
+bound also covers these phases; cancellation cannot retract dispatched agent
+operations or a POST that may already have committed. No retry, unbounded loop,
 extra original offer/administrator/root/device/commit signing. Every daemon call
 has5s bound. After the first POST, obtain one fresh ordinary view for the dependent
 F batch; the ordinary daemon may have already materialized/signed its approved
