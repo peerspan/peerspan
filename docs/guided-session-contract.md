@@ -4832,7 +4832,7 @@ Never prepare, approve, replace or extend it. A missing/unapproved intent refuse
 purely. A different digest refuses review_changed, including historical replay.
 
 An already locally applied matching operation returns a verified retained
-application purely before current parent, deadline or device-availability work,
+application purely before fresh parent/deadline/device-availability checks,
 including detach/restart/expiry/key absence. Validate the immutable application
 and its saved consent/catalog at its saved application time; do not infer
 current authority from historical consent. A completed replay performs no
@@ -4982,6 +4982,16 @@ and may return200 purely despite a subsequently changed parent/time. It is not
 evidence of guided application after that change. A guarded-refusal case must
 establish no prior application; otherwise report the competing-work source
 limit. Do not disable workers or fabricate an unapplied fixture.
+
+A partial-signature barrier is not a transport hold. If parking an already
+approved worker prevents a genuine consumed ClientHello from existing, do not
+claim live carrier isolation or omit either carrier counter. Preserve exact
+already-signed bytes/signatures when completing genuine partial work. Measure
+early raw time and signed/fixed expiry under real confirmed holds; the narrow
+approved-but-unsigned stage-expiry interval remains an explicit source/barrier
+limit without a reliable public stimulus. Existing ordinary join-stage timeout
+coverage remains unchanged. Actual application-barrier parent/clock changes and
+late INSERT rollback still require real synchronization as specified above.
 
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
