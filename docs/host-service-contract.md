@@ -305,3 +305,11 @@ interfaces, at most2 submissions/3 signatures, with fresh context/terms rechecks
 Existing approved requester-worker progress supplies evidence/drafts. No new
 HTTP/schema, broader resume, signer fallback, agent grant or requester commit.
 Already-completed F refuses Sign purely; existing owner lookup/progress recovers.
+## Guided requester final-commit consent
+
+The owner-local guided join API adds exact requester-commit lookup, preparation
+and approval over the existing ordinary requester intent, as specified in
+[guided session contract section27](guided-session-contract.md#27-exact-requester-final-commit-consent-backend).
+These routes retain public immutable terms and atomic consent, with pure
+history recovery. They do not sign, transport or apply the link, grant agent
+access or establish readiness. Bounded completion/native controls follow.

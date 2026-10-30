@@ -4604,7 +4604,166 @@ lookup-first recovery. Discarded: more protocol/proof APIs, combined consent/
 key use, frontend signer selection, hidden sign-as-read, retries/polling, new
 journals and recorded F as requester commit or connection readiness.
 
-## 27. Remaining flow contract
+## 27. Exact requester final-commit consent backend
+
+This backend slice records a separate exact requester decision over the existing
+ordinary requester_commit intent. Reuse its verified selected original/F/finite
+grants, templates, quota and owned-device checks. No new schema/table/journal,
+original-key use, signing/transport/apply inside the guided route, native control
+or blanket agent access. Bounded completion and native controls follow. The
+ordinary approved worker may sign/publish work after durable approval; approval
+alone proves neither a persisted commit nor local application/current powers.
+
+### Private actions and fixed terms
+
+Owner-local POST `/v1/onboarding/join-flows/{flow_id}/commit/lookup`, `/prepare`
+and `/approve` accept exactly `{context,join_review_id}`; approve additionally
+requires exactly `commit_review_id`. Private CLI
+`peerspan onboarding join commit lookup|prepare|approve --stdin` accepts exactly
+the same fields plus `flow_id`, one bounded5s daemon call each. Apply strict64KiB
+duplicate/unknown/null/type/typed-ID/context/private-prefix validation and fixed
+diagnostics. No raw IDs in mutation argv, key/provider choice, original-owner
+approval, supplied terms/packet/grant/template/signature or automatic host start.
+Only owner-local admin exposes these routes, never scoped/peer/bootstrap APIs.
+
+Bind section16's exact published flow/context/outcome, this requester host,
+new-original/nonmigration request and immutable approved original consent.
+Fresh first preparation/approval requires the attached exact parent/agent, no
+already adopted local network, needs_commit with the five exact completed
+request_created/owner_offered/owner_selected/administrator_offered/owner_finalized
+stages, selection approved, commit unapproved, complete retained original offer,
+selection, administrator and F, no manifest/activation/outcome/terminal artifact.
+Verify the ordinary full selected ceremony/current-root/catalog/finalization
+projection and fixed profile7, binding2, original request-created+7d end. Root,
+P/H/B/D are canonical distinct ds_ statement IDs. All pending references must
+match the same original, network/member/host/device and approved owner offer.
+
+Prepare creates or reuses exactly one ordinary unapproved requester_commit
+intent, deriving its immutable guided review from those exact terms. Copying
+the ordinary retained binding template is allowed; no binding-host/commit
+signature, commit materialization, ciphertext/publication or local adoption.
+An existing intent is found by its ordinary kind/operation, including before
+pending.commit_intent_id exists; that reference is recorded only on approval as
+the existing protocol requires. Do not introduce another retained reference.
+Never replace/refresh an existing review/created_at/digest or duplicate an intent.
+
+### Closed public projection
+
+Return exactly:
+
+```
+{version:1,host_id,flow_id,join_review_id,context,observed_at,request,commit}
+```
+
+Request is the exact public LINK_VIEW. Commit is null when no ordinary intent
+exists; otherwise exactly `{review_id,review,state,next_action}`. Review is:
+
+```
+{version:1,kind:"approve_new_original_requester_commit",host_id,context,
+ flow_id,join_review_id,owner_review_id,request_id,intent_id,network,member,
+ person_public_key,host_public_key,device_public_key,request_packet_id,
+ owner_offer_id,selection_id,administrator_offer_id,owner_finalization_id,
+ root_state_id,person_lease_id,host_lease_id,binding_lease_id,device_lease_id,
+ scopes:7,binding_scopes:2,not_after,provider,created_at,expires_at,effects}
+```
+
+Network is section11's public descriptor. Provider is exactly
+`{kind:"requester",host_public_key,device_public_key,signature_format:"ed25519"}`
+for this owned host/device, not a usable provider or original-key possession
+claim. Created_at is ordinary intent.created_at; expires_at is the earlier of
+that+15min, signed request deadline and fixed not_after. This finite review does
+not extend the ordinary ten-minute stage inactivity bound. Review_id is review_
++SHA256(`"peerspan-requester-commit-review-v1\n"+canonical(review)`). Effects:
+
+```
+{approve_commit_intent:true,authorize_binding_host_signature:true,
+ authorize_requester_commit_signatures:true,authorize_commit_publication:true,
+ authorize_local_application:true,grant_agent_access:false,share_files:false,
+ share_conversation:false,capability_calls:false}
+```
+
+State is approved if exact ordinary commit approval is retained, else cancelled
+for cancellation, expired for signed/review/stage/intent expiry, invalidated for
+detached/replaced/adopted/ineligible context, otherwise review. Next action is
+follow_join_progress for approved, approve_requester_commit for review, otherwise
+inspect_join_progress. Historical approval is global protocol evidence without
+frontend attribution. It does not establish current authority/access/readiness.
+No codes, seeds, private keys/paths, agent comments, templates, messages,
+signatures, ciphertext, provider diagnostics or untrusted private strings leak.
+
+### Atomic approval, pure recovery and bounds
+
+Lookup is pure, including null/history. Prepare with an existing intent returns
+the same derived review/state purely, including detached/expired history. First
+prepare does not create intent on a failed eligibility/parent/time check.
+Approve requires a retained intent and exact captured commit_review_id, never
+implicitly prepares. Exact approved replay is pure before fresh eligibility or
+device-key work, even after detach/restart/expiry/cancellation/application. A
+different digest refuses review_changed without updating anything. Pruned
+ordinary state returns request_unavailable; never recreate its consent/history.
+
+Fresh approval checks exact attached parent/agent/context, original consent and
+full ordinary projection again in one SQLite transaction. Reuse ordinary
+owned-device availability and quota checks. Raw local time as well as guarded
+time must be at/after request/stage/intent creation and before review/signed/
+fixed deadlines; stage inactivity must remain live. Recheck time, parent/agent,
+original terms and the derived exact digest before committing. Atomically set
+the ordinary intent approval/approved_at and request commit_approved/
+commit_intent_id, remembering guarded time in that same transaction. No failed
+check leaves a partial intent/approval/reference/clock update. No route-driven
+key signature, transport or local application; after-commit ordinary work is
+separate and must not be attributed to the pure reader or this transaction.
+
+Malformed400 invalid; unknown flow404; nonrequested flow409 state_conflict;
+wrong flow/context/join/commit digest409 review_changed; detached fresh parent
+409 review_changed; expired fresh work409 review_expired; pruned request409
+request_unavailable; unsupported/missing/corrupt/ambiguous projection or absent
+intent409 commit_review_unavailable. Other HTTP methods405. CLI failures are
+controlled nonzero, no retry/stdout or stderr echo of supplied private values.
+
+### Verification
+
+A separate contract-only author adds small requester_commit6 coverage and the
+23rd CI registration. Preserve all old22 host cases/assertions/delays/timeouts
+and all292 native files/assertions/stimuli/delays/timeouts. Genuine distinct
+people/two temporary hosts reach F through existing approved protocol/signing
+before this review; no fabricated authority/protocol rows. Isolate independent
+workers with documented confirmed live transport holds around each measured
+pure call; preserve strict whole-DB/state/home and BOTH full carrier counters.
+
+1. Exact API/CLI null lookup, unapproved preparation/public digest/parent/provider/
+   fixed terms, stable repeated pure prepare/lookup and no new schema/signature/
+   commit/publication/adoption before approval.
+2. Exact approval atomically records one existing ordinary intent and both
+   request pins; no duplicate preparation, hidden signature/transport/apply or
+   new journal. Ordinary approved background work is separate global evidence.
+3. Missing/unapproved/F-absent/wrong context/review/parent/host/terms/prefix,
+   deadline/stage/raw-clock/cancellation/adoption refuse without partial state.
+   Inactive/corrupt/unavailable key/root variants without a genuine public
+   stimulus remain source/fault limits rather than fabricated authority rows.
+4. Genuine SQL write failure rolls back the whole preparation/approval and clock;
+   remove the temporary fault trigger before comparison. No new approval is
+   inferred from a transport acknowledgment or a created intent alone.
+5. Strict JSON/64KiB/CLI/privacy/method/scoped/peer/bootstrap/no-startup boundaries;
+   prepared expiry/detachment still has pure stable review/history, no renewal.
+6. Exact approved replay is pure after key absence/detach/restart/expiry and
+   same-request ordinary explicit completion/application. Immutable review/digest
+   stays stable and a wrong digest refuses. No installed/physical/native/model
+   readiness is inferred; original private keys stay with their participants.
+
+Run Rust fmt/tests/Clippy/all-bin, native292, existing finalization signing6 and
+join14 plus new requester_commit6 serially locally; all23 suites and required PR
+checks/fresh review on one final head. Record failures/corrections, hashes and
+source/manual limits. Existing transport hold/terminal cleanup isolation rules
+remain; no retries until green or assertion/timeout weakening.
+
+Selected: reuse ordinary immutable requester intent for exact durable consent
+with pure recovery, then add bounded completion/native controls in the following
+slice. Discarded: new consent storage, direct broad commit/resume-as-observation,
+combined original/requester approval, hidden key/sign/transport/apply inside the
+review route, automatic agent access and approval as connection readiness.
+
+## 28. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

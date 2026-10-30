@@ -409,3 +409,8 @@ the two-minute target. The [verification record](results/guided-native-finalizat
 retains initial failures, independent fixture corrections, source/binary hashes
 and mock/source/manual limits. PR64 records final combined-head gates after
 that evidence commit. Access/readiness, device flow and full acceptance stay open.
+
+The next requester-commit backend (section27) prepares or recovers one exact
+ordinary final-consent intent and approves it atomically under the captured
+review. Signing/publication/application and native controls remain separate;
+approved protocol work never implies agent access or connection readiness.

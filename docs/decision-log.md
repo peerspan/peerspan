@@ -2747,3 +2747,15 @@ checks. No aggregate IO assertion existed or is removed. Ordinary inter-command
 writes remain caught by aggregate equality. Discarded: longer timeouts, stale
 hold flags, refreshing during measurement, omitting a command/category or retries
 until green. Independent author commits correction before its next full run.
+
+### GU.impl27 — Exact durable requester commit before bounded completion
+
+Selected: reuse the ordinary requester_commit intent and full finalization
+projection, atomic exact approval/request pins and pure global history. No new
+schema/journal or route-driven key signature/transport/application. The existing
+approved worker can sign/publish afterward; bounded application and native
+controls follow separately. This keeps the final human decision independently
+reviewable. Section27 defines new requester_commit6 with old22/native292 intact.
+Discarded: another durable consent table, implicit prepare on approval, broad
+commit/resume observation, conflating original ownership and requester consent,
+frontend signing and recorded consent as adoption/access/readiness.
