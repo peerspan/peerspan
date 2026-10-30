@@ -7,10 +7,12 @@ session with a verified channel, and bob allows alice `message.append`. alice st
 after `deny alice`, and the edges of the local, adapter and CLI surfaces follow. Written from
 docs/conversations-contract.md, section C1 (cited as "C1 <part>"), only.
 """
+import json
 import os
 import re
+import subprocess
 
-from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for
+from harness import Suite, check, create_network, in_future, join_new_person, ssh_key, wait_for
 
 suite = Suite("conversations", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -20,6 +22,23 @@ CONV_ID = re.compile(r"^conv_[0-9a-f]{32}$")
 MSG_ID = re.compile(r"^cmsg_[0-9a-f]{32}$")
 NOT_ID = re.compile(r"^cnot_[0-9a-f]{32}$")
 CLAIM = "/adapter/v1/conversation-notifications/next"
+NOT_PARTICIPANT = "This participant is not in that conversation."
+CONFLICT = "This message_id was already used with different content."
+NOT_BOUND = "This host is not bound to a person; conversations need one (peerspan join)."
+
+
+def refused(result, code, text):
+    """A CLI refusal: exit 1 and `error: CODE: TEXT` on stderr (C1 Errors)."""
+    want = f"error: {code}: {text}"
+    check(result.code == 1 and want in result.stderr,
+          f"`{' '.join(result.args[:3])}`: exit {result.code}, stderr {result.stderr.strip()[-300:]!r}, want {want!r}")
+
+
+def api_error(status, body, http, code, text=None):
+    ok = status == http and isinstance(body, dict) and body.get("code") == code
+    if text is not None:
+        ok = ok and body.get("error") == text
+    check(ok, f"answer {status} {body}, want {http} {code} {text or ''}")
 
 
 def need(*names):
@@ -189,7 +208,7 @@ def _():
     one = forwarded(bert, n["id"])
     check(one["forwarded_at"], f"forwarded_at not set: {one}")
     two = forwarded(bert, n["id"])
-    check(two == one, f"forwarded is not idempotent: {one} then {two}")
+    check(two == one and two["forwarded_at"] == one["forwarded_at"], f"forwarded is not idempotent: {one} then {two}")
     status, body = bert.post(f"/adapter/v1/conversation-notifications/cnot_{os.urandom(16).hex()}/forwarded", {})
     check(status == 404 and isinstance(body, dict) and body.get("code") == "not_found",
           f"forwarded of an unknown notification: {status} {body}")
@@ -231,8 +250,7 @@ def _():
     check(status == 200 and body["message"]["message_id"] == mid and body["message"]["seq"] == seq,
           f"identical repeat from bert: {status} {body}")
     status, body = bert.post(path, {"content": "something else", "message_id": mid})
-    check(status == 409 and isinstance(body, dict) and body.get("code") == "conflict",
-          f"repeat with other content from bert: {status} {body}")
+    api_error(status, body, 409, "conflict", CONFLICT)
     # The same on alice's host, through `conversation say --message-id`.
     said_id = message_id()
     said = a.ok("conversation", "say", state["conv"], "second from alice", "--message-id", said_id)
@@ -241,11 +259,10 @@ def _():
     check(again["message"]["message_id"] == said_id and again["message"]["seq"] == 2
           and len(again["targets"]) == 1, f"identical say repeat {again}")
     clash = a.cli("conversation", "say", state["conv"], "different", "--message-id", said_id)
-    check(clash.code == 1, f"say with reused message_id and other content: {clash}")
+    refused(clash, "conflict", CONFLICT)
     status, body = a.api("POST", f"/v1/conversations/{state['conv']}/messages",
                          {"content": "different", "message_id": said_id})
-    check(status == 409 and isinstance(body, dict) and body.get("code") == "conflict",
-          f"API repeat with other content: {status} {body}")
+    api_error(status, body, 409, "conflict", CONFLICT)
     view = show(a)
     ids = [x["message_id"] for x in view["messages"]]
     check(ids.count(mid) == 1 and ids.count(said_id) == 1 and len(ids) == 3, f"messages after repeats {ids}")
@@ -254,7 +271,7 @@ def _():
     # bert gets exactly one notification for it; it is not the session's first, so no window.
     got = claim(bert)
     check(got["notification"]["message_id"] == said_id and got["messages"][0]["seq"] == 2
-          and got["messages"][0]["clock"] == 3 and got["window"] == [] and got["conversation"]["unseen"] == 1,
+          and got["messages"][0]["clock"] == 3 and got["window"] == [] and got["window_total"] == 0 and got["conversation"]["unseen"] == 1,
           f"second claim {got}")
     forwarded(bert, got["notification"]["id"])
     status, none = bert.post(CLAIM, {})
@@ -271,6 +288,9 @@ def _():
     status, body = unverified.post(CLAIM, {})
     check(status == 409 and isinstance(body, dict) and body.get("code") == "conflict"
           and body.get("error") == "channel not verified", f"claim before verification: {status} {body}")
+    # The adapter sending route works before verification, and bix is not in the conversation.
+    status, body = unverified.post(f"/adapter/v1/conversations/{conv}/messages", {"content": "x"})
+    api_error(status, body, 403, "not_participant", NOT_PARTICIPANT)
     # A session without directory access: null from the claim route, 403 no_directory from the sending route.
     nodir = b.agent("nodi", directory=False)
     status, body = nodir.post(CLAIM, {})
@@ -280,10 +300,9 @@ def _():
           f"send without directory access: {status} {body}")
     # bob's person is not a participant: `conversation say` on bob's host fails with not_participant.
     say = b.cli("conversation", "say", conv, "hi from bob")
-    check(say.code == 1, f"bob's say: {say}")
+    refused(say, "not_participant", NOT_PARTICIPANT)
     status, body = b.api("POST", f"/v1/conversations/{conv}/messages", {"content": "hi from bob"})
-    check(status == 403 and isinstance(body, dict) and body.get("code") == "not_participant",
-          f"bob's person sending: {status} {body}")
+    api_error(status, body, 403, "not_participant", NOT_PARTICIPANT)
     # Reads: an unknown conversation is 404, a participant that is not local is 400.
     status, body = a.api("GET", f"/v1/conversations/conv_{os.urandom(16).hex()}")
     check(status == 404 and isinstance(body, dict) and body.get("code") == "not_found", f"unknown: {status} {body}")
@@ -317,6 +336,67 @@ def _():
     check(after == before, f"a refused start persisted a conversation: {sorted(after - before)}")
 
 
+@suite.case("not_bound", "C1 Local API (no bound person), Errors")
+def _():
+    need("bert")
+    carol = suite.host("carol")  # never joins a network, so no person is bound
+    status, body = carol.api("POST", "/v1/conversations", {"participants": ["bob/bert"]})
+    api_error(status, body, 409, "not_bound", NOT_BOUND)
+    refused(carol.cli("conversation", "start", "bob/bert"), "not_bound", NOT_BOUND)
+    carol.stop()
+
+
+def probe(sender, receiver, path, body):
+    args = [str(suite.probe_bin), "--address", receiver.peer_address, "--alpn", "peerspan-peer/1", "--path", path,
+            "--method", "POST", "--state", str(sender.state), "--body-stdin"]
+    p = subprocess.run(args, input=json.dumps(body).encode(), capture_output=True, timeout=45)
+    return p.returncode, p.stdout.decode(errors="replace"), p.stderr.decode(errors="replace")
+
+
+@suite.case("invite_roster_checks", "C1 Peer routes: POST /peer/v1/conversations/invites (roster)")
+def _():
+    bert, alice_p, bert_p, bob_person = need("bert", "alice_participant", "bert_participant", "bob_person")
+    version = policy_version(b, state["bob_public"])
+    now = in_future(seconds=0)
+
+    def body(mutate=None):
+        conv = "conv_" + os.urandom(16).hex()
+        roster = {
+            "conversation_id": conv, "home_host_id": a.id, "version": 2, "state": "open", "created_by": alice_p,
+            "created_at": now, "departed": [],
+            "participants": [
+                {"id": alice_p, "kind": "person", "host_id": a.id, "person_id": state["alice_person"],
+                 "agent_id": None, "name": None, "state": "joined", "added_by": None, "added_at": now},
+                {"id": bert_p, "kind": "agent", "host_id": b.id, "person_id": bob_person, "agent_id": bert.id,
+                 "name": "bert", "state": "joined", "added_by": alice_p, "added_at": now}]}
+        if mutate:
+            mutate(roster)
+        return conv, {"conversation_id": conv, "roster": roster, "target": {"kind": "agent", "agent_id": bert.id},
+                      "adder": alice_p, "policy": {"person_id": bob_person, "version": version}}
+
+    def send(mutate=None):
+        conv, request = body(mutate)
+        code, out, err = probe(a, b, "/peer/v1/conversations/invites", request)
+        check(code == 0, f"probe: exit {code} {err.strip()[-300:]}")
+        answer = json.loads(out)  # the probe prints {status, body}
+        return answer["status"], answer["body"]
+
+    # A consistent invite is answered joined, so the refusals below come from the roster rule alone.
+    status, answer = send()
+    check(status == 200 and answer == {"state": "joined", "name": "bert"},
+          f"a consistent invite: {status} {answer}, want 200 joined")
+    cases = {
+        "a repeated participant id": lambda r: r["participants"].append(dict(r["participants"][0])),
+        "agent_id not matching the id": lambda r: r["participants"][1].update(agent_id="agent_" + "0" * 32),
+        "kind not matching the id": lambda r: r["participants"][0].update(kind="agent"),
+        "host_id not matching the id": lambda r: r["participants"][0].update(host_id=b.id),
+    }
+    for what, mutate in cases.items():
+        status, answer = send(mutate)
+        check(status == 400 and isinstance(answer, dict) and answer.get("code") == "invalid",
+              f"invite with {what}: {status} {answer}, want 400 invalid")
+
+
 @suite.case("refused_after_deny", "C1 Fan-out and retry (citation, 403 -> refused not_authorized); CLI show")
 def _():
     bert, bert_p, key, _conv = need("bert", "bert_participant", "bob_key", "conv")
@@ -329,11 +409,31 @@ def _():
     mid = said["message"]["message_id"]
     t = wait_target(a, mid, bert_p, "refused")
     check(t["code"] == "not_authorized", f"refused target {t}")
+    state["denied"] = True
     readable = a.cli("conversation", "show", state["conv"])
     check(readable.ok and "not received by bob/bert (refused: not_authorized)" in readable.stdout,
           f"readable show after refusal: {readable.stdout[-600:]}")
     status, body = bert.post(CLAIM, {})
     check(status == 200 and body is None, f"bert got a notification after deny: {status} {body}")
+
+
+@suite.case("grant_byte_limit", "C1 Peer routes: Authorization citation, Acceptance 1 and 5 (max_message_bytes 403)")
+def _():
+    bert, bert_p, _deny = need("bert", "bert_participant", "denied")
+    # With no rule for alice left, a grant to alice's host with a 16-byte limit is the only thing allowing her.
+    status, grant = b.api("POST", "/v1/grants", {"requester_host_id": a.id, "target_agent_id": bert.id,
+                                                 "expires_at": in_future(hours=1), "max_message_bytes": 16})
+    check(status == 201, f"grant create: {status} {grant}")
+    small = a.ok("conversation", "say", state["conv"], "sixteen bytes ok")["message"]["message_id"]
+    wait_target(a, small, bert_p, "delivered")
+    got = claim(bert)
+    check(got["notification"]["message_id"] == small, f"bert claimed {got['notification']}")
+    forwarded(bert, got["notification"]["id"])
+    big = a.ok("conversation", "say", state["conv"], "seventeen bytes!!")["message"]["message_id"]
+    t = wait_target(a, big, bert_p, "refused")
+    check(t["code"] == "not_authorized", f"over-limit target {t}")
+    status, body = bert.post(CLAIM, {})
+    check(status == 200 and body is None, f"bert got the over-limit message: {status} {body}")
 
 
 suite.finish()
