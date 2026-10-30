@@ -1108,7 +1108,7 @@ The conversation view and both summaries gain `home_unavailable`: true while the
 
 **What is deleted,** in one transaction: this host's messages, inbound and outbound target records, notifications, read cursors, and event log entries of the conversation. Outbound targets still `sending` stop. Activity entries stay; they hold no content.
 
-**Not on home** (`roster_kept` false): the roster goes too, and the host then answers as one that never held the conversation. An unconfirmed leave or decline in `conversation_roster_outbound` is kept and still sent. A later invite is a new start: its chain heads begin at 0, so a gap fetch may bring back messages the authors sent to that participant, each passing acceptance again.
+**Not on home** (`roster_kept` false): the roster goes too, and the host then answers as one that never held the conversation. An unconfirmed leave or decline in `conversation_roster_outbound` is kept and still sent. So is, with no content, the highest `seq` each local author used, so that author's next message after a later invite never reuses a `seq` other hosts hold. A later invite is a new start: its chain heads begin at 0, so a gap fetch may bring back messages the authors sent to that participant, each passing acceptance again.
 
 **On home** (`roster_kept` true): the conversation row, the roster, and the outbound pushes stay, and the conversation is marked forgotten.
 - Local routes treat it as unknown (404 `not_found`), and it leaves the list.

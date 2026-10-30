@@ -472,6 +472,26 @@ impl Store {
         }
         Ok(&known[id])
     }
+    /// The highest `seq` an author used before this host forgot the
+    /// conversation, or 0.
+    pub(super) fn forgotten_seq(
+        &self,
+        conn: &Connection,
+        id: &str,
+        author: &str,
+    ) -> Result<i64, Error> {
+        let record: Option<String> = conn
+            .query_row(
+                "SELECT record FROM conversation_roster_outbound WHERE conversation_id = ?1 AND kind = ?2",
+                params![id, format!("seq:{author}")],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(record
+            .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+            .and_then(|v| v["seq"].as_i64())
+            .unwrap_or(0))
+    }
     /// `DELETE /v1/conversations/{id}`.
     fn forget_conversation(&self, id: &str) -> Result<Value, Error> {
         let mut conn = self.connection()?;
@@ -489,6 +509,24 @@ impl Store {
                 "in_use",
                 "Someone on this host is still in that conversation; leave it first.",
             ));
+        }
+        // A later re-invite must not reuse an author's `seq`: other hosts
+        // still hold the earlier ones.
+        let heads: Vec<(String, i64)> = {
+            let mut q = tx.prepare(
+                "SELECT author, MAX(seq) FROM conversation_messages WHERE conversation_id = ?1 GROUP BY author",
+            )?;
+            q.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?
+        };
+        let own = self.identity().id;
+        for (author, seq) in heads {
+            if participant_parts(&author).is_some_and(|(_, host, _)| host == own) {
+                tx.execute(
+                    "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                    params![id, own, format!("seq:{author}"), json!({"seq": seq}).to_string()],
+                )?;
+            }
         }
         for table in [
             "conversation_notifications",
@@ -516,7 +554,7 @@ impl Store {
         } else {
             // An unconfirmed leave or decline is still sent.
             tx.execute(
-                "DELETE FROM conversation_roster_outbound WHERE conversation_id = ?1 AND kind NOT LIKE 'leave:%'",
+                "DELETE FROM conversation_roster_outbound WHERE conversation_id = ?1 AND kind NOT LIKE 'leave:%' AND kind NOT LIKE 'seq:%'",
                 [id],
             )?;
             tx.execute("DELETE FROM conversations WHERE id = ?1", [id])?;
