@@ -121,6 +121,11 @@ pub enum JoinCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum CommitCommand {
+    /// Complete only the exact already approved requester consent
+    Complete {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Pure lookup of retained requester commit consent
     Lookup {
         #[arg(long, required = true)]
@@ -682,15 +687,22 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
 
 async fn commit_command(command: &CommitCommand, socket: &Path) -> Result<Value> {
     let operation = match command {
+        CommitCommand::Complete { .. } => "complete",
         CommitCommand::Lookup { .. } => "lookup",
         CommitCommand::Prepare { .. } => "prepare",
         CommitCommand::Approve { .. } => "approve",
     };
     let invalid = || anyhow::anyhow!("invalid requester commit consent input");
     let unavailable = || {
-        anyhow::anyhow!(
-            "requester commit consent unavailable or outcome unknown; inspect the retained exact review before another explicit action"
-        )
+        if operation == "complete" {
+            anyhow::anyhow!(
+                "requester commit completion unavailable or outcome unknown; inspect retained consent and progress before another explicit action"
+            )
+        } else {
+            anyhow::anyhow!(
+                "requester commit consent unavailable or outcome unknown; inspect the retained exact review before another explicit action"
+            )
+        }
     };
     let mut bytes = Vec::new();
     io::stdin()
@@ -710,7 +722,7 @@ async fn commit_command(command: &CommitCommand, socket: &Path) -> Result<Value>
         .and_then(|v| v.as_str().map(str::to_owned))
         .ok_or_else(invalid)?;
     tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        std::time::Duration::from_secs(if operation == "complete" { 95 } else { 5 }),
         Local(socket).post(
             format!("/v1/onboarding/join-flows/{id}/commit/{operation}"),
             value,
