@@ -2873,3 +2873,14 @@ ordinary completed-requester repair during setup, outside pure replay measures.
 Keep the first independent CI result before any fixture correction. Discarded:
 freezing a pre-application terminal label, omitting proof outbox from rollback or
 attributing advanced delivery repair to pure guided history.
+
+### GU.impl28e — Observe ordinary progress over a real reachable carrier
+
+First requester_completion CI on3ce0fe4 passed4/6 in95s: all-carriers-drop setup
+could not reach the already-signed/framed prerequisite in its existing15s wait;
+history then lacked a completion. Selected: retain that failed execution and
+independently make the authentic mailbox carrier reachable for ordinary
+approved-worker progress, then apply transport faults outside measurements.
+Apply GU.impl28d's exact lifecycle/outbox/repair corrections before one corrected
+run. Discarded: longer waits, hidden signing/resume loops, weaker expectations,
+unclassified failure deletion or changing production to fit an offline fixture.
