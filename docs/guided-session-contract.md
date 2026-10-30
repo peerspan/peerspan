@@ -5320,7 +5320,7 @@ Its digest identifies an inspection and cannot authorize a policy operation.
 `POST /v1/onboarding/access-inspection` accepts exactly
 `{context:AdapterContext,network_id,person_public_key}`. Context is section 5's
 exact attached-project binding; the network is an explicit canonical `net_` ID,
-and the selected person is a canonical base64 32-byte public key. Reject unknown
+and the selected person is a canonical base64 32-byte public key. Ordinary DEC Ed25519 key validity applies. Reject unknown
 or duplicate fields, nulls, wrong types, trailing JSON and inputs over 65,536
 bytes. `peerspan onboarding access inspect --stdin` sends the same closed input
 over the private Unix socket and prints the same public JSON. No positional
@@ -5328,6 +5328,11 @@ payload, signer override, implicit network, label resolution or invitation is
 accepted. Missing daemon fails nonzero. CLI errors never echo input, including
 parse errors when normal global flags occur between command words. Adapter
 credentials and peer routes cannot invoke this owner administration API.
+Public keys follow the ordinary DEC Ed25519 validity rules, not arbitrary
+32-byte strings. An unknown valid key is unavailable authority; a malformed
+encoding or invalid public key is malformed input. An unknown project flow
+returns 404 `not_found`, preserving section 5; changed existing bindings remain
+409 `review_changed`.
 
 ### Current verified terms
 

@@ -2989,3 +2989,12 @@ enforced-content projection. Independent case 3 must compare the signed JSON
 object, not a normalized CLI display. Also make stdin-only CLI parse-error
 privacy explicit when normal global flags separate command words. These
 clarifications precede source fixes and independent regression assertions.
+
+
+GU.impl30c — The first independent local run passed5/6in89s. Case2 exposed
+an erroneous production remapping of an unknown project flow from section5's
+404 to409. Preserve the inherited404; no status assertion is weakened. Clarify
+ordinary DEC Ed25519 public-key validity: an unknown valid key is409, while
+an invalid encoded public key is400. Correct an invalid unknown-person fixture
+with a genuinely generated public key before the next execution, retaining its
+409 assertion and all other cases/assertions/delays/timeouts.
