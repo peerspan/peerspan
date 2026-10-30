@@ -332,6 +332,15 @@ def host(name, *, live=False):
     h.barrier = h.root / 'barriers'; h.barrier.mkdir(mode=0o700)
     h.extra_env = {'SSH_AUTH_SOCK': str(h.root / 'absent-agent.sock'), 'PEERSPAN_DEC_TEST_MODE': '1',
                    'PEERSPAN_DEC_TEST_BARRIER_DIR': str(h.barrier)}
+    original_start = h.start
+    def timing_start():
+        original_env = h.extra_env
+        h.extra_env = {**original_env, 'PEERSPAN_TIMING': '1'}
+        try:
+            return original_start()
+        finally:
+            h.extra_env = original_env
+    h.start = timing_start
     return h.start()
 
 
@@ -511,6 +520,102 @@ def terminal_carrier_diagnostic(actual, expected, phase, mode):
             print('terminal_carrier_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
     except Exception:
         pass  # The diagnostic cannot replace the original assertion/verdict.
+    return actual
+
+
+def terminal_timing_offsets(h, issuer):
+    """One metadata stat per host after the original history proof baseline."""
+    offsets = {}
+    for participant, local in (('issuer', issuer), ('requester', h)):
+        try:
+            offsets[participant] = (local.log, local.log.stat().st_size)
+        except Exception:
+            offsets[participant] = None
+    return offsets
+
+
+def terminal_timing_summary(captured, participant):
+    """Project log-context tags only; neither WHAT nor #N nor caller proof."""
+    summary = {'participant': participant, 'state': 'unknown', 'peer_spans': 'unknown',
+               'completion_serving_count': 'unknown', 'unrecognized_count': 'unknown',
+               'read_limit_reached': 'unknown'}
+    if captured is None:
+        return summary
+    path, offset = captured
+    if type(offset) is not int or offset < 0:
+        return summary
+    with path.open('rb') as stream:
+        stream.seek(offset)
+        data = stream.read(65536)
+    summary['read_limit_reached'] = len(data) == 65536
+    groups = {}
+    served_seen = completion_count = unrecognized = recognized = 0
+    serving_route_unknown = False
+    for line in data.decode(errors='replace').splitlines():
+        if len(line) > 4096:
+            unrecognized += 1
+            continue
+        match = re.fullmatch(r'timing #(0|[1-9][0-9]{0,19}) (peer|serve|step|cli|total) (.{1,4096}) ([0-9]{1,9}(?:\.[0-9]{1,6})?)(?:\s*ms)?', line.strip())
+        if match is None:
+            if line.strip():
+                unrecognized += 1
+            continue
+        number, kind, what, duration = match.groups()
+        duration = float(duration)
+        if not 0 <= duration <= 600000:
+            unrecognized += 1
+            continue
+        recognized += 1
+        request_class = 'background' if number == '0' else 'served'
+        routes = re.findall(r'(?:^|\s)(/(?:peer|repair|v1)/[^\s]*)', what)
+        route = routes[0].split('?', 1)[0] if len(routes) == 1 else None
+        if kind == 'serve':
+            served_seen += 1
+            serving_route_unknown = serving_route_unknown or route is None
+            if route is not None and re.fullmatch(r'/v1/onboarding/join-flows/flow_[0-9a-f]{32}/commit/complete', route):
+                completion_count += 1
+        if kind != 'peer':
+            continue
+        if route == '/peer/v1/agents':
+            route_class = 'directory'
+        elif route is not None and re.fullmatch(r'/peer/v2/networks/net_[0-9a-f]{64}/contacts?', route):
+            route_class = 'contact'
+        elif route is not None and re.fullmatch(r'/peer/v2/networks/net_[0-9a-f]{64}/catalog', route):
+            route_class = 'catalog'
+        elif route is not None and re.fullmatch(r'/repair/v1/networks/net_[0-9a-f]{64}/catalog', route):
+            route_class = 'repair'
+        else:
+            route_class = 'other'
+        item = groups.setdefault((request_class, route_class), {'count': 0, 'duration_total_ms': 0.0, 'duration_max_ms': 0.0})
+        item['count'] += 1
+        item['duration_total_ms'] = min(1000000000.0, item['duration_total_ms'] + duration)
+        item['duration_max_ms'] = max(item['duration_max_ms'], duration)
+    summary['state'] = 'observed' if recognized else 'unknown'
+    summary['completion_serving_count'] = completion_count if served_seen and not serving_route_unknown else 'unknown'
+    summary['unrecognized_count'] = unrecognized
+    summary['peer_spans'] = [{'request_class': request_class, 'route_class': route_class, 'count': item['count'],
+        'duration_total_ms': round(item['duration_total_ms'], 3), 'duration_max_ms': round(item['duration_max_ms'], 3)}
+        for (request_class, route_class), item in sorted(groups.items())] if groups else 'unknown'
+    return summary
+
+
+def terminal_timing_diagnostic(actual, expected, phase, mode, offsets):
+    """Only a captured carrier mismatch permits bounded daemon-log reads."""
+    try:
+        if actual != expected:
+            summaries = []
+            for participant in ('issuer', 'requester'):
+                try:
+                    summaries.append(terminal_timing_summary(offsets.get(participant), participant))
+                except Exception:
+                    summaries.append({'participant': participant, 'state': 'unknown', 'peer_spans': 'unknown',
+                                      'completion_serving_count': 'unknown', 'unrecognized_count': 'unknown',
+                                      'read_limit_reached': 'unknown'})
+            print('terminal_timing_failure_public=' + json.dumps({
+                'phase': phase if phase in ('expired', 'detached', 'restarted') else 'unknown',
+                'mode': mode if mode in ('API', 'CLI') else 'unknown', 'participants': summaries}, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Timing metadata cannot change the original comparison/verdict.
     return actual
 
 
@@ -1432,6 +1537,7 @@ def _():
             h.restart(kill=True); terminal_restart_directory(h, a, f['network']['id']); quiet(f)
         for mode in ('API', 'CLI'):
             quiet(f); before, network = snapshot(h), traffic(f)
+            timing_offsets = terminal_timing_offsets(h, a)
             if mode == 'API':
                 value = complete(f, approved)
             else:
@@ -1444,7 +1550,7 @@ def _():
             check(value['completion'] == baseline['completion'] and value['commit'] == baseline['commit'], 'history changed exact completion/consent')
             after = snapshot(h)
             check(after == before, f'{phase} completed{mode} replay changed DB/state/home: {differences(before, after)}')
-            check(terminal_carrier_diagnostic(traffic(f), network, phase, mode) == network, f'{phase} completed{mode} replay performed carrier IO')
+            check(terminal_timing_diagnostic(terminal_carrier_diagnostic(traffic(f), network, phase, mode), network, phase, mode, timing_offsets) == network, f'{phase} completed{mode} replay performed carrier IO')
         complete(f, approved, status=409, code='review_changed', pure=True,
                  data={**completion_body(f, approved), 'commit_review_id': 'review_' + 'f' * 64})
     application_proof(f, baseline)

@@ -368,8 +368,9 @@ def report_contact_purity_failure(f, before, after):
             for row in rows:
                 if (type(row) is not tuple or len(row) != 5 or
                     not all(type(value) is str for value in row[:3]) or
-                    not re.fullmatch(r'net_[0-9a-f]{64}', row[0]) or
-                    not re.fullmatch(r'ctx_[0-9a-f]{64}', row[1]) or
+                    not ((row[0] == '-' and row[1] == '-') or
+                         (re.fullmatch(r'net_[0-9a-f]{64}', row[0]) and
+                          re.fullmatch(r'ctx_[0-9a-f]{64}', row[1]))) or
                     not canonical_base64(row[2]) or len(base64.b64decode(row[2])) != 32 or
                     row[:3] in result):
                     raise ValueError
