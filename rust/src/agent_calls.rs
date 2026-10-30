@@ -531,7 +531,7 @@ impl Store {
         let tx = conn.transaction()?;
         let (a, ss) = calls_authority(&tx, auth)?;
         crate::adapter_connection::verified_authority(&tx, auth)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         let at = now();
         // A call that an agent's POST is holding is answered there, so its
         // notification is not claimed meanwhile.

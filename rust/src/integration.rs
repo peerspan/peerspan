@@ -1279,7 +1279,20 @@ fn workspace_profiles(state: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 /// Introduces the pending work in the session start hook's context.
-const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, and check each call with call_status; call pending_work for the current list. ";
+const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. ";
+
+/// The `SessionStart` hook's output for a pending object, `None` when every
+/// list is empty.
+fn pending_hook(value: &Value) -> Option<String> {
+    let empty = ["deliveries", "replies", "tasks", "calls", "conversations"]
+        .iter()
+        .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
+    (!empty).then(|| {
+        let context = format!("{PENDING_HOOK_LEAD}{value}");
+        json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
+            .to_string()
+    })
+}
 
 /// `session pending`: the work the current directory's attached session
 /// still owes. Without an attachment it prints nothing, so a session start
@@ -1319,15 +1332,8 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
     if hook {
         // Claude Code reads a hook's JSON output as hook output, so the list
         // reaches the model only as additionalContext.
-        let empty = ["deliveries", "replies", "tasks", "calls"]
-            .iter()
-            .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
-        if !empty {
-            let context = format!("{PENDING_HOOK_LEAD}{}", serde_json::to_string(&value)?);
-            println!(
-                "{}",
-                json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
-            );
+        if let Some(output) = pending_hook(&value) {
+            println!("{output}");
         }
         return Ok(());
     }
@@ -1376,6 +1382,15 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
             text(&t["sender_host_id"]),
             marks(&[(t["adopted"] == true, "adopted")]),
             text(&t["preview"])
+        );
+    }
+    for c in value["conversations"].as_array().into_iter().flatten() {
+        println!(
+            "conversation {} {} unseen, latest from {}: {}",
+            text(&c["conversation_id"]),
+            c["unseen"],
+            text(&c["latest"]["author_label"]),
+            text(&c["latest"]["preview"])
         );
     }
     for c in value["calls"].as_array().into_iter().flatten() {
@@ -2137,6 +2152,20 @@ pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_hook_names_conversations() {
+        let empty =
+            json!({"deliveries": [], "replies": [], "tasks": [], "calls": [], "conversations": []});
+        assert_eq!(pending_hook(&empty), None);
+        let mut only = empty;
+        only["conversations"] = json!([{"conversation_id": "conv_x"}]);
+        let output = pending_hook(&only).unwrap();
+        assert!(output.contains(
+            "check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. "
+        ));
+        assert!(output.contains("conv_x"));
+    }
 
     #[test]
     fn relative_expiry_is_bounded_and_uses_whole_minutes_or_hours() {

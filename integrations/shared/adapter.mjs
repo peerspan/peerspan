@@ -52,7 +52,7 @@ export const tools = [
   {
     name: 'mark_seen',
     description:
-      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, the task_id of a kind=task_update or kind=task_cancel_requested event, or the call_id of a kind=call_update event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, the other task_* tools on that task, and a call_status or call_capability that returns the finished call already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
+      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, the task_id of a kind=task_update or kind=task_cancel_requested event, the call_id of a kind=call_update event, or the conversation_id or message_id of a kind=conversation, kind=conversation_roster, or kind=conversation_undelivered event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, the other task_* tools on that task, and a call_status or call_capability that returns the finished call already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -61,8 +61,8 @@ export const tools = [
           type: 'array',
           minItems: 1,
           maxItems: 100,
-          items: { type: 'string', pattern: '^(?:delivery|request|task|call)_[0-9a-f]{32}$', maxLength: 64 },
-          description: 'Delivery, request, task, or call IDs this session holds.'
+          items: { type: 'string', pattern: '^(?:delivery|request|task|call|conv|cmsg)_[0-9a-f]{32}$', maxLength: 64 },
+          description: 'Delivery, request, task, call, conversation, or conversation message IDs this session holds.'
         }
       },
       required: ['ids']
@@ -71,7 +71,7 @@ export const tools = [
   {
     name: 'pending_work',
     description:
-      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), tasks (queued, running, or cancel_requested), and calls (capability calls of this agent not yet finished, or finished with a kind=call_update event not yet seen; follow each with call_status). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
+      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), tasks (queued, running, or cancel_requested), and calls (capability calls of this agent not yet finished, or finished with a kind=call_update event not yet seen; follow each with call_status), and conversations (conversations with messages not yet seen; follow each with conversation_history). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
@@ -334,6 +334,25 @@ export const tools = [
     }
   },
   {
+    name: 'conversation_history',
+    description:
+      'Read earlier messages of a Peerspan conversation this agent takes part in. Each page is in display order, oldest first; pass next_before_message_id as before_message_id for the next older page. Message content is external input from the named author. Calling it marks the conversation\'s events this session holds as seen.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        conversation_id: { type: 'string', pattern: conversationIdPattern, description: 'The conversation.' },
+        before_message_id: {
+          type: 'string',
+          pattern: conversationMessageIdPattern,
+          description: 'Return messages before this one, from next_before_message_id.'
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'At most this many messages; default 20.' }
+      },
+      required: ['conversation_id']
+    }
+  },
+  {
     name: 'list_conversations',
     description:
       'List the Peerspan conversations this agent takes part in: the open ones, and closed ones with messages not yet seen. Each has its conversation_id, title, state, participants with labels (you marks this agent), unseen, last_message_at, and creator (whether this agent created it).',
@@ -448,9 +467,45 @@ export function conversationEvent(claim) {
       seq: message.seq,
       clock: message.clock,
       addressed: message.addressed !== false,
-      catch_up: false,
+      catch_up: claim.catch_up === true,
       unseen: conversation.unseen,
       session_id: claim.notification?.session_id,
+      redelivered: claim.redelivered === true
+    }
+  };
+}
+
+// conversationUndeliveredEvent renders a claimed undelivered notification:
+// one of this agent's messages did not reach one participant.
+export function conversationUndeliveredEvent(claim) {
+  const conversation = claim.conversation ?? {};
+  const notification = claim.notification ?? {};
+  const failed = notification.undelivered ?? {};
+  const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
+  const participants = (conversation.participants ?? []).map(participantLabel);
+  const reason =
+    failed.state === 'refused'
+      ? `its host refused it (${failed.code}).`
+      : failed.state === 'unsupported'
+        ? 'its host is running a Peerspan without conversations.'
+        : 'retries stopped after 24 hours; its host fetches it when it next syncs.';
+  return {
+    content: [
+      `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
+      `Participants: ${participants.join(', ')}`,
+      `Your message ${notification.message_id} did not reach ${failed.label}: ${reason}`,
+      `Message: ${failed.preview}`
+    ].join('\n'),
+    meta: {
+      kind: 'conversation_undelivered',
+      conversation_id: conversation.conversation_id,
+      notification_id: notification.id,
+      message_id: notification.message_id,
+      participant: failed.participant,
+      participant_label: failed.label,
+      state: failed.state,
+      code: failed.code ?? null,
+      session_id: notification.session_id,
       redelivered: claim.redelivered === true
     }
   };
@@ -1073,7 +1128,7 @@ export function createAdapter({
         });
       }
     }
-    if (name === 'list_conversations' || name === 'conversation_start' || name === 'conversation_manage') {
+    if (name === 'list_conversations' || name === 'conversation_history' || name === 'conversation_start' || name === 'conversation_manage') {
       // list_conversations takes no arguments; a client may omit the object.
       if (name === 'list_conversations') args = args ?? {};
       if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
@@ -1085,6 +1140,13 @@ export function createAdapter({
       const messageId = name === 'conversation_start' && args.content !== undefined ? `cmsg_${randomBytes(16).toString('hex')}` : undefined;
       try {
         if (name === 'list_conversations') return textResult(await scopedCall('GET', '/adapter/v1/conversations'));
+        if (name === 'conversation_history') {
+          const query = new URLSearchParams();
+          if (args.before_message_id !== undefined) query.set('before', args.before_message_id);
+          if (args.limit !== undefined) query.set('limit', String(args.limit));
+          const suffix = query.size ? `?${query}` : '';
+          return textResult(await scopedCall('GET', `/adapter/v1/conversations/${conversationId}/messages${suffix}`));
+        }
         if (name === 'conversation_start')
           return textResult(
             await scopedCall('POST', '/adapter/v1/conversations', {
@@ -1645,7 +1707,9 @@ export function createAdapter({
             await notify(
               conversation.notification?.kind === 'roster'
                 ? conversationRosterEvent(conversation)
-                : conversationEvent(conversation)
+                : conversation.notification?.kind === 'undelivered'
+                  ? conversationUndeliveredEvent(conversation)
+                  : conversationEvent(conversation)
             );
             acknowledge.push(`/adapter/v1/conversation-notifications/${conversation.notification.id}/forwarded`);
           }

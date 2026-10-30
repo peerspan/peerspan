@@ -755,7 +755,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         type Row = (String, String, String, String, Option<String>, bool);
         let candidates: Vec<Row> = {
             let mut stmt = tx.prepare("SELECT o.peer,o.request_id,r.record,o.adapter_id,o.reply_delivery,o.reply_returned_at IS NOT NULL FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions s ON s.id = o.session_id WHERE s.agent_id = ?1 AND (o.reply_delivery IS NULL OR o.reply_returned_at IS NOT NULL) ORDER BY o.rowid")?;
