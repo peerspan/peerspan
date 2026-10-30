@@ -16,6 +16,8 @@ import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdent
 import { progress as parseJoinProgress, progressLines as joinProgressLines } from './join-progress.mjs';
 import { owner as parseOwner, reviewLines as ownerReviewLines, signature as parseOriginalSignature,
   sameOriginal, signable, signatureDeadline as ownerSignatureDeadline } from './owner.mjs';
+import { inspection as parseFinalization, result as parseFinalizationResult, eligible as finalizationEligible,
+  recorded as finalizationRecorded, samePrefix as sameFinalizationPrefix, reviewLines as finalizationReviewLines } from './finalization.mjs';
 import { inventory as admissionInventory, consent as parseAdmission, progress as parseIncomingProgress,
   inspection as parseAdmissionInspection, sameRequest, early as earlyAdmission, matchesInspection,
   choiceLabel as admissionChoiceLabel, reviewLines as admissionReviewLines } from './admission.mjs';
@@ -1115,6 +1117,8 @@ function joinStart($, previous, epoch, extra = {}) {
   joining = { ...previous, code: '', busy: true, expiryAuthority: null, progress: null, progressError: false,
     owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
     ownerCanSign: false, ownerSignExpired: false, originalSignature: false,
+    finalization: null, finalizationActive: false, finalizationError: null, finalizationCanReview: false,
+    finalizationCanSign: false, finalizationExpired: false,
     parent: project.flow, context: project.context, host: hostId, ...extra };
   $.ui.invalidate('ui.render');
   return joining;
@@ -1190,16 +1194,25 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const ownerSignExpired = signingDeadline !== null &&
     Math.max(now, Date.parse(extra.owner.observed_at)) >= signingDeadline;
   const ownerCanSign = !extra.originalSignature && signable(extra.owner, now);
+  const finalizationDeadline = extra.owner?.owner?.state === 'approved' && extra.owner.request.state === 'needs_owner_finalization'
+    ? ownerSignatureDeadline(extra.owner) : null;
+  const finalizationExpired = finalizationDeadline !== null &&
+    Math.max(now, Date.parse(extra.owner.observed_at), Date.parse(extra.finalization?.observed_at ?? extra.owner.observed_at)) >= finalizationDeadline;
+  const finalizationCanReview = finalizationEligible(extra.owner, now);
+  const finalizationCanSign = !!extra.finalization && !finalizationExpired && finalizationCanReview &&
+    Date.parse(extra.finalization.observed_at) <= now + 30000;
   const secret = ['choose', 'create_review', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
-    ownerExpired, ownerCanSign, ownerSignExpired };
+    ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired };
   const activeDeadline = deadline && stage !== 'expired' ? Date.parse(deadline) : ownerDeadline && !ownerExpired ? Date.parse(ownerDeadline)
-    : signingDeadline && !ownerSignExpired ? signingDeadline : null;
+    : signingDeadline && !ownerSignExpired ? signingDeadline : finalizationDeadline && !finalizationExpired ? finalizationDeadline : null;
   if (activeDeadline !== null) {
     joiningExpiry = $.clock.after(activeDeadline - now, () => {
       if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
-        joining = ownerDeadline || signingDeadline
+        joining = finalizationDeadline
+          ? { ...joining, finalizationCanReview: false, finalizationCanSign: false, finalizationExpired: true, busy: false }
+          : ownerDeadline || signingDeadline
           ? { ...joining, ownerExpired: !!ownerDeadline, ownerCanSign: false, ownerSignExpired: !!signingDeadline, busy: false }
           : { ...joining, stage: 'expired', secret: null, code: '', preview: null, busy: false };
         $.ui.invalidate('ui.render');
@@ -1516,15 +1529,125 @@ async function signOriginalOwner($, previous, epoch) {
       originalSignature: true, secret: null });
   } catch { ownerFailure($, running, epoch, sent, true); }
 }
+function finalizationFailure($, running, epoch, uncertain = false) {
+  if (joining !== running || epoch !== generation) return;
+  joiningExpiry?.cancel(); joiningExpiry = null;
+  joining = { ...running, busy: false, code: '', secret: null, owner: null, ownerError: null, ownerOperation: false,
+    finalization: null, finalizationActive: true, finalizationCanReview: false, finalizationCanSign: false,
+    finalizationExpired: false, finalizationError: uncertain
+      ? 'Original finalization outcome unknown. Check original finalization to read public evidence; no automatic retry. Partial signatures may remain. Leaving cannot retract dispatched signatures or submissions.'
+      : 'Original finalization unavailable. Check original finalization to inspect public evidence; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function finalizationOwner($, running, epoch, flow, captured) {
+  if (!await inspectOwnerJoin($, running, epoch, flow)) return null;
+  const raw = await joinRun($, ['owner', 'lookup', '--stdin'], ownerPayload(running, flow));
+  if (!await joinCurrent($, running, epoch)) return null;
+  const current = await parseOwner(raw, flow, running.parent, running.host);
+  if (!await joinCurrent($, running, epoch)) return null;
+  if (current.owner?.state !== 'approved' || captured && !sameOriginal(captured, current) ||
+      current.request.owner_finalization_id !== '-' && !finalizationRecorded(current)) throw new Error('Changed original finalization owner');
+  return current;
+}
+async function finalizationInspection($, running, epoch, flow, original) {
+  const raw = await joinRun($, ['owner', 'finalization', 'inspect', '--stdin'], ownerPayload(running, flow, original));
+  if (!await joinCurrent($, running, epoch)) return null;
+  const value = await parseFinalization(raw, flow, running.parent, running.host, original);
+  if (!await joinCurrent($, running, epoch)) return null;
+  return value;
+}
+async function readFinalization($, previous, epoch) {
+  if (previous.stage !== 'requested' || previous.flow?.state !== 'requested') return;
+  const flow = previous.flow, captured = previous.owner;
+  const running = joinStart($, previous, epoch, { ownerOperation: true, finalizationActive: true });
+  if (!running) return;
+  try {
+    const original = await finalizationOwner($, running, epoch, flow, captured);
+    if (!original) return;
+    let finalization = null;
+    if (!finalizationRecorded(original)) {
+      const now = await $.clock.now();
+      if (!await joinCurrent($, running, epoch)) return;
+      if (!finalizationEligible(original, now)) throw new Error('Original finalization is not ready');
+      finalization = await finalizationInspection($, running, epoch, flow, original);
+      if (!finalization) return;
+    }
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (Date.parse(finalization?.observed_at ?? original.observed_at) > now + 30000) throw new Error('Future finalization observation');
+    await joinView($, running, epoch, flow, { owner: original, ownerOperation: false, finalization,
+      finalizationActive: true, finalizationError: null, secret: null });
+  } catch { finalizationFailure($, running, epoch); }
+}
+async function signFinalization($, previous, epoch) {
+  if (previous.stage !== 'requested' || !previous.finalizationActive || !previous.finalizationCanSign || !previous.finalization) return;
+  const flow = previous.flow, captured = previous.owner, inspection = previous.finalization;
+  const running = joinStart($, previous, epoch, { ownerOperation: true, finalizationActive: true });
+  if (!running) return;
+  let sent = false;
+  try {
+    const original = await finalizationOwner($, running, epoch, flow, captured);
+    if (!original) return;
+    if (!sameFinalizationPrefix(captured, original)) throw new Error('Changed finalization prefix');
+    if (finalizationRecorded(original)) {
+      if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+      const now = await $.clock.now();
+      if (!await joinCurrent($, running, epoch)) return;
+      if (Date.parse(original.observed_at) > now + 30000) throw new Error('Future finalization observation');
+      await joinView($, running, epoch, flow, { owner: original, ownerOperation: false, finalizationActive: true,
+        finalization: null, finalizationError: null, secret: null });
+      return;
+    }
+    const fresh = await finalizationInspection($, running, epoch, flow, original);
+    if (!fresh) return;
+    if (fresh.review_id !== inspection.review_id || !same(fresh.review, inspection.review)) throw new Error('Changed displayed finalization');
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    const now = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!finalizationEligible(original, now) || Date.parse(fresh.observed_at) > now + 30000 ||
+        Math.max(now, Date.parse(fresh.observed_at)) >= ownerSignatureDeadline(original)) throw new Error('Elapsed finalization bounds');
+    sent = true;
+    const response = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+      'onboarding', 'join', 'owner', 'finalization', 'sign', '--stdin'], { timeoutMs: 95000,
+      stdin: JSON.stringify({ ...ownerPayload(running, flow, captured), finalization_review_id: inspection.review_id,
+        decision: 'sign_original_finalization' }) });
+    if (!await joinCurrent($, running, epoch)) return;
+    if (response.exitCode !== 0) throw new Error('Original finalization outcome unknown');
+    const recorded = await parseFinalizationResult(response.stdout, flow, running.parent, running.host, captured, inspection);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (!await inspectOwnerJoin($, running, epoch, flow)) return;
+    const observedNow = await $.clock.now();
+    if (!await joinCurrent($, running, epoch)) return;
+    if (Date.parse(recorded.observed_at) > observedNow + 30000) throw new Error('Future finalization evidence');
+    await joinView($, running, epoch, flow, { owner: recorded, ownerOperation: false, finalizationActive: true,
+      finalization: null, finalizationError: null, secret: null });
+  } catch { finalizationFailure($, running, epoch, sent); }
+}
 function leaveOwner($, previous, epoch) {
   if (joining !== previous || epoch !== generation) return;
   joiningExpiry?.cancel(); joiningExpiry = null;
   joining = { ...previous, owner: null, ownerError: null, ownerExpired: false, ownerOperation: false,
-    ownerCanSign: false, ownerSignExpired: false, originalSignature: false, busy: false, expiryAuthority: null };
+    ownerCanSign: false, ownerSignExpired: false, originalSignature: false, busy: false, expiryAuthority: null,
+    finalization: null, finalizationActive: false, finalizationError: null, finalizationCanReview: false,
+    finalizationCanSign: false, finalizationExpired: false };
   $.ui.invalidate('ui.render');
 }
 function ownerControls($, { Text, Button }, previous, epoch) {
   const button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.finalizationActive) return [
+    ...(previous.finalization ? [Text({ children: [finalizationReviewLines(previous.finalization, previous.parent)] })] : []),
+    ...(finalizationRecorded(previous.owner) ? [Text({ children: ['Original finalization: recorded',
+      `\nFinalization packet: ${previous.owner.request.owner_finalization_id}`,
+      '\nThis is global durable protocol evidence; it does not identify which interface signed it or attribute a historical inspection digest.',
+      '\nRequester final commit is separate. Current adopted powers, agent access, reachability and model receipt are not verified.'] })] : []),
+    ...(previous.finalizationError ? [Text({ children: [previous.finalizationError] })] : []),
+    ...(previous.finalizationCanSign ? [button('finalization-sign', 'Sign original finalization', () => signFinalization($, previous, epoch))] : []),
+    ...(previous.finalizationExpired ? [Text({ children: ['Original finalization deadline elapsed. Check public evidence; no automatic retry.'] })] : []),
+    ...(!finalizationRecorded(previous.owner) ? [Text({ children: ['Missing finalization evidence does not prove binding/device signatures are absent. Partial work may already be retained.'] })] : []),
+    button('finalization-check', 'Check original finalization', () => readFinalization($, previous, epoch)),
+    button('finalization-leave', 'Leave finalization review', () => leaveOwner($, previous, epoch)),
+  ];
   if (!previous.owner && !previous.ownerError) return [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))];
   return [
     ...(previous.owner ? [Text({ children: [ownerReviewLines(previous.owner, previous.parent, previous.ownerExpired, previous.originalSignature)] })] : []),
@@ -1536,6 +1659,10 @@ function ownerControls($, { Text, Button }, previous, epoch) {
       button('owner-sign', 'Sign original owner offer', () => signOriginalOwner($, previous, epoch)),
     ] : []),
     ...(previous.ownerSignExpired ? [Text({ children: ['Original signing deadline elapsed. Check owner consent for public evidence; no automatic retry.'] })] : []),
+    ...(previous.finalizationCanReview ? [button('finalization-review', 'Review original finalization', () => readFinalization($, previous, epoch))] : []),
+    ...(finalizationRecorded(previous.owner) ? [Text({ children: ['Original finalization: recorded',
+      `\nFinalization packet: ${previous.owner.request.owner_finalization_id}`,
+      '\nGlobal public evidence, without signing-interface or historical inspection attribution. Requester commit and access/readiness remain separate.'] })] : []),
     ...(previous.owner?.owner === null ? [button('owner-review', 'Review owner powers', () => readOwner($, previous, epoch, true))] : []),
     button('owner-check', 'Check owner consent', () => readOwner($, previous, epoch, false)),
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),
@@ -1561,7 +1688,8 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   });
   if (previous.busy) return [Text({ children: [previous.stage === 'requested'
     ? 'Join request: publication recorded\n' + joinReviewLines(previous.flow, null) + '\nJoining: working…' : 'Joining: working…'] }),
-    ...(previous.ownerOperation ? [button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch))] : []),
+    ...(previous.ownerOperation ? [button(previous.finalizationActive ? 'finalization-leave' : 'owner-leave',
+      previous.finalizationActive ? 'Leave finalization review' : 'Leave owner review', () => leaveOwner($, previous, epoch))] : []),
     ...(previous.stage === 'create_review' ? [cancelCreation] : []), back];
   if (previous.stage === 'draft') return [
     Text({ children: ['Paste only in this private human pane, not in agent chat. The code is visible terminal text. Reviewing identities creates no key; creating a new original requires separate consent.',
