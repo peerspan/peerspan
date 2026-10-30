@@ -566,7 +566,7 @@ On home, an invite for a person that home itself is bound to is a pending invite
 
 | Route | Body / query | Answer |
 | --- | --- | --- |
-| `GET /v1/conversations/invites` | | 200 `{invites: [INVITE VIEW]}`: the current pending invites on this host, newest `added_at` first; `{invites: []}` when there are none, also on a host whose binding has lapsed. |
+| `GET /v1/conversations/invites` | | 200 `{invites: [INVITE VIEW]}`: the current pending invites on this host, newest `added_at` first; `{invites: []}` when there are none, and on a host with no bound person (for example, one whose binding lapsed), never `not_bound`. |
 | `POST /v1/conversations/{id}/join` | `{}` | 200 `{conversation: VIEW}` once home confirmed. |
 | `POST /v1/conversations/{id}/decline` | `{}` | 200 `{conversation_id, state: "declined"}`. |
 
