@@ -5122,6 +5122,23 @@ separate contract-only author commits setup before one corrected retained run
 against frozen production. This correction does not classify prior runs that
 discarded their missing evidence.
 
+GU.impl28j historical carrier diagnosis: first corrected local access passes
+6/6in97s; old completion5/6in131s now passes its genuine delivery/ACK retirement
+prerequisite and expired/detached historical replays, then fails the restarted
+API replay's carrier assertion. Its immediately preceding whole DB/state/home
+assertion passes. The specific carrier, amount and traffic origin were not
+captured. Do not infer that replay caused the traffic. Before a further setup
+change, a separate author may add a failure-only wrapper over already captured
+expected/actual traffic tuples at the original assertions. Print only fixed
+phase/mode, participant role, TCP/UDP kind and nonnegative connection/datagram/
+byte deltas. No identifiers, endpoints, raw protocol data or paths; no new IO,
+actions, waits or mutations. Return the actual tuple unchanged and preserve the
+original assertion expression. Removing the helper/wrappers must restore exact
+prior source/AST. Commit before one retained diagnostic execution on frozen
+production. Keep every original assertion/action/delay/timeout and all TCP/UDP
+categories. No unchanged rerun, guessed cause, hidden transport exclusion,
+worker control or larger wait.
+
 Selected: a bounded owner-local continuation over already approved ordinary
 consent, then separate native controls. Discarded: broad resume as observation,
 implicit approval, a new consent/job journal, original-key fallback, carrier
