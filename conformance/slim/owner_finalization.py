@@ -13,6 +13,10 @@ selection-only, device/folded paths, catalog corruption, microscopic crossings
 and original-file read syscalls remain explicit source/fault limits. Restart
 keeps the ordinary startup-detach rule, not parent resurrection. No native,
 installed/physical/model receipt or new grant/readiness claim is inferred.
+Live requester reads start with a consumed authentic TLS ClientHello held outside
+the daemon database, and require that same open connection through measurement.
+Both relays still count every connection and received byte. This isolates an
+observed background attempt without disabling workers or excluding any records.
 """
 import base64
 import hashlib
@@ -164,8 +168,9 @@ def sshsig(key, message):
 class Relay:
     """Transparent pinned TLS bytes; fault modes affect transport only."""
     def __init__(self, target):
-        self.target = target; self.mode = "pass"; self.connections = 0; self.received = 0
+        self.target = target; self._mode = "pass"; self.connections = 0; self.received = 0
         self.lock = threading.Lock(); self.stop = threading.Event(); self.sockets = set()
+        self.held = {}; self.generation = 0
         outer = self
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
@@ -173,13 +178,56 @@ class Relay:
         class Handler(socketserver.BaseRequestHandler):
             def handle(self):
                 with outer.lock:
-                    outer.connections += 1; mode = outer.mode; outer.sockets.add(self.request)
+                    outer.connections += 1; mode = outer._mode; outer.sockets.add(self.request)
                 upstream = None
+                generation = None
                 try:
                     if mode == "drop":
                         return
                     if mode == "stall":
                         outer.stop.wait(5); return
+                    if mode == "hold":
+                        # Consume/count a real complete ClientHello before the
+                        # barrier. Withhold server bytes, never impersonate TLS.
+                        self.request.settimeout(.2)
+                        deadline = time.monotonic() + 1
+                        def receive(size):
+                            value = bytearray()
+                            while len(value) < size and time.monotonic() < deadline:
+                                try:
+                                    data = self.request.recv(size - len(value))
+                                except socket.timeout:
+                                    continue
+                                if not data:
+                                    return None
+                                with outer.lock:
+                                    outer.received += len(data)
+                                value.extend(data)
+                            return bytes(value) if len(value) == size else None
+                        header = receive(5)
+                        if header is None or header[0] != 22 or header[1] != 3:
+                            return
+                        size = int.from_bytes(header[3:5], 'big')
+                        if not 4 <= size <= 65535:
+                            return
+                        hello = receive(size)
+                        if hello is None or hello[0] != 1:
+                            return
+                        self.request.setblocking(False)
+                        with outer.lock:
+                            if outer._mode != 'hold':
+                                return
+                            outer.generation += 1; generation = outer.generation
+                            outer.held[generation] = self.request
+                        while not outer.stop.is_set() and outer.mode == 'hold':
+                            ready, _, _ = socket_select.select([self.request], [], [], .02)
+                            if ready:
+                                data = self.request.recv(65536)
+                                if not data:
+                                    return
+                                with outer.lock:
+                                    outer.received += len(data)
+                        return
                     upstream = socket.create_connection(outer.target, timeout=1)
                     with outer.lock:
                         outer.sockets.add(upstream)
@@ -197,6 +245,8 @@ class Relay:
                     pass
                 finally:
                     with outer.lock:
+                        if generation is not None:
+                            outer.held.pop(generation, None)
                         outer.sockets.discard(self.request)
                         if upstream:
                             outer.sockets.discard(upstream)
@@ -217,6 +267,47 @@ class Relay:
     def counts(self):
         with self.lock:
             return self.connections, self.received
+
+    @property
+    def mode(self):
+        with self.lock:
+            return self._mode
+
+    @mode.setter
+    def mode(self, value):
+        with self.lock:
+            changed = self._mode != value; self._mode = value
+            sockets = list(self.sockets) if changed else []
+        for item in sockets:
+            try:
+                item.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def refresh_hold(self):
+        self.mode = 'hold'
+        with self.lock:
+            sockets = list(self.sockets)
+        for item in sockets:
+            try:
+                item.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def live_generations(self):
+        with self.lock:
+            entries = list(self.held.items())
+        result = []
+        for generation, stream in entries:
+            try:
+                # EOF, pending bytes or a closed descriptor do not establish a
+                # quiescent live hold. A stale handler/event is insufficient.
+                stream.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+            except (BlockingIOError, socket.timeout):
+                result.append(generation)
+            except OSError:
+                pass
+        return result
 
     def close(self):
         if self.stop.is_set():
@@ -245,7 +336,13 @@ def host(name, *, live=False):
 
 
 def snapshot(h):
-    return records(h), private_files(h.state), private_files(h.home)
+    guard = getattr(h, '_transport_hold', None)
+    if guard:
+        guard()
+    value = records(h), private_files(h.state), private_files(h.home)
+    if guard:
+        guard()
+    return value
 
 
 def differences(before, after):
@@ -384,6 +481,32 @@ def traffic(f):
 
 
 def quiet(f):
+    h = f['h']; relays = [v.relay for v in (f['a'], h) if v.relay]
+    record, _ = pending(h, f['rid'])
+    active = f['live'] and record['terminal'] == '-' and h.now() < parse_time(f['owner']['request']['expires_at'])
+    h._transport_hold = None
+    if active:
+        held = f.get('_held', [])
+        fresh = (time.monotonic() - f.get('_held_at', 0) < 2 and held and
+                 all(generation in relay.live_generations() for relay, generation in held))
+        if not fresh:
+            for relay in relays:
+                relay.refresh_hold()
+        def captured():
+            return [(relay, generation) for relay in relays for generation in relay.live_generations()] or None
+        # A real current attempt on either endpoint is sufficient; no claim
+        # that the protocol polls all configured endpoints concurrently.
+        if not fresh:
+            held = wait_for(captured, timeout=5, interval=.02, message='authentic requester ClientHello held outside database')
+            f['_held'], f['_held_at'] = held, time.monotonic()
+        def guard():
+            if all(relay.mode == 'hold' for relay in relays):
+                check(all(generation in relay.live_generations() for relay, generation in held),
+                      'fixture requester transport hold ended during pure measurement')
+        h._transport_hold = guard
+    else:
+        for relay in relays:
+            relay.mode = 'drop'
     settled(f['h']); previous = traffic(f)
     def stable():
         nonlocal previous
