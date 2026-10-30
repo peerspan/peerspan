@@ -416,6 +416,9 @@ struct Leave {
     attempts: u32,
     error: Option<String>,
     next_attempt_at: Option<String>,
+    /// For a decline, the declined invite's `added_at`.
+    #[serde(default)]
+    added_at: Option<String>,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -2932,6 +2935,7 @@ impl Store {
                 attempts: 0,
                 error: None,
                 next_attempt_at: Some(now()),
+                added_at: None,
             };
             tx.execute(
                 "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
@@ -2948,8 +2952,18 @@ impl Store {
         Ok(())
     }
     /// `POST /peer/v1/conversations/{id}/leave` at home.
-    pub fn accept_leave(&self, sender: &str, id: &str, participant: &str) -> Result<Value, Error> {
+    pub fn accept_leave(
+        &self,
+        sender: &str,
+        id: &str,
+        participant: &str,
+        added_at: Option<&str>,
+    ) -> Result<Value, Error> {
         let decline = unjoined_person(participant).map(str::to_owned);
+        // `added_at` names the declined invite, and comes only with a decline.
+        if decline.is_some() != added_at.is_some() {
+            return Err(invalid("added_at comes with a decline, and only then"));
+        }
         match participant_parts(participant) {
             _ if !valid_conversation_id(id) => return Err(invalid("invalid conversation ID")),
             Some((_, host, _)) => {
@@ -2978,7 +2992,12 @@ impl Store {
             if !bound {
                 return Err(Error::Forbidden);
             }
-            self.drop_person(&tx, &mut held, &person, None, "declined")?;
+            // A repeat of an earlier decline never drops a newer invite.
+            if unjoined_entry(&held.roster, &person)
+                .is_some_and(|p| Some(p.added_at.as_str()) == added_at)
+            {
+                self.drop_person(&tx, &mut held, &person, None, "declined")?;
+            }
             tx.commit()?;
             return Ok(json!({ "roster": held.roster }));
         }
@@ -3058,7 +3077,12 @@ impl Store {
             && pending.current()
         {
             let me = format!("person:{own}/{person}");
-            if let Some(p) = roster.joined(&me) {
+            // Only a confirmation of this invite: same admission, and not
+            // older than the roster the invite holds.
+            if let Some(p) = roster.joined(&me)
+                && p.added_at == pending.added_at
+                && roster.version >= pending.roster.version
+            {
                 confirmed = Some((person, me, p.added_at.clone(), pending));
             }
         }
@@ -3235,9 +3259,13 @@ impl Store {
         let conn = self.connection()?;
         let kind = format!("leave:{participant}");
         match self.outbound_row::<Leave>(&conn, id, peer, &kind)? {
-            Some(leave) if leave.state == "sending" => Ok(Some(serde_json::to_vec(
-                &json!({ "participant": participant }),
-            )?)),
+            Some(leave) if leave.state == "sending" => {
+                let mut body = json!({ "participant": participant });
+                if let Some(at) = leave.added_at {
+                    body["added_at"] = json!(at);
+                }
+                Ok(Some(serde_json::to_vec(&body)?))
+            }
             _ => Ok(None),
         }
     }
@@ -4553,6 +4581,7 @@ impl Store {
                 attempts: 0,
                 error: None,
                 next_attempt_at: Some(now()),
+                added_at: Some(pending.added_at.clone()),
             };
             tx.execute(
                 "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
@@ -4676,7 +4705,10 @@ impl Store {
             }
             let id_text = p.id.clone().unwrap_or_default();
             let joining = rows.iter().find(|(person, pending)| {
-                pending.joining && pending.current() && id_text == format!("person:{own}/{person}")
+                pending.joining
+                    && pending.current()
+                    && pending.added_at == p.added_at
+                    && id_text == format!("person:{own}/{person}")
             });
             match joining {
                 Some((person, _)) if admit.is_none() => {
@@ -5024,6 +5056,8 @@ struct RosterRequest {
 #[serde(deny_unknown_fields)]
 struct PeerLeaveRequest {
     participant: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    added_at: Option<String>,
 }
 #[derive(Deserialize)]
 struct ListQuery {
@@ -5745,7 +5779,10 @@ async fn peer_leave(
 ) -> Result<Json<Value>, Error> {
     let r: PeerLeaveRequest = decode(body)?;
     Ok(Json(
-        blocking(store, move |s| s.accept_leave(&sender, &id, &r.participant)).await?,
+        blocking(store, move |s| {
+            s.accept_leave(&sender, &id, &r.participant, r.added_at.as_deref())
+        })
+        .await?,
     ))
 }
 
