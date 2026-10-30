@@ -5818,6 +5818,11 @@ delivery or readiness. A corrupt action/reference refuses instead of a marker.
 The complete public response remains at most1MiB and public-safe; refuse unsafe
 or oversize output before signing/persisting. Section31's old operations/shapes
 and nonsigning receipt bytes remain unchanged.
+Read-only `signing` returns200/null for unapproved or advanced-only consent and
+200/unsigned for an approved unsigned action even after expiry, detach or
+provider/head changes. It never implies fresh signing eligibility. Only `sign`
+performs the fresh-work refusals. A missing requested access ID is404; a missing
+or corrupt referenced action or retained signature is409access_signing_unavailable.
 
 ### Fresh signing, durable boundary and history
 
