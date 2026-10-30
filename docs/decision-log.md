@@ -2759,3 +2759,14 @@ reviewable. Section27 defines new requester_commit6 with old22/native292 intact.
 Discarded: another durable consent table, implicit prepare on approval, broad
 commit/resume observation, conflating original ownership and requester consent,
 frontend signing and recorded consent as adoption/access/readiness.
+
+### GU.impl27a — Pin real commit stage and rollback stimuli
+
+Independent author clarification selected: all successful actions HTTP200;
+temporary schema-only intent INSERT/approval UPDATE ABORT triggers prove atomic
+rollback without authority-row edits or an invented SQL error code. Fresh real
+needs_commit has no manifest/activation/outcome, regardless of older native mock
+mapping. Historical key absence covers original/agent sources; unavailable
+owned-device seed remains source/fault coverage absent a public deletion API.
+Discarded: treating mocks as protocol evidence, deleting secret/authority rows
+to invent a public failure path, or weakening rollback/privacy assertions.
