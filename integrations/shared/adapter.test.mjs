@@ -1065,3 +1065,86 @@ test('conversation_history validates, calls the daemon, and reports refusals; ma
     await adapter.stop();
   }
 });
+
+// Conversations contract, C6: addressing, about, the rate limit's tool
+// error, and escaped labels.
+test('a conversation event shows who a message is to, the about link, and escaped labels', () => {
+  const about = { peer_host_id: 'host_' + 'a'.repeat(64), task_id: 'task_' + 'b'.repeat(32) };
+  const base = claim({});
+  const event = conversationEvent(
+    claim({
+      conversation: { ...base.conversation, about },
+      messages: [view({ addressed_to: ['agent:host_b/agent_b'], addressed_to_labels: ['bob/bert'], addressed: false, author_label: 'ev\u001b[31m\nil' })]
+    })
+  );
+  const lines = event.content.split('\n');
+  assert.equal(lines[2], `About task ${about.task_id} on ${about.peer_host_id}`);
+  assert.equal(lines.at(-1), '[ev\\u001b[31m\\u000ail 10:05, to bob/bert] hello bert');
+  assert.equal(event.meta.addressed, false);
+  assert.equal(event.meta.about_task_id, about.task_id);
+  assert.equal(event.meta.about_peer_host_id, about.peer_host_id);
+  assert.equal(event.meta.author_label, 'ev\\u001b[31m\\u000ail');
+  const own = conversationEvent(claim({ messages: [view({ mine: true, addressed_to_labels: ['alice'] })] }));
+  assert.equal(own.content.split('\n').at(-1), '[alice 10:05, to alice] (you) hello bert');
+  assert.equal(conversationEvent(claim({})).meta.about_task_id, undefined);
+  const roster = conversationRosterEvent({
+    ...base,
+    conversation: { ...base.conversation, about },
+    notification: { ...base.notification, kind: 'roster', change: { change: 'closed', by_label: 'a\u0007b' } }
+  });
+  assert.match(roster.content, /About task task_b+ on host_a+/);
+  assert.match(roster.content, /a\\u0007b closed this conversation/);
+});
+
+test('conversation_send passes addressed_to and maps the limit; conversation_start validates about', async () => {
+  const calls = [];
+  let answer = () => ({ message: {}, targets: [] });
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    const args = { conversation_id: conversationId, content: 'hi' };
+    await adapter.callTool('conversation_send', { ...args, addressed_to: ['bob/bert'] });
+    assert.deepEqual(calls.at(-1).body.addressed_to, ['bob/bert']);
+    await adapter.callTool('conversation_send', args);
+    assert.equal(calls.at(-1).body.addressed_to, undefined);
+    const count = calls.length;
+    for (const addressed_to of ['bob', [1], Array(17).fill('x'), ['x'.repeat(257)]]) {
+      const bad = await adapter.callTool('conversation_send', { ...args, addressed_to });
+      assert.equal(bad.isError, true);
+      assert.match(bad.content[0].text, /conversation_send/);
+    }
+    const about = { peer_host_id: 'host_' + 'a'.repeat(64), task_id: 'task_' + 'b'.repeat(32) };
+    for (const value of [{}, { ...about, extra: 1 }, { ...about, task_id: 'task_x' }, { peer_host_id: about.peer_host_id }]) {
+      const bad = await adapter.callTool('conversation_start', { participants: ['bob/bert'], about: value });
+      assert.equal(bad.isError, true);
+    }
+    assert.equal(calls.length, count);
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'], about });
+    assert.deepEqual(calls.at(-1).body.about, about);
+    answer = () => {
+      const error = new Error('limit');
+      error.status = 429;
+      error.code = 'limit';
+      throw error;
+    };
+    const limited = await adapter.callTool('conversation_send', args);
+    assert.equal(limited.isError, true);
+    assert.deepEqual(JSON.parse(limited.content[0].text), {
+      conversation_id: conversationId,
+      code: 'rate_limited',
+      error: 'This agent reached its limit of 60 messages per hour in this conversation. Wait, or ask the person.',
+      recovery: null
+    });
+  } finally {
+    await adapter.close?.();
+  }
+});

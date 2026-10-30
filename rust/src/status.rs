@@ -532,7 +532,8 @@ impl Store {
         if let Some((subject, detail, command)) = self.approval_attention(connection)? {
             attention.push(item("call_approval_pending", subject, detail, command));
         }
-        let (open_conversations, invites) = self.conversation_status(connection)?;
+        let (open_conversations, unread_conversations, invites) =
+            self.conversation_status(connection)?;
         if invites > 0 {
             attention.push(item(
                 "conversation_invites",
@@ -558,7 +559,7 @@ impl Store {
                 "pending_bytes": pending_bytes,
             },
             "capabilities": capabilities,
-            "conversations": {"open": open_conversations, "invites": invites},
+            "conversations": {"open": open_conversations, "unread": unread_conversations, "invites": invites},
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
     }

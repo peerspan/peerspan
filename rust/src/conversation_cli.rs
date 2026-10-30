@@ -1,12 +1,18 @@
-//! `conversations` and `conversation start|say|show|add|remove|close|leave|join|decline|sync`
-//! (conversations contract, C1 to C4). Unlisted in the root help until C6 (CONV-24).
+//! `conversations` and `conversation start|say|show|watch|add|remove|close|leave|join|decline|read|forget|sync`
+//! (conversations contract, C1 to C6). Peer-supplied text is escaped in all output.
 use crate::{
     admin::Local,
+    capability_cli::escaped,
     cli::{Command, ConversationCommand},
 };
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{
+    collections::BTreeSet,
+    io::{IsTerminal, Write},
+    path::Path,
+    time::Duration,
+};
 
 pub(crate) fn handles(command: &Command) -> bool {
     matches!(
@@ -19,17 +25,34 @@ pub(crate) fn handles(command: &Command) -> bool {
 pub(crate) async fn run(command: Command, socket: &Path) -> anyhow::Result<()> {
     match execute(command, socket).await {
         Err(error) => match error.downcast::<crate::integration::DaemonError>() {
-            Ok(d) if !d.code.is_empty() => bail!("{}: {}", d.code, d.message),
-            Ok(d) => Err(d.into()),
-            Err(other) => Err(other),
+            Ok(d) if !d.code.is_empty() => bail!("{}: {}", d.code, escaped(&d.message)),
+            Ok(d) => bail!("{}", escaped(&d.to_string())),
+            Err(other) => bail!("{}", escaped(&format!("{other:#}"))),
         },
         ok => ok,
     }
 }
 
+/// JSON text with U+007F and U+0080 to U+009F written as `\\u00XX`: they can
+/// only be inside strings, and parsing returns the original text.
+pub(crate) fn json_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c) {
+            out.push_str(&format!("\\u{:04x}", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 fn print(value: &Value) -> anyhow::Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
+    println!("{}", json_text(&serde_json::to_string_pretty(value)?));
     Ok(())
+}
+/// A value's text, escaped for a terminal.
+fn safe(value: &Value) -> String {
+    escaped(text(value))
 }
 fn text(value: &Value) -> &str {
     value.as_str().unwrap_or_default()
@@ -58,12 +81,12 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                     .take(13)
                     .collect::<String>();
                 if let Some(title) = i["title"].as_str() {
-                    line.push_str(&format!("  \"{title}\""));
+                    line.push_str(&format!("  \"{}\"", escaped(title)));
                 }
                 line.push_str(&format!(
                     "  from {}  expires {}",
-                    text(&i["added_by_label"]),
-                    text(&i["expires_at"])
+                    safe(&i["added_by_label"]),
+                    safe(&i["expires_at"])
                 ));
                 println!("{line}");
             }
@@ -81,19 +104,22 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                 let id = text(&c["conversation_id"]);
                 let mut line = id.chars().take(13).collect::<String>();
                 if let Some(title) = c["title"].as_str() {
-                    line.push_str(&format!("  \"{title}\""));
+                    line.push_str(&format!("  \"{}\"", escaped(title)));
                 }
-                let labels: Vec<&str> = c["participants"]
+                let labels: Vec<String> = c["participants"]
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .map(|p| text(&p["label"]))
+                    .map(|p| safe(&p["label"]))
                     .collect();
                 line.push_str(&format!("  {}", labels.join(", ")));
                 let last = c["last_message_at"]
                     .as_str()
                     .unwrap_or_else(|| text(&c["created_at"]));
-                line.push_str(&format!("  {last}"));
+                line.push_str(&format!("  {}", escaped(last)));
+                if let Some(n) = c["unread"].as_i64().filter(|n| *n > 0) {
+                    line.push_str(&format!("  {n} unread"));
+                }
                 println!("{line}");
             }
             Ok(())
@@ -106,8 +132,15 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             note,
             as_agent,
             network,
+            about,
         }) => {
             let mut body = json!({ "participants": targets });
+            if let Some(about) = about {
+                let (host, task) = about
+                    .split_once('/')
+                    .context("--about takes HOST_ID/TASK_ID")?;
+                body["about"] = json!({"peer_host_id": host, "task_id": task});
+            }
             if let Some(title) = title {
                 body["title"] = json!(title);
             }
@@ -204,9 +237,13 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             id,
             text: content,
             message_id,
+            to,
         }) => {
             let id = resolve(&local, &id).await?;
             let mut body = json!({ "content": content });
+            if !to.is_empty() {
+                body["addressed_to"] = json!(to);
+            }
             if let Some(m) = message_id {
                 body["message_id"] = json!(m);
             }
@@ -227,15 +264,7 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             let mut query = String::new();
             let mut reader = None;
             if let Some(agent) = as_agent {
-                let host = local.get("/v1/host".into()).await?;
-                let agents = local.get("/v1/agents".into()).await?;
-                let found = agents
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|a| text(&a["id"]) == agent || text(&a["name"]) == agent)
-                    .with_context(|| format!("no agent {agent} on this host"))?;
-                let participant = format!("agent:{}/{}", text(&host["id"]), text(&found["id"]));
+                let participant = agent_participant(&local, &agent).await?;
                 query = format!("participant={}", encoded(&participant));
                 reader = Some(participant);
             }
@@ -249,14 +278,71 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             }
             let messages = local.get(page).await?;
             if json {
-                return print(&json!({
+                print(&json!({
                     "conversation": conversation,
                     "messages": messages["messages"],
                     "next_before_message_id": messages["next_before_message_id"],
-                }));
+                }))?;
+            } else {
+                readable(&conversation, &messages, reader.as_deref());
             }
-            readable(&conversation, &messages, reader.as_deref());
+            if reader.is_none() {
+                let ids: Vec<String> = messages["messages"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|m| text(&m["message_id"]).to_owned())
+                    .collect();
+                advance(&local, &id, ids).await;
+            }
             Ok(())
+        }
+        Command::Conversation(ConversationCommand::Read { id }) => {
+            let id = resolve(&local, &id).await?;
+            print(
+                &local
+                    .post(format!("/v1/conversations/{id}/read"), json!({}))
+                    .await?,
+            )
+        }
+        Command::Conversation(ConversationCommand::Forget { id, yes }) => {
+            let id = resolve(&local, &id).await?;
+            if !yes {
+                if !std::io::stdin().is_terminal() {
+                    bail!("confirm: conversation forget needs --yes when not at a terminal.");
+                }
+                eprint!("Delete this host's copy of {id}? [y/N] ");
+                std::io::stderr().flush()?;
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                let answer = answer.trim().to_ascii_lowercase();
+                if answer != "y" && answer != "yes" {
+                    println!("Not forgotten.");
+                    return Ok(());
+                }
+            }
+            print(&local.delete(format!("/v1/conversations/{id}")).await?)
+        }
+        Command::Conversation(ConversationCommand::Watch { id, as_agent }) => {
+            let mut query = String::new();
+            let mut reader = None;
+            if let Some(agent) = as_agent {
+                let participant = agent_participant(&local, &agent).await?;
+                query.push_str(&format!("&participant={}", encoded(&participant)));
+                reader = Some(participant);
+            }
+            if let Some(id) = id {
+                let id = resolve(&local, &id).await?;
+                query.push_str(&format!("&conversation={id}"));
+            }
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut interrupt = signal(SignalKind::interrupt())?;
+            let mut terminate = signal(SignalKind::terminate())?;
+            tokio::select! {
+                result = watch(&local, &query, reader.as_deref()) => result,
+                _ = interrupt.recv() => Ok(()),
+                _ = terminate.recv() => Ok(()),
+            }
         }
         _ => unreachable!("not a conversation command"),
     }
@@ -321,6 +407,139 @@ async fn resolve_invite(local: &Local<'_>, id: &str) -> anyhow::Result<String> {
     }
 }
 
+/// The participant ID of a local agent, by name or ID.
+async fn agent_participant(local: &Local<'_>, agent: &str) -> anyhow::Result<String> {
+    let host = local.get("/v1/host".into()).await?;
+    let agents = local.get("/v1/agents".into()).await?;
+    let found = agents
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| text(&a["id"]) == agent || text(&a["name"]) == agent)
+        .with_context(|| format!("no agent {agent} on this host"))?;
+    Ok(format!(
+        "agent:{}/{}",
+        text(&host["id"]),
+        text(&found["id"])
+    ))
+}
+/// Moves the person's read cursor past messages just shown. Printing already
+/// happened; a failure leaves them unread.
+async fn advance(local: &Local<'_>, id: &str, ids: Vec<String>) {
+    for chunk in ids.chunks(100) {
+        let _ = local
+            .post(
+                format!("/v1/conversations/{id}/read"),
+                json!({ "message_ids": chunk }),
+            )
+            .await;
+    }
+}
+/// `conversation watch`: long-polls the event log from where it is now.
+async fn watch(local: &Local<'_>, query: &str, reader: Option<&str>) -> anyhow::Result<()> {
+    let first = local
+        .get(format!("/v1/conversations/events?wait=0&limit=1{query}"))
+        .await?;
+    let mut after = first["latest"].as_i64().unwrap_or(0);
+    eprintln!("Watching; press Ctrl-C to stop.");
+    let participant = reader
+        .map(|r| format!("?participant={}", encoded(r)))
+        .unwrap_or_default();
+    let mut said = BTreeSet::new();
+    loop {
+        let path = format!("/v1/conversations/events?after={after}&wait=25&limit=100{query}");
+        let answer = match local.get(path).await {
+            Ok(answer) => answer,
+            Err(_) => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        after = answer["next_after"].as_i64().unwrap_or(after);
+        let mut shown: Vec<(String, String)> = Vec::new();
+        for event in answer["events"].as_array().into_iter().flatten() {
+            let id = text(&event["conversation_id"]);
+            let short: String = id.chars().take(13).collect();
+            let kind = text(&event["kind"]);
+            let message = text(&event["message_id"]);
+            match kind {
+                "message_sent" | "message_received" | "target_changed" => {
+                    let path = format!("/v1/conversations/{id}/messages/{message}{participant}");
+                    let Ok(view) = local.get(path).await else {
+                        continue;
+                    };
+                    let m = &view["message"];
+                    if kind == "target_changed" {
+                        for t in m["targets"].as_array().into_iter().flatten() {
+                            let state = text(&t["state"]);
+                            let key = (
+                                message.to_owned(),
+                                text(&t["participant"]).to_owned(),
+                                state.to_owned(),
+                            );
+                            if state != "delivered" && state != "sending" && said.insert(key) {
+                                println!("{short}  {}", target_line(t));
+                            }
+                        }
+                    } else {
+                        println!("{short}  {}", message_line(m, 0));
+                        shown.push((id.to_owned(), message.to_owned()));
+                    }
+                }
+                "roster_changed" => println!("{short}  participants or state changed"),
+                "invited" => println!("{short}  you were invited"),
+                _ => {}
+            }
+        }
+        std::io::stdout().flush()?;
+        if reader.is_none() {
+            let conversations: BTreeSet<String> = shown.iter().map(|s| s.0.clone()).collect();
+            for id in conversations {
+                let ids = shown
+                    .iter()
+                    .filter(|s| s.0 == id)
+                    .map(|s| s.1.clone())
+                    .collect();
+                advance(local, &id, ids).await;
+            }
+        }
+    }
+}
+/// One message's line, the author label padded to `width`.
+fn message_line(m: &Value, width: usize) -> String {
+    let labels: Vec<String> = m["addressed_to_labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(safe)
+        .collect();
+    let to = if labels.is_empty() {
+        String::new()
+    } else {
+        format!("  to {}", labels.join(", "))
+    };
+    format!(
+        "{}  {:width$}{to}  {}",
+        hhmm(text(&m["sent_at"])),
+        safe(&m["author_label"]),
+        safe(&m["content"])
+    )
+}
+/// The line for a target not `delivered`.
+fn target_line(t: &Value) -> String {
+    match text(&t["state"]) {
+        state @ ("sending" | "stopped") => {
+            format!("not yet received by {} ({state})", safe(&t["label"]))
+        }
+        state => format!(
+            "not received by {} ({}: {})",
+            safe(&t["label"]),
+            escaped(state),
+            safe(&t["code"])
+        ),
+    }
+}
+
 fn hhmm(time: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(time)
         .map(|t| t.with_timezone(&chrono::Utc).format("%H:%M").to_string())
@@ -344,21 +563,33 @@ fn readable(conversation: &Value, messages: &Value, reader: Option<&str>) {
             .collect::<String>()
     );
     if let Some(title) = conversation["title"].as_str() {
-        header.push_str(&format!(" \"{title}\""));
+        header.push_str(&format!(" \"{}\"", escaped(title)));
     }
     println!(
-        "{header}   {}   {} participants",
-        text(&conversation["state"]),
-        participants.len()
+        "{header}   {}   {} participants{}",
+        safe(&conversation["state"]),
+        participants.len(),
+        if conversation["home_unavailable"] == true {
+            "   home unavailable"
+        } else {
+            ""
+        }
     );
+    if let Some(about) = conversation["about"].as_object() {
+        println!(
+            "  about task {} on {}",
+            about.get("task_id").map(safe).unwrap_or_default(),
+            about.get("peer_host_id").map(safe).unwrap_or_default()
+        );
+    }
     let labels: Vec<String> = participants
         .iter()
         .map(|p| {
-            let mut label = text(&p["label"]).to_owned();
+            let mut label = safe(&p["label"]);
             if you(p) {
                 label.push_str(" (you)");
             } else if p["state"] != "joined" {
-                label.push_str(&format!(" ({})", text(&p["state"])));
+                label.push_str(&format!(" ({})", safe(&p["state"])));
             }
             label
         })
@@ -368,28 +599,14 @@ fn readable(conversation: &Value, messages: &Value, reader: Option<&str>) {
     let list = messages["messages"].as_array().cloned().unwrap_or_default();
     let width = list
         .iter()
-        .map(|m| text(&m["author_label"]).len())
+        .map(|m| safe(&m["author_label"]).chars().count())
         .max()
         .unwrap_or(0);
     for m in &list {
-        println!(
-            "{}  {:width$}  {}",
-            hhmm(text(&m["sent_at"])),
-            text(&m["author_label"]),
-            text(&m["content"])
-        );
+        println!("{}", message_line(m, width));
         for t in m["targets"].as_array().into_iter().flatten() {
-            match text(&t["state"]) {
-                "delivered" => {}
-                state @ ("sending" | "stopped") => println!(
-                    "         not yet received by {} ({state})",
-                    text(&t["label"])
-                ),
-                state => println!(
-                    "         not received by {} ({state}: {})",
-                    text(&t["label"]),
-                    text(&t["code"])
-                ),
+            if t["state"] != "delivered" {
+                println!("         {}", target_line(t));
             }
         }
     }

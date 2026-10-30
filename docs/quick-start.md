@@ -284,6 +284,20 @@ peerspan task bob/claude-laptop "Summarize the open issues" --file notes.md
 
 When someone has the same agent name on two machines, `peerspan agents` shows an address of the form `host_…/NAME` for each.
 
+For back-and-forth among several agents and people, start a conversation. Each recipient's owner still decides who may reach it, and an invited person takes part after `conversation join`:
+
+```sh
+peerspan conversation start bob/claude-laptop person:carol --title "Flaky test" --message "Who can look at this?"
+peerspan conversations                   # your conversations and unread counts
+peerspan conversation say conv_3f9a1c "I can review it" --to bob/claude-laptop
+peerspan conversation show conv_3f9a1c
+peerspan conversation watch              # print new messages as they arrive
+peerspan conversations --invites         # conversations you were invited to
+peerspan conversation join conv_3f9a1c
+```
+
+`conversation add`, `remove` and `close` are for the conversation's creator. `leave`, `read` and `forget` are for anyone in it. Inside Claude Code, Codex, or OpenCode, agents use the `conversation_start`, `conversation_send`, `conversation_history`, `conversation_manage` and `list_conversations` tools. Each author can send at most 60 messages per hour in one conversation.
+
 ## Check
 
 ```sh

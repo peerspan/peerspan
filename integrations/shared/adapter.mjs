@@ -323,6 +323,14 @@ export const tools = [
           description: 'The conversation, as meta.conversation_id of a kind=conversation event.'
         },
         content: { type: 'string', minLength: 1, maxLength: 65536, description: 'The message text.' },
+        addressed_to: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 16,
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+          description:
+            'Who this is mainly for: participant IDs or labels as the conversation shows them. Everyone still receives it; omit it to address everyone.'
+        },
         message_id: {
           type: 'string',
           pattern: conversationMessageIdPattern,
@@ -375,7 +383,17 @@ export const tools = [
         },
         title: { type: 'string', maxLength: 200, description: 'An optional title.' },
         content: { type: 'string', minLength: 1, maxLength: 65536, description: 'An optional first message.' },
-        note: { type: 'string', maxLength: 4096, description: 'An optional note for the new participants.' }
+        note: { type: 'string', maxLength: 4096, description: 'An optional note for the new participants.' },
+        about: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            peer_host_id: { type: 'string', pattern: '^host_[0-9a-f]{64}$' },
+            task_id: { type: 'string', pattern: '^task_[0-9a-f]{32}$' }
+          },
+          required: ['peer_host_id', 'task_id'],
+          description: 'The task this conversation is about. It is shown only and grants nothing.'
+        }
       },
       required: ['participants']
     }
@@ -414,6 +432,7 @@ const conversationRefusals = {
   closed: 'The conversation is closed; it can still be read with conversation_history.',
   full: 'A conversation has at most 16 participants.'
 };
+const rateLimited = 'This agent reached its limit of 60 messages per hour in this conversation. Wait, or ask the person.';
 export const lostStartRecovery = 'Check list_conversations before starting again; the conversation may exist.';
 export const lostConversationRecovery =
   'Call conversation_send again with the same message_id and identical content; it returns the stored message instead of sending twice.';
@@ -424,10 +443,24 @@ export const lostConversationRecovery =
 // participantLabel writes one entry of an event's Participants line: a
 // person not yet joined is marked invited or inviting.
 function participantLabel(p) {
+  const label = escapedText(p.label);
   if (p.kind === 'person') {
-    return p.state === 'invited' || p.state === 'inviting' ? `${p.label} (person, ${p.state})` : `${p.label} (person)`;
+    return p.state === 'invited' || p.state === 'inviting' ? `${label} (person, ${p.state})` : `${label} (person)`;
   }
-  return p.you === true ? `${p.label} (you)` : p.label;
+  return p.you === true ? `${label} (you)` : label;
+}
+
+// escapedText writes control characters as \uXXXX, so a peer-chosen name
+// cannot forge a line of an event. Message content stays as received.
+function escapedText(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/gu, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+// aboutLines is the informational line of a conversation with an about link.
+function aboutLines(conversation) {
+  const about = conversation.about;
+  return about ? [`About task ${about.task_id} on ${about.peer_host_id}`] : [];
 }
 
 export function conversationEvent(claim) {
@@ -438,13 +471,16 @@ export function conversationEvent(claim) {
   const line = (m) => {
     const own = m.mine === true ? ' (you)' : '';
     const cut = m.truncated === true ? ` [cut: ${m.content_bytes} bytes; conversation_history has it]` : '';
-    return `[${m.author_label} ${hhmm(m.sent_at)}]${own} ${m.content}${cut}`;
+    const labels = (m.addressed_to_labels ?? []).map(escapedText);
+    const to = labels.length ? `, to ${labels.join(', ')}` : '';
+    return `[${escapedText(m.author_label)} ${hhmm(m.sent_at)}${to}]${own} ${m.content}${cut}`;
   };
-  const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
+  const title = typeof conversation.title === 'string' ? ` "${escapedText(conversation.title)}"` : '';
   const participants = (conversation.participants ?? []).map(participantLabel);
   const lines = [
     `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
-    `Participants: ${participants.join(', ')}`
+    `Participants: ${participants.join(', ')}`,
+    ...aboutLines(conversation)
   ];
   if (window.length) {
     lines.push(`Earlier messages (last ${window.length} of ${claim.window_total}; conversation_history has the rest):`);
@@ -459,14 +495,18 @@ export function conversationEvent(claim) {
       notification_id: claim.notification?.id,
       message_id: message.message_id,
       author: message.author,
-      author_label: message.author_label,
+      author_label: escapedText(message.author_label),
       author_kind: message.author_kind,
       origin_agent_id: message.origin_agent_id ?? null,
       sender_person_id: message.sender_person_id ?? null,
-      sender_person: message.sender_person ?? null,
+      sender_person: escapedText(message.sender_person ?? null),
       seq: message.seq,
       clock: message.clock,
       addressed: message.addressed !== false,
+      ...(conversation.about && {
+        about_peer_host_id: conversation.about.peer_host_id,
+        about_task_id: conversation.about.task_id
+      }),
       catch_up: claim.catch_up === true,
       unseen: conversation.unseen,
       session_id: claim.notification?.session_id,
@@ -481,7 +521,7 @@ export function conversationUndeliveredEvent(claim) {
   const conversation = claim.conversation ?? {};
   const notification = claim.notification ?? {};
   const failed = notification.undelivered ?? {};
-  const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
+  const title = typeof conversation.title === 'string' ? ` "${escapedText(conversation.title)}"` : '';
   const participants = (conversation.participants ?? []).map(participantLabel);
   const reason =
     failed.state === 'refused'
@@ -493,7 +533,8 @@ export function conversationUndeliveredEvent(claim) {
     content: [
       `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
       `Participants: ${participants.join(', ')}`,
-      `Your message ${notification.message_id} did not reach ${failed.label}: ${reason}`,
+      ...aboutLines(conversation),
+      `Your message ${notification.message_id} did not reach ${escapedText(failed.label)}: ${reason}`,
       `Message: ${failed.preview}`
     ].join('\n'),
     meta: {
@@ -502,7 +543,7 @@ export function conversationUndeliveredEvent(claim) {
       notification_id: notification.id,
       message_id: notification.message_id,
       participant: failed.participant,
-      participant_label: failed.label,
+      participant_label: escapedText(failed.label),
       state: failed.state,
       code: failed.code ?? null,
       session_id: notification.session_id,
@@ -516,13 +557,14 @@ export function conversationUndeliveredEvent(claim) {
 export function conversationRosterEvent(claim) {
   const conversation = claim.conversation ?? {};
   const change = claim.notification?.change ?? {};
-  const title = typeof conversation.title === 'string' ? ` "${conversation.title}"` : '';
+  const title = typeof conversation.title === 'string' ? ` "${escapedText(conversation.title)}"` : '';
   const participants = (conversation.participants ?? []).map(participantLabel);
   const lines = [
     `Peerspan conversation ${conversation.conversation_id}${title} (${conversation.state})`,
-    `Participants: ${participants.join(', ')}`
+    `Participants: ${participants.join(', ')}`,
+    ...aboutLines(conversation)
   ];
-  const by = change.by_label;
+  const by = escapedText(change.by_label);
   if (change.change === 'added') {
     lines.push(`${by} added you to this conversation. Send with conversation_send; you see messages sent from now on.`);
     if (typeof change.note === 'string' && change.note.length) lines.push(`Note from ${by}: ${change.note}`);
@@ -580,6 +622,18 @@ function validArguments(name, args) {
       );
     return validString(property, value);
   });
+}
+
+// validAbout checks conversation_start's about link against its schema.
+function validAbout(about) {
+  const keys = Object.keys(about);
+  return (
+    keys.length === 2 &&
+    typeof about.peer_host_id === 'string' &&
+    /^host_[0-9a-f]{64}$/.test(about.peer_host_id) &&
+    typeof about.task_id === 'string' &&
+    /^task_[0-9a-f]{32}$/.test(about.task_id)
+  );
 }
 
 // target names a send's or delegation's target: exactly one of destination
@@ -1107,10 +1161,13 @@ export function createAdapter({
         return textResult(
           await scopedCall('POST', `/adapter/v1/conversations/${conversationId}/messages`, {
             message_id: messageId,
-            content: args.content
+            content: args.content,
+            ...(args.addressed_to !== undefined && { addressed_to: args.addressed_to })
           })
         );
       } catch (error) {
+        if (error.status >= 400 && error.status < 500 && error.code === 'limit')
+          return errorResult({ conversation_id: conversationId, code: 'rate_limited', error: rateLimited, recovery: null });
         if (error.status >= 400 && error.status < 500 && error.code) {
           const text =
             error.code === 'no_directory'
@@ -1132,6 +1189,8 @@ export function createAdapter({
       // list_conversations takes no arguments; a client may omit the object.
       if (name === 'list_conversations') args = args ?? {};
       if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
+      if (name === 'conversation_start' && args.about !== undefined && !validAbout(args.about))
+        return errorResult(`Invalid ${name} arguments.`);
       const conversationId = args.conversation_id ?? null;
       if (name === 'conversation_manage') {
         const needs = args.action === 'add' || args.action === 'remove';

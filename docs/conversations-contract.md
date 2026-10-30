@@ -976,7 +976,7 @@ Spec-only cases in `conformance/slim/conversations_context.py`, written from thi
 
 ## C6: rate, addressing, and the person's tools
 
-C6 finishes feature slice 1: the 60-messages-per-hour limit on both sides, `addressed_to` from local surfaces and `meta.addressed`, the `about` task link, the read cursor and unread counts, the event log and `conversation watch`, `conversation forget`, `home_unavailable`, terminal escaping, the activity kinds, and listing the commands (CONV-24). Everything in C1 to C5 stays as written unless this section changes it. No acceptance rule of an earlier section is relaxed. The manual live run (CONV-25) is recorded separately and is not part of this section's verification.
+C6 finishes feature slice 1 (DEC.impl90 to DEC.impl99): the 60-messages-per-hour limit on both sides, `addressed_to` from local surfaces and `meta.addressed`, the `about` task link, the read cursor and unread counts, the event log and `conversation watch`, `conversation forget`, `home_unavailable`, terminal escaping, the activity kinds, and listing the commands (CONV-24). Everything in C1 to C5 stays as written unless this section changes it. No acceptance rule of an earlier section is relaxed. The manual live run (CONV-25) is recorded separately and is not part of this section's verification.
 
 **Words.** P is a local participant. *Visible to P* is the rule of C1's [Who may see what](#who-may-see-what) for a person and of C5's [What an agent may see](#the-handoff-recheck) for an agent, including the recheck. Every read path below uses it; none records anything about a recheck, as C5 says.
 
@@ -1183,7 +1183,7 @@ Its refusals gain:
 **`conversation_start`** gains `about`: an object with required `peer_host_id` and `task_id` of the patterns above, `additionalProperties: false`.
 
 **The `conversation` event.**
-- `meta` gains `about_peer_host_id` and `about_task_id` beside the C1 keys, and they are null (omitted for Claude Code) when the conversation has no `about`. `meta.addressed` is from the claim's new message, as C1 defines it.
+- `meta` gains `about_peer_host_id` and `about_task_id` beside the C1 keys, only when the conversation has an `about`. `meta.addressed` is from the claim's new message, as C1 defines it.
 - The content gains a line `About task TASK_ID on HOST_ID` after `Participants:` when `about` is set, on `conversation`, `conversation_roster` and `conversation_undelivered` events.
 - A new message or window entry with `addressed_to` reads `[LABEL HH:MM, to LABEL, LABEL] CONTENT`, the labels from `addressed_to_labels`. For this agent's own: `[LABEL HH:MM, to LABEL] (you) CONTENT`.
 
@@ -1195,15 +1195,15 @@ No new schema version: schema 24 already has `conversation_reads` and `conversat
 
 ### Verification
 
-Spec-only cases are appended to `conformance/slim/conversations.py`, written from this section by the separate author, with the suite still under 2 minutes in total. Raising that limit is a question for the owner, so report it rather than dropping a case.
+Spec-only cases in `conformance/slim/conversations_tools.py`, written from this section by the separate author, with its own `suite` matrix entry and a 2-minute limit.
 
-**Setup.** C1's alice and bob, in that suite's network.
+**Setup.** C1's alice and bob in one coordinator-free network, with `suite.use_clock()` before any host starts.
 - **Fixture agent.** `bert` on bob comes from `b.agent("bert")`, a directory session with a verified channel. It claims with `bert.post("/adapter/v1/conversation-notifications/next")` until non-null, then posts `.../{id}/forwarded`. A fixture claims only when the suite calls this, so a message stays unclaimed for as long as a case needs. Sends use `bert.post("/adapter/v1/conversations/ID/messages", {...})`.
 - **Policy.** bob's `allow alice --no-tasks --person-key KEY` gives alice `message.append` to bob's agents; `deny alice --person-key KEY` takes it away, at once on bob. Each change is followed by C1's policy-version wait where alice must cite it. People need no policy: `conversation start person:bob` and `conversation join ID` on bob, as in C3.
 - **Raw requests.** Use `peer(sender, receiver, method, path, body)`. A probe message omits `prev_seq` (so it reveals no gap), uses `seq` values alice's host has not used, and carries the roster version bob holds. A person target takes no citation.
 - **Speed.** The 60 sends go through `POST /v1/conversations/{id}/messages`, not the CLI, except where a case names the CLI.
 - **Watch.** Run `peerspan conversation watch` with `suite.spawn`, wait for `Watching` on stderr before sending, and terminate it in the case.
-- **Clock.** A case moving the test clock runs after every other C6 case and before C2's unanswered case, and restarts hosts before expecting peer traffic.
+- **Clock.** A case moving the test clock runs after every other case, and restarts hosts before expecting peer traffic.
 
 **Cases** (the proposal's C6 column, made concrete):
 - **Limit at the author's host.** In a conversation with `bert`, alice sends 60 messages through the owner route, each 200. All 60 targets for `bert` reach `delivered`, so the recipient's limit does not trip. The 61st `conversation say` exits 1 with `error: limit: This participant reached its limit of 60 messages per hour in this conversation.`, and `show --json` lists no 61st message. A repeat of the 60th `message_id` with its content is 200. After restarting alice, a new message is still refused. `bert` can still send (each author is counted alone).
@@ -1253,7 +1253,7 @@ Spec-only cases are appended to `conformance/slim/conversations.py`, written fro
 **Rust.** `cargo test` unit tests cover what the slim suite cannot reach:
 - the event log's retention at 30 days and 10,000 entries;
 - the `--hook` and `session pending` escaping (no `attach` profile in the harness);
-- the `limit` code at a fetch (a fetched entry is refused `limit`, resolved, and reported in `acks`);
+- a saved fetch refusal with code `limit` answering a later push with 429 `limit`;
 - a future-dated `sent_at` counting at its storing time.
 
 **Node adapter** (`node --test` in `integrations/shared`, as before):
