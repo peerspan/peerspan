@@ -344,6 +344,7 @@ action, with a separate human receipt; no key probe, signing/publication or
 readiness claim. Fixed first profile and ordinary owner-wide agent-name scope
 are explicit. Schema27 SQL stays unchanged; strict nonsigning private intent
 metadata and ordinary action approval commit atomically.
+
 ### Exact project policy signature continuation
 
 Guided session contract section32 adds owner-local private-stdin `access signing`

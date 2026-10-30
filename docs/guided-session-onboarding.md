@@ -527,13 +527,20 @@ upgrade/recovery limits remain explicit. Bounded policy signing/publication,
 native access controls, observed readiness and other-computer flow follow.
 Tracking PR35 stays unmerged; full-feature acceptance remains incomplete.
 
-### Next slice: bounded exact policy signature storage
+### Bounded exact policy signature storage
 
 Merged77 (`2a36210`) supplies exact agent-access consent. Section32 / GU.impl32
 adds one explicit bounded signer operation and pure signature observation on
 that immutable ordinary action; its human receipt remains nonsigning. Device
 and exact original daemon signer paths keep current authority checks around IO.
 Signature/clock persistence is atomic and does not apply/publish a policy.
-Independent conformance and reviewed evidence follow. Bounded publication/local
-application, native access controls, observed readiness and the remaining full
-acceptance gates stay separate; PR35 stays unmerged.
+Frozen production `fc8cdf4` passes Rust155/2ignored, fmt, Clippy and shipped-bin
+build. Independent signing6/6in109.17s, unchanged consent6/6in90.70s and pinned
+native312/312in50.27s plus strict validation pass serially. The
+[verification record](results/guided-access-signing-verification.json) preserves
+the first1/6 run, independently corrected impossible timestamp regex, exact
+source/binary/log provenance, preservation audits and remaining source/manual
+limits. All26 old suites/helpers/native files are unchanged. PR79 records final
+evidence-head all27 CI gates and fresh review separately. Bounded publication/
+local application, native access controls, observed readiness and the remaining
+full acceptance gates stay separate; PR35 stays unmerged.
