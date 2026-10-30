@@ -2577,3 +2577,16 @@ cleanup or infer its exact underlying cause. Periodic and terminal-resume
 retirement remain explicit limits. Discarded: manual row deletion, speculative
 nonterminal-resume cleanup, larger timeouts, authority fabrication or weakening
 the original historical digest/DB/file/zero-IO assertions.
+
+
+### GU.impl24 — Inspect verified original finalization parents before signing
+
+Selected: a pure owner-local snapshot for the exact approved new-original intent,
+reusing ordinary full administrator/owner preparation checks over retained
+evidence. Bind the original immutable consent, selected owner, root/P/H, approving
+writer/signer and fixed profile/lifetime without creating timestamped B/D/F
+drafts. Keep explicit proof transport, bounded original signing, requester commit
+and native controls as following slices. This makes each dependency reviewable
+while the feature branch remains isolated. Discarded: broad resume as observation,
+new signing/consent journals, key use on inspection, silently approving final
+commit and treating pending administrator statements as adopted membership.

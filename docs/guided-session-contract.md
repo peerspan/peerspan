@@ -4052,7 +4052,144 @@ lookup-only recovery using existing host APIs. Discarded: automatic polling or
 consent on entry, raw ID/code input, ordinary broad resume, frontend signing,
 provider fallback, duplicate approval storage and consent as connection readiness.
 
-## 24. Remaining flow contract
+## 24. Read-only original finalization inspection
+
+This backend slice exposes the independently verified administrator parents for
+one exact section16 approved new-original owner intent. It precedes bounded
+original B/D/F signing and separate requester commit. It never fetches evidence,
+prepares finalization templates, signs, resumes, adopts authority or records a
+new consent. No schema, provider choice or native control is added.
+
+### Private request and eligibility
+
+Owner-local POST `/v1/onboarding/join-flows/{flow_id}/owner/finalization/inspect`
+accepts exactly `{context,join_review_id,owner_review_id}`. Private CLI
+`peerspan onboarding join owner finalization inspect --stdin` accepts the same
+shape plus exactly `flow_id`. Apply strict64KiB duplicate/unknown/null/type,
+context and typed-ID validation. No code, key/path, provider, scopes, deadlines,
+packet/message/signature or caller-supplied administrator references. The CLI
+performs one bounded5s private daemon call, starts no daemon/state and never
+reads a person key or SSH agent. Failed CLI output contains only controlled
+public errors, never raw rejected input or provider/daemon diagnostics.
+
+Use one SQLite read transaction on a blocking worker. Bind the exact published
+join flow/review/context/outcome and original requester/new/nonmigration request
+as section16; the request host must be this host. Recompute section16's immutable
+owner review and require its exact supplied digest, approved ordinary intent,
+original-only possession profile7 and request-created+7d lifetime. Approval's
+15min review window need not remain live; request and offer authority still must.
+Require the same attached project and agent, no adopted local network, live
+request, completed exact original owner offer, exact approved requester selection
+and retained administrator offer. Refuse absent/unapproved/incompatible owner
+intent, pending missing evidence, device/existing-person/migration/folded paths,
+completed owner finalization, requester commit or terminal/application artifacts.
+Previously materialized ordinary finalization drafts are allowed while F is
+absent, without changing them. This is fresh inspection, not historical consent
+recovery; section16 lookup remains the pure history interface.
+
+Reuse the ordinary protocol's cryptographic request/owner/selection verification,
+full administrator preparation and owner-preparation projection at guarded time.
+Verify the administrator packet, catalog/current root and exact subject P/H
+parents, active issuer authority, profile and finite bounds for this precise
+request, selected owner, original person, host and device. Never derive authority
+from public IDs alone or treat pending P/H as adopted membership. Do not resolve
+or open a signing provider, materialize B/D/F, mutate clocks/records, import/poll,
+learn contacts, clean up, create keys, or emit an event. Only retained evidence
+is eligible; explicit proof transport is a later slice. Require observed time
+at/after request creation and prior stage time and before signed request expiry,
+ordinary inactivity deadline and fixed not_after.
+
+### Closed public result
+
+Success is HTTP200 and exactly:
+
+```
+{version:1,host_id,flow_id,join_review_id,owner_review_id,context,observed_at,
+ request,review_id,review,next_action:"review_original_finalization"}
+```
+
+Request is the exact public LINK_VIEW at observed_at. Review is exactly:
+
+```
+{version:1,kind:"inspect_new_original_finalization",host_id,context,flow_id,
+ join_review_id,owner_review_id,request_id,intent_id,network,member,
+ person_public_key,host_public_key,device_public_key,request_packet_id,
+ owner_offer_id,selection_id,administrator_offer_id,root_state_id,
+ person_lease_id,host_lease_id,administrator,scopes:7,binding_scopes:2,
+ not_after,created_at,expires_at,effects}
+```
+
+Network is section11's exact public descriptor. Original owner and all target
+keys/member/fixed lifetime match section16. Administrator is exactly
+`{signer_public_key,host_public_key,signature_format,issuer_id}` from the verified
+administrator packet (writer host, authority format and issuer); these identify
+its signing authority, not a new consent attribution. Root/P/H are the exact
+independently verified administrator parents. B/D/F IDs are deliberately absent:
+this action does not create timestamp-dependent drafts. Expires_at is the signed
+request deadline, not a renewed inspection/consent window. Effects are exactly:
+
+```
+{verify_original_owner:true,verify_requester_selection:true,
+ verify_administrator_admission:true,verify_owner_finalization_bounds:true,
+ prepare_finalization:false,sign_original:false,publish_finalization:false,
+ commit_request:false,grant_membership:false,grant_agent_access:false,
+ share_files:false,share_conversation:false,capability_calls:false}
+```
+
+Review_id is review_ + SHA256 of
+`"peerspan-original-finalization-inspection-v1\n" + canonical(review)`.
+Repeated inspection with unchanged retained parents/terms has the same review
+and digest, excluding observed_at/request stage observations. No templates,
+messages, signatures, codes, ciphertext, seeds, sockets/paths or agent comments
+are returned. Apply the existing public private-prefix/unsafe-label guard.
+Success proves eligible verified retained parents at that observation only;
+it is neither a signature, requester commit, adopted powers, access nor readiness.
+
+Malformed input400 invalid, unknown flow404, non-requested flow409 state_conflict,
+wrong context/join/owner digest409 review_changed, detached/changed parent409
+review_changed, expired request409 review_expired, pruned ordinary request409
+request_unavailable. Other unsupported/missing/invalid evidence or incompatible
+consent409 finalization_inspection_unavailable. Do not recreate evidence/history.
+Only owner-local administration exposes this route; scoped adapters, peers and
+bootstrap callers cannot use it. Other HTTP methods405. Failed reads are pure.
+
+### Verification
+
+A separate contract-only author adds a small owner_finalization suite, preserving
+all old20 suites and272 native cases/assertions/delays/timeouts. Use genuine
+signed invitations/requests, distinct original people and hosts, ordinary
+signing/transport and public setup; no fabricated protocol or authority rows.
+
+1. A genuine same-request new-original ceremony reaches retained administrator
+   evidence after exact section16 consent/signature/selection and independent
+   administrator approval. Inspect via API and CLI: closed shapes, exact pins,
+   domain digest, root/P/H/administrator identity, profile7/binding2/fixed end and
+   all false effects. No B/D/F materialization or requester commit occurs.
+2. Repeat inspection, restart and inspect again with unchanged evidence: stable
+   review/digest; strict logical DB/private-file and settled carrier no-IO
+   snapshots remain equal. Isolate independent invitation/transport workers
+   before measuring; retain every purity assertion and document setup limits.
+3. Missing/unapproved owner consent, absent original/selection/administrator,
+   wrong/detached context or altered review IDs refuse without mutation/key IO.
+   Use genuine alternative attempts/identities; no evidence-row edits.
+4. Signed expiry and ordinary inactivity, cancellation, unsupported device or
+   adopted network fail closed. Exercise controllable public fixtures; catalog
+   corruption, microscopic crossing and cryptographic internal checks without a
+   deterministic public stimulus remain explicit source/fault limits.
+5. Strict API/CLI malformed/duplicate/unknown/null/oversized/positional input and
+   scope/peer/bootstrap/method boundaries; controlled diagnostics contain no
+   supplied private canary. CLI starts no host/key/state and makes no retry.
+6. After pure inspection, existing explicit advanced original F and separate
+   requester commit complete this same genuine two-person/two-host ceremony.
+   Inspection then refuses; section16 exact consent history stays unchanged.
+   No agent grant/readiness or installed/physical/model acceptance is inferred.
+
+Selected: reuse ordinary projection under one read snapshot, then separately add
+bounded original signing and requester commit. Discarded: using broad resume for
+observation, creating draft IDs during inspection, new approval storage, assuming
+administrator consent is owner consent or requester commit, and key use on entry.
+
+## 25. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
