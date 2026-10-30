@@ -4349,15 +4349,27 @@ impl Store {
         tx.commit()?;
         Ok(json!({ "roster": held.roster }))
     }
+    /// The current pending invite here for a conversation: for this host's
+    /// bound person, or for any person when it has none. Then the bound
+    /// person (contract C3, Joining steps 1 and 2).
+    fn current_pending(&self, conn: &Connection, id: &str) -> Result<(String, Pending), Error> {
+        let bound = self.conversation_person(conn)?;
+        let found = self
+            .pending_rows(conn, id)?
+            .into_iter()
+            .find(|(person, p)| p.current() && bound.as_ref().is_none_or(|b| b == person));
+        let (person, pending) = found.ok_or_else(no_invite)?;
+        if bound.is_none() {
+            return Err(not_bound());
+        }
+        Ok((person, pending))
+    }
     /// The local join's checks; at home it joins at once.
     fn prepare_join(&self, id: &str) -> Result<JoinStep, Error> {
         let own = self.identity().id;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let person = self.conversation_person(&tx)?.ok_or_else(not_bound)?;
-        let Some(mut pending) = self.pending_opt(&tx, id, &person)?.filter(Pending::current) else {
-            return Err(no_invite());
-        };
+        let (person, mut pending) = self.current_pending(&tx, id)?;
         let participant = format!("person:{own}/{person}");
         if self.open_count(&tx, &participant)? >= MAX_OPEN {
             return Err(coded_error(429, "limit", OPEN_LIMIT));
@@ -4457,10 +4469,7 @@ impl Store {
         let own = self.identity().id;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let person = self.conversation_person(&tx)?.ok_or_else(not_bound)?;
-        let Some(mut pending) = self.pending_opt(&tx, id, &person)?.filter(Pending::current) else {
-            return Err(no_invite());
-        };
+        let (person, mut pending) = self.current_pending(&tx, id)?;
         pending.state = "declined".into();
         pending.joining = false;
         self.save_pending(&tx, id, &person, &pending)?;
@@ -4490,19 +4499,22 @@ impl Store {
     /// `GET /v1/conversations/invites`.
     pub fn conversation_invites(&self) -> Result<Value, Error> {
         let conn = self.connection()?;
-        let person = self.conversation_person(&conn)?.ok_or_else(not_bound)?;
-        let mut statement = conn.prepare(
-            "SELECT conversation_id, record FROM conversation_invites WHERE person_id = ?1",
-        )?;
+        let bound = self.conversation_person(&conn)?;
+        let mut statement =
+            conn.prepare("SELECT conversation_id, person_id, record FROM conversation_invites")?;
         let rows = statement
-            .query_map([&person], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut items = Vec::new();
-        for (id, record) in rows {
+        for (id, person, record) in rows {
             let pending: Pending = json(record)?;
-            if !pending.current() {
+            if !pending.current() || bound.as_ref().is_some_and(|b| *b != person) {
                 continue;
             }
             let roster = &pending.roster;
