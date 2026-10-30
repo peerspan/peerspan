@@ -2191,6 +2191,7 @@ impl Store {
             params![id, author],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        let seq = seq.max(self.forgotten_seq(&tx, id, author)? + 1);
         if seq > MAX_COUNTER || clock > MAX_COUNTER {
             return Err(invalid("this conversation's counters are exhausted"));
         }
