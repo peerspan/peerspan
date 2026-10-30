@@ -2464,3 +2464,16 @@ request_id before measuring guided refusal. All retained-provider/purity
 assertions remain. Discarded: treating this malformed setup as provider
 validation, weakening the negative case, or expanding an unrelated ordinary
 HTTP API as part of the guided-consent backend.
+
+### GU.impl22 — Explicit bounded incoming proof progress
+
+Selected: one owner-local explicit fetch of already returned incoming original/
+selection evidence, using retained pinned carriers and ordinary validation, then
+one atomic pending-only retention under rechecked parent/request/root/time pins.
+Cached complete-prefix retry is pure. No authority, intent, consent/signature,
+publication, endpoint learning or new persistence. A pre-retention test barrier
+with no held DB lock permits genuine cancellation/context/deadline checks.
+Section22 defines independent incoming_progress6 and all20 final CI.
+Discarded: implicit polling in inspection, calling broad resume/observer engines,
+automatic provider/approval/selection/commit, external endpoint inputs, contact
+learning, partial failed retention and another schema/journal.
