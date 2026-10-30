@@ -2499,3 +2499,16 @@ unpromised passive root-publication deadline. Preserve the zero-retention and
 same-request F/commit/history assertions. Discarded: allowing attached metadata
 replacement, administrator resume to obtain the missing prefix, hidden signing
 inside progress, longer passive waits or retrying unchanged failed fixtures.
+
+### GU.impl23 — Native incoming proof and administrator review controls
+
+Selected: explicit paged incoming request choice, lookup-first recovery, separate
+bounded proof fetch, verified inspection then explicit review preparation and
+exact durable root consent approval. Native authority is volatile and rechecked
+against project/host/request/review/time before each action. Existing host APIs
+own verification, approval and later protocol work. Section23 defines20 new
+independent native cases with original252 preserved, existing real-host suites
+and all20 CI gates. Discarded: auto-selection/poll/prepare/approve, inputting raw
+IDs/codes, frontend keys/signatures, broad resume, approval mirrors and consent
+as membership/access/readiness. This is an implementation choice under the
+accepted guided flow; no additional owner confirmation is attributed.
