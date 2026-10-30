@@ -634,7 +634,7 @@ def signing_input(f, h, parent, prepared, *, sign=False):
 def signing_view(h, parent, prepared, value):
     check(type(value) is dict and set(value) == TOP and type(value["version"]) is int and value["version"] == 1
           and value["host_id"] == h.id and value["context"] == context(parent), "closed exact section32 outer view")
-    check(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d:\d\dZ", value["observed_at"]), "canonical signing observation time")
+    check(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", value["observed_at"]), "canonical signing observation time")
     access, review = value["access"], value["access"]["review"]
     check(set(access) == {"access_id", "review_id", "review", "state", "next_action"}
           and review == prepared["access"]["review"] and access["access_id"] == prepared["access"]["access_id"]
