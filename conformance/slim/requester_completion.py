@@ -481,6 +481,39 @@ def traffic(f):
             tuple(h.counted_peer.counts() for h in (f['a'], f['h']) if getattr(h, 'counted_peer', None)))
 
 
+def terminal_carrier_diagnostic(actual, expected, phase, mode):
+    """GU.impl28j: fixed counter deltas only, from the original observations."""
+    try:
+        if actual != expected:
+            schema = (
+                ('issuer', 'TCP', ('connections_delta', 'received_bytes_delta')),
+                ('requester', 'TCP', ('connections_delta', 'received_bytes_delta')),
+                ('issuer', 'UDP', ('received_datagrams_delta', 'received_bytes_delta',
+                                   'returned_datagrams_delta', 'returned_bytes_delta')),
+                ('requester', 'UDP', ('received_datagrams_delta', 'received_bytes_delta',
+                                      'returned_datagrams_delta', 'returned_bytes_delta')))
+            if len(actual) != len(schema) or len(expected) != len(schema):
+                return actual
+            summary = {'phase': phase if phase in ('expired', 'detached', 'restarted') else 'unknown',
+                       'mode': mode if mode in ('API', 'CLI') else 'unknown', 'carriers': []}
+            for index, (participant, kind, fields) in enumerate(schema):
+                before, after = expected[index], actual[index]
+                if before == after:
+                    continue
+                if len(before) != len(fields) or len(after) != len(fields):
+                    return actual
+                changed = {'participant': participant, 'kind': kind}
+                for field, old, new in zip(fields, before, after):
+                    if type(old) is not int or type(new) is not int or new < old:
+                        return actual
+                    changed[field] = new - old
+                summary['carriers'].append(changed)
+            print('terminal_carrier_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # The diagnostic cannot replace the original assertion/verdict.
+    return actual
+
+
 def quiet(f):
     h = f['h']; relays = [v.relay for v in (f['a'], h) if v.relay]
     record, _ = pending(h, f['rid'])
@@ -1398,7 +1431,7 @@ def _():
             check(value['completion'] == baseline['completion'] and value['commit'] == baseline['commit'], 'history changed exact completion/consent')
             after = snapshot(h)
             check(after == before, f'{phase} completed{mode} replay changed DB/state/home: {differences(before, after)}')
-            check(traffic(f) == network, f'{phase} completed{mode} replay performed carrier IO')
+            check(terminal_carrier_diagnostic(traffic(f), network, phase, mode) == network, f'{phase} completed{mode} replay performed carrier IO')
         complete(f, approved, status=409, code='review_changed', pure=True,
                  data={**completion_body(f, approved), 'commit_review_id': 'review_' + 'f' * 64})
     application_proof(f, baseline)
