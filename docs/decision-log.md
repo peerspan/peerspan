@@ -2548,3 +2548,18 @@ assertions, and every historical DB/file/zero-IO assertion stays. Immediate
 post-application scheduling attribution remains an explicit coverage limit.
 Discarded: longer acknowledgment waits, assumed guaranteed delivery, disabling
 background work, editing authority/storage rows or weakening measured purity.
+
+### GU.impl23d — Isolate invitation return polling and drive terminal cleanup
+
+Selected: use the genuine minimum60s invitation, then move both fixture clocks
+together past its deadline only after automatic return and genuine remote
+original/selection publication, while its independent3600s request stays live.
+Observe return-row retirement before measuring strict carrier counters. At the
+later request deadline, explicitly drive ordinary terminal resume/cleanup once
+before observing retirement; no periodic cleanup interval was promised.
+The preceding run4/6 in78s exposed case3's combined purity diagnostic and a
+5s wait for undriven cleanup. Separate strict DB/file versus carrier assertions
+with safe category names/numeric counts, keeping both checks. The exact earlier
+case3 failure category is unclassified because its before values were discarded.
+Discarded: attributing every carrier connection to the measured route, counting
+only one saved carrier, longer quiet gaps, disabling workers or editing rows.

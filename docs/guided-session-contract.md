@@ -3845,6 +3845,12 @@ No implementer tests or invented protocol/authority rows.
    Exact public request/action; no administrator intent/approval/signature,
    authority/access/registry/event/new schema/key or secret journal. One frozen
    cached retry with remote stopped proves complete-prefix purity/no IO.
+   Carrier counters include independent invitation-return polling every2s.
+   A genuine minimum60s contact invitation may expire after automatic return
+   and remote original/selection publication: advance both fixture clocks
+   together past that invitation deadline, observe ordinary return-row cleanup,
+   and retain the independently live3600s request before purity measurement.
+   Do not disable the worker, edit storage or count only one saved carrier.
 2. Request-only and, where a bounded genuine public fixture exists, owner-only
    mailbox produce waiting actions; unavailable owner-only observation before
    ordinary automatic selection remains explicit source/fault coverage. Repeated
@@ -3883,6 +3889,9 @@ No implementer tests or invented protocol/authority rows.
    assertions. Deadline setup does not establish immediate post-application
    scheduling attribution; live cached retry and live post-intent refusal are
    separately measured before that history check.
+   After advancing past request expiry, an ordinary explicit terminal resume
+   may drive documented cleanup before observing retirement. Do not assume a
+   periodic cleanup interval that the public contract does not specify.
 
 Run all20 final-head CI suites, native252/Rust gates and fresh bot review; record
 exact source/binary/results and all failures/limits. Earlier signing historical
