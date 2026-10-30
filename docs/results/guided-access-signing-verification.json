@@ -1,5 +1,5 @@
 {
-  "status": "New signing/local regression pass and candidate325df66 has clean review/PR checks, but two old CI history purity failures remain. Contract-first independent bounded diagnostic correction and final diagnostic-head CI/review pending. Local unchanged diagnosis passes do not attribute or erase failures.",
+  "status": "Local required Rust/new signing/native/consent checks and independently corrected historical diagnostic runs complete. Final diagnostic evidence-head all27 CI and fresh bot/root review must be recorded on PR79/35 after this commit. Original CI purity causes remain unclassified; production remains frozen fc8cdf4.",
   "base": "2a362108647baea9cb16ec91759d1b29b75a7c0c",
   "pr": "https://github.com/peerspan/peerspan/pull/79",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
@@ -66,12 +66,17 @@
     "correction_commit": "63d0a23ae5fdf3c9ac2f8a0924a30dbe3137101a",
     "correction_integrated": "ddc2b3512220b64ec2f8f0c5fcc00d551d0473e0",
     "final_sha256": "2e169b0f8ed5d0c23c6b583e6292aa44e066382cd995efa8899bf347a94c897c",
-    "preservation_audit": "Independent and root static audits pass: restoring the one timestamp regex literal recreates all original frozen source bytes and AST exactly. Every other assertion/action/delay/timeout/capture is unchanged. All60 base slim/helper/native files remain byte-identical. No suite import/runtime by its author."
+    "preservation_audit": "Independent/root audits restore original timestamp typo source exactly. All other signing assertions/actions/delays/timeouts/captures unchanged. Candidate325df66 kept all60 old files byte-identical; later diagnostic-only exceptions are separately recorded below."
   },
   "preservation": {
     "base_tracked_slim_helper_and_native_files": 60,
-    "changed": [],
-    "new_schema_tables_dependencies_or_native_changes": false
+    "changed": [
+      "conformance/slim/owner_finalization.py: failure-only contact diagnostic predicate",
+      "conformance/slim/requester_completion.py: independently contracted bounded daemon-timing diagnostics"
+    ],
+    "new_schema_tables_dependencies_or_native_changes": false,
+    "other_base_files_unchanged": 58,
+    "original_tests_and_assertions_preserved": "Both independent-author and root exact byte/AST restoration audits pass; harness/counting helpers/native are unchanged."
   },
   "local_runs": [
     {
@@ -129,6 +134,20 @@
       "seconds": 78.82,
       "log": "/dev/shm/g32/owner_finalization-ci-diagnosis.log",
       "sha256": "734b0eae056ea98775d0a23e9d6296f2a37785fcf4227295fcdd1007fa2f54b6"
+    },
+    {
+      "label": "requester_completion-bounded-diagnostic",
+      "exit": 0,
+      "seconds": 136.83,
+      "log": "/dev/shm/g32/requester_completion-bounded-diagnostic.log",
+      "sha256": "10dfef2db09485352911ae88b6559b83b43e15ce2a5224b84ad490065129cb1d"
+    },
+    {
+      "label": "owner_finalization-bounded-diagnostic",
+      "exit": 0,
+      "seconds": 79.55,
+      "log": "/dev/shm/g32/owner_finalization-bounded-diagnostic.log",
+      "sha256": "8fce195d8633805a2ac51b851086405d9e7833e5cbed45410547ce80cd1b0957"
     }
   ],
   "initial_failures": [
@@ -177,7 +196,8 @@
     "Installed/physical-machine/actual-model/schema23-to27 upgrade/full-state recovery and final combined feature acceptance remain open; PR35 stays unmerged.",
     "No genuine broken selected-device seed, complex fork/member/lease/incomplete/unsettled sibling or quota/u64/edit overflow exhaustion was fabricated.",
     "No valid unsafe/oversized frozen response, aggregate capacity boundary, foreign-owned file or exact file-open syscall count was isolated.",
-    "No actual terminal/native control, installed bundle, physical machine or model call was exercised by this host-only slice."
+    "No actual terminal/native control, installed bundle, physical machine or model call was exercised by this host-only slice.",
+    "Unchanged completion local diagnosis138.77s and bounded diagnostic136.83s exceed the120s suite target. Original timeouts/delays/assertions are unchanged; no scheduling cause is inferred."
   ],
   "binaries": {
     "peerspan-host": "7f2f69a23f641f0fd78642dda9c8651dc1ee20eb94d668c609dae33a424c9276",
@@ -217,5 +237,31 @@
       "124339626513": "8abb3325a693aaf4250b7d595e6440f3df9c1b1e7fc409085fb8eac8e43e9579"
     }
   },
-  "diagnostic_followup_contract": "5c59214 (section32/GU.impl32d), committed before independent changes; no production change."
+  "diagnostic_followup_contract": {
+    "initial": "5c592146bdf8d87d28fe925598d2005b4bf38adf",
+    "current_directory_route": "521535af657b5858d4cf2e20ba6843fa14284bf5"
+  },
+  "independent_diagnostics": {
+    "author": "Same separate contract-only author; no product reads/diffs/imports/runtime/build. Both commits frozen before execution.",
+    "commits": [
+      "d76f8e43bd546d2fcf87f3ffb867fcd65aa4f296",
+      "4e81bc812bf0a0b87fc987cfc75b82950155ac05"
+    ],
+    "integrated": [
+      "031c8c4539ce7e9c4136d4927881e9d519a2e88b",
+      "8cd16491c03b50596d0468b8229bfa978c4d5d86"
+    ],
+    "root_and_author_audit": "Removing only daemon-start timing wrapper, log-offset/summary/wrapper additions and restoring paired-contact diagnostic predicate reproduces both original bytes and ASTs exactly. Every original case/assertion/action/delay/timeout/proof capture/comparison/short-circuit remains. Original actual carrier tuple is returned unchanged.",
+    "owner_finalization": {
+      "original_sha256": "986f6166e03020adbe8eb23853fb43bcb0bc2bf2413a3c426155d440dc53c379",
+      "final_sha256": "e4d4f6c08c1eace60fae11e5859f82b245542d5de891dcc59909e4be6237c5fb"
+    },
+    "requester_completion": {
+      "original_sha256": "3394a6f4c70ce31c5c7c66c788b5199572941ea69ae454d7cf42d7bc935636e4",
+      "final_sha256": "bf68c0ccdb115ee5a2dfd4699ed2532a452ab117f8ace3e128637d14ce58d23c"
+    },
+    "source_review_correction": "Before execution, current launch-contract directory route replaced the stale unscoped proposal route in the timing classifier. Reversing only this predicate recreates d76 bytes/AST. No runtime failure or production change is attributed.",
+    "limits": "Daemon timing affects scheduling and is not a complete caller trace or transport fence. Initial CI UDP caller/contact row change remain unclassified unless further actual evidence says otherwise.",
+    "runtime": "One retained full run each on frozen fc8 binaries: completion6/6in136.83s, finalization6/6in79.55s. Failure observers did not trigger. This does not attribute or erase either original CI failure."
+  }
 }

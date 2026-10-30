@@ -540,7 +540,13 @@ native312/312in50.27s plus strict validation pass serially. The
 [verification record](results/guided-access-signing-verification.json) preserves
 the first1/6 run, independently corrected impossible timestamp regex, exact
 source/binary/log provenance, preservation audits and remaining source/manual
-limits. All26 old suites/helpers/native files are unchanged. PR79 records final
-evidence-head all27 CI gates and fresh review separately. Bounded publication/
+limits. Original26 host suite assertions/actions/delays/timeouts stay exact;
+subsequent independently contracted diagnostics correct the existing unbound
+contact row predicate and add bounded daemon-only timing metadata. Removing
+those additions restores both old sources by bytes/AST; shared helpers/harness
+and native files stay unchanged. First candidate325df66 passes PR checks and
+clean review, while old completion/finalization purity failures remain
+unclassified. PR79 records final diagnostic-head all27 CI gates and fresh review
+separately. Bounded publication/
 local application, native access controls, observed readiness and the remaining
 full acceptance gates stay separate; PR35 stays unmerged.
