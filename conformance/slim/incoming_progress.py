@@ -16,6 +16,9 @@ microscopic queued-before-commit interval remain source evidence; black-box
 relays verify cached no-IO and bounded offline behavior. No native/model/
 installed/physical acceptance is inferred. All old suites remain untouched,
 including prior signing historical-purity intermittence evidence.
+Final completed-history purity is measured after documented request-deadline
+transport retirement; immediate post-application traffic attribution remains a
+limit. The earlier live cached and live post-intent no-IO checks stay distinct.
 """
 import base64
 import hashlib
@@ -670,25 +673,26 @@ def _():
     # Both ordinary participants may explicitly finish the already approved
     # ceremony. Neither driver supplied the original/selection progress setup.
     wait_linked(b, a, rid, timeout=25)
-    # Local application does not finish terminal outcome delivery. Keep the
-    # genuine participant/carriers available while ordinary explicit resume
-    # drains that publication, before attributing any later IO to progress.
-    # The public terminal-resume contract permits one overall30s transport pass;
-    # the documented outbound-frame list separately proves its storage work is
-    # no longer pending. No measured progress call is retried here.
-    terminal_publication_attempted = False
-    def terminal_delivery_drained():
-        nonlocal terminal_publication_attempted
-        view = link_view(a, rid); record, _ = pending(a, rid)
-        if "delivery_pending" not in view["attention"] and not record["outbound_frames"]:
-            return True
-        if not terminal_publication_attempted:
-            terminal_publication_attempted = True
-            a.cli("link", "resume", rid, timeout=35)
-        return None
-    wait_for(terminal_delivery_drained, timeout=35, interval=.1,
-             message="ordinary terminal outcome delivery before pure progress baseline")
-    b.stop(); modes(f, "drop"); quiet_counts(f); settled(a)
+    # Local application does not finish terminal outcome publication. Storage
+    # section8 provides a deterministic second retirement boundary: at the
+    # genuine signed request deadline all remaining frames/transport secrets
+    # retire while exact public intent/history survives. Observe that ordinary
+    # cleanup BEFORE the strict no-IO/whole-state historical purity baseline.
+    # Live cached and live post-intent refusal were already measured above;
+    # immediate post-application traffic attribution is not claimed here.
+    b.stop(); modes(f, "drop")
+    advance_to(a, parse_time(f["initial"]["expires_at"]) + timedelta(seconds=1))
+    def terminal_transport_retired():
+        with closing(sqlite3.connect(f"file:{db_path(a)}?mode=ro", uri=True)) as db:
+            row = db.execute("SELECT record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
+            frames = db.execute("SELECT COUNT(*) FROM dec_frames WHERE request_id=?", (rid,)).fetchone()[0]
+        if row is None:
+            return False
+        record = json.loads(row[0])
+        return record["terminal"] == "applied" and not record["outbound_frames"] and row[1] is None and row[2] is None and frames == 0
+    wait_for(terminal_transport_retired, timeout=5, interval=.1,
+             message="ordinary signed-deadline transport retirement before historical purity")
+    quiet_counts(f); settled(a)
     pure(f, status=409, code="incoming_progress_unavailable")
     before = snapshot(a)
     actual, historical = a.api("POST", "/v1/onboarding/admission-consent/lookup", payload(f))
