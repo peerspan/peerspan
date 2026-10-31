@@ -3672,3 +3672,27 @@ interface's approval to the project. Discard mutable-review reconstruction, new
 schema, key copying, root fallback, silent replacement and readiness inference.
 Section42 fixes inputs/reviews/quotas/atomicity and six independent cases before
 implementation. Native controls and bounded signer continuation follow.
+
+
+GU.impl42 verification/corrections: first CI4/6in27s, diagnostic CI4/6in29s
+and root2/6in21s are retained. Independent captured-only observers classify
+catalog-only excess pending change and approve/provider review code mismatch.
+Preserve unsigned incoming catalog; shared approved first-offer completion
+retains revalidated public proof before its frames. Map changed current terms to
+review_changed. Corrected CI5/6in31s exposes automatic owner polling before
+approval; require a validated approved nonterminal ordinary owner intent. Keep
+independent requester polling and advanced preparation semantics. No fixture
+waiting/hold workaround, changed old case, relaxed assertion/counter or deadline.
+
+The final owner-guard treeff15f3fe passes existing Rust155/2ignored, format,
+Clippy/build; compiler-idle local machine_owner6/6in35.26s. The first local new
+suite5/6in29s captures an unrecognized existing-side logical table change during
+history CLI, with no file/carrier/schema changes. A contracted allowlist-only
+observer then passes6/6in49.26s without observer output; the earlier table cause
+remains unclassified. All84 old conformance/native files and native393 remain
+exact. Owner-guard CI passes all32 suites+build/four checks/native393 and fresh
+bot/root review. The verification record retains compile failures, no-starts,
+language-only separate-target overlap, all CI/local first outcomes, original
+requester-completion UDP failure and source/coverage limits. No claim that later
+passing samples diagnose earlier failures. Final evidence-only head requires
+fresh full CI/review on PR94; leave94/35 unmerged for owner review.
