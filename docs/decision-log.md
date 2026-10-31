@@ -3405,3 +3405,11 @@ tolerance. Readiness keeps ordinary receiver projection errors strict, rather
 than turning unavailable evidence into successful empty authorizations. Existing
 status behavior stays the same; nested read-time guards restore both time and
 error mode. This clarification precedes the corresponding source correction.
+
+GU.impl36 first host run retains2/6 in34s: valid array directory replies cannot
+pass a copied dict-only contact helper; a repeated retirement pass also collides
+with an existing scratch-key filename. Actual HTTP status for the former was
+not retained, so no claim of observed200 is made. The missing fresh-window
+field is a downstream setup failure. Contract-first independent corrections
+change only those fixture prerequisites, preserving all assertions/traffic/DB
+checks/delays/timeouts. Product stays frozen; the first result remains recorded.
