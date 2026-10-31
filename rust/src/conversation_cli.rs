@@ -552,6 +552,8 @@ const HOLD: Duration = Duration::from_secs(5);
 struct Held {
     conversation: String,
     message: String,
+    author: String,
+    seq: i64,
     since: std::time::Instant,
 }
 /// A message's place in display order, per conversation.
@@ -613,10 +615,10 @@ async fn watch(
         }
         held = waiting;
         // A held message is read again at least once a second.
-        let wait = match (released.is_empty(), held.is_empty()) {
-            (false, _) => 0,
+        let wait = match (held.is_empty(), released.is_empty()) {
+            (false, _) => 1,
+            (true, false) => 0,
             (true, true) => 25,
-            (true, false) => 1,
         };
         let path = format!("/v1/conversations/events?after={after}&wait={wait}&limit=100{query}");
         let answer = match local.get(path).await {
@@ -657,6 +659,8 @@ async fn watch(
                         held.push(Held {
                             conversation: id.to_owned(),
                             message: message.to_owned(),
+                            author: text(&m["author"]).to_owned(),
+                            seq: m["seq"].as_i64().unwrap_or(0),
                             since: std::time::Instant::now(),
                         });
                     } else {
@@ -673,6 +677,15 @@ async fn watch(
         if events_read < 100 {
             ready.append(&mut released);
         }
+        // A later message of an author with an earlier one held waits behind it.
+        let (later, mut ready): (Vec<_>, Vec<_>) = ready.into_iter().partition(|(id, m)| {
+            held.iter().any(|h| {
+                h.conversation == *id
+                    && h.author == text(&m["author"])
+                    && h.seq < m["seq"].as_i64().unwrap_or(0)
+            })
+        });
+        released.extend(later);
         ready.sort_by_cached_key(|(id, m)| display_key(id, m));
         for (id, m) in &ready {
             let short: String = id.chars().take(13).collect();
