@@ -6288,6 +6288,51 @@ local delivery run attributed to its original65222cc2 source even if this narrow
 metadata correction is authored while it runs; do not modify that running input
 or retry unchanged. No product/runtime/verdict/wait change follows.
 
+### GU.impl33j: isolate the standalone section31 input corpus after real startup
+
+Final combinedcfbe31d passes27/28 suites including corrected section25 and
+relay delivery, all PR checks and clean review. Existing section31 passes1–5,
+then its2.5s input_refusal corpus changes dec_clock and dec_contacts on both
+hosts (5/6in62s). State/home files stay unchanged. This is a newly retained
+observation, not caller attribution. Section10's normal60s-plus-jitter sync can
+overlap a long preceding ceremony; earlier directory completion/quiescence was
+never a global fence. Do not erase or retrospectively attribute the failure.
+
+The standalone malformed-input case may start from a genuine fully observed
+fresh restart of BOTH existing hosts, preserving their durable authority,
+receipts/actions, clocks, private keys, helpers, listeners and lifetime counters.
+Keep every preceding history case and its original restart unchanged. Restart
+normally with all workers/paths enabled and unchanged arguments/environment;
+no timer override, signal pause, clock adjustment or stopped participant during
+measurement. Ordinary first periodic anti-entropy is scheduled60s plus jitter
+after daemon start; explicit approved work/outbox/startup behavior is unchanged.
+Capture monotonic metadata immediately before the first real restart and require
+the entire standalone input case to complete before that earliest60s boundary.
+This is a bounded fresh-process fixture precondition, not an arbitrary wait or
+claim that a directory refresh globally fences traffic.
+
+Before its original stable/baseline calls, perform each host's real explicit
+POST /v2/networks/{network}/sync with the existing30s server bound. Require the
+exact known other host among attempted, no unavailable targets, actual current
+usable membership and current bound own/other contacts. Observe the original
+successful authenticated directory queries and actual whole transport retirement
+(no private secret/read-cap/frame/outbox/journal), then run the old stable calls.
+All genuine startup/explicit sync work precedes the original snapshots. The
+first-start boundary must still cover the remaining input case; a setup that
+exhausts it fails rather than pretending isolation. Check the final elapsed bound
+after the existing strict assertions, retaining their verdict/short-circuit.
+
+A separate contract-only author adds only one genuine setup helper/call and
+bounded metadata checks in section31 verification6. Removing those additions
+restores the entire prior source bytes/AST. Every original API/CLI/argv/router/
+corruption case/action/assertion/baseline order/sleep/timeout/all-carrier comparison
+stays exact, as do shared helpers and every other suite. No signer probe, new
+consent, authority/queue edits, worker/path suppression, filtered counter, larger
+wait or unchanged retry-to-green. Commit before one retained frozen4842404 run.
+Keep the initial62s failure and source/manual duration limits. This setup change
+establishes a valid standalone input fixture; it claims no runtime fix or proof
+of the original caller.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining
