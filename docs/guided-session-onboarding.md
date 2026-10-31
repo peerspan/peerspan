@@ -806,3 +806,16 @@ powers, membership, access, transport or model receipt. Existing-computer guided
 approval is still subsequent work. Independent12 native cases, unchanged381
 old cases/all30 host suites, local relevant gates and final exact-head review
 follow. Full-feature acceptance remains open.
+
+The [machine-request verification record](results/guided-native-machine-request-verification.json)
+retains first full390/393 in72.71s: eleven new cases pass, one requires clearer
+pinned-invitation guidance, and the same two unchanged old access-completion
+cases hit their5s limits with unclassified cause. After that guidance fix,
+all12 affected cases pass in6.18s in a byte-exact plugin artifact (the pinned
+CLI has no filename filter). Unchanged real-host join_onboarding passes14/14
+in50.53s on verified merged89 binaries. All60 prior native/conformance/helper
+files and Rust treeeac511ee are exact; no unchanged old-case local retry or
+deadline edit. Strict303 validation passes on the preceding source; final CI
+validates the exact final head/full393 plus all30 host suites and Rust gates.
+Fresh bot/root review receipts go on the slice/tracking PR after this evidence
+commit. Earlier and full-feature acceptance limits remain open.
