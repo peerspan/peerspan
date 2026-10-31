@@ -418,3 +418,15 @@ The signed marker verifies neither publication, admission, current machine power
 requester commit, agent access nor readiness. Independently authorized ordinary
 work may publish and select an offer under existing spec8.4. Native controls and
 the remaining requester flow follow separately.
+
+
+### New-computer existing-person requester commit inspection
+
+[Guided section45](guided-session-contract.md#45-new-computer-verified-machine-requester-commit-inspection)
+defines owner-local `POST /v1/onboarding/join-flows/{id}/machine-commit/inspect`
+and private-stdin `onboarding join machine-commit inspect`. It verifies actual
+received remote owner/selection/host-admission/finalization and finite7/2 P/H/B/D
+terms for the exact published project flow, including a genuinely folded host
+grant with no administrator packet. It requires no requester original key or
+local original-owner receipt. It creates no consent/signature/network adoption
+and does no fetch, publication, clock save or other durable work.

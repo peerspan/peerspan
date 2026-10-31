@@ -8807,6 +8807,13 @@ source/fault-only limit instead of inventing a public parent restoration. These
 are genuine setup/negative stimuli, not permission to fabricate grants or
 disable workers.
 
+A genuine existing computer may go fully offline AFTER publishing verified F
+and BEFORE pure-read baselines. The requester stays live/held; count both hosts'
+complete DB/files and both carrier directions. This proves retained-evidence
+inspection with an offline owner, not both-live remote-worker attribution. No
+requester/worker flag, queue, grant or clock edit and no mid-snapshot shutdown
+is permitted to manufacture purity.
+
 Root owns all execution, serializes compiler/runtime gates, verifies fresh debug
 binary hashes and records every first compiler/no-start/local/CI outcome. Run
 Rust fmt, existing155pass/2ignored, Clippy/build and this new six-case suite;
