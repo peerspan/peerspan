@@ -3571,3 +3571,15 @@ no suite; actual execution began only after it cleared. Root verifies exact
 byte/AST restoration after removing helper/call. All original actions/assertions/
 bounds/counters and frontend/Rust stay unchanged. Required final combined CI
 and fresh review follow; no runtime fix or weaker success criterion is claimed.
+
+### GU.impl41: current existing-computer machine-owner review
+
+Select a pure project-bound backend inspection before adding exact existing-
+person owner consent/signing and native controls. Use the persisted public
+original/device selection and verified current membership/authority, actual
+incoming keys and finite profile7 capped by the provider deadline. Read no
+signer seeds/files/agents; public authority and private availability are separate.
+Discard root fallback, key copying, implicit approval, silent scope downgrade,
+new schema and reusing the requester-local new-original review. Section41 fixes
+the external shape and six independent cases before implementation. Keep all
+existing suites/native393 and full-feature acceptance limits.
