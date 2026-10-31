@@ -3360,3 +3360,15 @@ runner to verify current source. Discard an unchanged local retry-to-green,
 increasing deadlines, stopping another track or editing old tests. Public kit
 argument order, genuine baseline/parent prerequisites and private human-root
 classification are independently corrected; all20 cases/assertions/delays stay.
+
+### GU.impl34a — Preserve inherited policy action ordering
+
+Fresh03c05f4 bot review P2 identifies native order-sensitive matching of the
+ordinary fixed-profile rule. The backend compares action sets and preserves raw
+inherited order. Select set equality only at this matching check, preserving
+complete policy bytes/digests/display and fixed grant actions. Discard sorting
+public JSON, new duplicate rules or treating additional actions as the profile.
+Independent fixture semantics plus one positive reverse-order regression precede
+root verification. Retain all previous failures; wait for the observed external
+compiler to finish before the corrected-source run, without stopping that track
+or changing test bounds. Final exact-head CI/review remains required.

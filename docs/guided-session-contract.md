@@ -6511,6 +6511,34 @@ Discarded: pasted identity keys, labels as identity, a second evaluator, automat
 replacement/signing/application, one combined large control PR, new persistence,
 provider fallback and approval as permission/delivery/readiness evidence.
 
+### GU.impl34a: inherited action ordering and exact public body preservation
+
+Fresh03c05f4 review identifies P2: section31 ordinary rule settings compare
+actions as a sorted unique set, preserving the raw inherited rule's action
+order and optional/default fields. Section34's fixed grant actions remain the
+exact two-action public profile, but its matching proposed-body rule may retain
+the reverse order or ordinary duplicate spellings. Compare matching rule actions
+as sets only for that profile-presence check. Do not sort/rewrite frozen public
+JSON, inspection/consent digest bytes, displayed terms, principals or any other
+rule/field. Additional different actions still cannot match this profile.
+
+A separate contract-only author independently corrects only the fixture's
+ordinary same-key action comparison and adds a compact positive regression:
+a genuine public baseline has task.submit before message.append in an otherwise
+matching rule. Preparation adds the exact person principal to that retained rule,
+preserves its reversed raw order and unrelated/default fields, exposes separate
+approval and lookup recovery, and never signs/applies. Preserve all existing20
+cases/assertions/actions/delays/timeouts and all312 old tests/28 host suites.
+Commit before root verification; retain the initial review and previous runs.
+No test is weakened or reordered to hide the refusal. Root runs once against
+the corrected source, after observing the known external compiler completed;
+record any subsequent overlap and default-timeout failures. Final exact-head
+CI/review remains required.
+
+Selected: semantic ordinary action-set equality with immutable presentation and
+digests. Discarded: array-order equality, rewriting signed/raw policy JSON,
+appending a duplicate replacement rule or broadening the fixed grant actions.
+
 ## 35. Remaining flow contract
 
 Teammate/device admission, remaining
