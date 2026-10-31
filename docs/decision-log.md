@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
   - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
   - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
@@ -41,6 +42,49 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-1 to RUN-5: runtime tasks (2026-10-27 and 2026-10-31)
+
+- **Date:** RUN-1 to RUN-4 on 2026-10-27; RUN-5 on 2026-10-31.
+- **Area:** runtime tasks, user story 1: a task's command run in a microVM on another of the person's machines.
+- **Source:** [runtime-task-proposal.md, Decisions](runtime-task-proposal.md#decisions) (RUN-1 to RUN-4, decisions 1 to 4) and [Questions resolved after the coordinator-free work](runtime-task-proposal.md#questions-resolved-after-the-coordinator-free-work) (RUN-5, question RQ-1 of the refresh).
+- **Recorded in:** this log, the proposal and the contract ([PR #2](https://github.com/peerspan/peerspan/pull/2)).
+- **Contract section:** [runtime-task-contract.md](runtime-task-contract.md).
+- **Implementing PRs:** none yet.
+
+RUN-1 to RUN-4 were decided by accepting the proposal's recommendation; the options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### RUN-1. Who may run, and how a host opts in
+
+- **Options:** (a) a runtime rule in the owner's signed policy naming the serving host, plus a local switch on that host; (b) grants for runtime tasks; (c) reusing `task.submit`; (d) policy alone.
+- **Chosen:** (a).
+- **Reason given:** "rules give the two-sided gate and the bounds in one signed place, and grants can follow if wanted"; "running commands on a host is different authority from asking an agent"; with policy alone, "anyone with the person key could make every machine of that person an executor."
+
+#### RUN-2. How the workspace reaches the VM
+
+- **Options:** (a) a tar input artifact, unpacked inside the VM, with a peerfs commit as a later variant; (b) waiting for peerfs; (c) a `git clone` URL.
+- **Chosen:** (a).
+- **Reason given:** waiting "would gate the runtime on peerfs milestone 3"; a clone URL "needs network and credentials in the guest, which this slice rules out."
+
+#### RUN-3. What comes back
+
+- **Options:** (a) the submitter chooses `none`, `output` or `changes`; (b) the whole workspace back; (c) streaming only, with no artifacts.
+- **Chosen:** (a).
+- **Reason given:** the whole workspace is "large, and mostly what the submitter already has"; with streaming only, "a long log would be lost past the streaming cap."
+
+#### RUN-4. The fake runtime for conformance
+
+- **Options:** (a) a fake runtime implementing the local contract without VMs, written from the contract by the separate conformance author; (b) real VMs in daemon conformance.
+- **Chosen:** (a).
+- **Reason given:** real VMs "would need KVM on every conformance host and would test the runtime rather than the daemons."
+
+#### RUN-5. Runtime rules and hosts on earlier software (RQ-1; RUN-1)
+
+- **Options:**
+  - (a) Keep runtime rules in the signed policy, as RUN-1 accepted, as an optional `runtime_rules` field of the policy body; an owner adds one only once every host in the network is upgraded, and `runtime enable` says so.
+  - (b) Store the principals and bounds with the local switch on the serving host, with no policy change, which drops the person-key gate.
+- **Chosen:** (a).
+- **Reason given:** hosts on earlier software, v0.1.0 included, refuse a policy with an unknown field, but every such host is a test or staging host; Peerspan is not yet in broad use.
 
 ### DEC-OWN13: v1 status returns the v2 object (2026-10-31)
 
