@@ -174,6 +174,11 @@ pub enum AdmissionCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum JoinCommand {
+    /// Inspect received existing-person finalization without requester consent
+    MachineCommit {
+        #[command(subcommand)]
+        command: MachineCommitCommand,
+    },
     /// Review and approve the separate exact requester final-commit consent
     Commit {
         #[command(subcommand)]
@@ -213,6 +218,14 @@ pub enum JoinCommand {
     Inspect { flow_id: String },
     /// Approve request publication or decline the exact retained review
     Decide {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum MachineCommitCommand {
+    /// Read exact verified remote owner and target machine commit terms
+    Inspect {
         #[arg(long, required = true)]
         stdin: bool,
     },
@@ -656,6 +669,9 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
     use peerspan_host::onboarding_join::{Decision, Lookup, Prepare, Progress, decode_input};
     let local = Local(socket);
     let base = "/v1/onboarding/join-flows";
+    if let JoinCommand::MachineCommit { .. } = command {
+        return machine_commit_inspection(socket).await;
+    }
     if let JoinCommand::Commit { command } = command {
         return commit_command(command, socket).await;
     }
@@ -676,7 +692,8 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         JoinCommand::Inspect { .. }
         | JoinCommand::CreateIdentity { .. }
         | JoinCommand::Owner { .. }
-        | JoinCommand::Commit { .. } => unreachable!(),
+        | JoinCommand::Commit { .. }
+        | JoinCommand::MachineCommit { .. } => unreachable!(),
     };
     let invalid = || anyhow::anyhow!("invalid join review input");
     let mut bytes = Vec::new();
@@ -729,7 +746,8 @@ async fn join_command(command: &JoinCommand, socket: &Path) -> Result<Value> {
         JoinCommand::Inspect { .. }
         | JoinCommand::CreateIdentity { .. }
         | JoinCommand::Owner { .. }
-        | JoinCommand::Commit { .. } => unreachable!(),
+        | JoinCommand::Commit { .. }
+        | JoinCommand::MachineCommit { .. } => unreachable!(),
     }
 }
 
@@ -919,6 +937,34 @@ fn transport(value: Value, socket: &Path, flow_id: &str, review_id: &str) -> Res
         serde_json::json!({"version":1,"adapter_id":credential.adapter_id,"session_id":credential.session_id,
         "token":credential.token,"instance_id":instance_id,"adapter_socket":adapter_socket}),
     )
+}
+
+async fn machine_commit_inspection(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid machine requester inspection input");
+    let unavailable = || anyhow::anyhow!("machine requester inspection unavailable");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let mut value = peerspan_host::onboarding_join::decode_commit_input(&bytes, "lookup", true)
+        .map_err(|_| invalid())?;
+    let id = value
+        .as_object_mut()
+        .and_then(|v| v.remove("flow_id"))
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .ok_or_else(invalid)?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(
+            format!("/v1/onboarding/join-flows/{id}/machine-commit/inspect"),
+            value,
+        ),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
 }
 
 async fn commit_command(command: &CommitCommand, socket: &Path) -> Result<Value> {

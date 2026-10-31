@@ -3,6 +3,7 @@ use super::*;
 use crate::decentralized::{ceremony, controls};
 mod commit;
 mod finalization;
+mod machine_commit;
 pub use commit::decode_commit_input;
 
 #[derive(Deserialize)]

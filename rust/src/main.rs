@@ -97,6 +97,14 @@ async fn main() {
         .try_get_matches()
         .and_then(|matches| Cli::from_arg_matches(&matches))
         .unwrap_or_else(|e| {
+            if e.use_stderr()
+                && raw
+                    .windows(3)
+                    .any(|p| p == ["onboarding", "join", "machine-commit"])
+            {
+                eprintln!("error: invalid machine requester inspection arguments");
+                std::process::exit(e.exit_code());
+            }
             // Clap may echo rejected arguments before private stdin validation.
             if e.use_stderr()
                 && raw.iter().any(|arg| arg == "onboarding")

@@ -112,6 +112,127 @@ fn review(p: &Pending, stage: &Context) -> Result<Value> {
     review["device_lease_id"] = json!(stage.prepared.device.id);
     Ok(review)
 }
+/// Pure existing-person requester review; no intent/key resolution or adoption.
+pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    let r = &p.record;
+    let request = p.packet()?;
+    let created = text(&request.payload, "created_at")?;
+    let stage_at = if r.stage_at == "-" {
+        created
+    } else {
+        &r.stage_at
+    };
+    let stage_end = stamp(stage_at)? + chrono::TimeDelta::seconds(600);
+    let raw = controls::local_decision_time()?;
+    require(
+        stamp(&raw)? >= stamp(created)? && stamp(&raw)? >= stamp(stage_at)?,
+        "machine_requester_inspection_unavailable",
+    )?;
+    let guarded = controls::guarded_decision(c, &r.expected_network_id, &raw)?;
+    require(
+        stamp(&guarded)? < stamp(&p.deadline)? && stamp(&guarded)? < stage_end,
+        "review_expired",
+    )?;
+    check(
+        r.roles.iter().any(|role| role == "requester")
+            && r.mode == "new"
+            && r.migration_proposal_id == "-"
+            && r.terminal == "-"
+            && r.host_public_key == store.identity().public_key
+            && ident(&r.expected_network_id, "net_")
+            && ident(&r.expected_context_id, "ctx_")
+            && key(&r.expected_person_public_key)
+            && r.selection_approved
+            && !r.commit_approved
+            && r.owner_intent_id == "-"
+            && r.commit_intent_id == "-"
+            && r.commit_packet_base64 == "-"
+            && r.manifest_id == "-"
+            && r.activation_id == "-"
+            && r.outcome_packet_base64 == "-",
+    )?;
+    let network_present: bool = c
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
+            [&r.expected_network_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    let commit_present: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM dec_intents WHERE kind='requester_commit' AND json_extract(record,'$.operation_id')=?1)", [&p.id], |row| row.get(0)).map_err(db)?;
+    check(!network_present && !commit_present && p.view(&guarded)?["state"] == "needs_commit")?;
+    let stage = context(c, store, p)?;
+    let owner = &stage.offer.owner;
+    let provider = &stage.offer.provider;
+    let person = text(&owner.object, "person_public_key")?;
+    let writer = text(&owner.object, "writer_host_public_key")?;
+    let after = stamp(&stage.now)?.max(stamp(&stage.prepared.admissions.decision_time)?);
+    let not_after = text(&owner.payload, "not_after")?;
+    require(
+        after < stamp(&p.deadline)? && after < stage_end && after < stamp(not_after)?,
+        "review_expired",
+    )?;
+    check(
+        ident(text(&owner.payload, "root_state_id")?, "ds_")
+            && ident(text(&owner.payload, "person_lease_id")?, "ds_")
+            && matches!(
+                text(object(provider)?, "kind")?,
+                "original_person" | "device"
+            )
+            && text(object(provider)?, "person_public_key")? == person
+            && text(object(provider)?, "host_public_key")? == writer
+            && writer != r.host_public_key
+            && person == r.expected_person_public_key
+            && stage.offer.descriptor.network_id == r.expected_network_id
+            && stage.offer.descriptor.context_id() == r.expected_context_id
+            && num(&owner.payload, "scopes")? == 7
+            && num(object(provider)?, "scopes")? & 7 == 7
+            && stamp(not_after)? <= stamp(created)? + chrono::TimeDelta::days(7)
+            && stamp(not_after)? <= stamp(text(object(provider)?, "not_after")?)?,
+    )?;
+    let prepared = &stage.prepared;
+    check(
+        num(prepared.binding.subject()?, "scopes")? == 2
+            && num(prepared.device.subject()?, "scopes")? == 7,
+    )?;
+    for s in [
+        &prepared.admissions.person,
+        &prepared.admissions.host,
+        &prepared.binding,
+        &prepared.device,
+    ] {
+        require(
+            after < stamp(text(&s.payload, "not_after")?)?,
+            "review_expired",
+        )?;
+    }
+    let folded = r.administrator_packet_base64 == "-";
+    if folded {
+        // Exclude the advanced explicit network-root fold exception here.
+        check(
+            num(object(provider)?, "scopes")? & 8 == 8
+                && prepared.admissions.host.signer("issuer")?.public_key
+                    == text(&owner.object, "signer_public_key")?,
+        )?;
+    }
+    let observed_at = after.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ordinary = p.view(&observed_at)?;
+    let mut completed = vec!["request_created", "owner_offered", "owner_selected"];
+    if !folded {
+        completed.push("administrator_offered");
+    }
+    completed.push("owner_finalized");
+    check(ordinary["state"] == "needs_commit" && ordinary["completed"] == json!(completed))?;
+    Ok(json!({"observed_at":observed_at,"request":ordinary,
+        "network":{"id":stage.offer.descriptor.network_id,"name":stage.offer.descriptor.name,
+          "context_id":stage.offer.descriptor.context_id(),"genesis_root_public_key":stage.offer.descriptor.genesis_root_public_key},
+        "member":owner.payload["member"],"owner_provider":provider,
+        "owner_root_state_id":owner.payload["root_state_id"],"root_state_id":prepared.admissions.root,
+        "person_lease_id":prepared.admissions.person.id,"host_lease_id":prepared.admissions.host.id,
+        "binding_lease_id":prepared.binding.id,"device_lease_id":prepared.device.id,
+        "host_admission":if folded {"folded_owner"}else{"separate_administrator"},"reused_binding":prepared.reused_binding,
+        "not_after":not_after,"request_stage_deadline":stage_end.to_rfc3339_opts(chrono::SecondsFormat::Secs,true)}))
+}
+
 pub(super) fn check_reference(
     p: &Pending,
     i: &Intent,
