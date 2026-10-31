@@ -481,7 +481,16 @@ pub(crate) async fn request(
     body: &[u8],
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let began = std::time::Instant::now();
-    let out = request_on(store, peer, method, path, body, false).await;
+    let out = request_on(
+        store,
+        peer,
+        method,
+        path,
+        body,
+        false,
+        ContactLearning::Allow,
+    )
+    .await;
     if crate::timing::enabled() {
         crate::timing::log("peer", &format!("{method} {path}"), began);
     }
@@ -495,7 +504,40 @@ pub(crate) async fn request_direct(
     path: &str,
     body: &[u8],
 ) -> anyhow::Result<(u16, Vec<u8>)> {
-    request_on(store, peer, method, path, body, true).await
+    request_on(
+        store,
+        peer,
+        method,
+        path,
+        body,
+        true,
+        ContactLearning::Allow,
+    )
+    .await
+}
+/// An explicit observation uses current routes without spawning contact sync.
+pub(crate) async fn request_current_routes(
+    store: Arc<Store>,
+    peer: &Peer,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    request_on(
+        store,
+        peer,
+        method,
+        path,
+        body,
+        false,
+        ContactLearning::Disabled,
+    )
+    .await
+}
+
+enum ContactLearning {
+    Allow,
+    Disabled,
 }
 /// One bounded completion request, pinned to a durable transcript participant.
 /// No connection or key is inserted into the ordinary peer cache.
@@ -687,10 +729,14 @@ async fn request_on(
     path: &str,
     body: &[u8],
     direct_only: bool,
+    learning: ContactLearning,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
     let transport = transport(&store)?;
-    let (learned, mut paths) = routes(&store, &transport, peer).await?;
+    let (learned, mut paths) = match learning {
+        ContactLearning::Allow => routes(&store, &transport, peer).await?,
+        ContactLearning::Disabled => (None, paths(&store, &transport, peer).await?),
+    };
     let peer = learned.as_ref().unwrap_or(peer);
     if direct_only {
         paths.relays.clear();
