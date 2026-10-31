@@ -174,9 +174,10 @@ def report_join_details(committed, requester, inviter, request_id, offsets):
             return unknown
         if value == "delivery_pending":
             return value
-        if value in {"transport_recovery_required", "recovery_required"}:
+        category = value.split(":", 1)[0]
+        if category in {"transport_recovery_required", "recovery_required"}:
             return "recovery_required"
-        if value in {"transport_quota_exceeded", "quota_exceeded"}:
+        if category in {"transport_quota_exceeded", "quota_exceeded"}:
             return "quota_exceeded"
         if re.search(r"(?<![a-z_])transport_unavailable(?![a-z_])", value):
             return "transport_unavailable"
