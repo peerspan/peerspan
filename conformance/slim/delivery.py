@@ -174,6 +174,10 @@ def report_join_details(committed, requester, inviter, request_id, offsets):
             return unknown
         if value == "delivery_pending":
             return value
+        if value in {"transport_recovery_required", "recovery_required"}:
+            return "recovery_required"
+        if value in {"transport_quota_exceeded", "quota_exceeded"}:
+            return "quota_exceeded"
         if re.search(r"(?<![a-z_])transport_unavailable(?![a-z_])", value):
             return "transport_unavailable"
         for category, markers in (("timeout", ("timeout", "timed out")),
@@ -188,10 +192,8 @@ def report_join_details(committed, requester, inviter, request_id, offsets):
         summary = {"participant": role, "state": unknown, "pending": unknown, "outcome": unknown,
                    "frames": unknown, "outbox_scope": "network_candidates", "outbox_count": unknown, "outbox": unknown,
                    "contacts": unknown, "stored_helpers": unknown}
-        paths = list(host.state.glob("*.db"))
-        if len(paths) != 1:
-            return summary
-        db = sqlite3.connect(f"file:{paths[0]}?mode=ro", uri=True, timeout=1)
+        path = host.state / "host.db"
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1)
         try:
             db.execute("BEGIN")
             now = host.now()
@@ -363,6 +365,8 @@ def report_join_details(committed, requester, inviter, request_id, offsets):
             route_class = "completion" if route == "/bootstrap/v1/activations" or (route is not None and re.fullmatch(r"/bootstrap/v1/operations/link_[0-9a-f]{64}", route)) else (
                 "local_resume" if route is not None and re.fullmatch(r"/v2/link/requests/link_[0-9a-f]{64}/resume", route) else "other")
             status = re.findall(r"(?:^|\s)(?:status=|HTTP(?:/1\.[01])?\s+)([1-5][0-9]{2})(?:\s|$)", what)
+            if not status and kind == "serve":
+                status = re.findall(r"(?:^|\s)([1-5][0-9]{2})$", what)
             status = int(status[0]) if len(status) == 1 else unknown
             key = ("background" if number == "0" else "served", route_class, status)
             group = groups.setdefault(key, {"count": 0, "duration_total_ms": 0.0, "duration_max_ms": 0.0})
