@@ -3482,3 +3482,8 @@ result display expiry are separate authorities. Clearing a result for another
 choice or explicit check cancels only that result's timer; the original roster
 bound keeps guarding pending work. Discard retaining an earlier result deadline
 as authority over a new target, or extending the roster to the latest response.
+
+GU.impl39 pre-execution presentation review: an unavailable attempted check
+must not say no check was performed. Keep volatile attempted/result states
+distinct and display no result available after an attempt. This adds no work,
+retry, persistence or readiness claim; no runtime failure is attributed.

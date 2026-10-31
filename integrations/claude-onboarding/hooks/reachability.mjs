@@ -42,7 +42,7 @@ export async function snapshot(raw, parent, host, network, selected, target, now
       !live(v, now)) throw new Error('Changed outbound machine');
   return freeze(v);
 }
-export function lines(source, parent, target, value = null) {
+export function lines(source, parent, target, value = null, attempted = false) {
   const observed = value ?? source, r = observed.inspection.review;
   const machine = target && (value
     ? r.participant.hosts.find(h => h.host_public_key === target.host_public_key) : target);
@@ -55,7 +55,8 @@ export function lines(source, parent, target, value = null) {
       'Machine public key: ' + quoted(target.host_public_key)] : ['Choose a remote machine. No machine is selected.']),
     ...(value ? ['Observed at: ' + value.observed_at, value.reachability.result === 'authenticated_response'
       ? 'Outbound authenticated response observed (HTTP ' + value.reachability.http_status + ').'
-      : 'Outbound connection: not verified'] : ['No outbound check has been performed.']),
+      : 'Outbound connection: not verified'] : [attempted
+      ? 'No outbound result is available for this check.' : 'No outbound check has been performed.']),
     'Direction: from this project’s host to the selected person’s machine.',
     'Incoming agent delivery: not verified', 'Model receipt from this observation: not verified',
     'Overall connection readiness: not verified',
