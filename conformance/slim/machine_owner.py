@@ -529,7 +529,20 @@ def validate(f, value, parent=None):
     check(value['review_id'] == digest('peerspan-machine-owner-inspection-v1', review), 'independent recursive UTF8 closed-review digest')
     refs = {review['root_state_id'], review['person_lease_id'], *[mine[k] for k in ('host_lease_id', 'binding_lease_id', 'device_lease_id')], provider['lease_id']}
     catalog = get(h, '/v2/networks/' + net['id'] + '/catalog')['catalog']
-    check(refs - {'-'} <= {item['id'] for item in catalog['objects']}, 'review dependencies lack actual public retained proof objects')
+    statements = set()
+    for item in catalog['objects']:
+        envelope_bytes = base64.b64decode(item['body_base64'], validate=True)
+        proof_message = '\n'.join(('peerspan-decentralized-proof-v1', item['kind'], hashlib.sha256(envelope_bytes).hexdigest()))
+        check(item['id'] == 'dp_' + hashlib.sha256(proof_message.encode()).hexdigest(), 'catalog proof differs from exact signed envelope bytes')
+        if item['kind'] in ('root_state', 'person_lease', 'host_lease', 'binding_lease', 'device_lease'):
+            envelope = json.loads(envelope_bytes)
+            check(envelope['kind'] == item['kind'] and envelope['context_id'] == catalog['context_id'] == review['network']['context_id'],
+                  'ordinary dependency envelope changed kind/context')
+            raw_payload = base64.b64decode(envelope['payload_base64'], validate=True)
+            statement_message = '\n'.join(('peerspan-decentralized-statement-v1', envelope['kind'], envelope['context_id'],
+                                          hashlib.sha256(raw_payload).hexdigest()))
+            statements.add('ds_' + hashlib.sha256(statement_message.encode()).hexdigest())
+    check(refs - {'-'} <= statements, 'review dependencies lack actual semantic statement identities in public proofs')
     check(len(compact(value)) <= 2 * 1024 * 1024, 'public inspection overflow')
     record, _ = pending(h, f['rid'])
     check(record.get('owner_intent_id', '-') == '-', 'inspection prepared an ordinary owner intent')
@@ -571,6 +584,8 @@ def _():
     ed25519(b.public_key, packet['host_signature'], packet_message(packet), 'request-host')
     ed25519(signed['device_public_key'], packet['device_signature'], packet_message(packet), 'request-device')
     original = pure(f); validate(f, original)
+    check(packet['request_id'] == f['rid'] and original['request']['request_packet_id'] == packet_id(packet),
+          'inspection request packet reference differs from independently verified signed packet')
     check(original['review']['provider'] == f['device'] and original['review']['host_admission'] == 'owner_may_fold', 'creator device/fold potential changed')
     check(parse_time(original['review']['provider']['not_after']) < parse_time(original['request']['created_at']) + timedelta(days=7),
           'genuine fixture did not exercise earlier effective provider deadline')
