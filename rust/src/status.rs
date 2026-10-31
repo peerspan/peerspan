@@ -662,7 +662,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new().route("/v1/status", get(status))
 }
 async fn status(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
-    Ok(Json(blocking(store, Store::status).await?))
+    Ok(Json(blocking(store, Store::status_v2).await?))
 }
 
 #[cfg(test)]

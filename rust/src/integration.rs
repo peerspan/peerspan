@@ -1692,7 +1692,6 @@ async fn prepare_attach_inner(
         .to_owned();
     // Refresh every network's directory first: names are checked against
     // the person's other hosts, and unreachable ones are reported.
-    // `/v1/status` lists no coordinator-free network, so this must be `/v2`.
     // Retained legacy history binds nothing and has no directory to refresh.
     let status = admin(&state, Method::GET, "/v2/status".into(), None).await?;
     let networks: Vec<&Value> = status["networks"]

@@ -15,6 +15,8 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
+  - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
   - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
@@ -39,6 +41,14 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### DEC-OWN13: v1 status returns the v2 object (2026-10-31)
+
+- **Authority:** owner approved fixing the mismatch, 2026-10-31, and left the choice of route or docs to the implementer.
+- **Question:** `GET /v1/status` returned no coordinator-free networks, while the launch and conversations contracts described it as listing them and as the same object as `GET /v2/status`. `attach` read it and never saw the person, which caused the default name bug of [DEC-OWN12](#dec-own12-no-host-name-in-default-agent-names-2026-10-31). What should change?
+- **Options:** (a) serve the v2 object on both routes; (b) keep the routes and correct the contracts to say v1 omits these networks; (c) remove the v1 route.
+- **Chosen:** (a). `peerspan status` already reads v2, so API callers now see what the CLI shows, and the mistake can't recur. (c) would break anything still calling v1.
+- **Consequence:** on a retained old network, `/v1/status` now returns the `legacy_history` entry and `network_migration_pending` instead of the old coordinator fields and attention items. `Store::status` and its old-network branch now run only from unit tests; removing them is separate cleanup.
 
 ### DEC-OWN12: no host name in default agent names (2026-10-31)
 
