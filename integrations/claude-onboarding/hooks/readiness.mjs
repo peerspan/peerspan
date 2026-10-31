@@ -86,10 +86,10 @@ export function lines(v, parent) {
   const machines = new Map(r.participant.hosts.map(h => [h.host_public_key, h]));
   const connections = ready.adapter_connections;
   return ['Connection status', `Observed at: ${v.observed_at}`,
-    `Project: ${quoted(parent.review.project_root)}`, `Agent: ${quoted(r.agent.name)}`,
+    `Project: ${quoted(parent.review.project_root)}`, `Agent: ${quoted(r.agent.name)} (${r.agent.id})`,
     `Network: ${quoted(r.network.name)} (${r.network.id})`,
     `Selected person: ${quoted(r.participant.member)} ${quoted(r.participant.person_public_key)}`,
-    'Direction: selected person’s remote machines → this project’s agent.', 'Membership: current at observation.',
+    'Direction: incoming from the selected person’s remote machines to this project’s agent.', 'Membership: current at observation.',
     'Receiver-advertised permissions at observation:',
     ...(ready.peers.length ? ready.peers.flatMap(p => [
       `Machine: ${quoted(machines.get(p.host_public_key).member)} (${p.host_id})`,
@@ -97,7 +97,7 @@ export function lines(v, parent) {
         `${a.kind}: ${a.actions.join(', ')}; message bytes: ${a.max_message_bytes}; artifact bytes: ${a.max_artifact_bytes}; ` +
         `requester agent: ${a.kind === 'self' || a.from_agent === null ? 'any under this entry' : a.from_agent}` +
         (a.kind === 'grant' ? `; grant: ${a.grant_id}; expires: ${a.expires_at}` : ''))
-        : ['No permissions advertised to this machine in this network.']),
+        : ['No authorizations advertised to this machine in this network.']),
     ]) : ['No remote machines for this person in this observation.']),
     ...(connections.length ? connections.map((c, i) => `Local adapter ${i + 1}: ${c.state === 'registered'
       ? 'registered; no live connection observed' : c.state === 'offline' ? 'offline; no live lease observed'
