@@ -8441,6 +8441,44 @@ part of every whole-state comparison. Diagnostics use only captured state
 categories/counts, not locators, capabilities, rows or ciphertext. This documents
 observation of existing helper format1, not a schema/API change or a route action.
 
+### GU.impl43b: preserve final-head requester refusal traffic evidence
+
+First final3e026ab CI41246210795 passes32/33 suites+build (33/34 jobs),
+including signing6/6in57s and unchanged consent6/6in33s. Four checks on
+41246210747/native393in71.63s and fresh bot/root review pass. Unchanged
+requester_completion case6 instead fails5/6in86s at its wrong-review pure
+Complete refusal: issuer UDP receive+2 packets/+2400 bytes, zero returns, with
+whole requester DB/state/home unchanged. Log SHA256
+b6400c81ae96aa1996604621220893f45001f7d64733995b432a752ff049ac31.
+The refusal's generic helper does not carry expired/detached/restarted phase
+or the existing failure-only directory observation. Cause remains unclassified;
+neither the pure refusal nor any background subsystem is identified as caller.
+
+Permit one exception to the prior-file byte-preservation rule: a separate
+contract-only author may add ONLY failure diagnostics to requester_completion.
+Give Complete's generic pure helper an optional diagnostic phase defaulting to
+unknown; tag the existing case6 wrong-review call with its existing loop phase.
+Wrap the original captured carrier tuple at that helper's original equality
+assertion, returning the same tuple. Preserve its assertion, original captures,
+f-string evaluation, all calls/actions/clock/delays/bounds/counters and case
+bodies otherwise. Only upon that original mismatch, report fixed operation
+wrong_review/unknown, expired/detached/restarted/unknown phase, API/unknown mode,
+known participant/carrier kind and nonnegative count/byte deltas. Reuse existing
+GU.impl40a's one pure2s owner-local directory GET and its exact closed public
+metadata limits when a known network is available. No refresh/resume/probe,
+retry, extra wait or authority/queue/worker/path change; no identifiers, times,
+addresses, paths, raw rows/packets/error text or private material. Diagnostic
+failure cannot change the original captured verdict. No guessed transport fix.
+
+Commit before one retained root serialized local diagnostic run on unchanged
+105e8c54 Rust binaries. Removing the new helper/wrapper/optional parameter and
+explicit phase keyword must restore every original requester source byte/AST.
+All other84 prior conformance/native files and393 native cases remain exact;
+the new signing source stays0cd90eeb. Preserve every earlier failure and any
+over-target local duration. A silent passing diagnostic run would not classify
+this CI failure. Final exact-head full34-job/four-check/fresh bot/root review
+remains required; no unchanged CI retry or exclusion of an old failing suite.
+
 Root serializes its language/runtime gates, logs/hashes fresh binaries and every
 first result. Reuse section42's explicit separate-target compilation scheduling
 for language gates only; host suites require compiler idle, regular-disk TMPDIR.
