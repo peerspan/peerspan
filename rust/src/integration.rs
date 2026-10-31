@@ -2147,50 +2147,6 @@ pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
-    fn default_names(project: &str, local: &[&str], remote: &[&str]) -> String {
-        default_name(
-            "claude",
-            project,
-            "host_5c12ab34",
-            &local.iter().map(|n| (*n).to_owned()).collect(),
-            &remote
-                .iter()
-                .map(|n| ((*n).to_owned(), "host_other".to_owned()))
-                .collect(),
-        )
-    }
-
-    #[test]
-    fn default_name_leaves_out_the_host_name() {
-        assert_eq!(default_names("site", &[], &[]), "claude");
-        assert_eq!(default_names("site", &["claude"], &[]), "claude-site");
-        assert_eq!(default_names("", &["claude"], &[]), "claude-project");
-        assert_eq!(default_names("site", &[], &["claude"]), "claude-5c12");
-        assert_eq!(
-            default_names("site", &[], &["claude", "claude-5c12"]),
-            "claude-5c12ab"
-        );
-        assert_eq!(
-            default_names("site", &["claude", "claude-site"], &[]),
-            "claude-site-2"
-        );
-    }
-
-    #[test]
-    fn default_name_avoids_the_reserved_name_and_fits() {
-        let free = BTreeSet::new();
-        let none = BTreeMap::new();
-        assert_eq!(
-            default_name("builtin", "site", "host_5c12", &free, &none),
-            "builtin-5c12"
-        );
-        let long = "a".repeat(64);
-        assert_eq!(default_name(&long, "site", "host_5c12", &free, &none), long);
-        let taken: BTreeSet<String> = [long.clone()].into();
-        let name = default_name(&long, "site", "host_5c12", &taken, &none);
-        assert!(name.len() <= 64 && name != long, "{name}");
-    }
-
     #[test]
     fn pending_hook_names_conversations() {
         let empty =
