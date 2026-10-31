@@ -8122,8 +8122,9 @@ proof material, but this guided preparation must preserve the incoming pending
 catalog through its unsigned phase. Use the same ordinary template preparation;
 retain the current verified owner catalog during approved ordinary completion
 of the first owner offer, before its proof/packet frames are queued. Never
-omit the required proof publication, change an advanced entry point's behavior,
-or refresh an ordinary template/provider/window. This is a product correction,
+omit the required proof publication, change advanced preparation behavior,
+or refresh an ordinary template/provider/window. Shared approved owner workers
+retain their currently revalidated public catalog at first offer completion. This is a product correction,
 not a broader pending-field allowance in the test.
 
 The same run case2 observes TCP counter changes on both counted paths with DB/
@@ -8138,6 +8139,26 @@ side, state/home file-category booleans and changed counter component positions.
 No raw DB values, paths/IDs, hashes of private values, new probes/actions/retries,
 or altered pure/setup/assertion/bounds/allowed writes. A later genuine protocol
 barrier, if needed, requires its own contract and evidence before fixture changes.
+
+### GU.impl42c: classify the code mismatch and separate compile capacity
+
+Diagnostic CI890bd74 (run41238437617, job124647347230) independently captures
+catalog-only excess pending change and approve409 machine_owner_consent_unavailable
+where review_changed is required after a provider change;4/6in29s, log SHA256
+c72163deed2c4cefe2ec86eead3747045adea8fe2665d47f99b7129d489b426d.
+Map a current ordinary/provider mismatch to changed review; corrupt retained
+receipt evidence still refuses as unavailable. First root purity causes remain
+unclassified; a successful CI read does not classify them.
+
+Other-track actual compilers repeatedly occupy this shared host. Keep all our
+gates serialized by the task lock. For Rust language checks/build ONLY, allow
+explicitly recorded other-track cargo/rustc when its cwd/output target is
+separate from this worktree and /dev/shm/peerspan-gu-target. Record before/during/
+after PIDs and the overlap limitation; final isolated CI must independently
+verify the resulting head. Host/conformance timing and purity gates still block
+all actual compilers. Discard killing another track, target-cache sharing,
+claiming global idle, weakening suite bounds or indefinitely serializing
+unrelated compilation. This changes scheduling, not test assertions or gates.
 
 ## 43. Remaining flow contract
 
