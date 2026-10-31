@@ -3220,3 +3220,15 @@ treating private schema validity as complete provenance, silently reconstructing
 missing evidence, or weakening the historical state/carrier comparisons. Keep
 the first six-pass baseline and prior failures; source changes require fresh
 Rust/affected conformance/final-head CI and review.
+
+### GU.impl33d — Identify the newly retained section25 contact change
+
+Final78df456 CI passes application6/6, all27 other suites except section25,
+all PR checks and fresh review. Section25 historical F refusal reports only
+changed dec_contacts in5/6in102s, without row/caller attribution. Select one
+independent failure-only projection of already captured contact snapshots,
+then one retained local diagnosis on frozen4842404. Preserve every strict old
+comparison/action/delay/timeout and record this failure before proceeding.
+Discard treating the earlier similarly named failure as the same caller,
+guessed global fences, disabling workers/paths, altered counters or unchanged
+retry-to-green. A passing diagnostic run leaves this CI cause unknown.
