@@ -581,6 +581,8 @@ async fn watch(
     let mut said = BTreeSet::new();
     let mut noted = BTreeSet::new();
     let mut held: Vec<Held> = Vec::new();
+    // Printed and not yet posted to the read cursor.
+    let mut shown: Vec<(String, String)> = Vec::new();
     loop {
         if whole_host && reader.is_none() {
             note_agent_only(local, &mut noted).await;
@@ -596,7 +598,6 @@ async fn watch(
             }
         };
         after = answer["next_after"].as_i64().unwrap_or(after);
-        let mut shown: Vec<(String, String)> = Vec::new();
         let mut ready: Vec<(String, Value)> = Vec::new();
         for event in answer["events"].as_array().into_iter().flatten() {
             let id = text(&event["conversation_id"]);
@@ -667,14 +668,17 @@ async fn watch(
         }
         std::io::stdout().flush()?;
         if reader.is_none() {
-            let conversations: BTreeSet<String> = shown.iter().map(|s| s.0.clone()).collect();
+            // The cursor is one high-water mark, so a later arrival's ID would
+            // also pass a held message: wait until the conversation holds none.
+            let conversations: BTreeSet<String> = shown
+                .iter()
+                .map(|s| s.0.clone())
+                .filter(|id| !held.iter().any(|h| h.conversation == *id))
+                .collect();
             for id in conversations {
-                let ids = shown
-                    .iter()
-                    .filter(|s| s.0 == id)
-                    .map(|s| s.1.clone())
-                    .collect();
-                advance(local, &id, ids).await;
+                let (ids, rest): (Vec<_>, Vec<_>) = shown.drain(..).partition(|s| s.0 == id);
+                shown = rest;
+                advance(local, &id, ids.into_iter().map(|s| s.1).collect()).await;
             }
         }
     }
