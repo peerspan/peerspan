@@ -175,7 +175,8 @@ as text, with exactly these keys in this order:
 | `duration_ms` | From `started` to exit. 0 if it never started. |
 | `stdout_bytes`, `stderr_bytes` | Bytes the command wrote. |
 | `output_truncated` | Whether streaming stopped at `max_output_bytes`. |
-| `results_dropped` | Result artifact names that did not fit `max_artifact_bytes`, in the order below; usually `[]`. |
+| `results_dropped` | Result artifact names that did not fit `max_artifact_bytes` or the per-artifact limit, in the order below; usually `[]`. |
+| `results_same` | An object mapping each result artifact name left out because its content equals an earlier attached one's to that earlier name; usually `{}`. |
 | `error` | A short text when the run failed outside the command, such as `the runtime restarted`; otherwise null. |
 
 The `cancelled` event of a task that was running has the run result as `output` too, with
@@ -190,11 +191,21 @@ The final event's `artifacts` lists, by `results`:
 - `changes`: those two, then `changes.tar` (`application/x-tar`), the regular files under
   `/workspace` that are new or whose content differs from the workspace archive, and
   `deleted.txt` (`text/plain`), one removed path per line, both relative to `/workspace`.
-  `changes.tar` and `deleted.txt` are attached together or not at all.
 
 The host attaches them in that order while the input and result sizes together fit the rule's
 `max_artifact_bytes`, and names the rest in `results_dropped`. A dropped result never fails
-the task. Results are served, fetched, retained and pruned as task results are today.
+the task.
+- **Per-artifact limit.** A `changes.tar` over 104,857,600 bytes, the artifact contract's
+  limit for one file, is dropped.
+- **Together.** `deleted.txt` is never attached without `changes.tar`: when `changes.tar` is
+  dropped, `deleted.txt` is dropped with it.
+- **Empty files.** An empty result file is never attached, and is not a drop. An empty log
+  shows as `stdout_bytes` or `stderr_bytes` 0, and `changes.tar` without `deleted.txt` means
+  nothing was removed.
+- **Identical files.** Digests are unique within a manifest (artifact contract), so a result
+  file whose content equals one already attached is left out and named in `results_same`,
+  mapped to the earlier name: for example `{"stderr.log": "stdout.log"}` when both streams
+  wrote the same bytes. It is not a drop. Results are served, fetched, retained and pruned as task results are today.
 
 ## Submitter
 
@@ -212,7 +223,7 @@ schedule.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `task run --peer HOST [--workspace DIR] [--results none\|output\|changes] [--cpus N] [--memory-mib N] [--timeout DURATION] [--env NAME=VALUE ...] [--cwd PATH] [--input TEXT] [--deadline TIME] [--detach] -- COMMAND...` | `POST /v1/tasks` with `executor` and `run` | Packs the workspace (below), uploads it, cites the target's policy, and submits. `--input` defaults to the command line joined with spaces, cut at 65,536 bytes. Without `--detach` it follows the local events, writes each `output` chunk to its own stdout or stderr, saves result artifacts into `./peerspan-results/TASK_ID/` when `--results changes`, and exits with `exit_code`, 128 + `signal`, 124 for a timeout, or 125 when the task ended otherwise. With `--detach` it prints the local record. |
+| `task run --peer HOST [--workspace DIR] [--results none\|output\|changes] [--cpus N] [--memory-mib N] [--timeout DURATION] [--env NAME=VALUE ...] [--cwd PATH] [--input TEXT] [--deadline TIME] [--detach] -- COMMAND...` | `POST /v1/tasks` with `executor` and `run` | Packs the workspace (below), uploads it, cites the target's policy, and submits. `--input` defaults to the command line joined with spaces, cut at 65,536 bytes. Without `--detach` it follows the local events, writes each `output` chunk to its own stdout or stderr, saves result artifacts into `./peerspan-results/TASK_ID/` when `--results changes`, writing a name in `results_same` as a copy of the file it maps to, and exits with `exit_code`, 128 + `signal`, 124 for a timeout, or 125 when the task ended otherwise. With `--detach` it prints the local record. |
 | `task inspect`, `task events`, `task cancel`, `task artifact` | as today | Records and events show `executor`, `run` and `chunk`. |
 
 `POST /v1/tasks` takes `executor: "runtime"` and `run` in place of `target_agent_id`; the
@@ -267,7 +278,7 @@ other than those below.
 | --- | --- |
 | `GET /v1/runtime` | `{version, image, max_cpus, max_memory_mib, max_seconds, max_concurrent_runs, running}`. |
 | `POST /v1/runs` with `{run_id, argv, cwd, env, resources, workspace_archive, results}` | Starts a run. `resources` is complete; `workspace_archive` is an absolute path the daemon can read, or null. 201 with the run record `{run_id, state, created_at}`; 200 with the same record for an identical repeat; 409 for a reused `run_id` with different fields; 429 when every slot is busy; 422 when `resources` exceed the runtime's maximums. |
-| `GET /v1/runs/{run_id}/events?after=N&wait=S` | Events with `sequence` after `N`, waiting up to `S` (0 to 25) seconds for the first. Each is `{sequence, kind, ...}`: `started`; `stdout` or `stderr` with `data` (base64, 1 to 16,384 bytes); `exited` with `result`, the run result above without `output_truncated` and `results_dropped`; then `results` with `artifacts`, a list of `{name, path, size, sha256, media_type}` in the order above. `results` is last. |
+| `GET /v1/runs/{run_id}/events?after=N&wait=S` | Events with `sequence` after `N`, waiting up to `S` (0 to 25) seconds for the first. Each is `{sequence, kind, ...}`: `started`; `stdout` or `stderr` with `data` (base64, 1 to 16,384 bytes); `exited` with `result`, the run result above without `output_truncated`, `results_dropped` and `results_same`; then `results` with `artifacts`, a list of `{name, path, size, sha256, media_type}` in the order above. `results` is last. |
 | `POST /v1/runs/{run_id}/cancel` | Stops the run. It then ends with `exited`, `signal` 9. A finished run is unchanged. |
 | `DELETE /v1/runs/{run_id}` | Deletes the run and its files. |
 | any unknown `run_id` | 404. |
@@ -342,7 +353,9 @@ The suite covers:
 - the workspace: an archive fetched before start and readable by the run; a missing manifest
   entry or wrong media type (400); a refused archive entry failing the run with `error`;
 - results: `none`, `output` and `changes`, including deletions, and the drops under a small
-  `max_artifact_bytes` and under 0;
+  `max_artifact_bytes` and under 0; a command with no output attaching no logs; identical
+  stdout and stderr giving `results_same`; and `deleted.txt` left out when nothing was
+  removed. A `changes.tar` over the per-artifact limit is a Rust test, not a suite case;
 - peer events with `wait`, returning early when an event arrives;
 - restarts: the daemon during a run, reattaching and finishing; the fake runtime during a
   run, failing the task with `the runtime restarted`;
