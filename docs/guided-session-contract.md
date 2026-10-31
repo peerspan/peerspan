@@ -6831,7 +6831,11 @@ native helper/assertion/action/delay/timeout. Cover:
 5. Changed project/root/native/review/agent, detached/replaced parent, unknown
    network/person and unavailable/expired current authority fail closed without
    rebound, fallback, key/provider use or successful empty substitute. Public
-   privacy rejects unsafe metadata without echoing it.
+   privacy rejects unsafe metadata without echoing it. An ordinary accepted,
+   syntactically valid short token_-prefixed adapter protocol revision is an
+   aggregate privacy stimulus: readiness must return409 readiness_unavailable,
+   without changing handshake semantics; a safe same-instance reconnect restores
+   an otherwise current connection. Do not accept an unsafe successful view.
 6. Closed malformed/unknown/null/duplicate/trailing/oversized input corpus,
    missing daemon/noncreating CLI failure and owner-only route isolation through
    ordinary peer/bootstrap/scoped adapter public interfaces.
