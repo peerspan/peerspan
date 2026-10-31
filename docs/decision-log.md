@@ -3272,3 +3272,15 @@ added fixture expectation. An independent one-line correction retains all other
 new checks and every old assertion/action/order/wait. Discard dropping the exact
 transport comparison, changing runtime advertising, or claiming a product fix.
 Keep the first failure and frozen production; one corrected-source run follows.
+
+### GU.impl33h — Make the new failure observer observe the actual host store
+
+Before its first runtime, static review finds the newly added single-*.db
+assumption excludes the standard host+bootstrap-store fixture. Select only its
+existing host.db in one read-only transaction. Also explicitly classify the
+already documented recovery_required/quota_exceeded transport categories and
+the existing served timing's bare trailing HTTP status. A separate author makes
+only these diagnostic corrections. Discard unknown-by-construction metadata,
+probing/mutating the bootstrap store, arbitrary error output or changing tests'
+verdicts/driver/waits. Preserve initial author bytes and correction provenance;
+this is pre-execution review with no new runtime/product change.
