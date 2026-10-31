@@ -444,7 +444,7 @@ fn wrapper(
 pub(crate) fn run(c: &Connection, store: &Store, op: &str, input: &Input) -> Result<(Value, bool)> {
     let mut p = requests::load(c, &input.request_id)?;
     let raw = controls::local_decision_time()?;
-    let now = controls::guarded_decision(c, &p.record.expected_network_id, &raw)?;
+    let mut now = controls::guarded_decision(c, &p.record.expected_network_id, &raw)?;
     let latest = latest(c, store, &p)?;
     let id = if op == "lookup" {
         input.consent_id.as_deref().or(latest.as_deref())
@@ -561,6 +561,14 @@ pub(crate) fn run(c: &Connection, store: &Store, op: &str, input: &Input) -> Res
         p = requests::load(c, &p.id)?;
         matching(c, store, &p, frozen)?
     };
+    // Ordinary preparation records its own guarded decision. Re-read that
+    // clock before creating attribution, including a whole-second boundary;
+    // never attempt to save an earlier guard or refresh the reviewed terms.
+    now = controls::guarded_decision(c, &owner.network_id, &controls::local_decision_time()?)?;
+    require(
+        current(c, store, input, &p, &now)? == inspection,
+        "review_changed",
+    )?;
     if let Some(old) = &receipt {
         require(
             old.owner.id == owner.id && first(&old.owner)?.id == first(&owner)?.id,
