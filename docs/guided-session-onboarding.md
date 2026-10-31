@@ -962,3 +962,11 @@ its native controls. Independent real-host fixtures cover retained authority
 after the existing computer goes offline, without claiming both-live worker
 attribution. Final combined-head CI/review and full #35 terminal/installed/
 two-machine/model acceptance remain required; inspection is not readiness.
+
+The [requester inspection verification record](results/guided-machine-requester-inspection-verification.json)
+records first6/6in70s on fresh binaries, Rust gates, source/log/binary hashes and
+all65 prior test/native file preservation. It distinguishes actual remote
+device/original folded-F and strict measured purity from the explicitly offline
+existing computer, source-only complex authority/corruption boundaries, and
+unexecuted native/full-feature acceptance. Final exact-head CI/review receipts
+are retained on PR98 without an evidence-only CI commit loop.
