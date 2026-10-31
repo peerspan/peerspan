@@ -96,3 +96,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `access_application`: exact signed policy local publication/application,
   atomic ordinary proof/edit/queue/result/event and pure recovery (section33).
+
+- `readiness`: current exact-project membership, receiver-advertised access and
+  exact-session adapter evidence, read purity and owner-router isolation
+  (guided session contract section36). No peer/model readiness inference.
