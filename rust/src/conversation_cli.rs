@@ -656,12 +656,24 @@ async fn watch(
                             }
                         }
                     } else if view["earlier_missing"] == true {
+                        let seq = m["seq"].as_i64().unwrap_or(0);
+                        // It waits no longer than an earlier held one of its author.
+                        let since = held
+                            .iter()
+                            .filter(|h| {
+                                h.conversation == id
+                                    && h.author == text(&m["author"])
+                                    && h.seq < seq
+                            })
+                            .map(|h| h.since)
+                            .min()
+                            .unwrap_or_else(std::time::Instant::now);
                         held.push(Held {
                             conversation: id.to_owned(),
                             message: message.to_owned(),
                             author: text(&m["author"]).to_owned(),
-                            seq: m["seq"].as_i64().unwrap_or(0),
-                            since: std::time::Instant::now(),
+                            seq,
+                            since,
                         });
                     } else {
                         ready.push((id.to_owned(), m.clone()));
@@ -702,7 +714,10 @@ async fn watch(
             let conversations: BTreeSet<String> = shown
                 .iter()
                 .map(|s| s.0.clone())
-                .filter(|id| !held.iter().any(|h| h.conversation == *id))
+                .filter(|id| {
+                    !held.iter().any(|h| h.conversation == *id)
+                        && !released.iter().any(|(c, _)| c == id)
+                })
                 .collect();
             for id in conversations {
                 let (ids, rest): (Vec<_>, Vec<_>) = shown.drain(..).partition(|s| s.0 == id);
