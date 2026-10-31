@@ -7079,6 +7079,7 @@ errors. Wrong selected host returns409 reachability_unavailable before peer IO.
 Malformed/duplicate/unknown/null/trailing/oversized input is400 without echo.
 Owner administration socket only; no peer/bootstrap/scoped-adapter exposure.
 
+A valid guarded observation returns HTTP200, including not_verified/null.
 Return exactly:
 
 ```
@@ -7109,6 +7110,9 @@ HTTP status alone bypasses the post-IO authority/project guards.
 Capture the exact complete inspection and project/network/person/host public-key
 pins in a short read transaction and release it before IO. Resolve only the
 existing ordinary pinned dial target and require the same target ID/key.
+An existing owner-configured manual peer address retains ordinary precedence;
+configuring that transport hint remains a separate public owner operation,
+never a request-field override or key fallback.
 Issue one logical GET `/peer/v1/networks/{network_id}/agents` with no body and
 an8s total exchange bound; the owner API is bounded12s and CLI15s. Reuse ordinary
 QUIC identity/ALPN, current direct/optional replaceable helper routes, cached
