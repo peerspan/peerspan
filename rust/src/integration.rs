@@ -1692,44 +1692,34 @@ async fn prepare_attach_inner(
         .to_owned();
     // Refresh every network's directory first: names are checked against
     // the person's other hosts, and unreachable ones are reported.
-    let status = admin(&state, Method::GET, "/v1/status".into(), None).await?;
+    // `/v1/status` lists no coordinator-free network, so this must be `/v2`.
+    // Retained legacy history binds nothing and has no directory to refresh.
+    let status = admin(&state, Method::GET, "/v2/status".into(), None).await?;
+    let networks: Vec<&Value> = status["networks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|n| n["mode"] != "legacy_history")
+        .collect();
     let mut persons = BTreeMap::new();
     let mut label = None;
-    for network in status["networks"].as_array().into_iter().flatten() {
-        if let (Some(id), Some(person)) = (network["id"].as_str(), network["person"]["id"].as_str())
-        {
-            persons.insert(id.to_owned(), person.to_owned());
+    for network in &networks {
+        if let (Some(id), Some(key)) = (
+            network["id"].as_str(),
+            network["person_public_key"].as_str().filter(|k| *k != "-"),
+        ) {
+            persons.insert(
+                id.to_owned(),
+                peerspan_host::persons::person_id_of(key).context("invalid daemon response")?,
+            );
             if label.is_none() {
-                label = network["person"]["label"].as_str().map(str::to_owned);
-            }
-        } else if network["mode"] == "decentralized"
-            && let Some(id) = network["id"].as_str()
-        {
-            // A coordinator-free network's entry is its network view: the
-            // bound person and label come from the verified current members.
-            let members = admin(
-                &state,
-                Method::GET,
-                format!("/v1/networks/{}/members", crate::cli::encoded(id)),
-                None,
-            )
-            .await?;
-            if let Some(own) = members.as_array().into_iter().flatten().find(|m| {
-                m["public_key"] == network["host_public_key"] && m["person_id"].is_string()
-            }) {
-                persons.insert(
-                    id.to_owned(),
-                    own["person_id"].as_str().unwrap_or_default().to_owned(),
-                );
-                if label.is_none() {
-                    label = own["person_member"].as_str().map(str::to_owned);
-                }
+                label = network["member"].as_str().map(str::to_owned);
             }
         }
     }
     let mut unchecked = BTreeSet::new();
     let mut remote: BTreeMap<String, String> = BTreeMap::new();
-    for network in status["networks"].as_array().into_iter().flatten() {
+    for network in &networks {
         let Some(id) = network["id"].as_str() else {
             continue;
         };
