@@ -9,6 +9,8 @@ const exact = (v, keys) => object(v) && Object.keys(v).sort().join(',') === keys
 const id = (v, kind) => typeof v === 'string' && new RegExp(`^${kind}_[0-9a-f]{32}$`).test(v);
 const actions = ['message.append', 'task.submit', 'task.delegate'];
 const integer = (v, min, max) => Number.isSafeInteger(v) && v >= min && v <= max;
+const json = v => canonical(v).replace(/[\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/gu,
+  c => '\\u' + c.codePointAt(0).toString(16).padStart(4, '0'));
 function time(v, utc = false) {
   if (typeof v !== 'string') return false;
   const m = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?([Zz]|[+-]\d{2}:\d{2})$/.exec(v);
@@ -110,14 +112,14 @@ export function lines(v, parent) {
 }
 export function details(v) {
   const r = v.inspection.review;
-  return ['Connection details (as observed)', `Agent metadata: ${quoted(canonical(r.agent))}`,
+  return ['Connection details (as observed)', `Agent metadata: ${json(r.agent)}`,
     `Network context: ${r.network.context_id}; current root at observation: ${r.root_state_id}`,
-    `Owner membership: ${quoted(canonical(r.owner))}`, `Selected membership: ${quoted(canonical(r.participant))}`,
-    `Signed baseline body: ${r.policy ? quoted(canonical(r.policy.body)) : 'none retained'}`,
-    `Separately enforced content: ${r.policy ? quoted(canonical(r.policy.enforced_content)) : 'none retained'}`,
+    `Owner membership: ${json(r.owner)}`, `Selected membership: ${json(r.participant)}`,
+    `Signed baseline body: ${r.policy ? json(r.policy.body) : 'none retained'}`,
+    `Separately enforced content: ${r.policy ? json(r.policy.enforced_content) : 'none retained'}`,
     ...(r.policy ? [`Policy statement: ${r.policy.statement_id}; proof: ${r.policy.proof_id}; effective end: ${r.policy.valid_until}`] : []),
-    ...v.readiness.peers.map(p => `Exact entries for ${p.host_id}: ${quoted(canonical(p.authorizations))}`),
-    ...v.readiness.adapter_connections.map((c, i) => `Adapter ${i + 1}: ${quoted(canonical(Object.fromEntries(
-      Object.entries(c).filter(([k]) => !['adapter_id', 'session_id'].includes(k)))))}`),
+    ...v.readiness.peers.map(p => `Exact entries for ${p.host_id}: ${json(p.authorizations)}`),
+    ...v.readiness.adapter_connections.map((c, i) => `Adapter ${i + 1}: ${json(Object.fromEntries(
+      Object.entries(c).filter(([k]) => !['adapter_id', 'session_id'].includes(k))))}`),
     `Observation display ends: ${new Date(deadline(v)).toISOString()}`].join('\n');
 }
