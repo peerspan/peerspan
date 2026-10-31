@@ -7168,7 +7168,15 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    selected pinned route is exercised. No directory-refresh/cache state change or
    hidden contact-learning sync when no route is currently usable. Genuine public
    maintenance/restart prerequisites precede captures, no worker suppression,
-   excluded tables or relaxed counters; document public-fixture coverage limits.
+   excluded tables or relaxed counters. A genuine bootstrap-only fixture can
+   retain normal proof outboxes that cannot drain without a peer route. Its
+   no-route capture may use a naturally quiet retry-backoff window: all pending
+   secrets/read caps/frames are retired, every actual outbox next_attempt_at is
+   strictly beyond the complete short capture, and complete outbox rows remain
+   in both state comparisons. Observe real time before/after; never move retry
+   timestamps, suppress a worker or ignore an outbox/table/counter difference.
+   Positive-route captures still finish actual outstanding transport first.
+   Document public-fixture coverage limits.
 6. Closed malformed/duplicate/unknown/null/trailing/oversized/private stdin/argv,
    missing-daemon noncreation, wrong methods and owner-only isolation through
    ordinary peer/bootstrap/adapter interfaces. All fixed errors omit raw input.
