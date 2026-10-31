@@ -3399,3 +3399,9 @@ agent-wide channel borrowing, implicit peer/model probes, new durable workflow
 and changed ordinary directory/adapter behavior. Independent six-case29th slim
 suite plus unchanged349 native cases/all28 old suites, final CI and fresh review
 precede owner merge; the full observed-readiness/feature acceptance remains open.
+
+GU.impl36 source review: a sampled DEC read time must not imply status-summary
+tolerance. Readiness keeps ordinary receiver projection errors strict, rather
+than turning unavailable evidence into successful empty authorizations. Existing
+status behavior stays the same; nested read-time guards restore both time and
+error mode. This clarification precedes the corresponding source correction.
