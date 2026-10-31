@@ -1,19 +1,43 @@
 # Runtime tasks: running a task's commands in a microVM
 
-Status: accepted 2026-10-27. The owner chose the recommendation of each of the four
-[decisions](#decisions). The [runtime task contract](runtime-task-contract.md) specifies the
-result, and refines this proposal in four places: a cancelled queued task ends at once,
-`results_dropped` lists the dropped artifacts instead of a flag, peer task events gain a
-`wait` long poll so output streams promptly, and runtime rules carry `allow_disconnected`.
-Nothing is implemented yet.
+Status: **accepted on 2026-10-27; refreshed on 2026-10-31 for coordinator-free networks.** The
+owner chose the recommendation of each of the four [decisions](#decisions), recorded as
+[RUN-1 to RUN-4](decision-log.md#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31). The
+[runtime task contract](runtime-task-contract.md) specifies the result, and refines this
+proposal in four places: a cancelled queued task ends at once, `results_dropped` lists the
+dropped artifacts instead of a flag, peer task events gain a `wait` long poll so output
+streams promptly, and runtime rules carry `allow_disconnected`. This revision changes every
+reference and mechanism to match `main` today
+([What changed since acceptance](#what-changed-since-acceptance)) and keeps every accepted
+decision. One question the coordinator-free work raised was decided on 2026-10-31 as RUN-5
+([Questions resolved after the coordinator-free work](#questions-resolved-after-the-coordinator-free-work)).
+Nothing is implemented in the host yet. `peerspan-runtime serve` implements the runtime's
+side of the local API.
 
 This is the first slice of the system design's runtime ("Runtime" in `docs/runtime.md` in
 `docs-internal`): user story 1, one person running a delegated task's commands in a microVM
 on another of their own machines. Story 3, the same across two owners, uses the same contract
 with a different rule's principals. It extends the [task contract](task-contract.md) and the
 [artifact contract](artifact-contract.md). The runtime itself is a separate binary,
-`peerspan-runtime`, in the public `peerspan/runtime` repository; its `run` command already
-boots a libkrun microVM with a workspace attached and runs one command.
+`peerspan-runtime`, in the public `peerspan/runtime` repository; its `serve` command already
+serves the contract's local API, booting a libkrun microVM per run.
+
+## What changed since acceptance
+
+"Spec" below is the [coordinator-free spec](decentralized-spec.md); "wire appendix" is its
+[wire appendix](decentralized-wire-formats.md).
+
+| Accepted text assumed | On `main` today | Where it matters |
+| --- | --- | --- |
+| Runtime rules as six lines of the signed `peerspan-policy-v2` statement, with an SSHSIG test vector | A person's policy is a coordinator-free `policy` statement: the unsigned `peerspan-policy-v2` body as JSON, signed in the statement envelope by the person's original key or a scope-1 device, valid at most 24 hours and renewed when 8 hours remain (spec section 5, wire appendix section 5, DEC-Q24). Runtime rules become an optional `runtime_rules` field of that body. Hosts check the body's fields strictly, so earlier software refuses it (RUN-5). | Contract, Runtime rules |
+| "The connected-state rule unless `allow_disconnected`", connection meaning a recent coordinator sync | The sender must be a current member of a network both hosts share: a current host grant whose chain is current and not banned (spec section 5). `allow_disconnected` on a rule lets a sender whose membership lapsed match while the policy is current, as for capability rules. | Contract, Checks |
+| Signing the next policy version, which coordinators then served | `runtime enable` and `disable` sign through the network's provider as a policy edit with a version check (spec section 12.1); a concurrent change is `state_conflict`. | Contract, Runtime administration |
+| The coordinator-free work (#140) might change the policy format | It landed: the body format is unchanged, wrapped in a statement. | Decision 1 |
+| Go and Rust daemons, four pairings | Rust only (DEC-OWN5, DEC-OWN8). Host schema 24 on `main`. | Contract, Persistence |
+| `conformance/runtime_tasks.py` across pairings | One slim suite, `conformance/slim/runtime.py`, with the fake runtime beside it, under 2 minutes, written from the contract by a spec-only author (DEC-OWN6, DEC-OWN9) | Decision 4, contract Verification |
+
+Runtime tasks work only in coordinator-free networks; legacy networks are read-only history
+(spec section 14).
 
 ## Story 1
 
@@ -36,8 +60,8 @@ from the event cursor, as for any task.
 - Owner control on the serving host: runtime use is off unless the owner allows it in policy
   **and** the host enables its runtime locally.
 - Resource bounds the owner sets and the requester can only narrow: vCPUs, memory, run time.
-- A local contract between the daemon and `peerspan-runtime`, so both daemons drive one
-  runtime, and conformance can run against a fake runtime without KVM.
+- A local contract between the daemon and `peerspan-runtime`, so the daemon never boots VMs
+  itself, and conformance can run against a fake runtime without KVM.
 
 **Non-goals for this slice:**
 - **Network access from the guest.** Runs have none.
@@ -189,9 +213,9 @@ commands on a host is different authority from asking an agent, and an owner who
 should not get the other. Policy alone: anyone with the person key could make every machine
 of that person an executor.
 
-**Dependency.** The rule's signed statement depends on the policy format, which the
-coordinator-free work (#140) may still change; the runtime rule follows whatever format that
-settles.
+**Dependency, settled.** The coordinator-free work kept the `peerspan-policy-v2` body and
+wraps it in a signed statement, so the runtime rule is a field of that body. Earlier hosts
+refuse the field; RUN-5 accepts that, since every such host is a test or staging host.
 
 ### 2. How the workspace reaches the VM
 
@@ -234,7 +258,7 @@ Streaming only, with no artifacts: a long log would be lost past the streaming c
 **Recommendation.** `conformance/fake_runtime.py` implements the local contract without
 VMs, written from the contract by the separate conformance author: `argv` is a small script
 language (`echo`, `fail CODE`, `sleep SECONDS`, `write PATH TEXT`), enough for every state
-and result. Daemon conformance across Go/Rust pairings uses it; real VMs are tested in
+and result. The daemon's slim conformance suite uses it; real VMs are tested in
 `peerspan/runtime`'s CI and in a separate live end-to-end run of story 1.
 
 **Not chosen.** Real VMs in daemon conformance: it would need KVM on every conformance host
@@ -242,7 +266,7 @@ and would test the runtime rather than the daemons.
 
 ## Verification sketch
 
-`conformance/runtime_tasks.py`, every Go/Rust pairing, against the fake runtime:
+`conformance/slim/runtime.py`, against real Rust hosts and the fake runtime:
 - refusal without a runtime rule, with a rule naming another host, and with the local switch
   off; refusal under a `task.submit`-only rule; a `runtime.run` route versus a
   `task.submit` route;
@@ -258,3 +282,18 @@ and would test the runtime rather than the daemons.
 - migration from the previous database version.
 
 A live run of story 1 on two machines with real VMs records the agent-facing experience.
+
+## Questions resolved after the coordinator-free work
+
+**RQ-1 (RUN-5). Runtime rules and hosts on earlier software.** Hosts check a policy body's
+fields exactly, so a host built before this contract, v0.1.0 included, refuses a policy with
+`runtime_rules`. It keeps the person's previous policy until that expires, at most 24 hours
+later, and then refuses every policy-cited request to that person's hosts: messages and
+tasks as well as runtime tasks.
+- **Options:** (a) keep runtime rules in the signed policy, as decision 1 accepted, and add one
+  only once every host in the network is upgraded, with `runtime enable` saying so; (b) store
+  the principals and bounds with the local switch on the serving host, with no policy change,
+  which drops the person-key gate.
+- **Chosen:** (a).
+- **Reason given:** every host on earlier software is a test or staging host; Peerspan is not
+  yet in broad use.
