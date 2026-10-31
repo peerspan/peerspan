@@ -659,9 +659,9 @@ def direct_sequences(f):
     return result
 
 
-def exchange_empty_contacts(f, previous):
-    """Signed handoffs and membership-authenticated imports over known endpoints."""
-    bounds = []
+def issue_empty_contacts(f, previous):
+    """Only a genuinely bootstrap-only handoff can advertise no QUIC route."""
+    bounds, contacts = [], {}
     for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
         net = get(local, "/v2/networks/" + f["net"])
         peer_net = get(remote, "/v2/networks/" + f["net"])
@@ -678,11 +678,18 @@ def exchange_empty_contacts(f, previous):
         check(candidates, "public handoff did not contain the actual signed empty-QUIC contact")
         contact = max(candidates, key=lambda row: int(row["sequence"]))
         check(int(contact["sequence"]) > previous[local.public_key], "empty-QUIC withdrawal did not advance actual contact sequence")
+        contacts[local.public_key] = contact
+    return bounds, contacts
+
+
+def import_empty_contacts(f, contacts):
+    """Listeners accept the saved authentic bytes, without issuing new hints."""
+    for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
+        contact = contacts[local.public_key]
         imported = peer_request(suite, local, remote, "POST", "/peer/v2/networks/" + f["net"] + "/contact", {"contact": contact})
         check(imported == {"contact": contact}, "authenticated import changed actual signed empty-QUIC contact")
         retained = peer_request(suite, local, remote, "GET", "/peer/v2/networks/" + f["net"] + "/contacts")
         check(contact in retained["contacts"], "remote participant did not retain exact signed empty-QUIC contact")
-    return bounds
 
 
 def world():
@@ -712,10 +719,23 @@ def world():
     wait_for(lambda: outboxes_empty(state), timeout=5, interval=.1, message="actual ordinary proof outboxes drained before contact withdrawal")
     previous = direct_sequences(state)
     for local in (a, b):
-        local.advertise_direct = False
+        local.direct = local.advertise_direct = False
         transport_config(local)
         local.restart()
-    empty_bounds = exchange_empty_contacts(state, previous)
+    empty_bounds, contacts = issue_empty_contacts(state, previous)
+    for local in (a, b):
+        local.direct = True
+        transport_config(local)
+        local.restart()
+    import_empty_contacts(state, contacts)
+    for local in (a, b):
+        local.direct = False
+        transport_config(local)
+        local.restart()
+    # Re-pin genuine own-empty contacts after any intermediate worker refresh;
+    # the remote empty contacts were already authenticated, never fabricated.
+    own_bounds, _ = issue_empty_contacts(state, previous)
+    empty_bounds.extend(own_bounds)
     advance(state, max(*[parse_time(x) for x in [*direct_bounds, *empty_bounds]], a.now(), b.now()) + timedelta(seconds=1))
     for local in (a, b):
         unsigned_maintenance(local)
