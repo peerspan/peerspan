@@ -3522,3 +3522,10 @@ explicit volatile identity-review stage before publication review. Clear both
 on expiry/navigation; do not cancel expiry when a human starts another action
 or drop the required code before its next explicit review. This is a source
 correction before any runtime execution, with no test failure attribution.
+
+GU.impl40 pre-execution review keeps the labeled existing-person public key and
+pin-versus-ownership explanation visible in publication review/history as well
+as the preceding invitation review. Discard losing that identity context when
+moving between two separate human decisions. The contract-only author's
+disclaimer assertion accepts equivalent negative wording (including neither),
+without changing the reviewed facts or removing its ownership/authority check.

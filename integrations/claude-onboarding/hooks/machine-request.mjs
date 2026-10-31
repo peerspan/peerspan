@@ -2,6 +2,7 @@
 import { quoted } from './project.mjs';
 import { publicKey } from './invitation.mjs';
 import { decodePublic } from './access.mjs';
+const pinMeaning = 'This pin identifies whom to ask; it proves neither ownership nor the inviter\'s current authority.';
 
 export function pinned(flow) {
   const pin = flow?.review?.invitation?.invitation?.expected_person_public_key;
@@ -14,7 +15,7 @@ export function publicReply(raw, machine) {
 export function identityLines(preview) {
   return ['Existing person public key: ' + quoted(preview.review.invitation.expected_person_public_key),
     'Original person key stays on the existing computer.',
-    'This pin identifies whom to ask; it proves neither ownership nor the inviter\'s current authority.',
+    pinMeaning,
     'No original identity is read or created. No machine request has been prepared.'].join('\n');
 }
 export function outcomeLines(flow) {
@@ -22,7 +23,7 @@ export function outcomeLines(flow) {
   return o ? ['Request ID: ' + o.request_id, 'Published network ID: ' + o.network_id,
     'Published context ID: ' + o.context_id, 'Published person public key: ' + quoted(o.person_public_key)].join('\n') : '';
 }
-export const limits = [
+const limits = [
   'Original person key stays on the existing computer.',
   'Approval creates or reuses one request with a separate local device key and publishes it through ordinary transport.',
   'The actual requester host and device keys are reviewed in the later machine approval; no pre-publication key is asserted here.',
@@ -30,3 +31,6 @@ export const limits = [
   'Approval on the existing computer is still required. Guided existing-computer approval is subsequent work.',
   'Publication and automatic-return availability do not prove delivery, current link state, permissions, transport or model receipt.',
 ].join('\n');
+export function reviewLines(flow) {
+  return ['Existing person public key: ' + quoted(flow.review.person_public_key), pinMeaning, limits].join('\n');
+}
