@@ -29,6 +29,8 @@ import { application as parseAccessApplication, signed as parseAccessSignature, 
   eligible as accessCompletionEligible, lines as accessCompletionLines } from './access-completion.mjs';
 import { snapshot as parseReadiness, live as readinessLive, deadline as readinessDeadline,
   lines as readinessLines, details as readinessDetails } from './readiness.mjs';
+import { snapshot as parseReachability, live as reachabilityLive, deadline as reachabilityDeadline,
+  machines as reachabilityMachines, lines as reachabilityLines, details as reachabilityDetails } from './reachability.mjs';
 import { inventory as accessNetworks, people as accessPeople, inspection as parseAccessInspection,
   consent as parseAccessConsent, liveInspection as accessInspectionLive, approvable as accessApprovable,
   deadline as accessDeadline, inspectionLines as accessInspectionLines, consentLines as accessConsentLines } from './access.mjs';
@@ -55,6 +57,7 @@ let admitting = { stage: 'inactive', busy: false };
 let admissionExpiry = null;
 let accessing = { stage: 'inactive', busy: false };
 let accessExpiry = null;
+let machineEvidenceExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -901,13 +904,16 @@ async function connectAdapter($, previous, epoch) {
 }
 function clearAccess() {
   accessExpiry?.cancel(); accessExpiry = null;
+  machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
   accessing = { stage: 'inactive', busy: false };
 }
 function accessStart($, previous, epoch) {
   if (accessing !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
   accessExpiry?.cancel(); accessExpiry = null;
+  machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
   accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, canFinish: false, message: null,
     readinessValue: null, readinessDetails: false,
+    peerSource: null, peerMachines: [], peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null,
     parent: project.flow, context: project.context, host: hostId };
   $.ui.invalidate('ui.render');
   return accessing;
@@ -1222,7 +1228,7 @@ async function finishAccess($, previous, epoch) {
 }
 
 async function checkConnectionStatus($, previous, epoch) {
-  if (!previous.selected || previous.mode !== 'readiness' && !previous.inspected && !previous.value?.access) return;
+  if (!previous.selected || !['readiness', 'reachability'].includes(previous.mode) && !previous.inspected && !previous.value?.access) return;
   const running = accessStart($, previous, epoch);
   if (!running) return;
   running.mode = 'readiness';
@@ -1257,6 +1263,158 @@ async function checkConnectionStatus($, previous, epoch) {
   }
 }
 
+function expireMachineConnection($, previous, epoch) {
+  if (accessing !== previous || epoch !== generation) return;
+  accessExpiry?.cancel(); accessExpiry = null;
+  machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
+  accessing = { ...previous, busy: false, peerSource: null, peerMachines: [], peerSelected: null,
+    peerValue: null, peerDetails: false, expiryAuthority: null, peerResultAuthority: null,
+    message: 'Machine connection observation expired. Check connection status again.' };
+  $.ui.invalidate('ui.render');
+}
+function machineSelectionFailure($, previous, epoch) {
+  if (accessing !== previous || epoch !== generation) return;
+  accessExpiry?.cancel(); accessExpiry = null;
+  machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
+  accessing = { ...previous, mode: 'reachability', busy: false, readinessValue: null, readinessDetails: false,
+    peerSource: null, peerMachines: [], peerSelected: null, peerValue: null, peerDetails: false,
+    value: null, inspected: null, canApprove: false, canFinish: false, expiryAuthority: null, peerResultAuthority: null,
+    message: 'Outbound connection unavailable. Check connection status again.' };
+  $.ui.invalidate('ui.render');
+}
+function machineTimer($, view, epoch, end, now) {
+  const token = {};
+  view.expiryAuthority = token;
+  accessExpiry?.cancel();
+  accessExpiry = $.clock.after(Math.max(0, end - now), () => {
+    if (epoch === generation && accessing.mode === 'reachability' && accessing.expiryAuthority === token) {
+      expireMachineConnection($, accessing, epoch);
+    }
+  });
+}
+function machineResultTimer($, view, epoch, end, now) {
+  const token = {};
+  view.peerResultAuthority = token;
+  machineEvidenceExpiry?.cancel();
+  machineEvidenceExpiry = $.clock.after(Math.max(0, end - now), () => {
+    if (epoch === generation && accessing.mode === 'reachability' && accessing.peerResultAuthority === token) {
+      expireMachineConnection($, accessing, epoch);
+    }
+  });
+}
+async function machineCurrent($, running, epoch) {
+  if (!await accessCurrent($, running, epoch)) return false;
+  const now = await $.clock.now();
+  if (accessing !== running || epoch !== generation) return false;
+  if (!running.peerSource || !reachabilityLive(running.peerSource, now)) {
+    expireMachineConnection($, running, epoch);
+    return false;
+  }
+  return true;
+}
+async function openMachineConnection($, previous, epoch) {
+  if (accessing !== previous || previous.busy || epoch !== generation || previous.mode !== 'readiness' || !previous.readinessValue) return;
+  try {
+    if (!await accessCurrent($, previous, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== previous || epoch !== generation) return;
+    if (!readinessLive(previous.readinessValue, now)) { machineSelectionFailure($, previous, epoch); return; }
+    const view = { ...previous, mode: 'reachability', readinessValue: null, readinessDetails: false,
+      peerSource: previous.readinessValue, peerMachines: reachabilityMachines(previous.readinessValue),
+      peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null, page: 0, message: null,
+      value: null, inspected: null, canApprove: false, canFinish: false,
+      completionConsent: null, completionLast: null, completionSigned: false };
+    accessing = view;
+    machineTimer($, view, epoch, reachabilityDeadline(view.peerSource), now);
+    $.ui.invalidate('ui.render');
+  } catch { machineSelectionFailure($, previous, epoch); }
+}
+async function chooseMachine($, previous, epoch, selected = null, page = 0) {
+  if (accessing !== previous || previous.busy || epoch !== generation || previous.mode !== 'reachability' ||
+      selected && !previous.peerMachines.includes(selected) || page < 0 || page && page * 10 >= previous.peerMachines.length) return;
+  try {
+    if (!await machineCurrent($, previous, epoch)) return;
+    machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
+    accessing = { ...previous, peerSelected: selected, peerValue: null, peerDetails: false, peerResultAuthority: null, page, message: null };
+    $.ui.invalidate('ui.render');
+  } catch { machineSelectionFailure($, previous, epoch); }
+}
+async function checkMachineConnection($, previous, epoch) {
+  if (accessing !== previous || previous.busy || epoch !== generation || previous.mode !== 'reachability' ||
+      !previous.peerSelected || !previous.peerMachines.includes(previous.peerSelected)) return;
+  // Keep the original roster timer authoritative throughout the whole request.
+  machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
+  const running = { ...previous, busy: true, peerValue: null, peerDetails: false, peerResultAuthority: null, message: null };
+  accessing = running;
+  $.ui.invalidate('ui.render');
+  try {
+    if (!await machineCurrent($, running, epoch) || !await accessParent($, running, epoch) ||
+        !await machineCurrent($, running, epoch)) return;
+    const raw = await accessProcess($, ['onboarding', 'reachability', '--stdin'],
+      accessPayload(running, { peer_host_id: running.peerSelected.host_id }), 15000);
+    if (!await machineCurrent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    const value = await parseReachability(raw, running.parent, running.host, running.network,
+      running.selected, running.peerSelected, now);
+    if (!await machineCurrent($, running, epoch) || !await accessParent($, running, epoch) ||
+        !await machineCurrent($, running, epoch)) return;
+    const displayNow = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    if (!reachabilityLive(running.peerSource, displayNow)) { expireMachineConnection($, running, epoch); return; }
+    if (!reachabilityLive(value, displayNow)) throw new Error('Elapsed outbound observation');
+    const view = { ...running, busy: false, peerValue: value };
+    accessing = view;
+    machineResultTimer($, view, epoch, Math.min(reachabilityDeadline(view.peerSource), reachabilityDeadline(value)), displayNow);
+    $.ui.invalidate('ui.render');
+  } catch {
+    if (accessing !== running || epoch !== generation) return;
+    accessing = { ...running, busy: false, peerValue: null, peerDetails: false,
+      message: 'Outbound connection unavailable. Check again explicitly, choose another machine or check connection status.' };
+    $.ui.invalidate('ui.render');
+  }
+}
+async function toggleMachineDetails($, previous, epoch) {
+  if (accessing !== previous || previous.busy || epoch !== generation || !previous.peerValue) return;
+  try {
+    if (!await machineCurrent($, previous, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== previous || epoch !== generation) return;
+    if (!reachabilityLive(previous.peerValue, now)) { expireMachineConnection($, previous, epoch); return; }
+    accessing = { ...previous, peerDetails: !previous.peerDetails };
+    $.ui.invalidate('ui.render');
+  } catch { machineSelectionFailure($, previous, epoch); }
+}
+function machineControls($, { Text, Button }, previous, epoch, leave) {
+  const button = (key, label, onPress) => Button({ key, label, onPress });
+  const source = previous.peerSource, selected = previous.peerSelected, page = previous.page;
+  return [
+    ...(source ? [Text({ children: [reachabilityLines(source, previous.parent, selected, previous.peerValue)] })] : []),
+    ...(source && !selected ? [
+      Text({ children: ['Choose a remote machine', previous.peerMachines.length ? '' :
+        '\nNo remote machines were observed. Check connection status again.'] }),
+      ...previous.peerMachines.slice(page * 10, page * 10 + 10).map(m =>
+        button('connection-machine-' + m.host_id, 'Choose machine ' + quoted(m.member) + ' (' + m.host_id + ')',
+          () => chooseMachine($, previous, epoch, m))),
+      ...(page > 0 ? [button('connection-machine-prev', 'Previous machines', () => chooseMachine($, previous, epoch, null, page - 1))] : []),
+      ...(previous.peerMachines.length > (page + 1) * 10
+        ? [button('connection-machine-next', 'More machines', () => chooseMachine($, previous, epoch, null, page + 1))] : []),
+    ] : []),
+    ...(selected ? [
+      ...(previous.peerValue ? [
+        ...(previous.peerDetails ? [Text({ children: [reachabilityDetails(previous.peerValue,
+          Math.min(reachabilityDeadline(source), reachabilityDeadline(previous.peerValue)))] })] : []),
+        button('connection-machine-details', previous.peerDetails ? 'Hide outbound connection details' : 'Show outbound connection details',
+          () => toggleMachineDetails($, previous, epoch)),
+      ] : []),
+      button('connection-machine-check', 'Check outbound connection', () => checkMachineConnection($, previous, epoch)),
+      button('connection-machine-choose', 'Choose another machine', () => chooseMachine($, previous, epoch)),
+    ] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []),
+    button('connection-status', 'Check connection status', () => checkConnectionStatus($, previous, epoch)), leave,
+  ];
+}
+
 function accessPage($, previous, epoch, page) {
   const values = previous.stage === 'networks' ? previous.networks : previous.people;
   if (accessing !== previous || previous.busy || epoch !== generation || !['networks', 'people'].includes(previous.stage) ||
@@ -1270,10 +1428,12 @@ function accessControls($, { Text, Button }, epoch) {
   if (previous.stage === 'inactive') return admitting.stage === 'inactive' && joining.stage === 'inactive' &&
     recipient.stage === 'inactive' && invitation.stage === 'inactive' && adapter.stage === 'inactive'
     ? [button('access-open', 'Review agent access', () => openAccess($, previous, epoch))] : [];
-  const leave = button('access-leave', previous.mode === 'readiness' ? 'Leave connection status' : 'Leave agent access', () => {
+  const leave = button('access-leave', previous.mode === 'reachability' ? 'Leave machine connection' :
+    previous.mode === 'readiness' ? 'Leave connection status' : 'Leave agent access', () => {
     if (accessing === previous && epoch === generation) { clearAccess(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy) return [Text({ children: [previous.mode === 'readiness' ? 'Connection status: checking local evidence…' : previous.mode === 'completion'
+  if (previous.busy) return [Text({ children: [previous.mode === 'reachability' ? 'Outbound connection: checking selected machine…' :
+    previous.mode === 'readiness' ? 'Connection status: checking local evidence…' : previous.mode === 'completion'
     ? previous.completionPhase === 'signing' ? 'Agent access: signing the approved policy…'
       : previous.completionPhase === 'applying' ? 'Agent access: applying the signed policy…' : 'Agent access: checking recorded application…'
     : 'Agent access: working…'] }), leave];
@@ -1289,6 +1449,7 @@ function accessControls($, { Text, Button }, epoch) {
       ...(values.length > (page + 1) * 10 ? [button('access-next', network ? 'More networks' : 'More people', () => accessPage($, previous, epoch, page + 1))] : []), leave];
   }
   const status = () => button('connection-status', 'Check connection status', () => checkConnectionStatus($, previous, epoch));
+  if (previous.mode === 'reachability') return machineControls($, { Text, Button }, previous, epoch, leave);
   if (previous.mode === 'readiness') return [
     ...(previous.readinessValue ? [Text({ children: [readinessLines(previous.readinessValue, previous.parent)] }),
       ...(previous.readinessDetails ? [Text({ children: [readinessDetails(previous.readinessValue)] })] : []),
@@ -1297,7 +1458,8 @@ function accessControls($, { Text, Button }, epoch) {
           accessing = { ...previous, readinessDetails: !previous.readinessDetails };
           $.ui.invalidate('ui.render');
         }
-      })] : []),
+      }),
+      button('connection-machine-open', 'Check a machine connection', () => openMachineConnection($, previous, epoch))] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []), status(),
     button('connection-access', 'Review agent access', () => readAccess($, previous, epoch)), leave,
   ];
