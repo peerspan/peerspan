@@ -595,6 +595,62 @@ def verify(f, parent, body, value, bounds):
     return value
 
 
+def manual_hint_matches(f):
+    """Pure owner read; only the exact-known-match boolean may leave here."""
+    try:
+        status, peers = f["b"].api("GET", "/v1/peers", timeout=2)
+        if status != 200 or type(peers) is not list:
+            return "unknown"
+        if any(type(row) is not dict or not {"id", "public_key", "address"} <= set(row) for row in peers):
+            return "unknown"
+        matches = [row for row in peers if row["id"] == f["a"].id]
+        if not matches:
+            return False
+        if len(matches) != 1 or not {"id", "public_key", "address"} <= set(matches[0]):
+            return "unknown"
+        return matches[0]["public_key"] == f["a"].public_key and matches[0]["address"] == peer_address(f["a"])
+    except Exception:
+        return "unknown"
+
+
+def failure_peer_probe(f):
+    """One independent diagnostic only after the original transport mismatch."""
+    if f.get("diagnostic_peer_probe_done"):
+        return
+    f["diagnostic_peer_probe_done"] = True
+    try:
+        hint_matches = manual_hint_matches(f)
+        before = traffic(f)
+        began = time.monotonic()
+        exit_status, status, body_type = "unavailable", "unknown", "unknown"
+        try:
+            result = subprocess.run([str(suite.probe_bin), "--state", str(f["b"].state), "--address", peer_address(f["a"]),
+                "--alpn", "peerspan-peer/1", "--path", "/peer/v1/networks/" + f["net"] + "/agents", "--method", "GET"],
+                input=b"", capture_output=True, timeout=15)
+            exit_status = "zero" if result.returncode == 0 else "nonzero"
+            try:
+                envelope = json.loads(result.stdout)
+            except (ValueError, TypeError):
+                envelope = None
+            if type(envelope) is dict:
+                candidate = envelope.get("status")
+                if type(candidate) is int and 200 <= candidate <= 599:
+                    status = candidate
+                body_type = {dict: "object", list: "array", str: "string", int: "number", float: "number",
+                    bool: "boolean", type(None): "null"}.get(type(envelope.get("body")), "unknown")
+        except subprocess.TimeoutExpired:
+            exit_status = "timeout"
+        except Exception:
+            pass
+        after = traffic(f)
+        print("reachability_independent_probe_public=" + json.dumps({"exit": exit_status, "http_status": status,
+            "body_type": body_type, "elapsed_ms": int((time.monotonic() - began) * 1000),
+            "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(after, before)],
+            "manual_hint_matches": hint_matches}, sort_keys=True), flush=True)
+    except Exception:
+        pass
+
+
 def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
     parent = parent or f["pb"]
     body = body or request(f, parent)
@@ -633,6 +689,7 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
                         "project_udp_errors": f["b"].counted_peer.error_counts()}, sort_keys=True), flush=True)
                 except Exception:
                     pass
+                failure_peer_probe(f)
             check(value["reachability"]["result"] == outcome, "unexpected explicit transport observation")
         try:
             process = f["a"].process
