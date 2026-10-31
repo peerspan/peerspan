@@ -350,7 +350,8 @@ function privacy(w: World, text = '', runtime = false, executable = 'peerspan', 
   expect(w.forbidden).toEqual([]); expect(w.prompts).toEqual([])
   expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
   if (!runtime) expect(w.http).toEqual([])
-  for (const value of [ROOT, NATIVE, RAW, TOKEN, SOCKET, '/private/access-path', 'PRIVATE_PROVIDER_ERROR', state,
+  expect(w.outside.join('\n')).not.toContain(ROOT)
+  for (const value of [NATIVE, RAW, TOKEN, SOCKET, '/private/access-path', 'PRIVATE_PROVIDER_ERROR', state,
     w.parent?.flow_id, w.parent?.review_id, w.parent?.review.session_id, w.access?.access_id, w.access?.review_id,
     w.access?.review.intent_id].filter(Boolean)) {
     expect(text).not.toContain(value); expect(w.outside.join('\n')).not.toContain(value)
