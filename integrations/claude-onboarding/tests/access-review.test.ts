@@ -585,7 +585,8 @@ test('complete narrow name-wide grant preserves unrelated body defaults and actu
   privacy(w, await shown(ui))
 })
 
-test('double Approve shares the in-flight gate and sends one configured5s exact private-stdin mutation after fresh guards', async ($, on) => {
+test('double Approve shares the in-flight gate and sends one configured5s exact private-stdin mutation after fresh guards',
+  { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private access state/$(literal)' } } as TestOptions, async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), normal = w.read, original = clone(w.access), delayed = delaySignal(w)
   let gated = false
   w.read = async (kind, payload, e) => { const value = await normal(kind, payload, e)
@@ -599,7 +600,7 @@ test('double Approve shares the in-flight gate and sends one configured5s exact 
   const trace = w.trace.slice(at), sent = trace.indexOf(APPROVE)
   for (const kind of ['root', 'native', 'snapshot', 'project.inspect', LOOKUP, INSPECT]) expect(trace.slice(0, sent)).toContain(kind)
   privacy(w, await shown(ui), false, '/fixture bin/peerspan;$(literal)', '/private access state/$(literal)')
-}, { options: { executable: '/fixture bin/peerspan;$(literal)', state: '/private access state/$(literal)' } } as TestOptions)
+})
 
 test('matching already-approved preflight recovers recorded global consent with zero approval calls', async ($, on) => {
   const w = fixture(on), ui = await prepared($, w), original = clone(w.access.review)
