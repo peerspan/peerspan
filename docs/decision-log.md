@@ -3292,3 +3292,32 @@ without emitting or interpreting explanatory text. Exact bare-string comparison
 misses the supported displayed form. An independent metadata-only correction
 preserves all old behavior and the first local diagnostic's65222cc2 attribution.
 Discard copying raw attention/error text or changing protocol retries/waits.
+
+GU.impl33e/g result: first added payload prerequisite stops5/6in138.67s before
+history. Independent exact current-listener correction preserves all other
+checks and passes6/6in135.98s with the genuine own hint/expiry/cleanup before the
+unchanged strict history and restart. Durations exceed120s; no runtime/old
+assertion/timeout changes. This does not identify original PR79 callers.
+
+GU.impl33f/h/i result: one frozen-source delivery diagnostic run passes16/16in
+69.56s without triggering. The first CI relay failure remains unclassified.
+Pre-execution store/status corrections and later category-prefix parsing are
+independently attributed; the running original source stayed frozen. All old
+verdicts/actions/waits/exception behavior remain, and removing the additions
+restores the entire original bytes/AST. Fresh final combined-head CI/review
+follows without an unchanged local rerun or a claimed transport fix.
+
+### GU.impl33j — Give the standalone input corpus a real fresh-start window
+
+Combinedcfbe31d CI passes27/28/all PR checks/clean review; section31 input_refusal
+fails5/6in62s with both dec_clock and dec_contacts changed, no state/home paths.
+The actual caller is unclassified. Select a fully observed ordinary restart of
+both existing hosts before this standalone input case, actual explicit sync/
+current hints/directory/retirement, and a monotonic entire-case bound before the
+normal first60s periodic sync. All real workers/paths/arguments/clock and lifetime
+counters remain enabled and unchanged; all earlier history cases remain exact.
+An independent author adds only setup/metadata; removing it restores the old
+source bytes/AST. Discard guessed global directory fences, delaying/disabling
+workers, hidden traffic, larger waits or changing any old assertion/verdict.
+No runtime fix or retrospective caller attribution is claimed. Commit before
+one retained frozen-source run and fresh final combined CI/review.
