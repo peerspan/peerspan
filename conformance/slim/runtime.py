@@ -209,7 +209,8 @@ def enable(*extra, host=None, socket=None):
     """`runtime enable` on alice's host; returns the new policy version once bob's host knows it."""
     host = host or state["a"]
     rt = state["rt"]
-    result = host.cli("runtime", "enable", "--socket", str(socket or rt.socket), *extra, timeout=90)
+    result = host.cli("runtime", "enable", "--socket", str(socket or rt.socket), "--person-key", state["alice_key"],
+                      *extra, timeout=90)
     check(result.ok, f"runtime enable {' '.join(extra)}: exit {result.code} {result.stderr.strip()[-400:]}")
     version = policy_version(host, state["alice_public"])
     if host is state["a"]:
@@ -354,7 +355,15 @@ def local_artifact(task_id, sha256, sender=None, receiver=None, timeout=20):
     return found["data"]
 
 
-# The background network on its own clock: renewal and a lapsed sender (runtime Policy body; Checks step 2).
+# ---------------------------------------------------------------------------------------------------------------
+# CLOCK-HEAVY CASES: Rust-test candidates if the runtime job exceeds 2 minutes in CI.
+#
+# The background network below (rhea and sam, 2 more hosts, its own test clock) exists only for the two cases in
+# CLOCK_HEAVY: runtime_rules kept across an automatic renewal, and a sender whose grants lapsed. They need days of
+# test-clock time and a renewal window of up to 75 seconds. To move them to Rust tests, delete everything between
+# this banner and the END CLOCK-HEAVY banner, and the reporting loop at the end of the file; nothing else uses it.
+# To leave them out of one run: --skip renewal_keeps_runtime_rules --skip lapsed_sender_needs_allow_disconnected.
+# ---------------------------------------------------------------------------------------------------------------
 
 def lapse_world():
     clock = Clock(suite.work / "clock-lapse")
@@ -364,13 +373,14 @@ def lapse_world():
     key = ssh_key(s.root, "sam")
     join_new_person(r, s, "sam", key, net)
     rhea_public = r.api("GET", f"/v2/networks/{net}")[1]["person_public_key"]
-    rhea_pid = r.ok("person", "show", "--person-key", r.home / ".config/peerspan/person_ed25519")["person_id"]
+    rhea_key = r.home / ".config/peerspan/person_ed25519"
+    rhea_pid = r.ok("person", "show", "--person-key", rhea_key)["person_id"]
     sam_pid = s.ok("person", "show", "--person-key", key)["person_id"]
     s.stop()  # sam's host cannot consent to renewing its own host grant from here on
 
     def sign(*extra):
-        result = r.cli("runtime", "enable", "--socket", str(rt.socket), "--for", f"person:{sam_pid}", *extra,
-                       timeout=90)
+        result = r.cli("runtime", "enable", "--socket", str(rt.socket), "--person-key", rhea_key,
+                       "--for", f"person:{sam_pid}", *extra, timeout=90)
         check(result.ok, f"rhea: runtime enable: exit {result.code} {result.stderr.strip()[-300:]}")
         return policy_version(r, rhea_public, net)
 
@@ -443,11 +453,12 @@ def outcome(name):
     check(name in background["results"], f"step {name} did not run")
 
 
-BACKGROUND = ("renewal_keeps_runtime_rules", "lapsed_sender_needs_allow_disconnected")
+CLOCK_HEAVY = ("renewal_keeps_runtime_rules", "lapsed_sender_needs_allow_disconnected")
 worker = threading.Thread(target=run_lapse_world, daemon=True)
-if (not suite.args.only or any(n in suite.args.only for n in BACKGROUND)) and \
-        not all(n in suite.args.skip for n in BACKGROUND):
+if (not suite.args.only or any(n in suite.args.only for n in CLOCK_HEAVY)) and \
+        not all(n in suite.args.skip for n in CLOCK_HEAVY):
     worker.start()
+# END CLOCK-HEAVY (the reporting loop at the end of the file belongs to it too)
 
 # Setup.
 
@@ -504,8 +515,14 @@ def _():
 @suite.case("switch_on_without_rule", "runtime Checks step 2: no runtime rule (403); runtime show")
 def _():
     a, rt = need("a", "rt")
+    status, body = a.api("PUT", "/v1/runtime", {"socket": str(suite.work / "nothing.sock")})
+    check(status == 503, f"PUT /v1/runtime with a socket where no runtime answers: {status} {body}")
     status, body = a.api("PUT", "/v1/runtime", {"socket": str(rt.socket)})
-    check(status == 200, f"PUT /v1/runtime: {status} {body}")
+    check(status == 200 and isinstance(body, dict) and body.get("version") == "fake-runtime-1"
+          and body.get("max_concurrent_runs") == 1, f"PUT /v1/runtime returns the runtime's report: {status} {body}")
+    switch = a.state / "runtime.json"
+    check(switch.is_file() and (switch.stat().st_mode & 0o777) == 0o600,
+          f"the switch is not runtime.json (0600) in the state directory: exists {switch.exists()}")
     shown = show(a)
     check(shown["enabled"] is True and shown["socket"] == str(rt.socket) and shown["rule"] is None,
           f"runtime show with the switch only: {shown}")
@@ -533,8 +550,9 @@ def _():
     check(any(word in said for word in ("software", "upgrade", "older", "earlier")),
           f"runtime enable did not state the compatibility warning (RUN-5): {said[-300:]!r}")
     rule = show(a)["rule"]
-    want = {"host": a.id, "principals": [state["alice_principal"]], **DEFAULTS, "allow_disconnected": False}
-    check(rule == want, f"the default rule {rule}, want {want}")
+    want = {"host": a.id, "principals": [state["alice_principal"]], **DEFAULTS, "allow_disconnected": False,
+            "network_id": state["net"]}
+    check(rule == want, f"the default rule {rule}, want {want} (the body rule plus network_id)")
     state["version_alice_only"] = version
     status, body = peer_submit(raw_task())
     check(status == 403, f"bob, not a principal of the rule: {status} {body}")
@@ -1055,6 +1073,11 @@ def small_bounds():
     result = result_of(last)
     check(names(last) == ["stdout.log"] and result["results_dropped"] == ["stderr.log"],
           f"drops: {names(last)} {result['results_dropped']}")
+    # A result that does not fit is skipped and later ones are still tried.
+    last = final(submit(["bytes", "40000", ";", "stderr", "e"]))[-1]
+    result = result_of(last)
+    check(names(last) == ["stderr.log"] and result["results_dropped"] == ["stdout.log"],
+          f"a later result after a drop: {names(last)} {result['results_dropped']}")
     # changes.tar does not fit with the input archive: deleted.txt goes with it; a drop never fails the task.
     entry = changes_workspace()
     big = ["y" * 4000] * 4
@@ -1120,6 +1143,32 @@ def _():
                    "echo", "late", timeout=60)
     check(result.code == 125, f"an expired run: exit {result.code}, want 125")
     cancel(holder)
+    # A cancelled task ends "otherwise": 125, even with a run result carrying signal 9.
+    cancelled = {}
+    follower = threading.Thread(target=lambda: cancelled.setdefault(
+        "result", b.cli("task", "run", "--peer", a.id, "--", "sleep", "30", timeout=90)))
+    follower.start()
+
+    def running_task():
+        tasks, after = [], 0
+        while True:  # task list pages like messages: [{sequence, task}]
+            status, page = b.api("GET", f"/v1/tasks?after={after}")
+            check(status == 200, f"task list: {status} {page}")
+            if not page:
+                break
+            tasks += page
+            after = page[-1]["sequence"]
+        for item in reversed(tasks):
+            request = item["task"]["request"]
+            if request.get("run", {}).get("argv") == ["sleep", "30"] and item["task"]["status"] \
+                    and item["task"]["status"]["state"] == "running":
+                return request["task_id"]
+        return None
+    task_id = wait_for(running_task, timeout=30, interval=0.5, message="the followed task to be running")
+    cancel(task_id)
+    follower.join(timeout=60)
+    check("result" in cancelled and cancelled["result"].code == 125,
+          f"a cancelled task run: exit {cancelled.get('result') and cancelled['result'].code}, want 125")
     result = b.cli("task", "run", "--peer", a.id, "--detach", "--", "echo", "detached", timeout=30)
     check(result.ok and isinstance(result.json, dict) and result.json["request"]["executor"] == "runtime"
           and result.json["request"]["input"] == "echo detached", f"--detach: exit {result.code} {result.stdout[-300:]}")
@@ -1130,11 +1179,13 @@ def _():
 def _():
     a, rt = need("a", "rt")
     need("ready")
-    over = a.cli("runtime", "enable", "--socket", str(rt.socket), "--max-cpus", "9", timeout=60)
+    over = a.cli("runtime", "enable", "--socket", str(rt.socket), "--person-key", state["alice_key"], "--max-cpus",
+                 "9", timeout=60)
     check(not over.ok, "runtime enable accepted a maximum over the runtime's report")
-    missing = a.cli("runtime", "enable", "--socket", str(suite.work / "nothing.sock"), timeout=60)
+    missing = a.cli("runtime", "enable", "--socket", str(suite.work / "nothing.sock"), "--person-key",
+                    state["alice_key"], timeout=60)
     check(not missing.ok, "runtime enable accepted a socket where no runtime answers")
-    out = a.cli("runtime", "disable", timeout=90)
+    out = a.cli("runtime", "disable", "--person-key", state["alice_key"], timeout=90)
     check(out.ok, f"runtime disable: exit {out.code} {out.stderr.strip()[-300:]}")
     shown = show(a)
     check(shown["enabled"] is False and shown["rule"] is None, f"after disable: {shown}")
@@ -1157,7 +1208,8 @@ def _():
     task_id = submit(["echo", "queued"])
     receiver_events(task_id, until=lambda evs: bool(evs))
     status, body = a.api("DELETE", "/v1/runtime")
-    check(status == 200, f"DELETE /v1/runtime: {status} {body}")
+    check(status == 200 and body == {"enabled": False}, f"DELETE /v1/runtime: {status} {body}")
+    check(show(a)["rule"] is not None, "DELETE /v1/runtime changed the policy")
     try:
         events = final(task_id, timeout=20)
         check(events[-1]["kind"] == "rejected" and events[-1]["message"], f"events {[e['kind'] for e in events]}")
@@ -1173,7 +1225,7 @@ def _():
     holder = occupy(4)
     task_id = submit(["echo", "queued"])
     receiver_events(task_id, until=lambda evs: bool(evs))
-    out = a.cli("runtime", "disable", timeout=90)
+    out = a.cli("runtime", "disable", "--person-key", state["alice_key"], timeout=90)
     check(out.ok, f"runtime disable: {out.stderr.strip()[-300:]}")
     status, body = a.api("PUT", "/v1/runtime", {"socket": str(rt.socket)})  # the switch on again, without a rule
     check(status == 200, f"PUT /v1/runtime: {status} {body}")
@@ -1516,6 +1568,7 @@ def _():
     copy.stop()
 
 
+# CLOCK-HEAVY reporting (see the banner above).
 for _name, _spec in (("renewal_keeps_runtime_rules", "runtime Policy body (Renewal and edits): automatic renewal "
                                                      "copies runtime_rules; test clock"),
                      ("lapsed_sender_needs_allow_disconnected", "runtime Checks step 2: a sender whose grants "

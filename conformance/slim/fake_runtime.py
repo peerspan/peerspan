@@ -85,7 +85,7 @@ class Run:
         self.request = request
         self.run_id = request["run_id"]
         self.created_at = now_text()
-        self.state = "created"
+        self.state = "running"  # until the run has exited (runtime local API)
         self.events = []
         self.cancel = threading.Event()
         self.dir = tempfile.mkdtemp(prefix=self.run_id[:16] + "-", dir=runtime.root)
@@ -140,10 +140,8 @@ class Run:
                 raise Stop(sig=9)
             self.unpack()
             self.before = self.snapshot()
-            with self.runtime.lock:
-                if self.cancel.is_set():
-                    raise Stop(sig=9)
-                self.state = "started"
+            if self.cancel.is_set():
+                raise Stop(sig=9)
             self.started_at = time.monotonic()
             started = True
             self.emit("started")
@@ -548,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
             elif len(parts) == 3 and parts[:2] == ["v1", "runs"] and method == "DELETE":
                 runtime.delete(parts[2])
                 runtime.log(event="delete", run_id=parts[2])
-                status, value = 204, None
+                status, value = 200, {}
             else:
                 raise ApiError(404, "not_found", "no such route")
         except ApiError as refused:
