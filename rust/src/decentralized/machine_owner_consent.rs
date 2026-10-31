@@ -508,7 +508,7 @@ pub(crate) fn run(c: &Connection, store: &Store, op: &str, input: &Input) -> Res
                 require(
                     !r.meta.record.approved
                         && !r.owner.record.approved
-                        && state(c, store, input, &p, r, latest.as_deref(), &now) != "review",
+                        && state(c, store, input, &p, r, latest.as_deref(), &now)? != "review",
                     "review_changed",
                 )?;
             }
