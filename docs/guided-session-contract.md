@@ -7646,6 +7646,32 @@ Selected: narrow failure-only public metadata, preserving every measurement
 and verdict. Discard guessed contact/refresh fixes, artificial queue/authority
 edits, disabling workers/paths, counter filtering, larger waits and blind reruns.
 
+### GU.impl40b: access-signing startup prerequisite observation
+
+Revised CI78668d1 passes four PR checks/native393 and29/30 host suites, including
+both GU.impl40a diagnostic suites. Existing section32 access_signing cases5/6
+fail the unchanged current genuine peer startup query has not completed setup
+assertion. The log does not show the returned directory state; cause unknown.
+Do not infer a timeout or relax the required successful current startup query.
+
+One separate contract-only author may add a compact failure-only observer to
+that existing directory helper. Use only its already-returned response/status
+and known participant IDs; no new IO, clock read, refresh, retry, wait, bound or
+setup change. When its original known-peer assertion would fail, print only:
+local_role/remote_role a/b/unknown, HTTP status100..599/unknown, network_matches
+boolean/unknown, known_row_count, whitelisted host state ok/error/unsupported/
+pending/unknown, and refreshed_at-present boolean/unknown. No error strings,
+raw rows, keys/IDs/addresses/timestamps/paths/labels/bodies or exceptions. Catch
+diagnostic errors; execute the exact original assertion unchanged afterward.
+No observer on success. Removing only helper/call additions restores original
+source bytes/full AST. Keep all case actions/captures/assertions/delays/deadlines/
+counted paths. Commit before one retained local diagnostic suite run against
+the same frozen binaries. A pass does not classify prior CI or fix runtime.
+
+Selected: identify the exact returned prerequisite state without guessing or
+changing the test's success criterion. Discard blind rerun, state-ok relaxation,
+counter filtering, new network attempts and increased existing waits.
+
 ## 41. Remaining flow contract
 
 Teammate/device admission, remaining

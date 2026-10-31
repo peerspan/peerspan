@@ -3556,3 +3556,10 @@ source bytes and full AST. All381 prior native cases and other58 prior test/
 helper files remain exact. Frontend/Rust stay frozen; final full CI and fresh
 review run on the combined documentation/diagnostic head. Preserve first CI,
 first local outcomes, duration and unknown causes; no unchanged rerun.
+
+GU.impl40b: revised78668d1 CI passes native393/four checks and29/30 host suites;
+both prior diagnostic suites pass. Access-signing's unchanged startup-query
+prerequisite fails without returning its state in the log. Choose compact
+captured-response-only diagnostics by the separate author, preserving the exact
+successful-peer assertion and all setup/actions/bounds. No cause inferred,
+new network attempt, relaxed state, larger wait or unchanged rerun.
