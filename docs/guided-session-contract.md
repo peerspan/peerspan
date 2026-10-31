@@ -8510,7 +8510,137 @@ inputs, broader resume/F/commit automation, proofless completion, indefinite
 polling, unbounded fallback or historical signature evidence as current readiness.
 Recommended under GU-OWN1; no new choice attributed to the owner.
 
-## 44. Remaining flow contract
+## 44. Native existing-computer machine-owner review and initial signing
+
+GU.impl44 follows merged96. Compose sections41–43 in the existing terminal
+`/peerspan` pane. No new host/API/schema, model setup tool, private code handling,
+key inventory, signer selection or protocol driver. Existing new-computer
+section40 and administrator/new-original lanes retain their separate meanings.
+
+### Explicit choice, exact public evidence and consent
+
+After a current project attachment, **Review machine requests** opens a fresh
+owner-local `onboarding` inventory. Reuse the complete validated incoming new,
+approver, nonmigration, network/context/person-pinned LINK_VIEW inventory and
+immutable request pins of section23, sorted by request ID, ten choices per page.
+Inventory claims are unverified; choosing a retained request performs only
+`onboarding machine lookup --stdin`. No first candidate or provider is selected
+by the frontend. Unsupported requests refuse without falling back to another
+identity, root, new-original or administrator flow. Empty inventory says so.
+
+All subprocesses use the trusted configured executable/state as literal argv;
+IDs/context stay in private JSON stdin. Lookup/prepare/approve/signing have a5s
+process bound. Sign has95s. No shell, startup, key/file/agent API, prompt, tool,
+network, plugin storage or transcript write. Payloads are exactly section42/43:
+lookup `{context,request_id}`, prepare additionally `inspection_review_id`,
+approve additionally `consent_id,consent_review_id`, signing the latter exact
+shape, sign additionally `decision:"sign_machine_owner_offer"`. Historical lookup
+may add retained `consent_id`; no silent latest receipt substitution once one is
+retained. No native replacement/cancellation/revocation in this slice; advanced
+explicit replacement remains available, then leave/reopen for a fresh review.
+
+Validate <=2MiB JSON, recursively safe public strings/keys, canonical IDs/keys/
+whole-second timestamps, exact closed wrappers/reviews/effects, full context/
+host/project agent/request pins, original/device provider/lease/format/root,
+local P/H/B/D dependencies, finite scopes7/deadline cap/fold relationship, fixed
+consent windows and both review domain hashes. Inspection in lookup may be null;
+consent retains its own frozen full inspection and digest. A consent from another
+recorded context is historical only even when the lookup's current context is
+valid. Never relabel another project's approval or a changed review as ours.
+Validate section43's exact closed signing fields,2/3 required counts, state/
+can_sign/next-action consistency and all seven not_verified fields. Bind its
+intent/offer IDs to the exact approved receipt. Signed is retained initial typed
+signature evidence only; it need not have live eligibility or unexpired windows.
+
+Choosing a request shows lookup's verified public terms. Display the complete
+network/context/root, request/packet/person/target-host/device keys, member,
+selected public provider kind/key/lease/scopes/deadline/signature format, local
+P/H/B/D lease dependencies, proposed7 (1 policy,2 host binding,4 own-device work;
+no administrator8), not_after and owner fold versus separate administrator.
+Quote every public label. Explain this does not probe private key availability.
+**Review machine consent** appears only after current inspection and null consent;
+it prepares the exact inspection digest after a fresh matching lookup. Display
+all immutable consent fields including ID/digest/intent/offer/predecessor and
+original receipt/stage/request/powers deadlines, plus effects. Preparation grants
+nothing. **Approve machine consent** requires the same complete displayed review
+and a fresh pure lookup, exact project/host/request and all live windows. Approval
+authorizes ordinary owner signing/publication and bounded B/D/F after requester
+selection; it does not itself guarantee signatures/delivery/admission/powers.
+
+### Explicit initial signatures and truthful recovery
+
+For an approved receipt in this exact recorded project, obtain pure
+`onboarding machine signing --stdin` evidence. **Sign machine owner offer** is
+shown only for current can_sign with an incomplete initial2/3-slot signature set
+and all original windows live. On press, re-read exact consent and signing,
+compare the complete retained review/digest, recheck parent and time, then send
+one explicit sign. No automatic signing, mutation retry, polling, progress/fetch/
+resume/publication/F/selection/commit/access driver. Ordinary already-approved
+background work can progress independently. A now-signed pure status replaces
+the action without another sign. **Check machine consent** is explicit pure
+lookup/status recovery after any result, error, uncertain timeout or reload.
+Every response must match the retained request/receipt and cannot regress its
+observation time. Never refresh the original windows from a new observation.
+
+Single-flight guards and exact parent flow/review/full-review, root, conversation,
+host and terminal surface checks surround every await/dispatch. A refreshed or
+closed pane, parent/session/root/host/surface change, leave, deadline, or stale
+callback invalidates in-flight work and actionable evidence. Keep the original
+minimum consent/stage/request/powers deadline timer authoritative while busy;
+check fresh time immediately before mutation dispatch. Refresh/leave/reopen do
+only reads; no durable frontend state. Reads of retained historical approval or
+signatures can be displayed after expiry without enabling mutation. Fail closed
+on malformed/unsafe/changed evidence; discard stdout/stderr and fixed generic
+messages only. A dispatched mutation failure says outcome unknown and offers
+explicit pure Check, never retry. A late response cannot restore an invalidated
+review. Shared pinned native test kit cannot retain obsolete rendered closures;
+those callbacks and microscopic host changes after dispatch remain source/manual
+limits, never claimed as runtime coverage.
+
+Show separate facts: consent recorded; exact initial signature count recorded;
+publication, host admission, machine powers, requester selection/commit, agent
+access and connection readiness not verified. Link completion is later work.
+No success/ready badge from approval or signed. No original key copying and no
+change to ordinary single-offer requester selection under network spec8.4.
+
+### Verification
+
+An independent contract-only author adds one native `machine-owner.test.ts`
+using public native runtime mocks and independently constructed sections41–43
+fixtures, without implementation reads/imports or runtime/process execution.
+Root alone runs pinned303 actual plugin validation and the complete native
+suite, serially; preserve all393 existing cases/files and all existing host
+suites/helpers byte-for-byte. Retain every first failure/no-start and fix from
+the contract; no weakened assertion or unchanged retry. No backend source
+changes: unchanged Rust/host behavior is verified by combined-head CI. New cases:
+
+1. Explicit entry/empty inventory, ten-per-page retained choice, unverified
+   inventory cannot itself enable Prepare/Approve/Sign; no eager mutation.
+2. Valid original-person and device public inspections, exact quoted keys,
+   finite7 and both fold/separate-administrator terms; private signer unavailable
+   does not prevent a valid public inspection.
+3. Exact prepare stdin/digest, no approval/sign and no private/model/storage work.
+4. Complete same-review approval, exact argv/stdin; ordinary progression warning.
+5. Pure approved signing/status, exact explicit initial sign,2/3 counts and all
+   not_verified disclaimers, already-signed status does not dispatch sign.
+6. Historical expired/cancelled/invalidated and other-project receipt stay
+   view-only; signed history remains honest and never enables later work.
+7. Changed request/context/agent/provider/root/digest/effects/lease/keys/cap/fold/
+   consent or signature counts/IDs/unknown fields refuse without mutation.
+8. Unsafe/private-prefixed/control/oversize output and subprocess diagnostics
+   never appear in UI, chat, tools or writes; fixed generic refusal only.
+9. Fixed deadline before action and while held; no late actionable resurrection,
+   no restarted stage/powers/receipt windows.
+10. Single flight, held responses and root/conversation/host/parent/surface change,
+    Refresh/leave/Close/session end clear controls, no automatic mutation retry.
+11. Lost prepare/approve/sign responses recover only by explicit pure Check;
+    counts/status reflect actual retained host evidence without duplicate sign.
+12. Original393 native cases and all old host suites remain unchanged; new suite
+    covers only mocked native boundary. Actual terminal/reload, installed/two-
+    machine/model receipt, requester completion and #35 combined acceptance
+    remain open and cannot be inferred from passing fixtures.
+
+## 45. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
