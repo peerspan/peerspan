@@ -3538,3 +3538,12 @@ pre/mid/post samples. The pinned303 CLI has no test-file selector; run corrected
 new12 in a byte-exact plugin copy containing only its committed test file, then
 the full393 in required final CI. Discard unchanged old-case local retries,
 assertion edits, timeout changes or a guessed runtime diagnosis.
+
+GU.impl40a: first final-head8183a22 CI passes four PR checks/native393/Rust gates
+but two unchanged host suites fail strict purity (28/30 pass). Their existing
+metadata lacks an exact caller; retain both as unclassified. Choose separate-
+author failure-only phase/key/contact-lifecycle and one bounded pure directory-
+cache observation, contracted in section40 before author edits. Preserve all
+original assertions/captures/actions/delays/timeouts/counters/records; diagnostic
+removal must restore source bytes/AST. Discard blind reruns, transplanting an
+earlier suite's cause, guessed setup changes, worker disabling and weaker gates.
