@@ -1782,7 +1782,7 @@ function joinFailure($, running, epoch, uncertain = false) {
   joiningExpiry?.cancel();
   joiningExpiry = null;
   joining = { ...running, stage: 'unavailable', code: '', secret: null, preview: null, busy: false,
-    message: running.machine ? 'Machine request unavailable. Reopen Connect this computer to inspect the recorded result; no automatic retry. Use an invitation that pins the existing person from the existing computer.'
+    message: running.machine ? 'Machine request unavailable. Reopen Connect this computer to inspect the recorded result; no automatic retry. Use a pinned invitation from the existing computer.'
       : uncertain ? 'Join outcome unavailable. Reopen joining to inspect the recorded result; no automatic retry.'
       : 'Joining unavailable. Reopen to inspect the host before another private attempt.' };
   $.ui.invalidate('ui.render');

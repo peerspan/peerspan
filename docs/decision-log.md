@@ -3529,3 +3529,12 @@ as the preceding invitation review. Discard losing that identity context when
 moving between two separate human decisions. The contract-only author's
 disclaimer assertion accepts equivalent negative wording (including neither),
 without changing the reviewed facts or removing its ownership/authority check.
+
+GU.impl40 first native run:390/393 in72.71s, new11/12. Fix the controlled
+guidance to say pinned invitation explicitly; its preceding pins wording was
+semantically similar but less direct. Preserve the first failure. Two unchanged
+old access-completion5s timeouts remain unclassified, with no known compiler in
+pre/mid/post samples. The pinned303 CLI has no test-file selector; run corrected
+new12 in a byte-exact plugin copy containing only its committed test file, then
+the full393 in required final CI. Discard unchanged old-case local retries,
+assertion edits, timeout changes or a guessed runtime diagnosis.

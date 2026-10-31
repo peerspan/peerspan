@@ -7580,6 +7580,15 @@ or quota-refused model probes. Retain earlier unclassified native/transport/
 history failures. Existing-computer guided approval and terminal/installed/
 physical/model/schema23-to27/full-state/final combined/full-feature gates stay open.
 
+First full393 native execution records390 pass: eleven new cases pass, one new
+case requires the clearer explicit phrase pinned invitation, and two unchanged
+old access-completion cases hit their original5s limits (cause unclassified).
+Correct that guidance, preserve every case/deadline, and verify the affected
+twelve in a byte-exact plugin artifact containing only the new test file: the
+pinned CLI exposes no filename filter. Record its file manifest/source hashes;
+do not retry the unchanged old cases locally. Required final CI still runs all
+393 at one exact final head; that pass cannot classify the earlier timeouts.
+
 Selected: explicit pinned existing-person requester lane over ordinary public-
 key-only backend, original key stays on its machine. Discarded: copying/import,
 substitute person creation, local inventory as a device prerequisite, arbitrary
