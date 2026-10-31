@@ -7913,7 +7913,8 @@ payload or ID positional argv; fixed redacted CLI parsing/transport errors,
 configured owner socket,5s request bound, no daemon startup. API missing request
 or specified receipt is404 not_found; malformed400 invalid; changed context/
 inspection/replacement/review409 review_changed; elapsed consent409 review_expired;
-other unsupported/corrupt evidence409 machine_owner_consent_unavailable. Generic
+other unsupported/corrupt evidence409 machine_owner_consent_unavailable. Every
+successful lookup, prepare and approve returns HTTP200, including first prepare. Generic
 fixed messages expose no private/raw diagnostics. All routes remain absent from
 scoped adapter, mTLS peer and bootstrap routers.
 
@@ -7956,15 +7957,18 @@ never replace their templates, provider, creation time or proposed deadline.
 
 Review is exactly `{version:1,kind:"approve_existing_person_machine",consent_id,
 host_id,context,agent,request_id,request_packet_id,inspection_review_id,inspection,
-intent_id,proposed_owner_offer_id,replaces_consent_id,created_at,expires_at,effects}`.
+intent_id,proposed_owner_offer_id,replaces_consent_id,created_at,expires_at,
+request_stage_deadline,effects}`.
 Inspection is the complete frozen section41 review (not its wrapper); agent
 exactly matches inspection.agent; context/host/request pins match throughout.
 Proposed owner_offer ID derives from the actual ordinary first owner template,
 not caller text. Intent ID is the actual owner intent. Replaces is dash or the
 exact earlier receipt. Created_at is the actual first receipt preparation time.
 Expires_at is the earliest of ordinary owner intent.created_at+300s, signed
-request expiry, current stage deadline (latest stage_at, else signed creation,
-plus600s) and proposed powers not_after. It must be strictly after created_at;
+request expiry, request_stage_deadline and proposed powers not_after. The
+request_stage_deadline is a frozen canonical timestamp: stage_at at first
+preparation, else signed request creation, plus600s. Retain this original
+deadline through later ordinary stage changes. Expires_at must be strictly after created_at;
 replays never refresh either timestamp or ordinary honest-signing window.
 
 Effects are exactly:
