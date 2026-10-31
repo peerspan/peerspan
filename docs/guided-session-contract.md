@@ -7176,6 +7176,17 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    in both state comparisons. Observe real time before/after; never move retry
    timestamps, suppress a worker or ignore an outbox/table/counter difference.
    Positive-route captures still finish actual outstanding transport first.
+   The selected deterministic bootstrap prerequisite now temporarily enables
+   counted peer listeners without manual peer rows, exchanges genuine signed
+   current contacts and drains actual proof outboxes. It then publishes/imports
+   genuine newer empty-QUIC contacts while the listeners still accept the
+   ordinary authenticated contact import, retires short handoff references
+   through their real expiry/maintenance, and restarts bootstrap-only before
+   the no-route capture. No manual hint/helper or cached dial route survives.
+   Require actual empty outboxes/secrets/frames and the unchanged quiet gate;
+   never delete/acknowledge rows directly. Earlier natural-window failures and
+   diagnostics stay recorded; no sleep or deadline increase substitutes for
+   finishing the genuine pending work.
    If the unchanged bootstrap quiet bound fails, a failure-only observer may
    retain the last eight existing samples: elapsed/stable milliseconds, retry
    margins against both actual clocks, secret/readcap/frame/journal counts,
