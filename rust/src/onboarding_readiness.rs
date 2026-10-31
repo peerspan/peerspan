@@ -31,7 +31,7 @@ impl Store {
         let mut c = self.connection()?;
         let tx = c.transaction()?;
         let at = crate::decentralized::local_decision_time().map_err(|_| unavailable())?;
-        crate::decentralized::product::with_read_time(&at, || {
+        crate::decentralized::product::with_strict_read_time(&at, || {
             let inspection = inspect_in(&tx, self, &input, &at)?;
             let now = chrono::DateTime::parse_from_rfc3339(
                 inspection["observed_at"].as_str().ok_or_else(unavailable)?,
@@ -56,7 +56,9 @@ impl Store {
                 if id == self.identity().id {
                     continue;
                 }
-                let advertised = self.reachable_agents_in(&tx, &id, &input.network_id)?;
+                let advertised = self
+                    .reachable_agents_in(&tx, &id, &input.network_id)
+                    .map_err(|_| unavailable())?;
                 let authorizations = advertised
                     .into_iter()
                     .find(|a| a.agent_id == agent_id && a.name == agent_name)
@@ -76,11 +78,15 @@ impl Store {
             };
             let mut connections = Vec::new();
             for raw in credentials {
-                let credential: Adapter = serde_json::from_str(&raw)?;
+                let credential: Adapter = serde_json::from_str(&raw).map_err(|_| unavailable())?;
                 if credential.revoked_at.is_none()
-                    && crate::membership::time(&credential.expires_at)? > crate::clock::now()
+                    && crate::membership::time(&credential.expires_at).map_err(|_| unavailable())?
+                        > crate::clock::now()
                 {
-                    connections.push(self.adapter_connection_in(&tx, &credential.id)?);
+                    connections.push(
+                        self.adapter_connection_in(&tx, &credential.id)
+                            .map_err(|_| unavailable())?,
+                    );
                 }
             }
             let result = json!({"version":1,"host_id":inspection["host_id"],"context":input.context,
