@@ -6142,6 +6142,36 @@ Discard combining signer/application, a second consent/table/journal, hidden
 payload refresh or auto-retry, and claiming delivery/readiness from a local
 commit. Native controls and observed two-way exchange follow separately.
 
+### Retained section25 historical-purity CI failure: bounded diagnosis
+
+Candidate78df456 passes the new application6/6 and every PR check, with a clean
+fresh review. Existing section25 owner_finalization_signing fails5/6in102s:
+recorded F refusal changes only dec_contacts; no state/home path changes are
+reported. This is a distinct retained observation; the runner discarded the
+fixture and the changed row/caller remains unknown. All27 other suites pass.
+
+Before choosing a setup or product correction, a separate contract-only author
+may add one failure-only observer in section25 keyless_refusal immediately
+before its existing whole-state assertion. Reuse only its already captured
+before/after snapshots and the fixture's known public participant/network and
+original request expiry. Do not perform new DB/file/transport reads or writes.
+Preserve every original action, baseline order, assertion/verdict, short-circuit,
+sleep and timeout. On an actual state mismatch, emit at most eight changed
+contact categories, plus bounded before/after/added/removed/changed row counts.
+For structurally canonical rows only, project fixed local/other/unknown host and
+bound-network/unbound/unknown context roles, sequence changed/increased booleans,
+record-field changed booleans and contact-list counts. Decode existing captured
+contact bodies only to compare issued/expiry/payload changed booleans and
+whether their times are after the already known original request expiry.
+Do not emit IDs/keys/sequences/hashes/bodies/timestamps/locators/addresses/paths/
+labels/private data or exception details; malformed data is fixed unknown.
+Diagnostic errors cannot mask the original failure. Removing only this observer
+and its call must restore prior source bytes/AST. Shared helpers, every other
+host/native suite and frozen Rust4842404 remain exact. Commit before one retained
+local diagnostic execution; a passing diagnosis does not identify or fix the CI
+cause. Discard guessed waits/fences, counter filtering, worker/path disabling,
+queue/authority edits, fabricated acknowledgments and unchanged retry-to-green.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining
