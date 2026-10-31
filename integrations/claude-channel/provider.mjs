@@ -15,6 +15,8 @@ const channel = join(directory, 'channel.mjs');
 const minimumVersion = [2, 1, 187];
 // Claude Code negotiates the MCP protocol revision that delivers channel events.
 const launchEnvironment = ['MCP_PROTOCOL_NEGOTIATION=legacy'];
+// Claude Code arguments that work without a terminal.
+const noTerminalNeeded = new Set(['-p', '--print', '-h', '--help', '-v', '--version']);
 const command = (program, args) => {
   const result = spawnSync(program, args, {encoding: 'utf8', timeout: 10000, maxBuffer: 1048576, stdio: ['ignore', 'pipe', 'pipe']});
   return {ok: !result.error && result.status === 0, output: result.stdout ?? ''};
@@ -158,6 +160,8 @@ async function main(request) {
     program: launcher.program,
     args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--settings', settings, '--dangerously-load-development-channels', 'server:peerspan',
       '--allowedTools', tools.map(tool => 'mcp__peerspan__' + tool.name).join(','), ...extra],
+    // Without a terminal on stdout Claude Code switches to --print and exits for lack of a prompt.
+    ...(extra.some(arg => noTerminalNeeded.has(arg)) ? {} : {terminal: true}),
   };
   return response;
 }

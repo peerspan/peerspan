@@ -182,7 +182,10 @@ impl Store {
         for entry in given {
             let matches: Vec<&str> = candidates
                 .iter()
-                .filter(|(p, label)| p.id.as_deref() == Some(entry) || label == entry)
+                .filter(|(p, label)| {
+                    p.id.as_deref()
+                        .is_some_and(|id| names_participant(id, label, entry))
+                })
                 .filter_map(|(p, _)| p.id.as_deref())
                 .collect();
             match matches.as_slice() {
@@ -219,7 +222,8 @@ impl Store {
         for entry in given {
             let mut found = false;
             for id in stored {
-                if id == entry || self.label_of(conn, roster, id)? == *entry {
+                let label = self.label_of(conn, roster, id)?;
+                if names_participant(id, &label, entry) {
                     named.insert(id);
                     found = true;
                 }
@@ -354,7 +358,16 @@ impl Store {
             .into_iter()
             .find(|s| s.message.message_id == message)
             .ok_or(Error::NotFound)?;
-        Ok(json!({"message": self.message_view(&conn, &held.roster, &stored, &reader)?}))
+        // Past a gap while the chain head for this author is below it (C4).
+        let author = &stored.message.author;
+        let remote = !self.local_participant(author);
+        let earlier_missing = remote
+            && *author != reader
+            && self.chain(&conn, id, author, &reader)?.0 < stored.message.seq;
+        Ok(json!({
+            "message": self.message_view(&conn, &held.roster, &stored, &reader)?,
+            "earlier_missing": earlier_missing,
+        }))
     }
     /// One read of the event log: entries for the reader after `after`.
     fn read_events(
@@ -612,6 +625,26 @@ pub(super) async fn forget(
         blocking(store, move |s| s.forget_conversation(&id)).await?,
     ))
 }
+/// Whether an `addressed_to` entry names this participant, in any form
+/// `conversation start` takes for a target, or as its ID or label.
+fn names_participant(id: &str, label: &str, entry: &str) -> bool {
+    if id == entry || label == entry {
+        return true;
+    }
+    let Some((kind, host, local)) = participant_parts(id) else {
+        return false;
+    };
+    if kind == "person" {
+        let raw = entry.strip_prefix("person:").unwrap_or(entry);
+        return label == raw || local == raw;
+    }
+    // From the ID and label alone, so a departed agent still matches.
+    let Some((given_host, agent)) = entry.split_once('/') else {
+        return false;
+    };
+    given_host == host && (local == agent || label.ends_with(&format!("/{agent}")))
+}
+
 /// `GET /v1/conversations/events`: holds up to `wait` seconds for an entry.
 pub(super) async fn events(
     State(store): State<Arc<Store>>,
@@ -625,6 +658,7 @@ pub(super) async fn events(
     let limit = super::sync::number(q.get("limit"), 100, 1..=1_000)?;
     let wait = super::sync::number(q.get("wait"), 0, 0..=MAX_WAIT_SECONDS)?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(wait as u64);
+    let mut closing = store.call_timing.closing();
     loop {
         let (participant, conversation) = (
             q.get("participant").cloned(),
@@ -635,12 +669,15 @@ pub(super) async fn events(
         })
         .await?;
         let empty = answer["events"].as_array().is_none_or(|e| e.is_empty());
-        if !empty || tokio::time::Instant::now() >= deadline {
+        if !empty || tokio::time::Instant::now() >= deadline || *closing.borrow_and_update() {
             return Ok(Json(answer));
         }
         // Entries passed over in this scan stay passed over in the next.
         after = answer["next_after"].as_i64().unwrap_or(after);
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+            _ = closing.changed() => {}
+        }
     }
 }
 

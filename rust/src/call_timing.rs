@@ -58,6 +58,10 @@ impl Timing {
     pub(crate) fn close(&self) {
         self.closing.send_replace(true);
     }
+    /// Turns true on shutdown; a request held for any other reason watches it.
+    pub(crate) fn closing(&self) -> watch::Receiver<bool> {
+        self.closing.subscribe()
+    }
     /// Whether held status requests are in progress for a call, so the poll
     /// workers leave it alone.
     pub(crate) fn following(&self, key: &CallKey) -> bool {

@@ -49,7 +49,6 @@ BLOCKED_AFTER = 1.0  # how long a command runs before the stop, as Fixes says
 
 
 # The markers come off as the fixes land: a marked case that passes fails the suite.
-FIXES = "the multi-machine run fixes are not implemented yet"
 
 
 def need(*names):
@@ -359,7 +358,7 @@ def _():
     state["ned"] = agent("ned")
 
 
-@suite.case("addressed_forms", "C6 `addressed_to`: Local sending; Fixes: `addressed_to` forms", known=FIXES)
+@suite.case("addressed_forms", "C6 `addressed_to`: Local sending; Fixes: `addressed_to` forms")
 def _():
     alice_p, bert = need("alice_p", "bert")[0], state["bert"]
     person = state["alice_person"]
@@ -400,7 +399,7 @@ def _():
         refused(a.cli("conversation", "say", invited, "no", "--to", form), "not_found", NO_PARTICIPANT)
 
 
-@suite.case("addressed_repeats", "C6 `addressed_to`: Repeats; Fixes: `addressed_to` forms", known=FIXES)
+@suite.case("addressed_repeats", "C6 `addressed_to`: Repeats; Fixes: `addressed_to` forms")
 def _():
     conv, alice_p = need("forms_conv", "alice_p")
     mid = message_id()
@@ -420,7 +419,7 @@ def _():
     check(again["seq"] == first["seq"], f"a repeat after ned departed made a new message: {again}")
 
 
-@suite.case("only_agents_show", "C6 A host where only agents take part; Fixes: Agents only: `show`", known=FIXES)
+@suite.case("only_agents_show", "C6 A host where only agents take part; Fixes: Agents only: `show`")
 def _():
     need("bert", "bea")
     a.agent("ada")
@@ -444,7 +443,7 @@ def _():
     state["agents_show_done"] = True
 
 
-@suite.case("only_agents_watch_id", "C6 A host where only agents take part; Fixes: Agents only: `watch`", known=FIXES)
+@suite.case("only_agents_watch_id", "C6 A host where only agents take part; Fixes: Agents only: `watch`")
 def _():
     conv = need("agents_conv")[0]
     need("agents_show_done")
@@ -456,7 +455,7 @@ def _():
     check(WATCHING not in outside.stderr, f"a `Watching` line before the refusal: {outside.stderr!r}")
 
 
-@suite.case("only_agents_watch_all", "C6 A host where only agents take part; Fixes: Agents only: `watch`", known=FIXES)
+@suite.case("only_agents_watch_all", "C6 A host where only agents take part; Fixes: Agents only: `watch`")
 def _():
     conv = need("agents_conv")[0]
     watch = Watch(b)
@@ -490,7 +489,7 @@ def _():
     print(f"  late conversation's line after {state['late_took']:.1f}s", flush=True)
 
 
-@suite.case("terminal_required", "launch A launch that needs a terminal: refuses, keeps the setup", known=FIXES)
+@suite.case("terminal_required", "launch A launch that needs a terminal: refuses, keeps the setup")
 def _():
     want = terminal_required()
     record = bundle("needs-terminal", True)
@@ -512,8 +511,7 @@ def _():
     check(out["reused"] is True, f"at a terminal the object says reused {out['reused']}")
 
 
-@suite.case("terminal_stdin_ignored", "launch A launch that needs a terminal: only stdout decides, stdin is not checked",
-            known=FIXES)
+@suite.case("terminal_stdin_ignored", "launch A launch that needs a terminal: only stdout decides, stdin is not checked")
 def _():
     want = terminal_required()
     record = bundle("stdin-only", True)
@@ -533,8 +531,7 @@ def _():
     check("registered" in doctor.stdout, f"`session doctor` does not report registered: {doctor.stdout[-900:]!r}")
 
 
-@suite.case("terminal_session_start", "launch A launch that needs a terminal: `session start` does not refuse",
-            known=FIXES)
+@suite.case("terminal_session_start", "launch A launch that needs a terminal: `session start` does not refuse")
 def _():
     record = bundle("scripted", True)
     out = tess.ok(*attach_args("scripted", project(), "--no-start"), timeout=60)
@@ -542,8 +539,7 @@ def _():
     check(ran(record) == ["not-a-terminal"], f"`session start` with a pipe: fixture {ran(record)}")
 
 
-@suite.case("terminal_false", "launch A launch that needs a terminal: `terminal` false, stdout a pipe: the fixture runs",
-            known=FIXES)
+@suite.case("terminal_false", "launch A launch that needs a terminal: `terminal` false, stdout a pipe: the fixture runs")
 def _():
     record = bundle("said-false", False)
     tess.ok(*attach_args("said-false", project()), timeout=60)
@@ -557,7 +553,7 @@ def _():
     check(ran(record) == ["not-a-terminal"], f"with a pipe: fixture {ran(record)}")
 
 
-@suite.case("terminal_invalid", "harness launch: any other type is an invalid launch plan", known=FIXES)
+@suite.case("terminal_invalid", "harness launch: any other type is an invalid launch plan")
 def _():
     record = bundle("wrong-type", "yes")
     result = tess.cli(*attach_args("wrong-type", project()), timeout=60)
@@ -566,7 +562,7 @@ def _():
     check(ran(record) == [], f"the fixture ran: {ran(record)}")
 
 
-@suite.case("order_gap_closed", "C6 watch Order; `earlier_missing`; Fixes: Order, gap closed", known=FIXES)
+@suite.case("order_gap_closed", "C6 watch Order; `earlier_missing`; Fixes: Order, gap closed")
 def _():
     need("alice_p")
     conv, version, clock = chat("closed")
@@ -591,7 +587,7 @@ def _():
     state["head3"] = True
 
 
-@suite.case("order_printable_together", "C6 watch Order: printable together, in display order", known=FIXES)
+@suite.case("order_printable_together", "C6 watch Order: printable together, in display order")
 def _():
     need("alice_p")
     conv, version, clock = chat("together")
@@ -613,7 +609,7 @@ def _():
         watch.stop()
 
 
-@suite.case("order_gap_open", "C6 watch Order; `earlier_missing`; Fixes: Order, gap not closed", known=FIXES)
+@suite.case("order_gap_open", "C6 watch Order; `earlier_missing`; Fixes: Order, gap not closed")
 def _():
     conv, version, clock = need("order")[0]
     need("head3")
@@ -642,7 +638,7 @@ def _():
         watch.stop()
 
 
-@suite.case("earlier_missing_otherwise", "C6 `earlier_missing`; Fixes: `earlier_missing` otherwise", known=FIXES)
+@suite.case("earlier_missing_otherwise", "C6 `earlier_missing`; Fixes: `earlier_missing` otherwise")
 def _():
     need("bert", "alice_p")
     bert = state["bert"]
@@ -662,8 +658,7 @@ def _():
     check(message_view(b, conv, his, f"?participant={bert_p}")["earlier_missing"] is False, "on bert's own read")
 
 
-@suite.case("only_agents_watch_once", "C6 A host where only agents take part: once per run, nothing on stdout",
-            known=FIXES)
+@suite.case("only_agents_watch_once", "C6 A host where only agents take part: once per run, nothing on stdout")
 def _():
     conv, joined, late, at = need("agents_conv", "joined_conv", "late_conv", "late_line_at")
     watch = need("wide_watch")[0]
@@ -679,7 +674,7 @@ def _():
     watch.stop()
 
 
-@suite.case("order_held_unread", "C6 watch: a held message stays unread if watch ends first", known=FIXES)
+@suite.case("order_held_unread", "C6 watch: a held message stays unread if watch ends first")
 def _():
     need("alice_p")
     wide = state.get("wide_watch")
@@ -700,8 +695,7 @@ def _():
     check(unread(conv) == 1, f"unread {unread(conv)} after a watch ended holding the message, want 1")
 
 
-@suite.case("only_agents_gone", "C6 A host where only agents take part: no agent, C1's line; Fixes: Agents only: `show`",
-            known=FIXES)
+@suite.case("only_agents_gone", "C6 A host where only agents take part: no agent, C1's line; Fixes: Agents only: `show`")
 def _():
     conv = need("agents_conv")[0]
     need("agents_show_done")
@@ -720,7 +714,7 @@ def _():
         raise AssertionError(f"{b.cli('conversation', 'show', conv).stderr!r}") from None
 
 
-@suite.case("stop_with_watch", "C6 Daemon stop; host service: stop limits; Fixes: Stop with a watch", known=FIXES)
+@suite.case("stop_with_watch", "C6 Daemon stop; host service: stop limits; Fixes: Stop with a watch")
 def _():
     conv = start("person:bob")
     try:
@@ -740,7 +734,7 @@ def _():
         running(b)
 
 
-@suite.case("stop_long_poll", "C6 Daemon stop: a held events request answers at once", known=FIXES)
+@suite.case("stop_long_poll", "C6 Daemon stop: a held events request answers at once")
 def _():
     answer = {}
     status, body = b.api("GET", "/v1/conversations/events?wait=0&limit=1")
@@ -765,7 +759,7 @@ def _():
         running(b)
 
 
-@suite.case("stop_route_start", "C6 Daemon stop: POST /v1/conversations; Fixes: Stop with a route waiting", known=FIXES)
+@suite.case("stop_route_start", "C6 Daemon stop: POST /v1/conversations; Fixes: Stop with a route waiting")
 def _():
     need("alice_p", "bob_person")
     b.stop()
@@ -787,7 +781,7 @@ def _():
         running(a, b)
 
 
-@suite.case("stop_route_add", "C6 Daemon stop: C2's add", known=FIXES)
+@suite.case("stop_route_add", "C6 Daemon stop: C2's add")
 def _():
     need("bert", "bea")
     conv = start("bob/bert")
@@ -801,7 +795,7 @@ def _():
         running(a, b)
 
 
-@suite.case("stop_route_join", "C6 Daemon stop: join answers its 503 unavailable", known=FIXES)
+@suite.case("stop_route_join", "C6 Daemon stop: join answers its 503 unavailable")
 def _():
     need("alice_p")
     conv = start("person:bob", join=False)
