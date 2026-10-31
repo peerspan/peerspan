@@ -23,8 +23,6 @@ json.load(sys.stdin)
 print(json.dumps({"version": 1, "checks": [{"name": "fixture", "status": "ok", "detail": "ok"}]}))
 """
 HOST_NAME_SENTINEL = "sentinelmachine"
-NO_PERSON = ("attach treats this host as having no bound person, though `network persons` and `agents` show it bound: "
-             "it prints HOST_ID/NAME, registers the login name as owner and never checks the person's other hosts")
 LONG_ID = "a" * 64  # the longest integration ID
 MID_ID = "m" * 40
 
@@ -186,7 +184,7 @@ def _():
     expect_name(a, "claude-dup-3", project("seven/dup"))
 
 
-@suite.case("other-host", "launch Naming 3: BASE-HHHH with this host's ID, used only on another host", known=NO_PERSON)
+@suite.case("other-host", "launch Naming 3: BASE-HHHH with this host's ID, used only on another host")
 def _():
     need("claude")
     directory = project("alice2/gamma")
@@ -195,14 +193,14 @@ def _():
     check(again["reused"] is True and again["agent"]["id"] == out["agent"]["id"], f"re-attach gave {again['agent']}")
 
 
-@suite.case("other-host-longer", "launch Naming 3: then 6, 8 digits while taken", known=NO_PERSON)
+@suite.case("other-host-longer", "launch Naming 3: then 6, 8 digits while taken")
 def _():
     need("claude")
     expect_name(a2, f"claude-{hex_of(a2, 6)}", project("alice2/delta"))
     expect_name(a2, f"claude-{hex_of(a2, 8)}", project("alice2/epsilon"))
 
 
-@suite.case("other-host-suffix", "launch Naming 3, 4: 32 digits at most, then -2", known=NO_PERSON)
+@suite.case("other-host-suffix", "launch Naming 3, 4: 32 digits at most, then -2")
 def _():
     need("claude")
     check(len(hex_of(a2, 64)) >= 32, f"host ID {a2.id} has under 32 hex digits")
@@ -220,7 +218,7 @@ def _():
     expect_name(a2, "second-omega", project("alice2/omega"), harness="second")
 
 
-@suite.case("project-name-on-other-host", "launch Naming: free means on no host of this person, after a refresh", known=NO_PERSON)
+@suite.case("project-name-on-other-host", "launch Naming: free means on no host of this person, after a refresh")
 def _():
     need("claude")
     result = attach(a2, directory=project("alice2/holder"), name="claude-shared")
@@ -240,7 +238,7 @@ def _():
     expect_name(a, MID_ID + "-" + "x" * 21 + "-2", project("eleven/" + "x" * 80), harness=MID_ID)
 
 
-@suite.case("cut-to-64-other-host", "launch Naming: BASE cut so -HHHH fits", known=NO_PERSON)
+@suite.case("cut-to-64-other-host", "launch Naming: BASE cut so -HHHH fits")
 def _():
     need("long_base")
     expect_name(a2, "a" * 59 + f"-{hex_of(a2, 4)}", project("alice2/long"), harness=LONG_ID)
@@ -274,7 +272,7 @@ def _():
     check({x["id"] for x in local_agents(a)} == before, "a refused --name registered an agent")
 
 
-@suite.case("name-taken-sibling", "launch Refusals; Uniqueness: on any of the person's hosts", known=NO_PERSON)
+@suite.case("name-taken-sibling", "launch Refusals; Uniqueness: on any of the person's hosts")
 def _():
     need("claude")
     before = {x["id"] for x in local_agents(a2)}
@@ -337,8 +335,7 @@ def _():
     expect_name(solo, "claude-second", project("solo/second"))
 
 
-@suite.case("address-and-owner", "launch Output, Registering: PERSON/NAME and the person's label as owner",
-            known=NO_PERSON)
+@suite.case("address-and-owner", "launch Output, Registering: PERSON/NAME and the person's label as owner")
 def _():
     first, = need("claude")
     out = attach(a).json  # the re-attach prints the same address
@@ -361,7 +358,7 @@ def _():
         check(HOST_NAME_SENTINEL not in address, f"{address} has the HOSTNAME value")
 
 
-@suite.case("unchecked-sibling", "launch Uniqueness: a host not reached is in unchecked_hosts and does not block", known=NO_PERSON)
+@suite.case("unchecked-sibling", "launch Uniqueness: a host not reached is in unchecked_hosts and does not block")
 def _():
     need("claude")
     a2.stop()
