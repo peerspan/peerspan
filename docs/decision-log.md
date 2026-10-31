@@ -3759,3 +3759,8 @@ Discard auto-approval/signing/retry, key copying, root fallback, native review
 replacement, a new protocol driver and signed-as-linked presentation. Section44
 settles the public native contract and independent fixture cases before code.
 Requester completion and full feature acceptance remain separate.
+
+GU.impl44 first bot P2: an independently validated receipt from another still-
+attached project can legitimately remain review. Keep it view-only, comparing
+the current inspection only for this exact project's actionable review. Never
+convert foreign review into approval/signing eligibility or attribute it here.
