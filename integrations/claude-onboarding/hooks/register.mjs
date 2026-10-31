@@ -996,7 +996,7 @@ async function chooseAccessNetwork($, previous, epoch, network) {
     if (!await accessCurrent($, running, epoch)) return;
     const now = await $.clock.now();
     if (accessing !== running || epoch !== generation) return;
-    const people = accessPeople(raw, now);
+    const people = accessPeople(raw, now, running.network);
     await accessView($, running, epoch, { stage: 'people', people, selected: null, page: 0 });
   } catch { accessFailure($, running, epoch); }
 }
