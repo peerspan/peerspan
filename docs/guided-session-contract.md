@@ -6353,8 +6353,12 @@ Use configured executable plus literal --state,5s process bounds, no shell.
 Read existing `onboarding` for explicit ID-sorted network choices (ten/page),
 then `network members NETWORK_ID` for the exact closed runtime section2 member
 view. Group current bound members by exact person public key; ignore unbound
-rows, never merge different keys by label, refuse inconsistent labels/duplicate
-hosts/malformed fields. Show public keys alongside quoted labels and network
+rows, never merge different keys by label, refuse duplicate hosts/malformed
+fields. A member row's member is its HOST label, not necessarily the person
+lease label: group by key and display the sorted unique quoted machine labels.
+The later inspection supplies the independently verified person label; it need
+not equal any machine label. Owner/participant host labels likewise need not
+equal their person label. Show public keys alongside quoted labels and network
 names; ten choices/page sorted by person key. Choice text includes the full public
 ID/key and quoted label; paging labels need not have a particular wording.
 The network ID is public argv;
