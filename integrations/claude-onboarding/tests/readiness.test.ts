@@ -224,7 +224,7 @@ function signingResponse(w: World) {
 
 function fixture(on: On) {
   const clock = mock.clock(on, { now: NOW })
-  const w = { clock, started: false, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
+  const w = { clock, started: false, sessionStarts: 0, root: ROOT, native: NATIVE, host: HOST, surface: 'terminal' as string | null,
     surfaces: ['terminal'], parent: null as any, child: null as any, selected: network(), person: PERSON,
     networks: [network()] as any[], members: [{ ...member(OWNER, HOST_KEY, 10, 'Owner machine "alias"'),
       not_after: stamp(NOW + 604_800_000) }, member()] as any[],
@@ -260,7 +260,7 @@ function fixture(on: On) {
     if (kind === 'adapter.transport') { const value = await transport(w.child); w.materials.push(clone(value)); return value }
     throw Error('Unexpected public fixture operation')
   }
-  on('session.start', ($, e) => { w.started = true; return { cwd: e.cwd } })
+  on('session.start', ($, e) => { w.started = true; w.sessionStarts++; return { cwd: e.cwd } })
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('classic.CwdChanged', () => ({}))
   on('session.root', () => { w.trace.push('root'); return { value: w.root } })
@@ -346,7 +346,7 @@ async function inspectPerson(ui: Pane, w: World) {
 function privacy(w: World, text = '', runtime = false, executable = 'peerspan', state?: string) {
   expect(w.forbidden).toEqual([]); expect(w.prompts).toEqual([])
   expect(w.calls.filter(e => [PREPARE, APPROVE, SIGN, APPLY].includes(e.kind)).map(e => e.kind)).toEqual(w.expectedMutations)
-  expect(w.tools.map(tool => tool.name)).toEqual(['delivery_acknowledge'])
+  expect(w.tools.map(tool => tool.name)).toEqual(Array(w.sessionStarts).fill('delivery_acknowledge'))
   if (!runtime) expect(w.http).toEqual([])
   expect(w.outside.join('\n')).not.toContain(ROOT)
   for (const value of [NATIVE, RAW, TOKEN, SOCKET, '/private/access-path', 'PRIVATE_PROVIDER_ERROR', state,
