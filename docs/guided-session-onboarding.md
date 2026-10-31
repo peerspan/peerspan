@@ -840,3 +840,13 @@ unclassified. Removing these additions restores original bytes/AST, with no
 setup/assertion/deadline/counter changes. Other57 old test/helper files,
 all381 old native cases and frontend/Rust remain exact. Final full CI/review
 receipts follow on the slice/tracking PR; full-feature acceptance remains open.
+
+### Existing computer: current machine-owner review backend
+
+Section41/GU.impl41 follows merged91 (`a034e78`). The owner-local inspection
+checks an actual incoming same-person request, current attached project, selected
+public original/device authority and P/H/B/D dependencies. It returns exact
+requester keys and finite proposed powers7 without key access, approval, signing
+or publication. Later slices supply durable consent, bounded signing and native
+controls, then requester selection/completion. The complete other-computer flow
+and final feature acceptance remain open.

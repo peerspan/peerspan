@@ -20,6 +20,11 @@ pub struct OnboardingArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum OnboardingCommand {
+    /// Inspect an incoming same-person machine request on the existing computer
+    Machine {
+        #[command(subcommand)]
+        command: MachineCommand,
+    },
     /// Explicitly check the pinned outbound peer transport to one selected machine
     Reachability {
         #[arg(long, required = true)]
@@ -59,6 +64,14 @@ pub enum OnboardingCommand {
     Invitation {
         #[command(subcommand)]
         command: InvitationCommand,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum MachineCommand {
+    /// Read current public owner terms without consent, signing or publication
+    Inspect {
+        #[arg(long, required = true)]
+        stdin: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -338,6 +351,15 @@ fn input() -> Result<Value> {
     serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid project review input"))
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
+    if let Command::Onboarding(OnboardingArgs {
+        command:
+            Some(OnboardingCommand::Machine {
+                command: MachineCommand::Inspect { .. },
+            }),
+    }) = command
+    {
+        return machine_inspection(socket).await.map(Some);
+    }
     if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Reachability { .. }),
     }) = command
@@ -1001,6 +1023,26 @@ async fn finalization_inspect(socket: &Path) -> Result<Value> {
             format!("/v1/onboarding/join-flows/{id}/owner/finalization/inspect"),
             value,
         ),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
+
+async fn machine_inspection(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid machine owner inspection input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input = peerspan_host::onboarding_machine::decode_input(&bytes).map_err(|_| invalid())?;
+    let payload = serde_json::json!({"context":input.context,"request_id":input.request_id});
+    let unavailable = || anyhow::anyhow!("machine owner inspection unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post("/v1/onboarding/machine-owner-inspection".into(), payload),
     )
     .await
     .map_err(|_| unavailable())?
