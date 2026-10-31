@@ -25,6 +25,8 @@ import { inventory as admissionInventory, consent as parseAdmission, progress as
   inspection as parseAdmissionInspection, sameRequest, early as earlyAdmission, matchesInspection,
   choiceLabel as admissionChoiceLabel, reviewLines as admissionReviewLines } from './admission.mjs';
 
+import { application as parseAccessApplication, signed as parseAccessSignature, sameConsent as sameAccessConsent,
+  eligible as accessCompletionEligible, lines as accessCompletionLines } from './access-completion.mjs';
 import { inventory as accessNetworks, people as accessPeople, inspection as parseAccessInspection,
   consent as parseAccessConsent, liveInspection as accessInspectionLive, approvable as accessApprovable,
   deadline as accessDeadline, inspectionLines as accessInspectionLines, consentLines as accessConsentLines } from './access.mjs';
@@ -902,7 +904,7 @@ function clearAccess() {
 function accessStart($, previous, epoch) {
   if (accessing !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
   accessExpiry?.cancel(); accessExpiry = null;
-  accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, message: null,
+  accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, canFinish: false, message: null,
     parent: project.flow, context: project.context, host: hostId };
   $.ui.invalidate('ui.render');
   return accessing;
@@ -921,10 +923,10 @@ async function accessCurrent($, running, epoch) {
   }
   return true;
 }
-async function accessProcess($, argv, payload) {
+async function accessProcess($, argv, payload, timeoutMs = 5000) {
   if (typeof options.executable !== 'string' || !options.executable || typeof options.state !== 'string') throw new Error('Unavailable access configuration');
   const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), ...argv],
-    { timeoutMs: 5000, ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
+    { timeoutMs, ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
   if (result.exitCode !== 0) throw new Error('Unavailable access response');
   return result.stdout;
 }
@@ -945,13 +947,13 @@ function accessPayload(running, extra = {}) {
   return { context: adapterContext(running.parent), network_id: running.network.id,
     person_public_key: running.selected.person_public_key, ...extra };
 }
-async function accessRun($, command, running, extra = {}) {
-  return accessProcess($, ['onboarding', 'access', command, '--stdin'], accessPayload(running, extra));
+async function accessRun($, command, running, extra = {}, timeoutMs = 5000) {
+  return accessProcess($, ['onboarding', 'access', command, '--stdin'], accessPayload(running, extra), timeoutMs);
 }
 function accessFailure($, running, epoch, uncertain = false) {
   if (accessing !== running || epoch !== generation) return;
   accessExpiry?.cancel(); accessExpiry = null;
-  accessing = { ...running, stage: running.selected ? 'selected' : 'unavailable', busy: false, value: null, inspected: null, canApprove: false,
+  accessing = { ...running, stage: running.selected ? 'selected' : 'unavailable', busy: false, value: null, inspected: null, canApprove: false, canFinish: false,
     message: uncertain ? 'Agent-access outcome unknown. Check agent access for recorded consent; no automatic retry. Leaving cannot retract prior or dispatched work.'
       : 'Agent-access review unavailable. Check agent access or leave and reopen; no automatic retry.' };
   $.ui.invalidate('ui.render');
@@ -964,11 +966,13 @@ async function accessView($, running, epoch, extra) {
   const value = extra.value ?? null, inspected = extra.inspected ?? null;
   if (inspected && !accessInspectionLive(inspected, now) || value && Date.parse(value.observed_at) > now + 30000) throw new Error('Elapsed access evidence');
   const canApprove = value && accessApprovable(value, now), token = {};
-  accessing = { ...running, ...extra, busy: false, canApprove, message: null, expiryAuthority: token };
+  const canFinish = value && accessCompletionEligible(value, now) &&
+    ((extra.mode ?? running.mode) !== 'completion' || ['unsigned', 'signed'].includes(value.application?.state));
+  accessing = { ...running, ...extra, busy: false, canApprove, canFinish, message: null, expiryAuthority: token };
   accessExpiry?.cancel(); accessExpiry = null;
-  if (canApprove) accessExpiry = $.clock.after(accessDeadline(value) - now, () => {
+  if (canApprove || canFinish) accessExpiry = $.clock.after(accessDeadline(value) - now, () => {
     if (epoch === generation && accessing.expiryAuthority === token) {
-      accessing = { ...accessing, canApprove: false, expiryAuthority: null,
+      accessing = { ...accessing, canApprove: false, canFinish: false, expiryAuthority: null,
         message: 'Agent-access review deadline elapsed. Check recorded consent; no automatic retry.' };
       $.ui.invalidate('ui.render');
     }
@@ -1091,6 +1095,129 @@ async function approveAccess($, previous, epoch) {
     await accessView($, running, epoch, { stage: 'selected', mode: 'consent', value: outcome, inspected: null });
   } catch { accessFailure($, running, epoch, sent); }
 }
+function accessCompletionPayload(captured) {
+  return { access_id: captured.access.access_id, access_review_id: captured.access.review_id };
+}
+function accessCompletionStart($, previous, epoch) {
+  const captured = previous.completionConsent ?? previous.value;
+  if (captured?.access?.state !== 'approved') return null;
+  const running = accessStart($, previous, epoch);
+  if (!running) return null;
+  running.mode = 'completion';
+  running.completionConsent = captured;
+  running.completionPhase = 'checking';
+  running.completionLast = previous.completionLast ?? (previous.value?.application ? previous.value : null);
+  running.completionSigned = previous.completionSigned === true ||
+    ['signed', 'locally_applied'].includes(running.completionLast?.application.state);
+  return running;
+}
+function accessCompletionFailure($, running, epoch, sent) {
+  if (accessing !== running || epoch !== generation) return;
+  accessExpiry?.cancel(); accessExpiry = null;
+  accessing = { ...running, value: null, inspected: null, busy: false, canApprove: false, canFinish: false,
+    completionPhase: null, message: sent
+      ? 'Agent-access completion outcome unknown. Check application for retained evidence before another explicit Finish. Leaving cannot retract prior or dispatched work.'
+      : 'Agent-access completion unavailable. Check application for retained evidence; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function accessCompletionLookup($, running, epoch) {
+  if (!await accessParent($, running, epoch)) return null;
+  const raw = await accessRun($, 'lookup', running);
+  if (!await accessCurrent($, running, epoch)) return null;
+  const value = await parseAccessConsent(raw, running.parent, running.host, running.network, running.selected);
+  if (!await accessCurrent($, running, epoch)) return null;
+  if (!sameAccessConsent(running.completionConsent, value)) throw new Error('Changed completion approval');
+  return value;
+}
+async function accessCompletionSnapshot($, running, epoch) {
+  const current = await accessCompletionLookup($, running, epoch);
+  if (!current) return null;
+  const raw = await accessRun($, 'application', running, accessCompletionPayload(running.completionConsent));
+  if (!await accessCurrent($, running, epoch)) return null;
+  const value = await parseAccessApplication(raw, running.parent, running.host, running.network, running.selected,
+    current, running.completionLast);
+  if (!await accessCurrent($, running, epoch)) return null;
+  const now = await $.clock.now();
+  if (accessing !== running || epoch !== generation) return null;
+  if (!Number.isFinite(now) || Date.parse(value.observed_at) > now + 30000) throw new Error('Future application evidence');
+  if (running.completionSigned && value.application.state === 'unsigned') throw new Error('Regressed retained signature');
+  running.completionSigned ||= value.application.state !== 'unsigned';
+  running.completionLast = value;
+  return value;
+}
+async function accessCompletionPreflight($, running, epoch) {
+  const value = await accessCompletionLookup($, running, epoch);
+  if (!value) return false;
+  const raw = await accessRun($, 'inspect', running);
+  if (!await accessCurrent($, running, epoch)) return false;
+  const now = await $.clock.now();
+  if (accessing !== running || epoch !== generation) return false;
+  const inspected = await parseAccessInspection(raw, running.parent, running.host, running.network, running.selected, now);
+  if (!await accessCurrent($, running, epoch)) return false;
+  if (inspected.review_id !== value.access.review.inspection_review_id || !same(inspected.review, value.access.review.inspection)) {
+    throw new Error('Changed completion authority');
+  }
+  if (!await accessParent($, running, epoch) || !await accessCurrent($, running, epoch)) return false;
+  const dispatchNow = await $.clock.now();
+  if (accessing !== running || epoch !== generation) return false;
+  if (!accessCompletionEligible(value, dispatchNow) || !accessInspectionLive(inspected, dispatchNow)) throw new Error('Elapsed completion window');
+  return true;
+}
+async function checkAccessApplication($, previous, epoch) {
+  const running = accessCompletionStart($, previous, epoch);
+  if (!running) return;
+  try {
+    const value = await accessCompletionSnapshot($, running, epoch);
+    if (!value) return;
+    await accessView($, running, epoch, { stage: 'selected', mode: 'completion', value, inspected: null });
+  } catch { accessCompletionFailure($, running, epoch, false); }
+}
+async function finishAccess($, previous, epoch) {
+  if (!previous.canFinish || previous.value?.access?.state !== 'approved') return;
+  const running = accessCompletionStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    let value = await accessCompletionSnapshot($, running, epoch);
+    if (!value) return;
+    if (value.application.state === 'unsigned') {
+      if (!await accessCompletionPreflight($, running, epoch)) return;
+      running.completionPhase = 'signing'; $.ui.invalidate('ui.render');
+      sent = true;
+      const raw = await accessRun($, 'sign', running, { ...accessCompletionPayload(running.completionConsent),
+        decision: 'sign_project_agent_access' }, 95000);
+      if (!await accessCurrent($, running, epoch)) return;
+      const signed = await parseAccessSignature(raw, running.parent, running.host, running.network, running.selected, value);
+      if (!await accessCurrent($, running, epoch)) return;
+      const now = await $.clock.now();
+      if (accessing !== running || epoch !== generation) return;
+      if (!Number.isFinite(now) || Date.parse(signed.observed_at) > now + 30000) throw new Error('Future signature evidence');
+      running.completionSigned = true;
+      running.completionPhase = 'checking'; $.ui.invalidate('ui.render');
+      value = await accessCompletionSnapshot($, running, epoch);
+      if (!value) return;
+      if (value.application.state === 'unsigned') throw new Error('Missing retained signature');
+    }
+    if (value.application.state === 'signed') {
+      if (!await accessCompletionPreflight($, running, epoch)) return;
+      running.completionPhase = 'applying'; $.ui.invalidate('ui.render');
+      sent = true;
+      const raw = await accessRun($, 'apply', running, { ...accessCompletionPayload(running.completionConsent),
+        decision: 'apply_project_agent_access' }, 95000);
+      if (!await accessCurrent($, running, epoch)) return;
+      const applied = await parseAccessApplication(raw, running.parent, running.host, running.network, running.selected, value, value);
+      if (!await accessCurrent($, running, epoch)) return;
+      if (applied.application.state !== 'locally_applied') throw new Error('Unconfirmed policy application');
+      const now = await $.clock.now();
+      if (accessing !== running || epoch !== generation) return;
+      if (!Number.isFinite(now) || Date.parse(applied.observed_at) > now + 30000) throw new Error('Future application evidence');
+      value = applied;
+      running.completionLast = applied;
+    }
+    await accessView($, running, epoch, { stage: 'selected', mode: 'completion', value, inspected: null });
+  } catch { accessCompletionFailure($, running, epoch, sent); }
+}
+
 function accessPage($, previous, epoch, page) {
   const values = previous.stage === 'networks' ? previous.networks : previous.people;
   if (accessing !== previous || previous.busy || epoch !== generation || !['networks', 'people'].includes(previous.stage) ||
@@ -1107,7 +1234,10 @@ function accessControls($, { Text, Button }, epoch) {
   const leave = button('access-leave', 'Leave agent access', () => {
     if (accessing === previous && epoch === generation) { clearAccess(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy) return [Text({ children: ['Agent access: working…'] }), leave];
+  if (previous.busy) return [Text({ children: [previous.mode === 'completion'
+    ? previous.completionPhase === 'signing' ? 'Agent access: signing the approved policy…'
+      : previous.completionPhase === 'applying' ? 'Agent access: applying the signed policy…' : 'Agent access: checking recorded application…'
+    : 'Agent access: working…'] }), leave];
   if (['networks', 'people'].includes(previous.stage)) {
     const network = previous.stage === 'networks', values = network ? previous.networks : previous.people, page = previous.page;
     return [Text({ children: [network ? 'Agent access: choose a network' : `Agent access: choose a person in ${quoted(previous.network.name)} (${previous.network.id})`,
@@ -1119,11 +1249,20 @@ function accessControls($, { Text, Button }, epoch) {
       ...(page > 0 ? [button('access-prev', network ? 'Previous networks' : 'Previous people', () => accessPage($, previous, epoch, page - 1))] : []),
       ...(values.length > (page + 1) * 10 ? [button('access-next', network ? 'More networks' : 'More people', () => accessPage($, previous, epoch, page + 1))] : []), leave];
   }
+  if (previous.mode === 'completion') return [
+    ...(previous.value?.application ? [Text({ children: [accessCompletionLines(previous.value, previous.parent)] })] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []),
+    ...(previous.canFinish ? [button('access-finish', 'Finish agent access', () => finishAccess($, previous, epoch))] : []),
+    button('access-application-check', 'Check application', () => checkAccessApplication($, previous, epoch)), leave,
+  ];
   return [
     ...(previous.inspected ? [Text({ children: [accessInspectionLines(previous.inspected)] }),
       button('access-prepare', 'Review proposed grant', () => prepareAccess($, previous, epoch))] : []),
     ...(previous.value ? [Text({ children: [accessConsentLines(previous.value)] })] : []),
     ...(previous.canApprove ? [button('access-approve', 'Approve agent access', () => approveAccess($, previous, epoch))] : []),
+    ...(previous.canFinish ? [Text({ children: ['Finish signs and locally applies this exact approved policy with its selected provider. Delivery and readiness remain separate.'] }),
+      button('access-finish', 'Finish agent access', () => finishAccess($, previous, epoch))] : []),
+    ...(previous.value?.access?.state === 'approved' ? [button('access-application-check', 'Check application', () => checkAccessApplication($, previous, epoch))] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
     ...(previous.value?.access && ['expired', 'invalidated'].includes(previous.value.access.state)
       ? [Text({ children: ['Existing terms require separate advanced review. No replacement or signing is automatic.'] })] : []),
