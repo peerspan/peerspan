@@ -7815,6 +7815,14 @@ four PR checks and fresh bot/root review follow. Native393 stays unchanged;
 required final CI runs it. Full other-computer/native/terminal/reload/installed/
 physical/model/schema23-to27/full-state/final combined acceptance stays open.
 
+The first corrected-format receipt write fails with errno28 in shared /dev/shm;
+its child result is unretained. The following unchanged join_onboarding exits120
+in2.01s with empty log (case progress unknown). Preserve these resource-failed
+attempts. Relocate only this task's temporary data/logs to regular disk with
+independently observed free capacity; keep exact binaries, sources and deadlines.
+One affected-gate execution in this corrected environment is allowed, with no
+product fix or old unrelated-failure classification inferred.
+
 Selected: pure current existing-owner review, persisted public signer selection,
 explicit finite profile7 capped by current authority, concrete public dependencies.
 Discarded: seed/key/agent probes, root fallback, original-key copying, label/pin
