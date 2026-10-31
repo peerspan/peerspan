@@ -7222,6 +7222,14 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    distinguishes a live but blocked forwarding thread from a listening route.
    A read-only exact manual-hint match boolean may accompany it. This exception
    adds diagnostic IO only after the original failure, outside purity captures.
+   The measured restart diagnostic finds the target proxy alive but blocked in
+   upstream receive, while a fresh independent probe also cannot reach its
+   counted ingress. Choose nonblocking sockets for this new suite's selector
+   proxy: stale/spurious readiness or asynchronous UDP errors must not turn a
+   subsequent receive into an unbounded block. Treat would-block as a transient
+   no-datagram condition at receives/sends; retain real error counters, all
+   datagram/byte accounting and barrier semantics. No production transport,
+   shared old helper, assertion, action, sleep or deadline changes are implied.
    Temporary enabled listeners during setup explicitly advertise the counted
    endpoint; bootstrap-only issuance/final captures advertise no QUIC endpoint.
    This prevents an intermediate bound-address default bypassing accounting.
