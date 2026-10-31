@@ -6861,7 +6861,188 @@ frontend permission inference, historical applied-policy as current permission,
 agent-wide channel as this session's proof, automatic network/model probes,
 new durable flow/schema, and changing existing directory or adapter semantics.
 
-## 37. Remaining flow contract
+## 37. Native current connection status
+
+After merged86 (`3e759c9`), expose section36's owner-local evidence in the existing
+human access pane. No Rust/API/schema/protocol/provider/evaluator or model/tool/
+prompt/adapter/message/task change. Preserve all349 old native cases and all29
+host suites/files unchanged. This slice is local observation, not a peer probe
+or full ready-connection acceptance.
+
+### Explicit read and navigation
+
+A verified selected-person inspection, retained consent or verified completion
+pane offers **Check connection status**. It requires the existing explicit
+network and person choices; no default or identity is inferred. It is absent on
+unverified/unknown access or completion outcomes until their ordinary explicit
+Check restores terms. Normal entry, approval, Finish and their existing Check
+commands never call readiness implicitly. Existing349 allowed effects stay exact.
+
+Only the new explicit action starts a single-flight busy status pane with
+**Leave connection status** available. Capture project parent/context, host,
+network/context and person. Clear volatile completion comparison/dispatch state
+on this navigation; durable approvals/signatures/application remain unchanged.
+Use the configured executable/literal --state array with5s bound and private
+stdin:
+
+```
+onboarding readiness --stdin
+{context,network_id,person_public_key}
+```
+
+Recheck exact authoritative attached project/host/network and current native
+root/conversation/terminal before and after IO, after asynchronous validation and
+immediately before displaying. The only daemon operations are existing pure
+project inspection/onboarding observations plus one readiness read. No agent
+inventory/provider probe, access inspect/prepare/approve/sign/apply, directory
+refresh/sync, credential retrieval, network or model action in a status check.
+
+The status pane provides **Check connection status** again, **Show connection
+details** / **Hide connection details**, **Review agent access** and Leave.
+Details toggle is purely local. Review agent access explicitly returns to the
+existing section30 inspection path, never grant preparation/approval. Leave
+clears volatile terms/callbacks/timer and returns to the project. It does not
+revoke consent, retract dispatched work or stop an existing authorized runtime.
+Back/Close/Refresh/context/host/parent/surface/end similarly invalidate late
+status replies and timers; existing runtime lifecycle rules remain unchanged.
+No persistence or automatic polling/reconnect/retry is introduced.
+
+### Closed projection and truthful presentation
+
+Validate the entire <=2MiB section36 wrapper, exact parent/host/selected
+network/context/person/session, canonical section30 inspection and digest plus
+all complete nested terms. The inspection digest binds only its inspection;
+never treat it as a readiness signature. Reuse existing public privacy and
+safe-number checks on the whole DTO before presenting it. Unsafe JS integers,
+private prefixes including decorated forms, controls, unknown/missing/null
+fields or malformed references are unavailable, never rounded or echoed.
+
+Peers must exactly match the current inspection's remote selected-person
+machines, excluding this host: derive host IDs from validated public keys,
+sort by host ID and require exactly that roster, no omissions/extras/duplicates.
+Keep all receiver-advertised entries separate and in their original order. Do
+not infer permissions from raw policy rules or historical consent/application,
+union bounds/actions or erase from_agent restrictions. A policy's valid action
+order/repetitions remain as returned, not normalized. Self entries have their
+existing fixed three-action/65536/1GiB profile; policy entries and one-action
+grants have the exact public directory keys. All actions are known, message
+bounds1..65536 and artifact bounds0..1GiB. Grants retain typed IDs and their
+original valid RFC3339 expiry, including supported offsets/fractional precision;
+do not force a UTC-only grant representation. Policy/self/grant category order
+and grant-ID order follow the receiver contract. No frontend authorization
+or cryptographic substitute is added.
+
+Connections are ordered by unique typed adapter ID and bound only to the exact
+project session. Validate the full public connection object. Current credential
+projection admits registered/ready/offline, not revoked/expired/detached. A ready
+lease needs a future native lease end and valid last-seen time; verified channel
+requires a valid channel verification time, while unverified requires null.
+UTC connection times support fractional precision through9 digits and real
+calendar validation, including past historical verification on offline records.
+Do not borrow another session/agent channel. Protocol strings retain the public
+bounded profile/privacy check. Host-observed verified channel is separate from
+this module's current model acknowledgment, even with a saved verification time.
+
+The primary view says **Connection status**, the observation timestamp,
+project/agent/network/person, and the incoming direction from that person's
+machines to this project's agent. Show each machine's public label/host ID,
+separate authorization source/actions/bounds/requester-agent restriction and
+explicit grant expiry. Empty authorization means none advertised to this machine
+in this network; it is not a global denial or reachability result. No current
+credential, registered, live unverified, live verified and offline historical
+states remain distinct. IDs that only identify native/consent/adapter/session
+plumbing, private paths outside the human pane and all raw private output stay
+out of routine output/model/prompts/logs/argv.
+
+Details make all current agent/owner/participant/finite terms, signed baseline
+body, separately enforced content, public policy references, exact authorization
+entries and connection state/lease/last-seen/channel/protocol inspectable, without
+printing internal context/session/adapter IDs. Do not reuse the consent-only
+footer or imply missing signatures/application from this independent read.
+State **Peer reachability: not verified**, **Model receipt from this observation:
+not verified**, and **Overall connection readiness: not verified**. Existing
+separate live runtime checks remain visible with their own evidence. Suggest
+reviewing agent access for changes and leaving to review the adapter/use its
+separate incoming-delivery check. Do not turn a local snapshot into an overall
+ready badge or automatically start that check's model turn.
+
+### Freshness and failures
+
+Use one bounded volatile observation, not an indefinitely current permission
+claim. Inspection must be live at validation and final display; reject future
+observations beyond30s or observations already30s old. Its display deadline is
+the earliest of observed_at+30s, all current inspection membership/policy ends,
+explicit grant expiries and ready lease ends. Recheck native time after all
+awaits before displaying. A timer at that fixed earliest bound clears visible
+status evidence/details and says **Connection status observation expired. Check
+connection status again.** It performs no IO. Old timers cannot clear a newer
+selection/read; reads never extend their captured timestamp. Every displayed
+permission/channel fact is qualified as observed, not guaranteed for a future
+request/body/origin/deadline. If a grant/lease is already expired at the native
+final read time, fail unavailable rather than present it as current.
+
+Malformed/denied/nonzero/timed-out/mismatched or elapsed replies clear old status
+terms and show a fixed unavailable message with explicit Check/Review/Leave.
+Never echo raw output/diagnostics or turn failure into empty successful evidence.
+No automatic retry or mutation follows. Original consent/completion recovery,
+lease/message/task behavior and349 previous cases remain unchanged.
+
+### Verification
+
+A separate contract-only native author supplies16 compact new public-runtime
+cases on pinned303, no product/Rust/hook imports/reads, real host/process/network
+execution or model inference. Derive public section36 fixtures from the specs
+and existing independent fixtures. Commit before root executes. Preserve every
+old349 native/29 host/helper case/action/assertion/delay/timeout byte-for-byte;
+keep individual new corpora compact under the unchanged default5s limit. Cover:
+
+1. Inert existing entry/review/approval/Finish/Check; explicit configured Check
+   only, exact literal argv/private input/5s bounds, no hidden mutations/probes.
+2. Empty authorization/no credential facts, incoming direction, bounded human
+   labels and pure details toggles with complete raw/enforced/public terms.
+3. Separate self/policy/grant entries, reversed/repeated valid policy actions,
+   origin restrictions, bounds/order and RFC3339 offset/fraction grant dates.
+4. Fresh current policy/enforced/withdrawn entries replace old observed terms
+   without reusing historical consent/application or changing them.
+5. Exact-session registered/unverified/verified/offline evidence, including
+   historical channel verification; no overall/model/peer readiness inference.
+6. Closed wrapper/inspection/flags/safe-number rejection without a fake empty
+   success; preserve unknown/private-output refusal.
+7. Closed authorization shapes/actions/bounds/origin/grant references.
+8. Exact derived peer roster, no missing/extra/duplicate/mismatched machines.
+9. Exact session/adapter order/identity/state/calendar/time/channel boundaries.
+10. Aggregate short/decorated private values/control/oversized-output refusal,
+    no routine/model/log/argv disclosure; public human project path is allowed.
+11. Denied/nonzero/raw/missing response clears prior terms, never auto retries.
+12. Earliest30s/membership/grant/lease timer clears evidence without IO; fresh
+    explicit Check recovers, and old timers cannot clear newer selections.
+13. Actual dispatched/delay-registered read single-flight, late elapsed reply
+    cannot restore evidence, no increased deadlines or artificial stale handler.
+14. Actual preflight/IO parent/root/native/host/context guard changes discard
+    the captured read and never rebind a different project/person/network.
+15. Leave/navigation/Refresh/end/surface during actual pending reads discards
+    late replies, with no revocation or resurrection of newer views.
+16. Existing authorized adapter lease/runtime survives Check/unavailable/
+    details/Leave; no extra model tools/prompts/storage/direct transport.
+
+Root serializes native/build/runtime execution, checks known compiler activity,
+retains first outcomes and exact source/test/log hashes; run strict validation
+and the full new+349 suite. Rust tree169da285 and merged86 local required gates
+(fmt/test155+2ignored/Clippy/shipped bins, readiness6/6) are unchanged and reused;
+final exact-head all29 CI/four PR checks/fresh bot/root review run again. No
+unchanged local retry-to-green, larger timeouts or old-test edits. Prior local
+native timeouts/host transport callers remain unclassified. Actual native
+terminal/reload/installed/physical/model/schema23-to27/full-state/explicit-peer-
+reachability/full-feature acceptance remain separate open gates; do not repeat
+old quota-refused inference probes.
+
+Selected: explicit local status with strict exact-session/roster projections,
+short bounded observation and inspectable separate terms. Discarded: automatic
+status reads after approval, a ready badge from a lease/applied policy, frontend
+permission merging/evaluation, borrowed agent-wide channels, automatic peer/model
+probes, new durable state and changes to the old349 tests' allowed effects.
+
+## 38. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
