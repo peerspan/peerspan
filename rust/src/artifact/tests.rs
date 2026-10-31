@@ -90,6 +90,8 @@ impl Fixture {
     }
     fn request(&self, n: char, grant: &str, inputs: Option<Vec<ArtifactEntry>>) -> TaskRequest {
         TaskRequest {
+            executor: None,
+            run: None,
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,
@@ -597,6 +599,7 @@ fn submitters_attach_uploads_and_fetch_results() {
     let result_data = b"review notes".to_vec();
     let result = entry("notes.md", &result_data);
     let event = |sequence: i64, kind: &str, artifacts: Option<Vec<ArtifactEntry>>| TaskEvent {
+        chunk: None,
         sequence,
         kind: kind.into(),
         state: if kind == "queued" { "queued" } else { kind }.into(),
@@ -752,6 +755,8 @@ fn restart_discards_partial_files_and_resumes_fetches() {
             .unwrap();
         let input = entry("in", b"payload");
         let r = TaskRequest {
+            executor: None,
+            run: None,
             task_id: format!("task_{}", "1".repeat(32)),
             grant_id: Some(grant.id),
             policy: None,
@@ -802,7 +807,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 24);
+    assert_eq!(version, 25);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",

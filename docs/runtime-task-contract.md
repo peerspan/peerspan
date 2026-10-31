@@ -24,7 +24,8 @@ runtime tasks, delegating a runtime task onward, peerfs workspaces, and agents i
 `executor`, `run`, `deadline`, `input`, `policy`, optional `origin`, and optional `artifacts`.
 - `executor` is `"runtime"`. A request without `executor` is an agent task, as today; an
   explicit `"agent"` is the same. Any other value is 400.
-- A runtime task has no `target_agent_id`, `grant_id` or `chain`; any of them is 400.
+- A runtime task has no `target_agent_id`, `grant_id`, `self` or `delegation` (the chain); any
+  of them, or any other field not listed here, is 400 naming it.
 - `input` is as for tasks: the purpose shown to the owner and in activity.
 - The whole request, `run` included, is part of idempotency by `(sender, task_id)`.
 
@@ -172,9 +173,10 @@ run result as `output`. If `started` arrives first, the task moves to `running` 
 
 ### Output events
 
-Events gain the nullable field `chunk`. A new event kind, `output`, carries
+A runtime task's events gain the nullable field `chunk`; an agent task's events are unchanged,
+so older submitters keep reading them. A new event kind, `output`, carries
 `chunk: {stream, data}`, where `stream` is `stdout` or `stderr` and `data` is standard base64
-of 1 to 16,384 bytes. Every other event has `chunk: null`. `output` events occur only while
+of 1 to 16,384 bytes. Every other event of a runtime task has `chunk: null`. `output` events occur only while
 `running` and carry state `running`.
 - The host emits an `output` event when it holds 16,384 bytes of one stream, or 250 ms after
   the first byte it holds, whichever is first.
@@ -342,7 +344,8 @@ last stored runtime event.
 
 The host schema version increments by one, with no new tables: it is the next free version on
 `main` when the implementing PR merges (`main` is at 24 today). No `dec_*` table changes.
-Received and outbound task records gain `executor` and `run`; received ones also gain the
+Received and outbound task records of runtime tasks gain `executor` and `run`, and have no
+`target_agent_id`; agent tasks' records are unchanged; received ones also gain the
 internal `run_id`, whether the run was dispatched, the authorizing bounds, and the last stored
 runtime event sequence. Event
 records gain `chunk`.

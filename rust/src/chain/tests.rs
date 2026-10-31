@@ -355,6 +355,8 @@ impl Fixture {
     }
     fn request(&self, grant: &str, task: &str, deadline: &str, chain: Vec<Link>) -> TaskRequest {
         TaskRequest {
+            executor: None,
+            run: None,
             task_id: task.into(),
             grant_id: Some(grant.into()),
             policy: None,
@@ -1089,7 +1091,7 @@ fn version_ten_migrates_to_latest_and_twenty_four_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 24);
+    assert_eq!(version, 25);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",
@@ -1105,7 +1107,7 @@ fn version_ten_migrates_to_latest_and_twenty_four_is_refused() {
     drop(store);
     Connection::open(path.join("host.db"))
         .unwrap()
-        .execute_batch("PRAGMA user_version = 25;")
+        .execute_batch("PRAGMA user_version = 26;")
         .unwrap();
     assert!(Store::open(&path).is_err());
 }

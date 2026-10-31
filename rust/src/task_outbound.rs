@@ -409,6 +409,8 @@ impl Store {
             None => rfc3339(default_deadline),
         };
         let mut request = TaskRequest {
+            executor: None,
+            run: None,
             task_id: if r.task_id.is_empty() {
                 new_id("task")?
             } else {
@@ -899,6 +901,8 @@ impl Store {
             self.check_uploads(tx, inputs)?;
         }
         let mut request = TaskRequest {
+            executor: None,
+            run: None,
             task_id,
             grant_id: grant,
             policy,
@@ -2032,6 +2036,7 @@ mod tests {
     }
     fn status(store: &Store, out: &OutboundTask, state: &str, last: i64) -> TaskStatus {
         TaskStatus {
+            executor: None,
             task_id: out.request.task_id.clone(),
             sender_host_id: store.identity().id,
             receiver_host_id: out.peer_host_id.clone(),
@@ -2045,6 +2050,7 @@ mod tests {
     }
     fn event(sequence: i64, kind: &str, state: &str) -> TaskEvent {
         TaskEvent {
+            chunk: None,
             sequence,
             kind: kind.into(),
             state: state.into(),

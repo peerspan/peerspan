@@ -180,7 +180,15 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new().route("/v1/runtime", get(show).put(enable).delete(disable))
 }
 
-async fn show(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
+/// `GET /v1/runtime`, with its keys in the contract's order.
+#[derive(Serialize)]
+struct Show {
+    enabled: bool,
+    socket: Option<PathBuf>,
+    runtime: Value,
+    rule: Option<Value>,
+}
+async fn show(State(store): State<Arc<Store>>) -> Result<Json<Show>, Error> {
     let (switch, rule) = blocking(store, |s| Ok((s.runtime_switch()?, own_rule(s)?))).await?;
     let runtime = match &switch {
         Some(s) => report(&s.socket)
@@ -188,12 +196,12 @@ async fn show(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
             .unwrap_or_else(|error| json!({ "error": error })),
         None => Value::Null,
     };
-    Ok(Json(json!({
-        "enabled": switch.is_some(),
-        "socket": switch.map(|s| s.socket),
-        "runtime": runtime,
-        "rule": rule,
-    })))
+    Ok(Json(Show {
+        enabled: switch.is_some(),
+        socket: switch.map(|s| s.socket),
+        runtime,
+        rule,
+    }))
 }
 
 async fn enable(

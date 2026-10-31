@@ -1219,6 +1219,7 @@ async fn run_daemon(
     let conversations = peerspan_host::conversations::worker(store.clone(), peer_shutdown.clone());
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
+    let runtime_tasks = peerspan_host::runtime_task::worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
@@ -1257,6 +1258,10 @@ async fn run_daemon(
         },
         async {
             expiry.await;
+            Ok(())
+        },
+        async {
+            runtime_tasks.await;
             Ok(())
         },
         async {

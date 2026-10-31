@@ -65,6 +65,11 @@ pub struct Store {
     /// it becomes reachable through the new coordinator without waiting for
     /// the next refresh.
     pub(crate) relay_wake: tokio::sync::Notify,
+    /// Wakes the runtime task worker when a runtime task arrives, its
+    /// inputs are stored, or its cancellation is requested.
+    pub(crate) runtime_wake: tokio::sync::Notify,
+    /// Wakes every runtime task follower when a cancellation is requested.
+    pub(crate) runtime_cancel: tokio::sync::Notify,
     /// The peer socket's bound address while listening. Candidates are
     /// published only then.
     pub(crate) peer_bound: RwLock<Option<std::net::SocketAddr>>,
@@ -174,7 +179,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=24).contains(&version) {
+        if !(0..=25).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -252,6 +257,10 @@ impl Store {
         }
         if version < 24 {
             tx.execute_batch(crate::conversations::SCHEMA)?;
+        }
+        if version < 25 {
+            // Runtime tasks (runtime task contract): new record fields only.
+            tx.execute_batch("PRAGMA user_version = 25;")?;
         }
         crate::decentralized::storage::check_schema(&tx)?;
         if version < 23
@@ -343,6 +352,8 @@ impl Store {
             adapter_recovery_until,
             peer_transport: Mutex::new(None),
             relay_wake: tokio::sync::Notify::new(),
+            runtime_wake: tokio::sync::Notify::new(),
+            runtime_cancel: tokio::sync::Notify::new(),
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
             person_agent: RwLock::new(None),
