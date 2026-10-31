@@ -93,3 +93,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `access_signing`: bounded exact dual-approved policy issuer signature storage,
   configured signer boundaries, atomic rollback and pure recovery (section32).
+
+- `access_application`: exact signed policy local publication/application,
+  atomic ordinary proof/edit/queue/result/event and pure recovery (section33).

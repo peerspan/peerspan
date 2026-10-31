@@ -550,3 +550,34 @@ unclassified. PR79 records final diagnostic-head all27 CI gates and fresh review
 separately. Bounded publication/
 local application, native access controls, observed readiness and the remaining
 full acceptance gates stay separate; PR35 stays unmerged.
+
+### Exact signed policy local application
+
+Merged79 (`830c1ee`) supplies the exact stored issuer signature. Section33 /
+GU.impl33 adds explicit owner-local `onboarding access application|apply --stdin`
+and private HTTP routes for its ordinary local policy publication. First apply
+requires the exact approvals, signed payload and current project/provider/
+inspection/authority/edit/time pins in the same final transaction. Ordinary
+proof/admission/projection, settled edit, bounded delivery queue, action result,
+clock and one event commit atomically. There is no new signing, consent, schema,
+journal or direct guided peer request. Pure recovery verifies the retained
+ordinary signed result and actual local proof/admission after expiry/detach/
+replacement/restart without recreating missing evidence.
+
+An application marker records that local operation; it does not assert that
+the historical policy is current. Peer delivery and connection readiness stay
+`not_verified`. Native access controls, observed two-way exchange, other-computer
+flow and installed/physical/actual-model/schema23-to27/full-state/final combined
+acceptance remain separate. The [verification record](results/guided-access-application-verification.json)
+records exact source/binary/log provenance and required gates. All original27
+host suites/shared helpers/harness/native stay unchanged; PR79's earlier UDP/
+contact purity failures remain unclassified. Tracking PR35 stays unmerged.
+
+Frozen production `a8ccff3` passes existing Rust155/2ignored, formatting, Clippy
+and shipped-binary build. Independent application6/6in109.01s and unchanged
+signing6/6in112.67s, consent6/6in92.95s and policy9/9in38.46s pass serially.
+The record retains first2/6 and4/6 new-suite failures, independent contract-first
+provenance/setup corrections and exact preservation audits; no production change
+is attributed to those corrections. Initial source-head all27 CI/PR checks and
+clean bot review pass. PR80 records final evidence-head all28 CI and fresh review
+separately. Every full-feature acceptance gate remains incomplete.
