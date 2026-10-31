@@ -168,6 +168,17 @@ fn slots(store: &Store, p: &Pending, r: &consent::Receipt) -> Result<Slots> {
     require(all.len() == if fold { 3 } else { 2 }, "state_conflict")?;
     Ok(Slots { all, needed })
 }
+fn deadlines(p: &Pending, r: &consent::Receipt, now: &str) -> Result<()> {
+    require(now >= r.meta.record.created_at.as_str(), "review_changed")?;
+    require(
+        now < r.meta.record.expires_at.as_str()
+            && now < text(object(&r.review)?, "request_stage_deadline")?
+            && now < p.deadline.as_str()
+            && now < r.owner.record.not_after.as_str(),
+        "review_expired",
+    )?;
+    Ok(())
+}
 fn public_live(
     c: &Connection,
     store: &Store,
@@ -186,14 +197,7 @@ fn public_live(
         consent::latest(c, store, p)?.as_deref() == Some(r.meta.id.as_str()),
         "review_changed",
     )?;
-    require(now >= r.meta.record.created_at.as_str(), "review_changed")?;
-    require(
-        now < r.meta.record.expires_at.as_str()
-            && now < text(object(&r.review)?, "request_stage_deadline")?
-            && now < p.deadline.as_str()
-            && now < r.owner.record.not_after.as_str(),
-        "review_expired",
-    )?;
+    deadlines(p, r, now)?;
     require(
         r.owner.record.terminal == "-"
             && !r.owner.record.completed
@@ -383,8 +387,15 @@ fn attempt(
     budget(until)?;
     r.owner.save(&tx).map_err(dec)?;
     requests::save(&tx, &p).map_err(dec)?;
-    controls::remember_decision(&tx, &r.owner.network_id, &now).map_err(dec)?;
     let result = response(&tx, store, input, &p, &r, &now, &final_slots)?;
+    // Assembly, verification and response construction may cross a fixed wall
+    // deadline even while the separate action budget remains live. Refresh it
+    // after that work; expiry rolls back the whole new batch and packet pins.
+    let commit_raw = controls::local_decision_time().map_err(dec)?;
+    let commit_now =
+        controls::guarded_decision(&tx, &r.owner.network_id, &commit_raw).map_err(dec)?;
+    deadlines(&p, &r, &commit_now).map_err(dec)?;
+    controls::remember_decision(&tx, &r.owner.network_id, &commit_now).map_err(dec)?;
     budget(until)?;
     tx.commit().map_err(|_| unavailable())?;
     Ok(Attempt::Done(result))
