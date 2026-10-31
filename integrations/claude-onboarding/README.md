@@ -432,6 +432,31 @@ without resubmitting uncertain held input. Close/Back preserve enabled tasks.
 Losing the native ready proof, stopping the adapter, expiry, context change or
 reload stops task authority and requires explicit setup again.
 
+## Review agent access
+
+From an attached project's main pane, choose **Review agent access**, a network,
+and a person. Choices show each person's public key and their machine labels;
+the review shows the verified person label separately. People without a current
+bound machine are not listed yet. Membership alone grants no agent permission.
+
+The first view only reads current membership, the signed policy and locally
+enforced content. **Review proposed grant** recovers existing consent first; it
+prepares new terms only when none exists. Review the exact agent name, recipient,
+provider, full policy and expiry before pressing **Approve agent access**.
+
+The proposed permission allows messages and task submission, with65,536 message
+bytes, no task artifacts, delegation, capability calls or disconnected access.
+It applies to this exact agent name across the owner's machines. Other existing
+policy permissions remain visible and are preserved.
+
+Approval records consent for later policy signing and publication. This native
+slice does not sign or apply the policy, and does not establish delivery or
+connection readiness; those controls follow separately. **Check agent access**
+reads current inspection or recorded consent without creating or approving work.
+**Leave agent access** clears the pane and does not revoke consent or retract
+already dispatched work. After an unknown outcome, use Check before deciding
+whether another explicit action is needed.
+
 ## Check this conversation
 
 Press **Check this conversation** to submit one fixed, plugin-attributed local
