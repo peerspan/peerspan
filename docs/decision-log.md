@@ -3659,3 +3659,16 @@ binary/log hash. No unchanged local suites are rerun for cleaner receipts.
 Final combined-head all31+build/four checks/fresh bot/root review follow. Exact
 existing-owner consent/signing/native controls/requester completion and all
 full-feature acceptance remain open.
+
+### GU.impl42: exact existing-person machine-owner consent
+
+After merged93, select a nonsigning project-bound receipt in existing dec_intents
+paired with the ordinary owner intent. Fixed inspected person/machine/provider/
+finite7/deadline and human expiry are immutable; explicit current-parent review
+replacement retains protocol templates/time. Dual flags/time approve atomically;
+ordinary background signing/publication/finalization is explicitly authorized,
+requester consent remains separate. Preserve history without attributing another
+interface's approval to the project. Discard mutable-review reconstruction, new
+schema, key copying, root fallback, silent replacement and readiness inference.
+Section42 fixes inputs/reviews/quotas/atomicity and six independent cases before
+implementation. Native controls and bounded signer continuation follow.
