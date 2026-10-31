@@ -268,7 +268,11 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                 query = format!("participant={}", encoded(&participant));
                 reader = Some(participant);
             }
-            let conversation = local.get(format!("/v1/conversations/{id}?{query}")).await?;
+            let conversation = local.get(format!("/v1/conversations/{id}?{query}")).await;
+            let conversation = match (conversation, &reader) {
+                (Err(error), None) => return Err(point_to_as(&local, &id, error).await),
+                (conversation, _) => conversation?,
+            };
             let mut page = format!("/v1/conversations/{id}/messages?limit={limit}");
             if !query.is_empty() {
                 page.push_str(&format!("&{query}"));
@@ -331,15 +335,28 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
                 query.push_str(&format!("&participant={}", encoded(&participant)));
                 reader = Some(participant);
             }
+            let whole_host = id.is_none();
             if let Some(id) = id {
                 let id = resolve(&local, &id).await?;
+                let read = local
+                    .get(format!(
+                        "/v1/conversations/{id}?{}",
+                        &query[query.len().min(1)..]
+                    ))
+                    .await;
+                match (read, &reader) {
+                    (Err(error), None) => return Err(point_to_as(&local, &id, error).await),
+                    (read, _) => {
+                        read?;
+                    }
+                }
                 query.push_str(&format!("&conversation={id}"));
             }
             use tokio::signal::unix::{SignalKind, signal};
             let mut interrupt = signal(SignalKind::interrupt())?;
             let mut terminate = signal(SignalKind::terminate())?;
             tokio::select! {
-                result = watch(&local, &query, reader.as_deref()) => result,
+                result = watch(&local, &query, reader.as_deref(), whole_host) => result,
                 _ = interrupt.recv() => Ok(()),
                 _ = terminate.recv() => Ok(()),
             }
@@ -423,6 +440,100 @@ async fn agent_participant(local: &Local<'_>, agent: &str) -> anyhow::Result<Str
         text(&found["id"])
     ))
 }
+/// The names of this host's agents joined in a conversation listed in
+/// `summary`, sorted and joined by `, `; empty when there are none.
+async fn joined_agents(local: &Local<'_>, summary: &Value) -> anyhow::Result<String> {
+    let ids: Vec<&str> = summary["participants"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| p["kind"] == "agent" && p["local"] == true && p["state"] == "joined")
+        .filter_map(|p| p["id"].as_str()?.rsplit('/').next())
+        .collect();
+    if ids.is_empty() {
+        return Ok(String::new());
+    }
+    let agents = local.get("/v1/agents".into()).await?;
+    let mut names: Vec<String> = ids
+        .iter()
+        .map(|id| {
+            agents
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|a| text(&a["id"]) == *id)
+                .map_or(id.to_string(), |a| text(&a["name"]).to_owned())
+        })
+        .collect();
+    names.sort();
+    Ok(escaped(&names.join(", ")))
+}
+/// A refused person's read, with what to do when agents here are in it.
+async fn point_to_as(local: &Local<'_>, id: &str, error: anyhow::Error) -> anyhow::Error {
+    let error = match error.downcast::<crate::integration::DaemonError>() {
+        Ok(d) => d,
+        Err(other) => return other,
+    };
+    if error.code != "not_participant" && error.code != "not_bound" {
+        return error.into();
+    }
+    let Ok(all) = local.get("/v1/conversations?state=all".into()).await else {
+        return error.into();
+    };
+    let summary = all["conversations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|c| text(&c["conversation_id"]) == id);
+    let Some(Ok(names)) = (match summary {
+        Some(summary) => Some(joined_agents(local, summary).await),
+        None => None,
+    }) else {
+        return error.into();
+    };
+    if names.is_empty() {
+        return error.into();
+    }
+    crate::integration::DaemonError {
+        status: error.status,
+        message: format!(
+            "{} Agents on this host that are: {names}. Use --as NAME.",
+            error.message
+        ),
+        code: error.code,
+    }
+    .into()
+}
+/// Says once per conversation why it is not being shown, for the open ones
+/// where agents here take part and this host's person does not.
+async fn note_agent_only(local: &Local<'_>, noted: &mut BTreeSet<String>) {
+    let Ok(open) = local.get("/v1/conversations?state=open".into()).await else {
+        return;
+    };
+    for c in open["conversations"].as_array().into_iter().flatten() {
+        let id = text(&c["conversation_id"]);
+        let person_here = c["participants"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|p| p["kind"] == "person" && p["local"] == true && p["state"] == "joined");
+        if person_here || noted.contains(id) {
+            continue;
+        }
+        let Ok(names) = joined_agents(local, c).await else {
+            continue;
+        };
+        if names.is_empty() {
+            continue;
+        }
+        noted.insert(id.to_owned());
+        let short: String = id.chars().take(13).collect();
+        eprintln!(
+            "Not showing {}: this host's person is not in it. Agents on this host that are: {names}. Use conversation watch --as NAME.",
+            escaped(&short)
+        );
+    }
+}
 /// Moves the person's read cursor past messages just shown. Printing already
 /// happened; a failure leaves them unread.
 async fn advance(local: &Local<'_>, id: &str, ids: Vec<String>) {
@@ -435,8 +546,30 @@ async fn advance(local: &Local<'_>, id: &str, ids: Vec<String>) {
             .await;
     }
 }
+/// The longest `conversation watch` holds a message past a gap.
+const HOLD: Duration = Duration::from_secs(5);
+/// A message past a gap, waiting for the earlier ones.
+struct Held {
+    conversation: String,
+    message: String,
+    since: std::time::Instant,
+}
+/// A message's place in display order, per conversation.
+fn display_key(conversation: &str, m: &Value) -> (String, i64, String, i64) {
+    (
+        conversation.to_owned(),
+        m["clock"].as_i64().unwrap_or(0),
+        text(&m["author"]).to_owned(),
+        m["seq"].as_i64().unwrap_or(0),
+    )
+}
 /// `conversation watch`: long-polls the event log from where it is now.
-async fn watch(local: &Local<'_>, query: &str, reader: Option<&str>) -> anyhow::Result<()> {
+async fn watch(
+    local: &Local<'_>,
+    query: &str,
+    reader: Option<&str>,
+    whole_host: bool,
+) -> anyhow::Result<()> {
     let first = local
         .get(format!("/v1/conversations/events?wait=0&limit=1{query}"))
         .await?;
@@ -446,8 +579,15 @@ async fn watch(local: &Local<'_>, query: &str, reader: Option<&str>) -> anyhow::
         .map(|r| format!("?participant={}", encoded(r)))
         .unwrap_or_default();
     let mut said = BTreeSet::new();
+    let mut noted = BTreeSet::new();
+    let mut held: Vec<Held> = Vec::new();
     loop {
-        let path = format!("/v1/conversations/events?after={after}&wait=25&limit=100{query}");
+        if whole_host && reader.is_none() {
+            note_agent_only(local, &mut noted).await;
+        }
+        // A held message is read again at least once a second.
+        let wait = if held.is_empty() { 25 } else { 1 };
+        let path = format!("/v1/conversations/events?after={after}&wait={wait}&limit=100{query}");
         let answer = match local.get(path).await {
             Ok(answer) => answer,
             Err(_) => {
@@ -457,6 +597,7 @@ async fn watch(local: &Local<'_>, query: &str, reader: Option<&str>) -> anyhow::
         };
         after = answer["next_after"].as_i64().unwrap_or(after);
         let mut shown: Vec<(String, String)> = Vec::new();
+        let mut ready: Vec<(String, Value)> = Vec::new();
         for event in answer["events"].as_array().into_iter().flatten() {
             let id = text(&event["conversation_id"]);
             let short: String = id.chars().take(13).collect();
@@ -481,15 +622,48 @@ async fn watch(local: &Local<'_>, query: &str, reader: Option<&str>) -> anyhow::
                                 println!("{short}  {}", target_line(t));
                             }
                         }
+                    } else if view["earlier_missing"] == true {
+                        held.push(Held {
+                            conversation: id.to_owned(),
+                            message: message.to_owned(),
+                            since: std::time::Instant::now(),
+                        });
                     } else {
-                        println!("{short}  {}", message_line(m, 0));
-                        shown.push((id.to_owned(), message.to_owned()));
+                        ready.push((id.to_owned(), m.clone()));
                     }
                 }
                 "roster_changed" => println!("{short}  participants or state changed"),
                 "invited" => println!("{short}  you were invited"),
                 _ => {}
             }
+        }
+        let mut waiting = Vec::new();
+        for h in held {
+            let path = format!(
+                "/v1/conversations/{}/messages/{}{participant}",
+                h.conversation, h.message
+            );
+            match local.get(path).await {
+                Ok(view) if view["earlier_missing"] == true && h.since.elapsed() < HOLD => {
+                    waiting.push(h);
+                }
+                Ok(view) => ready.push((h.conversation, view["message"].clone())),
+                // Not reachable now: read again, and print by the limit if it can be read.
+                Err(e)
+                    if e.downcast_ref::<crate::integration::DaemonError>()
+                        .is_none() =>
+                {
+                    waiting.push(h);
+                }
+                Err(_) => {}
+            }
+        }
+        held = waiting;
+        ready.sort_by_cached_key(|(id, m)| display_key(id, m));
+        for (id, m) in &ready {
+            let short: String = id.chars().take(13).collect();
+            println!("{short}  {}", message_line(m, 0));
+            shown.push((id.clone(), text(&m["message_id"]).to_owned()));
         }
         std::io::stdout().flush()?;
         if reader.is_none() {

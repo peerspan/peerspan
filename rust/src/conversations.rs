@@ -4933,13 +4933,24 @@ impl Store {
 async fn send_join(store: &Arc<Store>, id: &str, home: &str, body: &[u8]) -> Outcome {
     let began = tokio::time::Instant::now();
     let path = format!("/peer/v1/conversations/{id}/join");
+    let mut closing = store.call_timing.closing();
+    let stopped = || Outcome::Retry("the daemon is stopping".to_owned());
     loop {
-        let outcome = send(store, home, &path, body).await;
+        if *closing.borrow_and_update() {
+            return stopped();
+        }
+        let outcome = tokio::select! {
+            outcome = send(store, home, &path, body) => outcome,
+            _ = closing.changed() => return stopped(),
+        };
         match outcome {
             Outcome::Retry(_)
                 if began.elapsed() + ATTEMPT_TIMEOUT + Duration::from_secs(1) <= START_WAIT =>
             {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                    _ = closing.changed() => return stopped(),
+                }
             }
             other => return other,
         }
@@ -5478,9 +5489,13 @@ async fn wait_invites(
         .await?
     };
     let handles = dispatch(store, keys);
+    let mut closing = store.call_timing.closing();
     for handle in handles {
         let left = START_WAIT.saturating_sub(began.elapsed());
-        let _ = tokio::time::timeout(left, handle).await;
+        tokio::select! {
+            _ = tokio::time::timeout(left, handle) => {}
+            _ = closing.wait_for(|closed| *closed) => {}
+        }
     }
     loop {
         let (i, ps) = (id.to_owned(), participants.clone());
@@ -5502,10 +5517,13 @@ async fn wait_invites(
             Ok(pending)
         })
         .await?;
-        if !pending || began.elapsed() >= START_WAIT {
+        if !pending || began.elapsed() >= START_WAIT || *closing.borrow_and_update() {
             return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+            _ = closing.changed() => {}
+        }
     }
 }
 

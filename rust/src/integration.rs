@@ -87,6 +87,9 @@ impl Check {
 struct Launch {
     program: String,
     args: Vec<String>,
+    /// This launch cannot work unless stdout is a terminal.
+    #[serde(default)]
+    terminal: Option<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1067,7 +1070,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
         Some(directory) => directory,
         None => attached_profile(&state)?,
     };
-    start(&directory, &state, workspace, args).await
+    start(&directory, &state, workspace, args, false).await
 }
 
 /// `session start`: recovers a preparing session if needed, then replaces
@@ -1077,6 +1080,7 @@ pub(crate) async fn start(
     state: &Option<PathBuf>,
     workspace: Option<PathBuf>,
     args: Vec<String>,
+    refuse_without_terminal: bool,
 ) -> anyhow::Result<()> {
     let mut p = load_profile(directory, state)?;
     if !p.harness.supports("launch") {
@@ -1109,6 +1113,17 @@ pub(crate) async fn start(
         bail!("integration returned an invalid launch plan")
     }
     let program = executable(&plan.program)?;
+    let needs_terminal = match &plan.terminal {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        Some(_) => bail!("integration returned an invalid launch plan"),
+    };
+    use std::io::IsTerminal;
+    if needs_terminal && refuse_without_terminal && !std::io::stdout().is_terminal() {
+        bail!(
+            "terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. For one non-interactive Claude Code run, add -- -p. To set up only, use --no-start."
+        )
+    }
     if p.phase == "preparing" {
         recover(&mut p).await?
     }
@@ -1585,7 +1600,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     if !no_start && prepared.launchable {
         eprintln!("{text}");
         let workspace = prepared.value["workspace"].as_str().map(PathBuf::from);
-        start(&prepared.directory, &state, workspace, args).await
+        start(&prepared.directory, &state, workspace, args, true).await
     } else {
         println!("{text}");
         if !args.is_empty() {

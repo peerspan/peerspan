@@ -1071,6 +1071,23 @@ impl Drop for SocketCleanup {
     }
 }
 
+/// How long after a stop signal the daemon may still be running.
+const STOP_LIMIT: Duration = Duration::from_secs(10);
+
+/// Ends the process at the limit whatever is still running. It runs off the
+/// runtime, because dropping the runtime waits for blocking tasks with no
+/// limit. SQLite rolls an unfinished transaction back at the next open.
+fn stop_within_limit(sockets: [PathBuf; 2]) {
+    std::thread::spawn(move || {
+        std::thread::sleep(STOP_LIMIT);
+        eprintln!("host daemon stopping with work still in flight");
+        for socket in &sockets {
+            let _ = fs::remove_file(socket);
+        }
+        std::process::exit(0);
+    });
+}
+
 struct ListenerOptions {
     bootstrap_listen: Option<std::net::SocketAddr>,
     transport_config: Option<PathBuf>,
@@ -1173,11 +1190,13 @@ async fn run_daemon(
     })
     .into_future();
     let closing = store.clone();
+    let (ceiling_admin, ceiling_adapter) = (path.clone(), adapter_path.clone());
     let admin = axum::serve(listener, api::router(store.clone()))
         .with_graceful_shutdown(async move {
             tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} }
             // Held requests answer at once, so the servers drain promptly.
             closing.close_held_requests();
+            stop_within_limit([ceiling_admin, ceiling_adapter]);
             let _ = shutdown.send(true);
         })
         .into_future();
