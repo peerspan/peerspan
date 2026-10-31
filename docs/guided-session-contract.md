@@ -6172,6 +6172,72 @@ local diagnostic execution; a passing diagnosis does not identify or fix the CI
 cause. Discard guessed waits/fences, counter filtering, worker/path disabling,
 queue/authority edits, fabricated acknowledgments and unchanged retry-to-green.
 
+### GU.impl33e: current own-contact history prerequisite
+
+Diagnostic CIb937f96 repeats section25 failure5/6in102s and now identifies one
+changed existing local-host bound-network contact, sequence increased, issued
+and expiry times moved from before to after original request expiry, unchanged
+payload, no added/removed rows. This establishes a local signed hint renewal;
+it does not identify the earlier PR79/section24 callers or the exact async caller.
+The history fixture adopts a real network, then advances beyond its old request
+and contact windows without establishing a current own hint before measurement.
+
+A separate contract-only author may add a genuine public contact prerequisite
+immediately after that original history clock advance and before its existing
+spare-request maintenance. Issue one short65s ordinary contact invitation from
+the newly admitted host for a fresh real, unconsumed maintenance identity. Verify
+its actual signed bound own contact and matching retained row using documented
+wire/storage, with current unchanged transport payload and validity extending
+at least60s beyond the cleanup target. Advance only the debug clock to the
+actual new invitation expiry plus1s, within real authority/contact bounds.
+The original spare create/cancel remains in place and must actually retire the
+new expired invitation's secrets/read-cap/frames before original snapshots.
+No recipient join/approval, original-F changes, policy grant or signer import.
+Retain the normal current contact across the original restart and observe it is
+still current, without refreshing or changing the original retry operation.
+
+Only addition-only helper/setup checks/calls are permitted. Removing them must
+restore the prior diagnostic source bytes/AST, with all original assertions,
+actions, capture order, sleeps/timeouts and carrier comparisons intact. Never
+edit contact/authority/queue records, disable workers/paths, claim a global fence
+or increase waits. Contract and author commit precede one retained frozen-binary
+run. Preserve the original CI failures and the147.75s passing diagnosis.
+
+### GU.impl33f: relay-completion failure diagnosis
+
+The same CIb937f96 delivery suite fails11/16in98s. Its first join wait times out
+after60s: requester has linked/local application, inviter remains needs_commit
+without activation/manifest/outcome, four later cases depend on that missing
+linked fixture. The original commit reply's attention is not yet classified.
+Neither the relay failure nor its transport/application caller is identified.
+
+Before a fix, a separate contract-only author may add failure-only bounded
+metadata in delivery.py, preserving the existing public diagnostic and original
+wait/exception/verdict. Leave every other helper/suite unchanged. Enable existing
+debug PEERSPAN_TIMING=1 only for each real daemon start, delegate once and restore
+the caller environment afterward; never enable CLI timing or alter arguments.
+Retain daemon log offsets before the original commit. Only after the original
+join wait fails, read at most64KiB per host from those offsets, project fixed
+participant role, served/background/unknown and completion/local-resume/other
+route class, bounded HTTP status/duration/counts. No raw request numbers, paths,
+IDs/keys/addresses, lines or private diagnostics. Unknown stays fixed unknown.
+
+At that same failure only, one bounded read-only transaction per existing host
+DB may observe this exact request's documented pending/outcome/frame/delivery/
+contact state. Project only fixed roles/kinds/terminal/error enums, counts,
+secret/read-cap presence, request/contact expiry booleans, outcome presence,
+frame ACK counts by helper/participant role, outbox attempts/retry-due booleans,
+and whether configured/retained helpers match the already known fixture helper.
+Bound selected rows and decoded sizes; malformed fields/errors are unknown.
+No raw record, body, locator/capability, primary key, timestamps, hashes, labels,
+addresses, exception detail or signature appears. The already captured original
+commit attention may project only fixed documented transport error categories.
+Diagnostics cannot mask the existing failure or perform any peer request, retry,
+repair, write, changed setup, larger wait or new verdict. Removing diagnostic
+helper/call/timing wrapper/offset observations restores the exact prior source/
+AST. Commit before one retained local run on frozen4842404. A pass leaves the
+original CI cause unknown; no unchanged retry-to-green or guessed runtime fix.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining
