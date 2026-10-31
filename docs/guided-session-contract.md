@@ -7446,7 +7446,147 @@ fanout, automatic probe on status/approval, conflating reverse transport with
 incoming work, a combined ready badge, durable observations, frontend permission
 inference, direct sockets and broader existing runtime scopes.
 
-## 40. Remaining flow contract
+## 40. Native request to connect this computer to an existing person
+
+GU.impl40 begins the new-computer side of GU-05 after merged90. Reuse existing
+sections11/12/15 preview, durable public-key-only request consent, atomic ordinary
+publication and pure progress. No new API/schema/journal, original-key inventory,
+creation/import/copy/signature, provider, runtime scope or completed admission.
+
+### Explicit private lane and exact pin
+
+An attached project offers **Connect this computer** beside unchanged **Join a
+network**. This explicitly selects a volatile machine-request lane. Recheck
+exact attached project/native root/conversation/terminal/host, then section12
+lookup before input. No implicit preview/prepare/inventory/key/model work. No
+retained flow starts an empty **Private invitation for this computer** field.
+Explain the original key stays on the existing computer, a separate device key
+is requested only on publication approval, and the invitation must pin the
+existing person. Input is visible private human terminal text, never agent chat;
+Enter only updates a bounded volatile draft. No clipboard/file/plugin storage.
+
+**Review this computer's identity** clears the drawn code synchronously, checks
+psi2 syntax/32KiB bounds and sends one existing5s private-stdin preview. Validate
+the complete section11 wrapper/review/digest, host/context/agent and canonical
+times. An unpinned invitation refuses with controlled text requiring a pinned
+invitation from the existing computer. No arbitrary pasted key, generated
+substitute, inventory or first-key default repairs it. Show all verified public
+invitation terms and **Existing person public key**. State the pin identifies
+whom to ask, not ownership or inviter authority. No original identities are
+read, enumerated or created even when available. No request is yet prepared.
+
+Separate **Review machine request** rechecks native/parent/host/current deadline
+and sends existing section12 prepare: exact context, captured private invitation,
+its non-dash person pin and only an explicitly retained replacement reference.
+Require a live review matching the complete preview/pin; a new proposal cannot
+reuse the replaced flow ID. Keep all closed/public/privacy/digest checks.
+
+### Publication and truthful recovery
+
+Display the complete section12 review plus **Original person key stays on the
+existing computer**. Approval creates/reuses one ordinary request with a separate
+requester device key and publishes through ordinary transport. It grants no
+membership, ownership, machine powers, agent/file/conversation/capability access.
+No local-original source or possession claim. Actual host/device keys belong to
+the resulting ordinary request; do not fabricate pre-publication key terms.
+Later owner/requester reviews independently bind exact actual keys and powers.
+
+**Approve machine request** and **Decline machine request** use existing decision
+with literal executable/--state argv,5s and private stdin. Both freshly inspect
+exact parent/host and retained flow/review. Approval requires captured code,
+non-dash invitation pin equal to review person and exact preview terms, without
+original inventory/provenance. After asynchronous preflight recheck time directly
+before dispatch. Backend atomically rechecks immutable review/invitation before
+ordinary device/request creation. Single-flight; uncertain outcomes drop code
+and recover only by explicit reopening/lookup, never automatic retry.
+
+Success is **Machine request: publication recorded**, never connected/linked.
+Show immutable public outcome and publication versus approval/current-link/
+permissions/transport/model limits. **Check machine request progress** uses
+section15's pure exact-request snapshot and real next participant/action. No
+polling/resume/proof fetch/selection/commit/signing. Do not expose sections17/19/
+26/29 new-original owner controls in this lane. State **Approval on the existing
+computer is still required** and guided existing-computer approval is subsequent
+work. Automatic return is only as available as the invitation says, not proof
+of delivery.
+
+Lookup/Refresh/reopen recover public state with no inventory/code retrieval/
+prepare/publication/key handling. Machine-lane recovery requires a non-dash
+invitation pin equal to the retained person. Other flows refuse with controlled
+text and retain their durable outcome, available through Join a network. The
+lane is a fresh explicit choice after Close/reload, never persisted ownership.
+Refresh preserves it only for that current attached native view.
+
+A retained live review shows original terms but no Approve until exact private
+code reentry via **Check invitation for this machine request**. Identical prepare
+must return the same entire flow/review/non-dash pin; no inventory or second
+preview. Decline needs no code. **Review another machine request**, only from a
+non-review outcome, starts an empty draft retaining exact latest replacement ID.
+Explain replacement does not cancel/revoke the earlier request; never silently
+overwrite a review.
+
+Keep fixed invitation/review expiry through choice/prepare/recovery/approval.
+Expiry clears code/selection and removes approval; no timer does IO. Recheck
+context/time after awaited guards before dispatch/final display; delayed work
+cannot restore expired terms. Before/after every process effect require current
+native/parent/host/terminal. Back/Close/Refresh/end/reload/context/pane changes
+clear code and callback/timer authority; late results cannot populate a new view.
+Preserve durable outcomes and existing authorized adapter/message/task behavior
+under existing lifecycle rules. No new model tool/prompt/inference/direct socket/
+credential scope/ready badge. Keep original identity lane's inventory/provenance/
+creation requirements unchanged. Private prefixes, unsafe/closed aggregates and
+raw diagnostics refuse. No code in argv/model/log/storage or post-submit drawing.
+
+### Verification
+
+Separate contract-only author adds12 compact native cases from public sections
+11/12/15/40, pinned303 SDK and independent fixtures, no product/Rust/hook reads/
+imports or runtime/process/network/model execution. Commit before root executes.
+All381 prior native cases/all30 host suites/helpers stay byte-identical; retain
+unchanged default5s individual limits. Actual pending stimuli signal dispatch.
+
+1. Attached terminal-only explicit lookup-first entry; no implicit preview,
+   inventory/mutation/key work; original Join a network stays separate.
+2. Inert draft/Enter, literal configured argv/private stdin/5s preview, complete
+   terms/pin; no original inventory even when identities happen to exist.
+3. Unpinned/invalid/oversized/expired/future invitation refuses without prepare,
+   substitute creation, default repair or private/raw output.
+4. Separate Review machine request; exact complete preview/pin/replacement and
+   prepare wrapper/digest/person binding, no possession or authority inference.
+5. Exact one Approve with no local original, immutable publication outcome and
+   truthful device/key/permission/readiness limits.
+6. Decline without code/inventory; double presses; denied/nonzero/malformed/
+   uncertain results recover lookup-only, no automatic retry.
+7. Retained live review exact-code recovery then approval; unpinned/mismatched
+   retained flow refuses in this lane without replacing its durable outcome.
+8. Refresh/Close/reopen/reload public recovery without inventory/code/prepare;
+   no original-owner signing/selection/commit controls in the machine lane.
+9. Explicit pure progress/next participant without advancement; replacement
+   keeps latest ID and explains that the older outcome is not cancelled.
+10. Fixed invitation/review timers and real delayed preflight/IO: no late
+    dispatch, expired evidence/code or old-timer resurrection.
+11. Real pending root/conversation/parent/host/terminal/navigation/end changes
+    discard callbacks; private/closed/digest/person substitution refuses.
+12. Established adapter/message/task runtime survives the human lane without
+    extra model tools/prompts, authority or wider runtime scope.
+
+Root serializes runtime/build/host gates, samples known compilers, records every
+first outcome/source/test/log hash. Run strict pinned303 validation/full393
+native suite and unchanged join_onboarding with verified merged89 binaries.
+Reuse unchanged Rust treeeac511ee's recorded local gates; final-head all30 host
+suites/four PR checks/fresh bot/root review run again, including all31 jobs with
+pagination. No unchanged local retry-to-green, old case/stimulus/deadline edits
+or quota-refused model probes. Retain earlier unclassified native/transport/
+history failures. Existing-computer guided approval and terminal/installed/
+physical/model/schema23-to27/full-state/final combined/full-feature gates stay open.
+
+Selected: explicit pinned existing-person requester lane over ordinary public-
+key-only backend, original key stays on its machine. Discarded: copying/import,
+substitute person creation, local inventory as a device prerequisite, arbitrary
+unpinned input, pin as ownership/approval, new journal/schema and new-original
+owner controls for this requester. No new owner choice is attributed.
+
+## 41. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

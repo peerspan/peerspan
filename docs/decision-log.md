@@ -3501,3 +3501,17 @@ unchanged local retry, guessed runtime fix or weaker tests. Existing Rust gates
 are reused from merged89, with the full final all30/four matrix repeated. Actual
 terminal/reload/installed/physical/model/other-computer/schema23-to27/full-state/
 final combined acceptance remains open.
+
+### GU.impl40: request this computer under a pinned existing person
+
+Implementation recommendation under GU-OWN1: select a separate explicit native
+machine-request lane using sections11/12/15's existing public-key-only backend.
+The original key stays on its existing computer. No local identity inventory,
+new key substitute, schema or durable UI lane is required. Exact pinned public
+identity is reviewed separately from publication; owner/device powers remain
+later reviews on the authorized computer. Discard original-key copying/import,
+arbitrary unpinned key entry, ownership claims from pins and reusing new-original
+owner controls for a remote existing person. Section40 contracts twelve separate-
+author native cases before implementation; preserve all381 old native cases,
+all30 host suites, deadlines and earlier unclassified outcomes. Existing-
+computer guided approval and all full-feature acceptance gates remain open.
