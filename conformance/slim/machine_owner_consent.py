@@ -380,11 +380,55 @@ def quiet(f):
     wait_for(stable, timeout=3, interval=.1, message='settled machine-owner DB/files and counted carriers')
 
 
+def strict_failure_diagnostic(actual, expected, current, before):
+    """GU.impl42b: categorize captured failures, never resample or alter them."""
+    try:
+        tables = set('networks network_members peers policy_edits agents sessions adapter_connections adapter_credentials events dec_contexts dec_objects dec_admissions dec_restrictions dec_activations dec_heads dec_highwater dec_signers dec_clock dec_intents dec_pending dec_frames dec_operations dec_outbox dec_migrations dec_contacts dec_helpers'.split())
+        def file_flags(old, new):
+            flags = dict.fromkeys(('regular', 'directory', 'socket', 'other', 'database', 'journal'), False)
+            for name in set(old) | set(new):
+                if name in old and name in new and old[name] == new[name]:
+                    continue
+                for entries in (old, new):
+                    if name in entries:
+                        kind = entries[name][0] & 0o170000
+                        flags[{0o100000: 'regular', 0o040000: 'directory', 0o140000: 'socket'}.get(kind, 'other')] = True
+                flags['database'] |= name.endswith('.db')
+                flags['journal'] |= name.endswith('.db-journal')
+            return flags
+        sides = []
+        for index, side in enumerate(('existing', 'requester')):
+            old, new = expected[index], actual[index]
+            names = set(); schema = version = False
+            for database in set(old[0]) | set(new[0]):
+                a, b = old[0].get(database, {}), new[0].get(database, {})
+                schema |= a.get('$schema') != b.get('$schema')
+                version |= a.get('$version') != b.get('$version')
+                for name in (set(a) | set(b)) - {'$schema', '$version'}:
+                    if name not in a or name not in b or a[name] != b[name]:
+                        names.add(name if name in tables else 'unknown')
+            sides.append({'side': side, 'database_set_changed': set(old[0]) != set(new[0]),
+                'changed_tables': sorted(names), 'schema_changed': schema, 'version_changed': version,
+                'state_categories': file_flags(old[1], new[1]), 'home_categories': file_flags(old[2], new[2])})
+        carriers = []
+        for index, width in enumerate((2, 2, 4, 4)):
+            old = before[index] if index < len(before) else ()
+            new = current[index] if index < len(current) else ()
+            carriers.append({'index': index, 'shape_changed': len(old) != width or len(new) != width,
+                'changed_positions': [position for position in range(width) if position >= len(old)
+                    or position >= len(new) or old[position] != new[position]]})
+        print('machine_consent_snapshot_failure_public=' + json.dumps({'sides': sides,
+            'carrier_shape_changed': len(current) != 4 or len(before) != 4, 'carriers': carriers}, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Preserve the original complete comparisons, even on malformed snapshots.
+
+
 def strict(actual, expected, current, before, phase):
     if actual != expected or current != before:
         print('machine_owner_purity_public=' + json.dumps({'phase': phase,
             'database_or_files_changed': actual != expected,
             'carrier_changes': [dict(index=i, changed=x != y) for i, (x, y) in enumerate(zip(current, before))]}, sort_keys=True), flush=True)
+        strict_failure_diagnostic(actual, expected, current, before)
     check(actual == expected, 'machine inspection changed whole DB/schema/state/home')
     check(current == before, 'machine inspection performed counted TCP/UDP traffic')
 
