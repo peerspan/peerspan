@@ -6760,8 +6760,11 @@ All fields are public local observations, never signed readiness attestations.
 
 Use one SQLite read transaction for project, verified membership/policy,
 authorizations and credentials/connections. Sample one DEC decision time and
-reuse it for all DEC reads, without advancing any guard. Adapter validity and
-lease checks still use their ordinary actual read-time checks. Do not copy
+reuse it for all DEC reads, without advancing any guard. Pinning read time must
+preserve the ordinary receiver's strict errors: status-summary tolerance that
+turns unavailable membership/policy into omitted counters is not appropriate
+here. Do not convert a failed ordinary receiver projection into empty successful
+authorizations. Adapter validity and lease checks still use their ordinary actual read-time checks. Do not copy
 frontend state, reconstruct cryptography or add a second permission evaluator.
 
 Peers are precisely the selected person's current bound remote machines from
