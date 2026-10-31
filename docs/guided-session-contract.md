@@ -6314,8 +6314,11 @@ claim that a directory refresh globally fences traffic.
 Before its original stable/baseline calls, perform each host's real explicit
 POST /v2/networks/{network}/sync with the existing30s server bound. Require the
 exact known other host among attempted, no unavailable targets, actual current
-usable membership and current bound own/other contacts. Observe the original
-successful authenticated directory queries and actual whole transport retirement
+usable membership and current bound own/other contacts. Require actual authority,
+binding/member and contact expiry to exceed each host's current time plus the
+remaining monotonic60s window; instant liveness alone is insufficient. This is
+a read-only prerequisite guard, with no extra renewal/signing action. Observe
+the original successful authenticated directory queries and actual whole transport retirement
 (no private secret/read-cap/frame/outbox/journal), then run the old stable calls.
 All genuine startup/explicit sync work precedes the original snapshots. The
 first-start boundary must still cover the remaining input case; a setup that
