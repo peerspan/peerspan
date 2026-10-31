@@ -8110,6 +8110,32 @@ keys, messages or IDs, no extra IO/actions/retries, no changed assertions/setup/
 counters/deadlines/allowed fields. Run this diagnostic version once against the
 same product tree before attributing either failure or changing behavior.
 
+### GU.impl42b: classify independent maintenance without weakening purity
+
+First root diagnostic run890bd74 passes2/6in21s on the unchanged b5567ac4
+product tree. Case1 captures only catalog_base64, owner_intent_id and roles
+changed; pairing secret is unchanged. Catalog retention is ordinary public
+proof material, but this guided preparation must preserve the incoming pending
+catalog through its unsigned phase. Use the same ordinary template preparation;
+retain the current verified owner catalog during approved ordinary completion
+of the first owner offer, before its proof/packet frames are queued. Never
+omit the required proof publication, change an advanced entry point's behavior,
+or refresh an ordinary template/provider/window. This is a product correction,
+not a broader pending-field allowance in the test.
+
+The same run case2 observes TCP counter changes on both counted paths with DB/
+files unchanged. Case4's reuse fixture is then incomplete; its refusal cause is
+unestablished. Case5 separately observes DB/files change during lookup CLI, with
+all carrier counters unchanged. Causes of these maintenance/purity observations
+are unclassified. Keep log SHA256
+df90279b59f3f1b8f16c97c82eb29df1ff0bfba83423cd0e0d222ba5dc0ad3cb.
+The separate author may extend ONLY failure metadata in strict() from already
+captured snapshots/counters: closed table names or schema/version category per
+side, state/home file-category booleans and changed counter component positions.
+No raw DB values, paths/IDs, hashes of private values, new probes/actions/retries,
+or altered pure/setup/assertion/bounds/allowed writes. A later genuine protocol
+barrier, if needed, requires its own contract and evidence before fixture changes.
+
 ## 43. Remaining flow contract
 
 Teammate/device admission, remaining
