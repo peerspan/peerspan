@@ -156,8 +156,16 @@ dispatched it ends the task `cancelled` at once, with `output` null. For a dispa
 running one it forwards the request with `POST /v1/runs/{run_id}/cancel`, and the task ends
 `cancelled` when the runtime reports `exited`, even if the command had just exited, with the
 run result as `output`. If `started` arrives first, the task moves to `running` with
-`accepted` before it ends. A runtime that answers 404 never created the run, and the task
-ends `cancelled` with `output` null.
+`accepted` before it ends.
+- **A start in flight.** The host forwards a cancellation only once no `POST /v1/runs` for
+  that run is outstanding: while one is in flight, it waits for the answer first. A 201 or
+  200 means the run exists, and the cancellation is then forwarded. A 429, a 422, or a start
+  that never reached the runtime means no run exists, and the task ends `cancelled` with
+  `output` null.
+- **404.** With no start outstanding, a runtime that answers 404 to the cancellation never
+  created the run, or lost it, and the task ends `cancelled` with `output` null. A restarted
+  daemon has no start outstanding, and it does not resend the start of a task whose
+  cancellation was requested.
 
 ### Output events
 
