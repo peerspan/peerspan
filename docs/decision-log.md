@@ -3343,3 +3343,10 @@ of person-lease labels. Group choices by exact person key and show each distinct
 quoted machine label; inspection separately supplies the verified person label.
 Discard cross-label equality and treating one machine alias as person identity.
 This corrects the contract before any runtime execution.
+
+GU.impl34 pre-execution clarification: retain the selected DEC network's context
+from onboarding and reject a different member context before offering people.
+Legacy history is not a grant choice. Quoted project root belongs in the private
+human review, while remaining absent from model/log/outside-UI/argv; internal
+transport IDs remain undisplayed. Independent fixture privacy expectations must
+respect this boundary rather than forbid the required human project review.
