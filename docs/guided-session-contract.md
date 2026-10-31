@@ -6709,7 +6709,146 @@ buttons, implicit work on reads/approval, new consent/provider/flow storage,
 auto retry/repair, treating historical local application as current permission
 or connection readiness, and widening existing333 tests' allowed effects.
 
-## 36. Remaining flow contract
+## 36. Current project readiness evidence
+
+This is the owner-local read foundation for observed connection readiness,
+following merged85 (`8b20ab5`). It makes no overall-ready assertion and adds no
+network operation, consent, schema, signature, grant, adapter connection or model
+turn. Native presentation and explicit peer reachability checks follow separately.
+Preserve all349 native cases and all28 existing host suites byte-for-byte.
+
+### Private API and CLI
+
+```
+POST /v1/onboarding/readiness
+peerspan [--state DIR] onboarding readiness --stdin
+{context,network_id,person_public_key}
+```
+
+The input is exactly section30's closed64KiB input and exact AdapterContext.
+Require its current attached project/agent/session, an explicitly named DEC
+network and exact currently admitted person. No default choice, name resolution,
+provider/key discovery, repair, synchronization, directory refresh or peer IO.
+Serve only on the owner administration socket, not peer/bootstrap/scoped adapter
+routers. Wrong methods fail. CLI uses literal configured state/admin socket,
+private stdin, a5s local request bound, generic invalid/unavailable errors and no
+raw private response diagnostics. Missing daemon must not create state/files.
+Unknown network and changed/unavailable project/authority follow section30 errors.
+New unavailable/unsafe aggregate evidence fails with409 readiness_unavailable;
+never replace failure with a successful empty readiness view.
+
+### One current read snapshot
+
+Return exactly:
+
+```
+{version:1,host_id,context,observed_at,
+ inspection:{review_id,review},
+ readiness:{direction:"participant_hosts_to_project_agent",session_id,
+   adapter_connections:[CONNECTION],
+   peers:[{host_id,host_public_key,authorizations:[AUTHORIZATION]}],
+   peer_reachability:"not_verified",model_receipt:"not_verified",
+   connection_readiness:"not_verified"}}
+```
+
+Inspection is the complete current section30 public review and its unchanged
+domain/digest. It describes membership and the exact raw signed baseline plus
+ordinary separately enforced content; it is not historical access-consent or
+application evidence. The digest covers that inspection review, not the mutable
+readiness fields. Host/context/observed time match its exact original projection.
+All fields are public local observations, never signed readiness attestations.
+
+Use one SQLite read transaction for project, verified membership/policy,
+authorizations and credentials/connections. Sample one DEC decision time and
+reuse it for all DEC reads, without advancing any guard. Adapter validity and
+lease checks still use their ordinary actual read-time checks. Do not copy
+frontend state, reconstruct cryptography or add a second permission evaluator.
+
+Peers are precisely the selected person's current bound remote machines from
+the inspection, excluding this daemon's own host. Include machines with no
+advertised authorization, as an empty array; do not infer that a missing local
+policy grants access. Sort peers by host ID and derive each ID from its verified
+public host key. For each, reuse the ordinary receiver directory's current
+`GET /peer/v1/networks/{network_id}/agents` semantics from the launch contract,
+under this same connection/snapshot, then select only this exact project's agent
+ID/name. Preserve every authorization entry, its bounds and order: self access,
+selected-network current signed/enforced policy (including named-vs-wildcard
+precedence, groups and unsettled withdrawals), blocks, explicit grants and
+`from_agent` restrictions. No union that hides requester-agent restrictions,
+no historical approved-policy shortcut and no reinterpreted person label.
+A machine may advertise an authorization through self access or an explicit
+grant independently of the selected policy. These are what this receiver would
+currently advertise to that caller in this network; they do not prove the
+caller possesses the required origin, policy citation, credential or transport,
+or that any particular future request/body/deadline will be accepted.
+
+CONNECTION is the full existing public adapter connection object from section1.
+Include every unrevoked, unexpired credential for this exact project's attached
+session, ordered by adapter ID, even if its connection is merely registered.
+Do not borrow another session's live/verified channel for the same agent. Zero
+current credentials produces [], never a fabricated ready adapter. Expired or
+revoked credentials disappear under ordinary checks; no cleanup/renewal occurs.
+Keep registered, live unverified and live verified evidence distinct. Even a
+verified host channel does not establish this native conversation's current
+main-model acknowledgment, peer reachability or a completed peer request.
+
+The output is <=2MiB and passes the existing recursive public/privacy gate.
+No tokens, instances, invitation codes, private signer material, templates,
+transport addresses, raw exception text or private protocol packets are exposed.
+Context paths/native references stay on this exact private request/response
+boundary, as in section30; routine human/model presentation is separate. No
+new timestamps, tokens or rows are retained by this read. Background workers
+remain independent and must be controlled/accounted for in purity evidence.
+
+### Verification
+
+A separate contract-only author adds a compact `readiness` slim suite, six
+black-box cases, with real temporary hosts/ordinary public setup. Commit before
+root executes. No product/Rust reads, self-authored implementation tests, direct
+protocol/authority edits, fabricated readiness or new model/inference probe.
+Use existing harness/pure read prerequisites; do not modify any existing host,
+native helper/assertion/action/delay/timeout. Cover:
+
+1. Exact API/CLI shape, input pins, same section30 inspection/digest, current
+   remote host IDs/order and metadata-only project with no adapter. Establish
+   two people/two hosts without a coordinator; empty authorizations are honest.
+2. Ordinary current grant then withdrawal/block changes receiver-advertised
+   entries; preserve exact message/task bounds and requester-agent restrictions.
+   Compare with the ordinary authenticated receiver directory projection where
+   feasible. No historical consent/application receipt stands in for current
+   permission; existing self/grant/policy semantics remain unchanged.
+3. Registered/unverified/verified adapter states through ordinary public adapter
+   handshakes, exact project session only, expiry/revocation exclusions, and
+   another same-agent session never providing this session's readiness. Every
+   peer/model/overall flag stays not_verified despite a verified local channel.
+4. Repeated CLI/API reads in a bounded genuinely quiescent fixture preserve
+   complete logical DB/clock/consent/authority plus private-file hashes and BOTH
+   TCP+UDP carrier counters. Restart loses attachment by its existing rules;
+   no read restores it or starts a daemon/worker/connection.
+5. Changed project/root/native/review/agent, detached/replaced parent, unknown
+   network/person and unavailable/expired current authority fail closed without
+   rebound, fallback, key/provider use or successful empty substitute. Public
+   privacy rejects unsafe metadata without echoing it.
+6. Closed malformed/unknown/null/duplicate/trailing/oversized input corpus,
+   missing daemon/noncreating CLI failure and owner-only route isolation through
+   ordinary peer/bootstrap/scoped adapter public interfaces.
+
+Root serializes all builds/runtime/host runs, records first outcomes and exact
+source/binary/test hashes, runs Rust fmt/test/Clippy/shipped binaries plus new
+readiness and old access_onboarding locally, and unchanged native349/strict
+validation. CI adds only this29th suite and runs all29/four PR checks on one
+final head with fresh bot/root review. Retain failures and classify before
+correction; no unchanged retry-to-green, deadline increase, old-test edit or
+unbounded suite. Actual terminal/reload/installed/physical/model/schema23-to27/
+full-state/peer-reachability/native-readiness/full-feature acceptance stay open.
+
+Selected: compose current ordinary receiver authorization and exact-session
+adapter evidence under one read snapshot. Discarded: an overall ready boolean,
+frontend permission inference, historical applied-policy as current permission,
+agent-wide channel as this session's proof, automatic network/model probes,
+new durable flow/schema, and changing existing directory or adapter semantics.
+
+## 37. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

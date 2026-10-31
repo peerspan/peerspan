@@ -3384,3 +3384,18 @@ existing mutation keeps its own95s client/90s server bound and the original
 five-minute deadline. Fresh guards precede each dispatch; unknown signing stops
 before apply. Contract-first independent native cases and full final-head gates
 remain required. No Rust/protocol/evaluator changes or new peer/model IO.
+
+### GU.impl36 — Observe current project readiness evidence without advancing it
+
+After merged85, add an owner-local project/network/person-bound read snapshot.
+Reuse current section30 verified inspection, the ordinary receiver directory's
+exact advertised authorizations and only this project's session connections,
+under one DB transaction/DEC read time. Preserve origin restrictions, blocks,
+self/grant paths and current enforced policy; keep channel/reachability/model
+evidence separate. No new consent/keys/schema/storage/peer IO or frontend yet.
+
+Discarded: ready boolean from historical application, frontend rule evaluation,
+agent-wide channel borrowing, implicit peer/model probes, new durable workflow
+and changed ordinary directory/adapter behavior. Independent six-case29th slim
+suite plus unchanged349 native cases/all28 old suites, final CI and fresh review
+precede owner merge; the full observed-readiness/feature acceptance remains open.
