@@ -2,7 +2,7 @@
  * Independent section40 pinned existing-person machine-request fixtures,303.
  * Contracts11/12/15/40 and independent native fixtures only; no product imports.
  * No real process, network, host, signing, model or installed acceptance here.
- * All381 old native cases and30 host/helper files remain byte-for-byte exact.
+ * All381 old native cases and30 host suites/helpers remain byte-for-byte exact.
  * Actual delayed effects signal dispatch plus virtual-sleep registration.
  * Obsolete drawn closures/microscopic digest-await boundaries and actual reload
  * remain source/manual evidence; fresh modules prove only volatile initial state.
@@ -388,7 +388,7 @@ async function previewTerms(ui: Pane, review: any) {
     ...review.contacts.flatMap((c: any) => [c.sequence, c.issued_at, c.expires_at, ...c.quic_addresses, ...c.bootstrap_addresses,
       ...c.relays.flatMap((r: any) => [r.address, r.public_key])]), ...review.helpers.flatMap((h: any) => [h.address, h.public_key])]) expect(shown).toContain(value)
   expect(shown).toContain('Existing person public key')
-  expect(shown).toMatch(/pin[\s\S]*(?:not|does not|doesn't)[\s\S]*(?:ownership|own|authority)/i)
+  expect(shown).toMatch(/pin[\s\S]*(?:not|does not|doesn't|neither)[\s\S]*(?:ownership|own|authority)/i)
   expect(shown).toMatch(/automatic[\s\S]*return/i)
 }
 async function reviewTerms(ui: Pane, w: World) {
