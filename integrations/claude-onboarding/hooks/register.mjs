@@ -913,7 +913,7 @@ function accessStart($, previous, epoch) {
   machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
   accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, canFinish: false, message: null,
     readinessValue: null, readinessDetails: false,
-    peerSource: null, peerMachines: [], peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null,
+    peerSource: null, peerMachines: [], peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null, peerAttempted: false,
     parent: project.flow, context: project.context, host: hostId };
   $.ui.invalidate('ui.render');
   return accessing;
@@ -1321,7 +1321,7 @@ async function openMachineConnection($, previous, epoch) {
     if (!readinessLive(previous.readinessValue, now)) { machineSelectionFailure($, previous, epoch); return; }
     const view = { ...previous, mode: 'reachability', readinessValue: null, readinessDetails: false,
       peerSource: previous.readinessValue, peerMachines: reachabilityMachines(previous.readinessValue),
-      peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null, page: 0, message: null,
+      peerSelected: null, peerValue: null, peerDetails: false, peerResultAuthority: null, peerAttempted: false, page: 0, message: null,
       value: null, inspected: null, canApprove: false, canFinish: false,
       completionConsent: null, completionLast: null, completionSigned: false };
     accessing = view;
@@ -1335,7 +1335,7 @@ async function chooseMachine($, previous, epoch, selected = null, page = 0) {
   try {
     if (!await machineCurrent($, previous, epoch)) return;
     machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
-    accessing = { ...previous, peerSelected: selected, peerValue: null, peerDetails: false, peerResultAuthority: null, page, message: null };
+    accessing = { ...previous, peerSelected: selected, peerValue: null, peerDetails: false, peerResultAuthority: null, peerAttempted: false, page, message: null };
     $.ui.invalidate('ui.render');
   } catch { machineSelectionFailure($, previous, epoch); }
 }
@@ -1344,7 +1344,7 @@ async function checkMachineConnection($, previous, epoch) {
       !previous.peerSelected || !previous.peerMachines.includes(previous.peerSelected)) return;
   // Keep the original roster timer authoritative throughout the whole request.
   machineEvidenceExpiry?.cancel(); machineEvidenceExpiry = null;
-  const running = { ...previous, busy: true, peerValue: null, peerDetails: false, peerResultAuthority: null, message: null };
+  const running = { ...previous, busy: true, peerValue: null, peerDetails: false, peerResultAuthority: null, peerAttempted: true, message: null };
   accessing = running;
   $.ui.invalidate('ui.render');
   try {
@@ -1389,7 +1389,7 @@ function machineControls($, { Text, Button }, previous, epoch, leave) {
   const button = (key, label, onPress) => Button({ key, label, onPress });
   const source = previous.peerSource, selected = previous.peerSelected, page = previous.page;
   return [
-    ...(source ? [Text({ children: [reachabilityLines(source, previous.parent, selected, previous.peerValue)] })] : []),
+    ...(source ? [Text({ children: [reachabilityLines(source, previous.parent, selected, previous.peerValue, previous.peerAttempted)] })] : []),
     ...(source && !selected ? [
       Text({ children: ['Choose a remote machine', previous.peerMachines.length ? '' :
         '\nNo remote machines were observed. Check connection status again.'] }),
