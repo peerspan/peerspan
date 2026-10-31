@@ -62,7 +62,7 @@ No schema change is needed: these are fields of the JSON records.
 
 ### Status
 
-`GET /v1/status` returns one object:
+`GET /v1/status` and `GET /v2/status` return the same object ([DEC-OWN13](decision-log.md#dec-own13-v1-status-returns-the-v2-object-2026-10-31)):
 
 ```json
 {
@@ -89,14 +89,14 @@ No schema change is needed: these are fields of the JSON records.
 ```
 
 **Fields:**
-- **`networks`:** sorted by ID.
+- **`networks`:** sorted by ID. The example shows a retained old network; it also has `mode: "legacy_history"` and `migration_required: true`, and raises `network_migration_pending`. A coordinator-free network is a `NETWORK_VIEW` instead (`docs/decentralized-runtime-contract.md`, section 9), with its bound person in `person_public_key` and `member`.
   - `person` is this host's bound person, or null.
   - `policy` is that person's stored policy, or null.
   - `members` counts current, unrevoked members, this host included.
 - **`agents`:** sorted by name, then ID. `sessions`, sorted by ID, lists only attached sessions and sessions with an unrevoked, unexpired credential. `connection` uses the values of `adapter connection`: `registered`, `ready`, `offline`, `detached`, `revoked`, or `expired`. A session without a credential shows null `adapter_id`, `connection`, and `expires_at`, and `renewable: false`.
 - **`version`:** the implementation's version string. Its wording is not shared.
 
-**Attention items**, in this order, each with its subject:
+**Attention items**, in this order, each with its subject. Old coordinator networks no longer raise items 1 to 4; they are kept here for the record:
 1. `coordination_error`: a network with a non-null `last_sync_error`. Subject: the network ID; command: `peerspan network sync ID`.
 2. `policy_expired`: this person's policy has passed `valid_until`. Command: `peerspan access renew --network ID`.
 3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `peerspan access renew --network ID`.
