@@ -7210,10 +7210,19 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    milliseconds and existing carrier deltas. Count fixed-category existing
    proxy socket send/receive errors without changing their handling; expose
    those counts only on failure. No addresses, records or raw errors appear.
+   Once a transport mismatch and its original state/carrier categories are
+   captured, one failure-only independent ordinary peer-directory probe may
+   use the same selected key/known counted endpoint, bounded15s. Emit only
+   exit/status/body-type categories, elapsed time and before/after carrier
+   deltas; no response body/raw errors. Retain the original failed verdict,
+   never retry the observation endpoint or turn a diagnostic pass into success.
+   A read-only exact manual-hint match boolean may accompany it. This exception
+   adds diagnostic IO only after the original failure, outside purity captures.
    Temporary enabled listeners during setup explicitly advertise the counted
    endpoint; bootstrap-only issuance/final captures advertise no QUIC endpoint.
    This prevents an intermediate bound-address default bypassing accounting.
-   It adds no daemon/network/SQL operation or changed assertion/action/timing;
+   Apart from that explicit post-failure probe/read exception, observers add no
+   daemon/network/SQL operation or changed assertion/action/timing;
    the original failure remains a failure. These diagnostics establish no cause
    when they do not trigger.
    Document public-fixture coverage limits.
