@@ -1,9 +1,6 @@
-//! `GET /v1/status`: one summary of this host and what needs the owner's
+//! `GET /v1/status` and `GET /v2/status`: one summary of this host and what needs the owner's
 //! attention. It reads existing records.
-use crate::{
-    adapter::Adapter, api::blocking, link_runtime::support::Failure, model::Error, policy::Policy,
-    store::Store,
-};
+use crate::{adapter::Adapter, api::blocking, model::Error, policy::Policy, store::Store};
 use axum::{Json, Router, extract::State, routing::get};
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{Connection, OptionalExtension};
@@ -26,11 +23,8 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 27] = [
-    "coordination_error",
+pub const ATTENTION_ORDER: [&str; 24] = [
     "policy_expired",
-    "policy_expiring",
-    "policy_delivery_failing",
     "credential_expiring",
     "tasks_failed",
     "artifact_quota",
@@ -91,11 +85,6 @@ fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> 
     Some(item(kind, id.into(), detail, command))
 }
 
-enum RenewalProvider {
-    Original,
-    Device(Option<Failure>),
-}
-
 /// How long an adapter may hold a lease without verifying its channel
 /// before status reports `channel_unverified`.
 const CHANNEL_UNVERIFIED_AFTER: TimeDelta = TimeDelta::seconds(120);
@@ -111,34 +100,19 @@ pub fn channel_unverified_detail(agent: &str) -> String {
 }
 
 impl Store {
-    /// Why the daemon cannot renew `key`'s policy, if it cannot: neither its
-    /// ssh-agent nor its generated key file holds the key.
-    fn renewal_problem(&self, key: &str) -> Option<String> {
-        let key: [u8; 32] = match crate::membership::canonical(key, 32)
-            .ok()
-            .and_then(|k| k.try_into().ok())
-        {
-            Some(key) => key,
-            None => return Some("the person key is invalid".into()),
-        };
-        self.renewal_signer(key).err()
-    }
-    pub fn status(&self) -> Result<Value, Error> {
-        self.status_in(&*self.connection()?, crate::clock::now(), None)
-    }
     pub fn status_v2(&self) -> Result<Value, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let at = crate::decentralized::local_decision_time()
             .map_err(crate::decentralized::product::model)?;
         let now = crate::clock::now();
-        crate::decentralized::product::with_read_time(&at, || self.status_in(&tx, now, Some(&at)))
+        crate::decentralized::product::with_read_time(&at, || self.status_in(&tx, now, &at))
     }
     fn status_in(
         &self,
         connection: &Connection,
         now: DateTime<Utc>,
-        modern: Option<&str>,
+        at: &str,
     ) -> Result<Value, Error> {
         let own = self.identity().id;
         let mut attention = Vec::new();
@@ -154,234 +128,80 @@ impl Store {
             let me = members.iter().find(|m| m.host_id == own);
             let person = me.and_then(|m| m.person_id.clone());
             let label = me.and_then(|m| m.person_member.clone());
-            if modern.is_some() {
-                // Retained local legacy history, with no proof repair, pruning,
-                // provider warning, coordinator activity or fresh authority.
-                let mut policy = None;
-                if let Some(person) = &person {
-                    let mut q=connection.prepare("SELECT record FROM network_statements WHERE network_id=?1 AND kind='policy' ORDER BY subject")?;
-                    for row in q.query_map([&id], |r| r.get::<_, String>(0))? {
-                        let p: Policy = serde_json::from_str(&row?)?;
-                        if p.person_id() == *person {
-                            if policy.is_some() {
-                                return Err(Error::Conflict(
-                                    "ambiguous retained person policy".into(),
-                                ));
-                            }
-                            policy = Some(p);
+            // Retained local legacy history, with no proof repair, pruning,
+            // provider warning, coordinator activity or fresh authority.
+            let mut policy = None;
+            if let Some(person) = &person {
+                let mut q=connection.prepare("SELECT record FROM network_statements WHERE network_id=?1 AND kind='policy' ORDER BY subject")?;
+                for row in q.query_map([&id], |r| r.get::<_, String>(0))? {
+                    let p: Policy = serde_json::from_str(&row?)?;
+                    if p.person_id() == *person {
+                        if policy.is_some() {
+                            return Err(Error::Conflict("ambiguous retained person policy".into()));
                         }
+                        policy = Some(p);
                     }
                 }
-                let deliveries: i64 = connection.query_row(
+            }
+            let deliveries: i64 = connection.query_row(
                     "SELECT COUNT(*) FROM policy_deliveries WHERE network_id=?1 AND person_id=?2 AND json_extract(record,'$.state')='pending'",
                     rusqlite::params![id,person.as_deref().unwrap_or("-")],
                     |r| r.get(0),
                 )?;
-                networks.push(json!({"mode":"legacy_history","migration_required":true,"id":id,"name":network.name,"coordinator":network.coordinator_address,"last_sync_at":network.last_sync_at,"last_sync_error":network.last_sync_error,"members":members.len(),"person":person.map(|p|json!({"id":p,"label":label})),"policy":policy.map(|p|json!({"version":p.version,"valid_until":p.valid_until})),"policy_deliveries_pending":deliveries}));
-                attention.push(item("network_migration_pending", id.clone(), "legacy network kept as read-only history; create a new network and run network reinvite to move its members".into(), format!("peerspan network reinvite {id} NEW_NETWORK_ID")));
-                continue;
+            networks.push(json!({"mode":"legacy_history","migration_required":true,"id":id,"name":network.name,"coordinator":network.coordinator_address,"last_sync_at":network.last_sync_at,"last_sync_error":network.last_sync_error,"members":members.len(),"person":person.map(|p|json!({"id":p,"label":label})),"policy":policy.map(|p|json!({"version":p.version,"valid_until":p.valid_until})),"policy_deliveries_pending":deliveries}));
+            attention.push(item("network_migration_pending", id.clone(), "legacy network kept as read-only history; create a new network and run network reinvite to move its members".into(), format!("peerspan network reinvite {id} NEW_NETWORK_ID")));
+        }
+        let ids = {
+            let mut q=connection.prepare("SELECT id FROM networks WHERE json_extract(record,'$.mode')='decentralized' ORDER BY id")?;
+            q.query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for id in ids {
+            let read = crate::decentralized::runtime::status_network(self, connection, &id, at)
+                .map_err(crate::decentralized::product::model)?;
+            let view = read.network;
+            if let Some(value) = network_attention(&view, &read.guard) {
+                attention.push(value);
             }
-
-            let (policy, provider): (Option<Policy>, RenewalProvider) = {
-                let current = self.network_record(connection, &id)?;
-                let projection = self
-                    .linking_projection(connection, &current)
-                    .map_err(crate::link_runtime::support::model_error)?;
-                let key = match (&projection, &person) {
-                    (Some(p), _) => p
-                        .network
-                        .facts
-                        .state
-                        .bindings
-                        .get(&self.identity().public_key)
-                        .filter(|key| key.as_str() != "-")
-                        .cloned(),
-                    (None, Some(person)) => self.person_key(connection, &id, person)?,
-                    (None, None) => None,
-                };
-                let policy = match (&projection, key.as_ref()) {
-                    (Some(p), Some(key)) => p.policies.get(key).cloned(),
-                    (None, Some(key)) => self.stored_policy(connection, &id, key)?,
-                    (_, None) => None,
-                };
-                let selected: bool = connection.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM link_signers WHERE network_id=?1)",
-                    [&id],
-                    |row| row.get(0),
-                )?;
-                let provider = if selected {
-                    let eligible = match (&projection, key.as_ref()) {
-                        (Some(p), Some(key)) => {
-                            crate::link_runtime::provider::automatic_policy_device(
-                                self, connection, &current, p, key,
-                            )
-                            .map(|_| ())
-                        }
-                        (Some(_), None) => Err(Failure::new("forbidden", "-", "binding").into()),
-                        (None, _) => Err(Failure::new("proof_required", "-", "feature").into()),
+            for (kind, subject, detail, command) in read.edit_attention {
+                attention.push(item(&kind, subject, detail, command));
+            }
+            let selected = view["provider"].as_object();
+            if let Some(provider) = selected {
+                let device = provider.get("kind").and_then(Value::as_str) == Some("device");
+                let state = &view["provider_state"];
+                let policy_scope = provider
+                    .get("scopes")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|scopes| scopes & 1 != 0);
+                if state["state"] == "unavailable"
+                    && (device || state["code"] == "signer_unavailable")
+                    || device && !policy_scope
+                {
+                    let kind = if device {
+                        "person_device_signer_unavailable"
+                    } else {
+                        "person_agent_unreachable"
                     };
-                    RenewalProvider::Device(
-                        eligible.err().map(|e| Failure::cause(e, "-", "signer")),
-                    )
-                } else {
-                    RenewalProvider::Original
-                };
-                (policy, provider)
-            };
-            let deliveries: Vec<crate::policy_sync::PolicyDelivery> = match &person {
-                Some(person) => {
-                    let mut q=connection.prepare("SELECT record FROM policy_deliveries WHERE network_id=?1 AND person_id=?2 ORDER BY target")?;
-                    q.query_map(rusqlite::params![id, person], |r| r.get::<_, String>(0))?
-                        .map(|raw| {
-                            Ok(serde_json::from_str::<crate::policy_sync::PolicyDelivery>(
-                                &raw?,
-                            )?)
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?
-                        .into_iter()
-                        .filter(|d| d.state == "pending")
-                        .collect()
-                }
-                None => Vec::new(),
-            };
-            if let Some(error) = &network.last_sync_error {
-                attention.push(item(
-                    "coordination_error",
-                    id.clone(),
-                    error.clone(),
-                    format!("peerspan network sync {id}"),
-                ));
-            }
-            if let Some(p) = &policy
-                && let (Some(issued), Some(until)) = (time(&p.issued_at), time(&p.valid_until))
-            {
-                let renew = format!("peerspan access renew --network {id}");
-                if now >= until {
+                    let code = if state["state"] == "available" && !policy_scope {
+                        "forbidden (scope1 unavailable)"
+                    } else {
+                        state["code"].as_str().unwrap_or("invalid")
+                    };
                     attention.push(item(
-                        "policy_expired",
+                        kind,
                         id.clone(),
                         format!(
-                            "access policy version {} expired at {}",
-                            p.version, p.valid_until
+                            "selected policy provider requires repair: {}; required_ids {}",
+                            code, state["required_ids"]
                         ),
-                        renew,
-                    ));
-                } else if (until - now) * 4 < until - issued {
-                    attention.push(item(
-                        "policy_expiring",
-                        id.clone(),
-                        format!(
-                            "access policy version {} expires at {} and has not been renewed",
-                            p.version, p.valid_until
-                        ),
-                        renew,
+                        format!("peerspan network sync {id}"),
                     ));
                 }
             }
-            match provider {
-                RenewalProvider::Original => {
-                    if let Some(p) = &policy
-                        && let Some(problem) = self.renewal_problem(&p.person_public_key)
-                    {
-                        attention.push(item(
-                            "person_agent_unreachable",
-                            id.clone(),
-                            format!(
-                                "the daemon cannot renew this person's access policy: {problem}"
-                            ),
-                            "peerspan install".into(),
-                        ));
-                    }
-                }
-                RenewalProvider::Device(Some(problem)) => attention.push(item(
-                    "person_device_signer_unavailable",
-                    id.clone(),
-                    format!(
-                        "selected device cannot renew this person's access policy: {}: {}",
-                        problem.code, problem.error
-                    ),
-                    format!("peerspan network sync {id}"),
-                )),
-                RenewalProvider::Device(None) => {}
-            }
-            for d in deliveries.iter().filter(|d| d.attempts >= 1) {
-                attention.push(item(
-                    "policy_delivery_failing",
-                    format!("{id}/{}", d.target),
-                    format!(
-                        "policy version {} delivery failed {} times: {}",
-                        d.version,
-                        d.attempts,
-                        d.error.as_deref().unwrap_or("unknown error")
-                    ),
-                    format!("peerspan access sync --network {id}"),
-                ));
-            }
-            networks.push(json!({
-                "id": id,
-                "name": network.name,
-                "coordinator": network.coordinator_address,
-                "last_sync_at": network.last_sync_at,
-                "last_sync_error": network.last_sync_error,
-                "members": members.len(),
-                "person": person.map(|p| json!({"id": p, "label": label})),
-                "policy": policy.map(|p| json!({"version": p.version, "valid_until": p.valid_until})),
-                "policy_deliveries_pending": deliveries.len(),
-            }));
+            networks.push(view);
         }
-        if let Some(at) = modern {
-            let ids = {
-                let mut q=connection.prepare("SELECT id FROM networks WHERE json_extract(record,'$.mode')='decentralized' ORDER BY id")?;
-                q.query_map([], |r| r.get::<_, String>(0))?
-                    .collect::<Result<Vec<_>, _>>()?
-            };
-            for id in ids {
-                let read = crate::decentralized::runtime::status_network(self, connection, &id, at)
-                    .map_err(crate::decentralized::product::model)?;
-                let view = read.network;
-                if let Some(value) = network_attention(&view, &read.guard) {
-                    attention.push(value);
-                }
-                for (kind, subject, detail, command) in read.edit_attention {
-                    attention.push(item(&kind, subject, detail, command));
-                }
-                let selected = view["provider"].as_object();
-                if let Some(provider) = selected {
-                    let device = provider.get("kind").and_then(Value::as_str) == Some("device");
-                    let state = &view["provider_state"];
-                    let policy_scope = provider
-                        .get("scopes")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|scopes| scopes & 1 != 0);
-                    if state["state"] == "unavailable"
-                        && (device || state["code"] == "signer_unavailable")
-                        || device && !policy_scope
-                    {
-                        let kind = if device {
-                            "person_device_signer_unavailable"
-                        } else {
-                            "person_agent_unreachable"
-                        };
-                        let code = if state["state"] == "available" && !policy_scope {
-                            "forbidden (scope1 unavailable)"
-                        } else {
-                            state["code"].as_str().unwrap_or("invalid")
-                        };
-                        attention.push(item(
-                            kind,
-                            id.clone(),
-                            format!(
-                                "selected policy provider requires repair: {}; required_ids {}",
-                                code, state["required_ids"]
-                            ),
-                            format!("peerspan network sync {id}"),
-                        ));
-                    }
-                }
-                networks.push(view);
-            }
-            networks.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-        }
+        networks.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
         let blocks: i64 =
             connection.query_row("SELECT COUNT(*) FROM access_blocks", [], |r| r.get(0))?;
 
@@ -678,7 +498,7 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let store = Store::open(&temporary.path().join("host")).unwrap();
         store.set_artifact_quota(1);
-        let empty = store.status().unwrap();
+        let empty = store.status_v2().unwrap();
         assert_eq!(empty["attention"], json!([]));
         assert_eq!(empty["networks"], json!([]));
         let mut sessions = Vec::new();
@@ -716,7 +536,7 @@ mod tests {
                 expires_at: None,
             })
             .unwrap();
-        let status = store.status().unwrap();
+        let status = store.status_v2().unwrap();
         let names: Vec<_> = status["agents"]
             .as_array()
             .unwrap()
@@ -737,7 +557,7 @@ mod tests {
         // A detached session without a live credential is not listed.
         store.revoke_adapter(&fixed.id).unwrap();
         store.detach_session(&sessions[0].id).unwrap();
-        let status = store.status().unwrap();
+        let status = store.status_v2().unwrap();
         assert_eq!(status["agents"][1]["sessions"], json!([]));
         assert_eq!(status["attention"], json!([]));
     }

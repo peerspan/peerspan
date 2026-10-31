@@ -48,7 +48,7 @@ Contents:
 - **Question:** `GET /v1/status` returned no coordinator-free networks, while the launch and conversations contracts described it as listing them and as the same object as `GET /v2/status`. `attach` read it and never saw the person, which caused the default name bug of [DEC-OWN12](#dec-own12-no-host-name-in-default-agent-names-2026-10-31). What should change?
 - **Options:** (a) serve the v2 object on both routes; (b) keep the routes and correct the contracts to say v1 omits these networks; (c) remove the v1 route.
 - **Chosen:** (a). `peerspan status` already reads v2, so API callers now see what the CLI shows, and the mistake can't recur. (c) would break anything still calling v1.
-- **Consequence:** on a retained old network, `/v1/status` now returns the `legacy_history` entry and `network_migration_pending` instead of the old coordinator fields and attention items. `Store::status` and its old-network branch now run only from unit tests; removing them is separate cleanup.
+- **Consequence:** on a retained old network, `/v1/status` now returns the `legacy_history` entry and `network_migration_pending` instead of the old coordinator fields and attention items. The owner then asked to remove the old code too: `Store::status`, its old-network branch and the `coordination_error`, `policy_expiring` and `policy_delivery_failing` items are gone. `policy_expired` stays, because coordinator-free networks raise it.
 
 ### DEC-OWN12: no host name in default agent names (2026-10-31)
 
