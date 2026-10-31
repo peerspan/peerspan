@@ -1,5 +1,5 @@
 {
-  "status": "Fixed-source Rust checks and independent application6/6 pass; admission-reference P2 is reproduced, fixed and regressed. First fixed-head78df456 CI passes27/28 suites/all PR checks/clean review but section25 historical F purity changes dec_contacts. One independently contracted diagnostic local run passes6/6in147.75s without triggering, so the CI cause stays unclassified and the local duration exceeds120s. Final changed-diagnostic-head CI/review are recorded on PR80/35 after this evidence commit.",
+  "status": "Admission-reference P2 reproduced/fixed/regressed; frozen fixed Rust gates and application6/6 pass. Independently contracted current-own-contact correction passes section25 history6/6in135.98s (above120s); independent delivery diagnostic16/16in69.56s passes without triggering, leaving original relay cause unknown. Every first CI/local/fixture failure and duration is retained. Final combined-head all28 CI/PR checks/fresh bot/root review are recorded on PR80/35 after this evidence commit.",
   "pr": "https://github.com/peerspan/peerspan/pull/80",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "base": "830c1eef0f189edebf417ca373e741bab16c918b",
@@ -114,7 +114,8 @@
     "Authenticated ordinary receiver directory authorization proves the exact two-action profile; an actual accepted message/task and native/model delivery are separate acceptance.",
     "Native access controls, observed readiness, other-computer, installed/physical/actual-model/schema23-to27/full-state recovery/final combined acceptance remain open; PR35 stays unmerged.",
     "The original corrected-run directory request cause and original PR79 UDP/contact causes remain unclassified; observed missing contact/queue prerequisites do not retrospectively identify those callers.",
-    "Section25 local diagnostic passes6/6in147.75s, exceeding120s. The earlier78df456 CI contact change remains unclassified; this pass and the failure-only observer establish no cause or runtime/setup correction."
+    "Section25 local diagnostic passes6/6in147.75s, exceeding120s. The earlier78df456 CI contact change remains unclassified; this pass and the failure-only observer establish no cause or runtime/setup correction.",
+    "Corrected section25 current-own-contact local run6/6in135.98s exceeds120s; one delivery diagnostic16/16in69.56s leaves original CI relay caller unknown. Latest delivery metadata-prefix correction is verified by final CI, not an unchanged extra local run."
   ],
   "independent_conformance": {
     "author": "/root/agent_access_inspection_conformance",
@@ -255,18 +256,88 @@
         "observer_triggered": false,
         "classification": "No contact mismatch observed in this local run. The original78df456 CI contact row/caller remains unclassified; no product/setup fix is claimed. Duration exceeds the120s target; no timeout or delay changed, and no unchanged rerun followed."
       }
+    },
+    "section25_current_own_contact": {
+      "contract": "7b433ec291bbd7a5e10b75fef3cda91b95da3dc1",
+      "author": "cca837925d64da6058988685478fb403b98ef852",
+      "integration": "e6d1244",
+      "source_sha256": "6162317da494da335a2700fbcdd2e40e6190e6c2ddbc61582563d7da685a2486",
+      "preservation": "Exactly60 additions: two helper functions and three setup calls. Removing only them restores the entire e273 diagnostic source bytes/AST. Real unconsumed short invitation/current signed own contact, actual expiry/ordinary cleanup, unchanged transport payload/authority bounds and post-original-restart current-hint verification. Original assertions/actions/capture order/sleeps/timeouts/carriers stay exact. Root independently verified author byte equality and restoration before runtime.",
+      "first_run": {
+        "result": "5 passed /1 failed in138.67s",
+        "seconds": 138.67,
+        "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+        "source_sha256": "6162317da494da335a2700fbcdd2e40e6190e6c2ddbc61582563d7da685a2486",
+        "path": "/dev/shm/g33/owner_finalization_signing-current-own-contact.log",
+        "sha256": "0e73735a01c551d2fc31baaa9255a2066c924e1792ddc2609422714b8aaf4289",
+        "fixture": "/dev/shm/g33/slim-owner_finalization_signing-9dlvcusc",
+        "classification": "Cases1 through5 pass. Case6 stops in the newly added own-contact payload prerequisite before invitation cleanup or original historical replay. Added quic_addresses=[] expectation is unsupported: actual current own hint has matching bootstrap1, QUIC1, relays0. This is a new positive fixture error, not a runtime change or the original contact mismatch.",
+        "retained_payload_categories": {
+          "path": "/dev/shm/g33/own-contact-prereq-first-diagnosis.json",
+          "sha256": "9a0243d1d90937d43b54b69bd013aa4d53a403f917b837e0a54f2aa67e2c097f"
+        }
+      },
+      "clarification": "c1d3514bcd981f3d450927653f2d5a8e83e0c188; exact known current peer listener h.peer_address replaces only the added empty-QUIC expectation",
+      "corrected_author": "b5cf2400a703337ed90c7bda758df9aee1e457c1",
+      "corrected_integration": "8cdcf8eedd492147d9c1ac25fd162e540cffe2e1",
+      "final_source_sha256": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+      "corrected_preservation": "One added payload literal changes [] to [h.peer_address]; reversing it restores entire cca8379 source bytes/AST. All other added genuine signature/payload/authority/validity/cleanup checks and every original check/action/order/wait remain exact. Root verified author byte equality and restoration before the first corrected run.",
+      "final_local_run": {
+        "result": "6 passed /0 failed /0 skipped in135.98s",
+        "seconds": 135.98,
+        "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+        "path": "/dev/shm/g33/owner_finalization_signing-actual-QUIC-contact.log",
+        "sha256": "1ae4b90fabcb0ee7dd23c547d6454f27fa687f38d8c51cdc66eedb8aede2597b",
+        "fixture": "/dev/shm/g33/slim-owner_finalization_signing-2beg28yu",
+        "limit": "Duration exceeds120s. Genuine current own-hint setup now precedes every original historical replay/snapshot; no runtime/old assertion/wait change. This does not identify old PR79 callers."
+      }
+    },
+    "delivery_failure_diagnostic": {
+      "contract": "7b433ec291bbd7a5e10b75fef3cda91b95da3dc1",
+      "initial_author": "e1ba5f8657de3032e31a892e5ac588ab1149d597",
+      "initial_integration": "80d41675258806f2a6a38563e074e1f057c6c467",
+      "initial_source_sha256": "d5672742cbbf71021b7db398be40792a9e9544b423a33e0b211b92753b037f67",
+      "pre_execution_contract": "84ae307da380bc8e6163148b9bd8a47dbd999be3",
+      "pre_execution_correction_author": "8f6daf017e45fc6017634bca373320b9cfa52c35",
+      "pre_execution_integration": "c6a7c8aa90ad828c94333f0abaf4d431c8609749",
+      "first_executed_source_sha256": "65222cc2e8b53ebe9f28e207a91444f665fea702e0f41d65db5c937aca2285df",
+      "pre_execution_corrections": [
+        "Select existing host.db, not the unsupported exactly-one-*.db assumption with separate dec-bootstrap.db.",
+        "Fixed recovery_required/quota_exceeded categories.",
+        "Recognize existing served timing bare trailing HTTP status."
+      ],
+      "first_local_run": {
+        "result": "16 passed /0 failed /0 skipped in69.56s",
+        "seconds": 69.56,
+        "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+        "source_sha256": "65222cc2e8b53ebe9f28e207a91444f665fea702e0f41d65db5c937aca2285df",
+        "path": "/dev/shm/g33/delivery-relay-diagnostic-first.log",
+        "sha256": "735f81ee7d89b92ecc4f32c8e7d4af75a3452827cd68c02a86475e25f0f048b0",
+        "fixture": "/dev/shm/g33/slim-delivery-3gprxv6z",
+        "failure_observer_triggered": false,
+        "classification": "Originalb937f96 CI relay-completion failure/caller remains unclassified. This diagnostic pass establishes no transport/runtime/setup fix."
+      },
+      "category_prefix_contract": "c687e145bfde9a2cb0e51be27662b01735b365ed",
+      "category_prefix_author": "de23066f0ed9628fb0acae2ff1f4d687f91fa842",
+      "category_prefix_integration": "3eb2cb39eb6ed72ecffd8c4840eb00bd6b3ca106",
+      "final_source_sha256": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "category_prefix_scope": "Only classify fixed category before colon, without interpreting/printing suffix. Authored while first run used its untouched prior source; no unchanged local rerun. Fresh final-head CI runs the final source.",
+      "preservation": "One failure-only bounded observer, daemon-only debug-timing start wrapper delegating once with environment restored, pre-commit offset stats and failure call. Removing additions restores entire original830c1ee delivery source bytes/AST, SHA4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971. All16 original cases/actions/assertions/waits/exception/public diagnostics stay exact. No normal-path DB/peer calls, new verdict, repair, timeout or driver. Each correction reverses exactly to its prior bytes/AST. Root independently verified final author bytes and full normalization."
     }
   },
   "preservation": {
     "base": "830c1eef0f189edebf417ca373e741bab16c918b",
-    "existing_slim_helper_native_files_byte_identical": 60,
-    "new_suite_only": "conformance/slim/access_application.py; one existing-suite diagnostic-only observer is separately attributed above",
+    "existing_slim_helper_native_files_byte_identical": 59,
+    "new_suite_only": "conformance/slim/access_application.py; the two existing-suite changes are separately contracted/attributed and exactly removable.",
     "root_pre_execution_review": "Closed cases and negative fault/setup scope reviewed before first execution.",
     "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution. P2 regression scoped to one genuine required-reference corruption and exact restoration; fixed marker source reviewed separately.",
     "on_78df456_old_files_byte_identical": 61,
-    "diagnostic_only_old_file": "conformance/slim/owner_finalization_signing.py; removing helper/call restores exact base bytes/AST"
+    "independently_contracted_old_file_additions": [
+      "conformance/slim/owner_finalization_signing.py: failure metadata plus genuine current-own-contact prerequisite; removal restores entire830c bytes/AST.",
+      "conformance/slim/delivery.py: failure-only bounded state/timing observer; removal restores entire830c bytes/AST."
+    ]
   },
-  "final_evidence_parent": "4979c03ad298fc1b738a684fa07eb2430dbb9d76",
+  "final_evidence_parent": "3eb2cb39eb6ed72ecffd8c4840eb00bd6b3ca106",
   "initial_frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
   "initial_frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
   "initial_source_required_local_gates": {
@@ -353,6 +424,82 @@
     "review": {
       "summary_receipt": 6535741279,
       "result": "completed clean on78df456; initial admission-reference P2 resolved; no unresolved findings"
+    }
+  },
+  "second_fixed_head_ci": {
+    "head": "b937f96ad9088707c5a6e491832048e91895b7fb",
+    "rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+    "conformance": {
+      "run_id": 41150730532,
+      "result": "build success;26 suites success,2 suites failure",
+      "application": "6/6 in61s",
+      "failures": [
+        {
+          "suite": "owner_finalization_signing",
+          "job_id": 124386854818,
+          "result": "5/6 in102s",
+          "category": {
+            "added_count": 0,
+            "after_count": 3,
+            "before_count": 3,
+            "categories": [
+              {
+                "after_contact_count": 1,
+                "after_expiry_after_request_expiry": true,
+                "after_issued_after_request_expiry": true,
+                "before_contact_count": 1,
+                "before_expiry_after_request_expiry": false,
+                "before_issued_after_request_expiry": false,
+                "change": "changed",
+                "conflicted_changed": false,
+                "contacts_changed": true,
+                "context_role": "bound_network",
+                "expiry_changed": true,
+                "format_changed": false,
+                "host_role": "local",
+                "issued_changed": true,
+                "message_hashes_changed": true,
+                "payload_changed": false,
+                "sequence_changed": true,
+                "sequence_increased": true
+              }
+            ],
+            "changed_count": 1,
+            "removed_count": 0
+          },
+          "log": {
+            "path": "/tmp/gu80-b937-CI-124386854818.log",
+            "sha256": "9e0a9a46585e8e3294595b522059208074e9073bacdb6dff06b1c0e962838d12"
+          },
+          "classification": "One existing local-host bound-network contact renewed across original request expiry: sequence/issued/expiry increase, same payload, no added/removed rows. Exact async caller remains unclassified; this does not identify old PR79/section24 callers."
+        },
+        {
+          "suite": "delivery",
+          "job_id": 124386854859,
+          "result": "11 passed /5 failed in98s",
+          "primary_failure": "First no-direct-path join times out after60s waiting for inviter application; requester linked with actual local outcome, inviter needs_commit without manifest/activation/outcome.",
+          "dependent_failures": [
+            "work_through_relay",
+            "completion_routes_participants_only",
+            "resume_resends_and_reports_transport",
+            "helper_replacement_changes_no_record"
+          ],
+          "log": {
+            "path": "/tmp/gu80-b937-CI-124386854859.log",
+            "sha256": "214400d813e723538c4e28132bfa81f5c5655a9af18153dd2d69f86f39a15e8f"
+          },
+          "classification": "Requester commit transport attention and transport/application caller remain unclassified; independent failure-only diagnosis follows."
+        }
+      ]
+    },
+    "pull_request_checks": {
+      "run_id": 41150730466,
+      "result": "all4 jobs success",
+      "native": "312/312 in56.67s"
+    },
+    "review": {
+      "summary_receipt": 6535741279,
+      "result": "completed clean onb937f96; no unresolved findings"
     }
   }
 }

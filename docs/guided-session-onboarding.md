@@ -599,3 +599,23 @@ One local diagnostic run passes6/6in147.75s without triggering. This exceeds
 the120s target and leaves the CI row/caller unclassified; no product/setup
 correction or global fence is inferred. Final diagnostic-head gates and review
 are recorded separately on PR80/35, with this failure and duration retained.
+
+The nextb937f96 CI identifies the actual changed row as a local bound signed
+contact renewed after the old request window, with unchanged transport payload.
+An independent genuine unused short invitation/current-own-hint/ordinary cleanup
+prerequisite now precedes every original strict history capture and retry.
+The initial added empty-QUIC expectation fails5/6in138.67s; an independent exact
+actual-listener correction retains all other checks and passes6/6in135.98s.
+Both durations exceed120s. No worker, counter, authority, original operation or
+runtime behavior changes; old PR79 callers remain unclassified.
+
+That CI separately fails delivery11/16in98s at inviter application after60s,
+with four dependent failures. One independent failure-only bounded retained-state/
+existing timing observer preserves all16 original cases and entire prior source
+on normalization. Its first local run passes16/16in69.56s without triggering;
+the original relay cause remains unclassified. A later fixed-category display
+prefix correction changes only diagnostic parsing. Original59 other old files
+remain byte-exact; both modified old suites restore by bytes/AST when their
+contracted additions are removed. The record retains first failures, normalized
+preservation and exact test/binary/log provenance. Final combined-head CI and
+fresh review are recorded on PR80/35; all full-feature acceptance stays open.

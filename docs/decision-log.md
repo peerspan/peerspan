@@ -3292,3 +3292,17 @@ without emitting or interpreting explanatory text. Exact bare-string comparison
 misses the supported displayed form. An independent metadata-only correction
 preserves all old behavior and the first local diagnostic's65222cc2 attribution.
 Discard copying raw attention/error text or changing protocol retries/waits.
+
+GU.impl33e/g result: first added payload prerequisite stops5/6in138.67s before
+history. Independent exact current-listener correction preserves all other
+checks and passes6/6in135.98s with the genuine own hint/expiry/cleanup before the
+unchanged strict history and restart. Durations exceed120s; no runtime/old
+assertion/timeout changes. This does not identify original PR79 callers.
+
+GU.impl33f/h/i result: one frozen-source delivery diagnostic run passes16/16in
+69.56s without triggering. The first CI relay failure remains unclassified.
+Pre-execution store/status corrections and later category-prefix parsing are
+independently attributed; the running original source stayed frozen. All old
+verdicts/actions/waits/exception behavior remain, and removing the additions
+restores the entire original bytes/AST. Fresh final combined-head CI/review
+follows without an unchanged local rerun or a claimed transport fix.
