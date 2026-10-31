@@ -14,7 +14,7 @@ const list = (v, check) => Array.isArray(v) && v.every(check);
 const ordered = (v, key = x => x) => v.every((x, i) => !i || key(v[i - 1]) < key(x));
 function safe(v, depth = 0) {
   if (depth > 64) return false;
-  if (typeof v === 'string') return !/[\u0000-\u001f\u007f-\u009f]/u.test(v) && !privateValue(v) &&
+  if (typeof v === 'string') return Number.isFinite(bytes(v)) && !/[\u0000-\u001f\u007f-\u009f]/u.test(v) && !privateValue(v) &&
     !privateValue(v.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/gu, ''));
   if (typeof v === 'number') return integer(v);
   return v === null || typeof v === 'boolean' || (Array.isArray(v) ? v.every(x => safe(x, depth + 1))
