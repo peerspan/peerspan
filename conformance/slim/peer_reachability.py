@@ -394,6 +394,7 @@ class CountedBarrierUDP:
         self.target = target
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(("127.0.0.1", 0))
+        self.socket.setblocking(False)
         self.address = "127.0.0.1:" + str(self.socket.getsockname()[1])
         self.lock, self.done = threading.Lock(), threading.Event()
         self.routes, self.pending = {}, []
@@ -412,9 +413,12 @@ class CountedBarrierUDP:
             upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             upstream.bind(("127.0.0.1", 0))
             upstream.connect(self.target)
+            upstream.setblocking(False)
             self.routes[client] = upstream
         try:
             self.routes[client].send(data)
+        except BlockingIOError:
+            pass
         except OSError:
             with self.lock:
                 self.errors["upstream_send"] += 1
@@ -433,7 +437,10 @@ class CountedBarrierUDP:
                 ready, _, _ = select.select([self.socket, *upstreams], [], [], .02)
                 for source in ready:
                     if source is self.socket:
-                        data, client = self.socket.recvfrom(65536)
+                        try:
+                            data, client = self.socket.recvfrom(65536)
+                        except BlockingIOError:
+                            continue
                         with self.lock:
                             self.received_datagrams += 1
                             self.received_bytes += len(data)
@@ -446,6 +453,8 @@ class CountedBarrierUDP:
                     else:
                         try:
                             data = source.recv(65536)
+                        except BlockingIOError:
+                            continue
                         except OSError:
                             with self.lock:
                                 self.errors["upstream_receive"] += 1
@@ -453,7 +462,10 @@ class CountedBarrierUDP:
                         with self.lock:
                             self.returned_datagrams += 1
                             self.returned_bytes += len(data)
-                        self.socket.sendto(data, upstreams[source])
+                        try:
+                            self.socket.sendto(data, upstreams[source])
+                        except BlockingIOError:
+                            pass
         except OSError:
             with self.lock:
                 self.errors["forwarding_loop"] += 1
