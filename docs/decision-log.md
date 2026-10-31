@@ -3638,3 +3638,11 @@ with unobserved status/code; case6 cancellation expectation is consequently
 unestablished. Contract bounded captured-response diagnostics by separate author
 before guessing or changing that fixture. Retain CI log06f14af6 and all first
 outcomes; native/Rust checks pass, full matrix still being observed.
+
+GU.impl41b: distinguish actual compilation from an unrelated long-lived cargo
+test wrapper, observed with test child but no rustc and a separate mmfix target.
+Keep the task gate lock and block actual rustc/native or other cargo work; allow
+that noncompiling test wrapper while explicitly retaining its PID/activity in
+all local receipts. Discard killing others, pretending global idle or waiting
+indefinitely on the cargo process name. No tests/deadlines/counters change.
+Re-run Rust gates on the actual local-member product correction before suite.
