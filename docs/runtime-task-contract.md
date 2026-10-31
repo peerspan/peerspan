@@ -138,7 +138,10 @@ The host **dispatches** a run when it sends `POST /v1/runs`. It records the disp
 received task's record before sending, so a restarted daemon treats an unanswered start as
 dispatched. A dispatched task stays `queued` until the runtime reports `started` or `exited`,
 and from then on the runtime, not the host, decides how it ends: the deadline no longer
-applies, and a cancellation is forwarded.
+applies, and a cancellation is forwarded. A definite refusal clears the dispatch, because no
+run exists: after a 429 the task is an ordinary queued task again, so its deadline applies and
+authorization is rechecked before the next start; a 422 ends it `rejected`. Only a start that
+was accepted (201 or 200) or whose answer is unknown keeps the task dispatched.
 
 | Transition | Event | When |
 | --- | --- | --- |
@@ -318,8 +321,8 @@ last stored runtime event.
 - **An unanswered start.** For each dispatched task still `queued`, a restarted daemon first
   sends the identical `POST /v1/runs` again: 200 resumes a run the runtime already has, and
   201 starts one it never received. Because the host had stored no `started`, the command
-  starts from the beginning, in a fresh VM without network. A 429 leaves the task dispatched
-  and is retried with backoff; a 422 ends it `rejected`, as at a first start.
+  starts from the beginning, in a fresh VM without network. A 429 or 422 clears the dispatch,
+  as at a first start.
 - **A lost run.** Otherwise, a run the runtime does not know (404) fails the task with
   `error: "the runtime restarted"`: from `running` as above, and from a dispatched `queued`
   task through `queued` to `failed`, with the run result of a run that never started.
