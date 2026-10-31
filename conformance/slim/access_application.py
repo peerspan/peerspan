@@ -812,6 +812,120 @@ def fault_startup_observed(f):
               "negative-state startup work has no completed truthful observation")
 
 
+def history_contact_bounds(f):
+    """Read the two actual mutually retained network contacts, including every hint."""
+    bounds = []
+    for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
+        view = get(local, "/v2/networks/" + f["net"])
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            row = db.execute("SELECT record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
+                             (f["net"], view["context_id"], remote.public_key)).fetchone()
+        if row is None:
+            return []
+        record = json.loads(row[0])
+        if record["conflicted"] or not record["contacts_base64"]:
+            return []
+        for encoded in record["contacts_base64"]:
+            contact = json.loads(base64.b64decode(encoded, validate=True))
+            payload = json.loads(base64.b64decode(contact["payload_base64"], validate=True))
+            check(contact["host_public_key"] == remote.public_key and contact["context_id"] == view["context_id"]
+                  and payload == {"quic_addresses": [peer_address(remote)],
+                                  "bootstrap_addresses": [remote.relay.address], "relays": []},
+                  "retained history contact substituted a participant or enabled an uncounted path")
+            bounds.append(parse_time(contact["expires_at"]))
+    return bounds
+
+
+def history_live_bounds(f):
+    contacts = history_contact_bounds(f)
+    check(contacts, "history setup lacks actual mutually retained counted signed contacts")
+    bounds = list(contacts)
+    for local in (f["a"], f["b"]):
+        view = get(local, "/v2/networks/" + f["net"])
+        check(view["authority"]["state"] == "usable" and view["authority"]["not_after"] != "-",
+              "history contact cleanup lacks genuine current public membership authority")
+        bounds.append(parse_time(view["authority"]["not_after"]))
+        check(view["provider"] is not None and view["provider"]["not_after"] != "-",
+              "history setup lost its actual finite public selected-provider path")
+        bounds.append(parse_time(view["provider"]["not_after"]))
+    return bounds
+
+
+def history_recorded_retries(f):
+    retries = []
+    for local in (f["a"], f["b"]):
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            retries.extend(parse_time(row[0]) for row in db.execute(
+                "SELECT json_extract(record,'$.next_attempt_at') FROM dec_outbox"))
+    return retries
+
+
+def history_clock_step(f, target, maximum_seconds):
+    shared_now = max(f["a"].now(), f["b"].now())
+    bounds = history_live_bounds(f)
+    check(target <= shared_now + timedelta(seconds=maximum_seconds) and all(target < bound for bound in bounds),
+          "recorded history cleanup/retry target exceeds current contact/authority or ordinary retry bounds")
+    for local in (f["a"], f["b"]):
+        local.clock.set(local.clock.offset + max(0, math.ceil((target - local.now()).total_seconds())))
+    check(all(max(f["a"].now(), f["b"].now()) < bound for bound in bounds),
+          "history synchronized cleanup crossed a real contact/authority bound")
+
+
+def history_retire_generation(f):
+    """Observe this new policy's actual delivery queues, not whole live handoffs."""
+    latest = current_policy(f["b"], f["net"], f["bob"])
+    check(latest is not None, "latest genuine case5 policy generation missing")
+    statement = latest[0]["statement_base64"]; sid = latest[0]["statement_id"]
+    raw_statement = base64.b64decode(statement, validate=True); pid = proof_id("policy", raw_statement)
+    contacts = history_contact_bounds(f)
+    if not contacts or min(contacts) <= max(f["a"].now(), f["b"].now()):
+        f.setdefault("history_invitation_bounds", []).extend(exchange_current_contacts(suite, f["a"], f["b"], f["net"]))
+    retries = history_recorded_retries(f)
+    shared_now = max(f["a"].now(), f["b"].now())
+    if any(retry > shared_now for retry in retries):
+        history_clock_step(f, max(retries) + timedelta(seconds=1), 61)
+    else:
+        check(all(shared_now < bound for bound in history_live_bounds(f)), "latest policy delivery has no current counted path")
+    def delivered():
+        for local in (f["a"], f["b"]):
+            view = get(local, "/v2/networks/" + f["net"])
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+                if db.execute("SELECT kind,body FROM dec_objects WHERE network_id=? AND context_id=? AND proof_id=?",
+                              (f["net"], view["context_id"], pid)).fetchone() != ("policy", raw_statement):
+                    return False
+                admission = db.execute("SELECT record FROM dec_admissions WHERE network_id=? AND context_id=? AND statement_id=?",
+                                       (f["net"], view["context_id"], sid)).fetchone()
+                if admission is None or json.loads(admission[0])["proof_id"] != pid:
+                    return False
+                if db.execute("SELECT count(*) FROM dec_outbox").fetchone()[0]:
+                    return False
+            if list(local.state.glob("*-journal")):
+                return False
+        return True
+    wait_for(delivered, timeout=5, interval=.1, message="latest genuine policy proof admission and actual outbox/journal retirement")
+
+
+def history_retire_contacts(f):
+    """Refresh signed hints after restart/expiry; retire every real short handoff."""
+    f.setdefault("history_invitation_bounds", []).extend(exchange_current_contacts(suite, f["a"], f["b"], f["net"]))
+    deadlines = [parse_time(value) for value in f["history_invitation_bounds"]]
+    retries = history_recorded_retries(f)
+    target = max([max(f["a"].now(), f["b"].now()), *deadlines, *retries]) + timedelta(seconds=1)
+    history_clock_step(f, target, 67)
+    for local in (f["a"], f["b"]):
+        key = ssh_key(suite.work, "history-maintenance-" + local.name + "-" + os.urandom(8).hex())
+        status, spare = local.api("POST", "/v2/link/requests", {"mode": "new", "network_id": "-",
+            "person_public_key": ssh_public_base64(key), "migration_proposal_id": "-", "contact_invitation": "-", "helpers": []})
+        check(status == 201 and not spare["selection_approved"] and not spare["commit_approved"],
+              "unique ordinary history expiry maintenance created consent")
+        status, cancelled = local.api("POST", "/v2/link/requests/" + spare["request_id"] + "/cancel", {})
+        check(status == 200 and cancelled["state"] == "cancelled", "ordinary history maintenance cancellation failed")
+    wait_for(lambda: retired_transport(f), timeout=5, interval=.1,
+             message="actual short handoff secrets/read-caps/frames/outboxes/journals retired")
+    check(all(max(f["a"].now(), f["b"].now()) < bound for bound in history_live_bounds(f)),
+          "history cleanup did not retain current counted contacts and public authority")
+
+
 @suite.case("exact_dual_approval_signature_local_proof_edit_event_and_ordinary_enforcement", "guided33 verification1")
 def _():
     f = world(); h = f["b"]
@@ -1036,6 +1150,7 @@ def _():
     h.ok("allow", "alice", "--network", f["net"], "--agent", "current-different-policy")
     check(current_policy(h, f["net"], f["bob"])[0]["statement_id"] != prepared["access"]["review"]["statement"]["id"],
           "actual newer policy-head prerequisite missing")
+    history_retire_generation(f)
     for local, name in ((f["b"], "applied"), (f["a"], "original_applied")):
         old_parent, _, _ = f[name]
         local.ok("session", "detach", old_parent["review"]["session_id"])
@@ -1048,6 +1163,7 @@ def _():
         local.clock.set(local.clock.offset + max(0, math.ceil((target - local.now()).total_seconds())))
         check(not local.owner_key.exists() and not Path(local.extra_env["SSH_AUTH_SOCK"]).exists(), "original source is not genuinely absent")
         local.restart(kill=True)
+    history_retire_contacts(f)
     directory(f); stable(f)
     before, counters = whole(f), traffic(f)
     for name, local in (("applied", f["b"]), ("original_applied", f["a"])):
