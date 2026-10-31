@@ -1,0 +1,418 @@
+{
+  "version": 1,
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "branch": "codex/gu-project-readiness",
+  "scope": "Owner-local current exact-project/network/person readiness evidence: current section30 inspection, ordinary receiver-advertised authorizations and exact-session adapter connections; no peer IO, model turn, mutation or overall-ready assertion.",
+  "status": "Independent readiness6/6 in44.16s on frozen final binaries; existing access inspection6/6 in101.41s on identical strict library before private readiness-CLI parser correction. Final local Rust155passed/2ignored,fmt/Clippy/all-bin pass; strict native validation passes. First unchanged native348/349 in64.10s retains one default5s timeout. First new readiness2/6 retains fixture prerequisites, independently corrected with all six case bodies unchanged. Final exact-head all29 CI/four PR checks/fresh bot/root review receipts follow on the slice/tracking PR after this evidence commit.",
+  "base": "8b20ab5bfc44ec0137f69a508016e6ac569b19e4",
+  "contract_first": "07de9d8545b6d91e72683627621217ac9b4fa2f0",
+  "contract_clarifications": [
+    "679dd98: pin DEC read time without status-summary omission of unavailable evidence",
+    "1b94b4e: aggregate adapter protocol metadata privacy refusal",
+    "a87e295: explicit one-day ordinary policy fixture within genuine seven-day ancestry",
+    "b49e875: array-typed directory response and unique maintenance scratch keys"
+  ],
+  "initial_source": "a461f4a10d2a118440851a756ba46cc53ea381e8",
+  "source_reviews": [
+    {
+      "correction": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "finding": "The existing sampled-time helper also opts into tolerant status-summary omissions. Readiness requires strict ordinary receiver errors. New synchronous nested guard preserves time/error mode; old status behavior unchanged. Found before new host execution; no claim of old-source runtime reproduction."
+    },
+    {
+      "correction": "372dfe5",
+      "finding": "Malformed readiness CLI arguments could use Clap raw diagnostics before stdin validation. Add error-only readiness redaction, including interleaved global state flags; typed parser retains dispatch. Found by root source review of committed independent cases before their first run."
+    }
+  ],
+  "frozen_production": "372dfe5",
+  "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+  "verified_local_source": "db6be1afe6b17a92a39df1943fc88486f001fbfb",
+  "source_sha256": {
+    "rust/src/onboarding_readiness.rs": "3043da2e29e654da0ed30298f09431946ca137a0a3348fcafbe486f883052c10",
+    "rust/src/onboarding_access.rs": "c1531a668abd41f7684c17ede1a4522f89c8f40171ec703d8b69c0aa4908cca7",
+    "rust/src/onboarding_cli.rs": "9c77e8b689d72501c5295a6e455586fad7262b33451bcd4e06f99baece6a6581",
+    "rust/src/main.rs": "149bb4c0005fe1b6b2ce94548b549bc317cf6b674e181b0b510069c6525bfde0",
+    "rust/src/directory.rs": "f060c274b3536bc817d939b02be6e06cd06e2504be7c2a388e73adad85d74db0",
+    "rust/src/decentralized/product.rs": "6f9e7a2e4c973df9105c58472b263fa9b7c914c3f1f79a91d53fc01062c5345d",
+    "rust/src/api.rs": "c43ec746bb7edb5fb601a6c164f3e50cc538d06b9b24e47a3891b0aaf555d013",
+    "rust/src/lib.rs": "156e0c75c684659537177703bbb3e95b57bc1933e2a2645bc351b50d93a1cb1a",
+    "conformance/slim/readiness.py": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e"
+  },
+  "final_binary_directory": "/dev/shm/gu36/final-bin",
+  "final_binary_sha256": {
+    "peerspan-host": "8eea6607f4a64a72612eb9e12a66e2904d3d2289438c982582a985552b408883",
+    "peerspan-peer-probe": "6ced2c0342758d7ff6dc9bd0e6696b25f5b3eaa2336b8fdb58ca69d449ad6089",
+    "peerspan-helper": "b26a8c40ece4c78b7c377c106f921ed4fd733bd799545ead38e36ba98303dfdd"
+  },
+  "initial_binary_sha256": {
+    "peerspan-host": "a0bc2a02576629948453078ec3708d5c261b7122785b51c86768e3491ebf58f2",
+    "peerspan-peer-probe": "c200e6a24d45d56297404b29799c0ad7922da4c360df1a1836b5127f83f004f4",
+    "peerspan-helper": "0d41182803a69c3d5364d1b8a5492737566702c0659d9c35d9dbc67185e039f0"
+  },
+  "strict_library_binary_sha256": {
+    "peerspan-host": "29a9ff17bbd02c1da16b417ae99aa8dd6ab7afc09dc2387c52fd44307aecf3db",
+    "peerspan-peer-probe": "6ced2c0342758d7ff6dc9bd0e6696b25f5b3eaa2336b8fdb58ca69d449ad6089",
+    "peerspan-helper": "b26a8c40ece4c78b7c377c106f921ed4fd733bd799545ead38e36ba98303dfdd"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-project-readiness-conformance",
+    "initial_source": "c10c626053327de02c527b0be956ce823cfebc50",
+    "initial_integration": "ebdcf1a",
+    "lifetime_correction": "b54095d996f290c46ece101469803479e2d616c7",
+    "lifetime_integration": "ff6e6224880ba2c9fdc7710ae9767eecb358f95d",
+    "fixture_correction": "841ffd9584945602bd5ed46ae7ab4a49d6f1d1a6",
+    "fixture_integration": "db6be1afe6b17a92a39df1943fc88486f001fbfb",
+    "cases": 6,
+    "declaration": "Contract/public-spec/independent-helper source only; no Rust/product/hooks reads, runtime/build/host/process/network/inference. All source committed before root execution. Root ran every gate serially. Array helper and scratch-key corrections preserve all six decorated case ASTs/assertions/actions/order/delays/timeouts; shared helpers untouched."
+  },
+  "local_runs": [
+    {
+      "gate": "rust-fmt-first",
+      "head": "d6ed836fbfca8975fd96ce1cc47c1a951fab3122",
+      "rust_tree": "ef09edf5ddc4d5a890d38e35bd999b25f5364c7f",
+      "exit": 0,
+      "seconds": 3.05,
+      "log": "/dev/shm/gu36/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "d6ed836fbfca8975fd96ce1cc47c1a951fab3122",
+      "rust_tree": "ef09edf5ddc4d5a890d38e35bd999b25f5364c7f",
+      "exit": 0,
+      "seconds": 94.75,
+      "log": "/dev/shm/gu36/rust-test-first.log",
+      "sha256": "5fa7827f59c1925aeb28214f84795814b3372b176407f3d2a946fe5de4046c38",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "d6ed836fbfca8975fd96ce1cc47c1a951fab3122",
+      "rust_tree": "ef09edf5ddc4d5a890d38e35bd999b25f5364c7f",
+      "exit": 0,
+      "seconds": 34.61,
+      "log": "/dev/shm/gu36/rust-clippy-first.log",
+      "sha256": "40697220b6cf5bbfe7c3065a239a0514554b19136de977913a249a6a500613ac",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "d6ed836fbfca8975fd96ce1cc47c1a951fab3122",
+      "rust_tree": "ef09edf5ddc4d5a890d38e35bd999b25f5364c7f",
+      "exit": 0,
+      "seconds": 69.27,
+      "log": "/dev/shm/gu36/rust-build-first.log",
+      "sha256": "ff4f2026d5829ad1c1e8b7c9429598a950ab819437ef9f15567412627065d1e9",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--bins",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-fmt-strict",
+      "head": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "rust_tree": "fd1f8320eb4426ee4ff7781fcde40b25922168dd",
+      "exit": 0,
+      "seconds": 3.16,
+      "log": "/dev/shm/gu36/rust-fmt-strict.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-test-strict",
+      "head": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "rust_tree": "fd1f8320eb4426ee4ff7781fcde40b25922168dd",
+      "exit": 0,
+      "seconds": 95.11,
+      "log": "/dev/shm/gu36/rust-test-strict.log",
+      "sha256": "adc3aa5b5d8b54aff2625bd0782fe52aa22b06c3cbab839ef0b7472b5c35fc53",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-clippy-strict",
+      "head": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "rust_tree": "fd1f8320eb4426ee4ff7781fcde40b25922168dd",
+      "exit": 0,
+      "seconds": 34.77,
+      "log": "/dev/shm/gu36/rust-clippy-strict.log",
+      "sha256": "08da4fef24c17d08f3f19ba8d709d3c5c89216079816905ed4cc324139aa6dc5",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "rust-build-strict",
+      "head": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "rust_tree": "fd1f8320eb4426ee4ff7781fcde40b25922168dd",
+      "exit": 0,
+      "seconds": 70.18,
+      "log": "/dev/shm/gu36/rust-build-strict.log",
+      "sha256": "aa12701c768d2ffd728c7c385ca2af7bec505e26545999d6970b66e2e3dd63f6",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--bins",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc active before serial gates."
+    },
+    {
+      "gate": "native-validation-first",
+      "head": "1b94b4e2e11cd507e382ab075f47968ab8976985",
+      "frozen_rust": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "exit": 0,
+      "seconds": 0.75,
+      "log": "/dev/shm/gu36/native-validation-first.log",
+      "sha256": "8d38e394282a933bb7a2631d7ab8a3ae39886959594a48133cf8bd08f4e7cdfd",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "preflight": "No Cargo/rustc; all old native/plugin/host helper files byte-identical."
+    },
+    {
+      "gate": "native-first",
+      "head": "1b94b4e2e11cd507e382ab075f47968ab8976985",
+      "frozen_rust": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "exit": 1,
+      "seconds": 64.1,
+      "log": "/dev/shm/gu36/native-first.log",
+      "sha256": "7a863a3f6a0a9e9254e00dddf3380338b58787298ef746f0bfb1914fe4d1db5a",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "preflight": "No Cargo/rustc; all old native/plugin/host helper files byte-identical."
+    },
+    {
+      "gate": "access-onboarding-first",
+      "head": "1b94b4e2e11cd507e382ab075f47968ab8976985",
+      "frozen_rust": "a43ec34e5c24cd63375758d130ddb02c4c9c19d3",
+      "exit": 0,
+      "seconds": 101.41,
+      "log": "/dev/shm/gu36/access-onboarding-first.log",
+      "sha256": "f176fed34dabcc21ed59e882bc97a8bf753eb2b23e2f484420b1c81f10091c31",
+      "command": [
+        "python3",
+        "conformance/slim/access_onboarding.py",
+        "--bin",
+        "/dev/shm/gu36/strict-bin"
+      ],
+      "preflight": "No Cargo/rustc; prior native finished before host suite; not a rerun."
+    },
+    {
+      "gate": "rust-fmt-private-cli",
+      "head": "a87e2951964df84c9db0f515c5228d1c15fcaddf",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "exit": 0,
+      "seconds": 3.07,
+      "log": "/dev/shm/gu36/rust-fmt-private-cli.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc; previous native and access host suite completed."
+    },
+    {
+      "gate": "rust-test-private-cli",
+      "head": "a87e2951964df84c9db0f515c5228d1c15fcaddf",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "exit": 0,
+      "seconds": 23.48,
+      "log": "/dev/shm/gu36/rust-test-private-cli.log",
+      "sha256": "076f5eefbbab35983a79a579231c10acbb8e0862077208cb4e822a965f625361",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc; previous native and access host suite completed."
+    },
+    {
+      "gate": "rust-clippy-private-cli",
+      "head": "a87e2951964df84c9db0f515c5228d1c15fcaddf",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "exit": 0,
+      "seconds": 7.78,
+      "log": "/dev/shm/gu36/rust-clippy-private-cli.log",
+      "sha256": "8f9e11920b41db86e6cef9278a2698a02d81e805527ef23d6dbb2a991532888b",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "preflight": "No cargo/rustc; previous native and access host suite completed."
+    },
+    {
+      "gate": "rust-build-private-cli",
+      "head": "a87e2951964df84c9db0f515c5228d1c15fcaddf",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "exit": 0,
+      "seconds": 9.91,
+      "log": "/dev/shm/gu36/rust-build-private-cli.log",
+      "sha256": "d1981114828f8fd37dad47d7d1f75adabd2732216c01545e562c79d458e69a88",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--bins",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "preflight": "No cargo/rustc; previous native and access host suite completed."
+    },
+    {
+      "gate": "readiness-first",
+      "head": "ff6e6224880ba2c9fdc7710ae9767eecb358f95d",
+      "frozen_rust": "372dfe5",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "test_author": "b54095d996f290c46ece101469803479e2d616c7",
+      "test_sha256": "0571a3f42319274b33059b02f12d33ca5f0c4433fc3bc577e20d590edeb9cc83",
+      "exit": 1,
+      "seconds": 33.77,
+      "log": "/dev/shm/gu36/readiness-first.log",
+      "sha256": "5ce8df2c43312639f8496e9f234021ce310573fc1bed68450d6ede31cf88ca71",
+      "command": [
+        "python3",
+        "conformance/slim/readiness.py",
+        "--bin",
+        "/dev/shm/gu36/final-bin",
+        "--keep"
+      ],
+      "preflight": "No Cargo/rustc; final serial gates and prior native/access runs complete."
+    },
+    {
+      "gate": "readiness-fixture-corrected",
+      "head": "db6be1afe6b17a92a39df1943fc88486f001fbfb",
+      "frozen_rust": "372dfe5",
+      "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+      "test_author": "841ffd9584945602bd5ed46ae7ab4a49d6f1d1a6",
+      "test_sha256": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "exit": 0,
+      "seconds": 44.16,
+      "log": "/dev/shm/gu36/readiness-fixture-corrected.log",
+      "sha256": "edceb354e9d0117d79abdb737c7ee1b7ff279e5323105a1aa920bd7b3388384c",
+      "command": [
+        "python3",
+        "conformance/slim/readiness.py",
+        "--bin",
+        "/dev/shm/gu36/final-bin",
+        "--keep"
+      ],
+      "preflight": "No Cargo/rustc; previous first suite complete; product binaries unchanged; only contracted independent fixtures corrected."
+    }
+  ],
+  "first_failures": [
+    {
+      "gate": "native-first",
+      "result": "348/349 in64.10s; closed signed-result count/reference/state/date/private-value corpus hits unchanged default5s (5019.11ms). No semantic mismatch reported.",
+      "classification": "Unclassified timeout. No Cargo/rustc at preflight or later check; sampled load8.63/6.91/5.79 does not establish cause. No unchanged local retry or old test/deadline edit."
+    },
+    {
+      "gate": "readiness-first",
+      "result": "2/6 in33.77s",
+      "classification": "Case1/2 use a dict-only contacts helper against documented directory array. Initial actual HTTP status was not retained and remains unknown. Case4 second scratch-key generation collides with earlier filename; case5 fresh_window KeyError is downstream from failed setup. Adapter/privacy and changed/expired/refusal cases passed. Pure checks and remaining permission/route controls were not all evaluated.",
+      "correction": "Contract-first independent array probe and fresh scratch filename per maintenance pass; all case bodies/strict checks unchanged. Corrected full6/6 in44.16s on exactly the same frozen product binaries."
+    }
+  ],
+  "preservation": {
+    "base": "8b20ab5bfc44ec0137f69a508016e6ac569b19e4",
+    "all_original_plugin_and_host_test_helper_files_byte_identical": 66,
+    "all349_native_and_all28_existing_host_suites_unchanged": true,
+    "native_source_and_fixtures_unchanged": true,
+    "new_slim_suite_only": "readiness",
+    "final_ci_suites": 29,
+    "no_schema_protocol_provider_authority_or_permission_change": true
+  },
+  "evidence_limits": [
+    "Snapshot exposes ordinary receiver advertisements, preserving origin restrictions; it is not a promise that a caller possesses a required origin/citation/credential or that a future body/deadline is accepted.",
+    "Host channel verification is a deterministic fixture handshake; peer reachability, this native main-model receipt and overall connection readiness stay not_verified. No native control/peer probe was added.",
+    "Two real temporary hosts provide one remote machine/person. Remote same-person self path, multi-machine order ties, concurrent unsettled/group/fork/missing-ancestry/immutable-agent/provider-capacity and >2MiB valid aggregate fixtures remain source/other-suite limits.",
+    "Same-snapshot and strict nested read-mode handling receive source review plus current whole-DB/file/carrier runtime evidence, not a frontend or alternate permission evaluator.",
+    "First native timeout and earlier PR79/80/82 transport/contact/history callers remain unclassified; later passes do not retroactively establish a cause.",
+    "Actual terminal/reload/installed/physical/model/schema23-to27/full-state/native-readiness/explicit-peer-reachability/full-feature acceptance remain open. Earlier quota-refused model probes not repeated."
+  ],
+  "merge_policy": "Leave this slice and tracking35 unmerged for owner review."
+}

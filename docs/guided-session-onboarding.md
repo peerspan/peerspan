@@ -699,3 +699,15 @@ and exact-session adapter connections. A live/verified channel is separate from
 peer reachability and this native model's receipt. No native control or network
 probe is added in this backend slice; observed/full-feature readiness stays open.
 Independent real-host verification and final exact-head CI/review follow.
+
+Readiness conformance passes6/6 in44s on frozen372dfe5 after independent public
+fixture corrections; first2/6 setup result stays recorded. Exact state/home/DB
+and both TCP/UDP purity, current origin/grant/policy/withdrawal parity, exact
+session/unsafe aggregate/refusal/route checks pass. Existing access inspection
+6/6 in101s and all Rust local gates pass. Strict native validation passes; first
+unchanged native348/349 retains one default5s timeout with unclassified cause,
+without changed assertions/deadlines or unchanged local retry. The [verification
+record](results/guided-project-readiness-verification.json) records every source,
+binary/test/log hash and first outcome. Required final all29/four PR checks and
+fresh bot/root review are recorded on the slice/tracking PR after the evidence
+commit. Native presentation and actual peer/model readiness remain open.
