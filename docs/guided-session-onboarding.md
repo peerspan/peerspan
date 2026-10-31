@@ -619,3 +619,17 @@ remain byte-exact; both modified old suites restore by bytes/AST when their
 contracted additions are removed. The record retains first failures, normalized
 preservation and exact test/binary/log provenance. Final combined-head CI and
 fresh review are recorded on PR80/35; all full-feature acceptance stays open.
+
+Combinedcfbe31d CI passes27/28 including application6/6in61s, owner history6/6in88s
+and delivery16/16in60s, all PR checks (native312/312in59.43s) and clean review.
+Existing section31 input_refusal fails5/6in62s with both dec_clock/dec_contacts
+changed; actual caller remains unclassified. An independently contracted real
+restart of both normal hosts, explicit sync/current authority/member/whole-window
+contact lifetimes, successful original directory and transport retirement now
+precedes the standalone input case. Its entire case finishes before the normal
+first60s periodic-sync boundary, with no clock/timer/worker/path/counter changes.
+The first frozen484 local run passes6/6in96.02s. All original cases/actions/checks/
+waits remain; removing additions from the three modified old suites restores
+their entire original bytes/AST, with58 other old files byte-identical. Earlier
+PR79/directory/relay callers and full-feature acceptance remain open. Final new
+combined-head CI and review are recorded on PR80/35 after the evidence commit.
