@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
-    inspect_mode(c, store, p, false, &controls::local_decision_time()?)
+    inspect_mode(c, store, p, false, false, &controls::local_decision_time()?)
 }
 pub(crate) fn inspect_prepared(
     c: &Connection,
@@ -13,13 +13,22 @@ pub(crate) fn inspect_prepared(
     p: &Pending,
     raw: &str,
 ) -> Result<Value> {
-    inspect_mode(c, store, p, true, raw)
+    inspect_mode(c, store, p, true, false, raw)
+}
+pub(crate) fn inspect_signing(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+    raw: &str,
+) -> Result<Value> {
+    inspect_mode(c, store, p, true, true, raw)
 }
 fn inspect_mode(
     c: &Connection,
     store: &Store,
     p: &Pending,
     prepared: bool,
+    allow_first_offer: bool,
     raw: &str,
 ) -> Result<Value> {
     let r = &p.record;
@@ -38,15 +47,17 @@ fn inspect_mode(
         "state_conflict",
     )?;
     require(
+        allow_first_offer || r.owner_offer_id == "-" && r.owner_packet_base64 == "-",
+        "state_conflict",
+    )?;
+    require(
         [
             &r.administrator_intent_id,
             &r.selection_intent_id,
             &r.commit_intent_id,
-            &r.owner_offer_id,
             &r.selection_id,
             &r.administrator_offer_id,
             &r.owner_finalization_id,
-            &r.owner_packet_base64,
             &r.selection_packet_base64,
             &r.administrator_packet_base64,
             &r.owner_finalization_packet_base64,

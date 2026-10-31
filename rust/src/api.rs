@@ -48,6 +48,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::onboarding_access_application::local_routes())
         .merge(crate::onboarding_machine::local_routes())
         .merge(crate::onboarding_machine_consent::local_routes())
+        .merge(crate::onboarding_machine_signing::local_routes())
         .merge(crate::onboarding_admission::local_routes())
         .merge(crate::onboarding_admission_consent::local_routes())
         .merge(crate::onboarding_incoming::local_routes())

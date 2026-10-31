@@ -26,7 +26,7 @@ fn digest(domain: &str, v: &Value) -> String {
         hash(format!("{domain}\n{}", crate::canonical::value_text(v)).as_bytes())
     )
 }
-fn review_id(v: &Value) -> String {
+pub(super) fn review_id(v: &Value) -> String {
     digest("peerspan-machine-owner-consent-v1", v)
 }
 fn inspection_id(v: &Value) -> String {
@@ -46,7 +46,7 @@ fn key_for(store: &Store, p: &Pending) -> String {
         )
     )
 }
-fn latest(c: &Connection, store: &Store, p: &Pending) -> Result<Option<String>> {
+pub(super) fn latest(c: &Connection, store: &Store, p: &Pending) -> Result<Option<String>> {
     c.query_row("SELECT intent_id FROM dec_intents WHERE kind='machine_owner_review' AND json_extract(record,'$.operation_id')=?1 ORDER BY rowid DESC LIMIT 1",[key_for(store,p)],|r|r.get(0)).optional().map_err(db)
 }
 fn context(v: &Value) -> Result<AdapterContext> {
@@ -86,7 +86,7 @@ fn inspection_effects() -> Value {
 }
 // Bind the frozen public terms to the retained signed request and immutable
 // first offer, never to the mutable finalization-stage review/root field.
-fn bindings(store: &Store, p: &Pending, i: &Intent, v: &Value) -> Result<()> {
+pub(super) fn bindings(store: &Store, p: &Pending, i: &Intent, v: &Value) -> Result<()> {
     fields(
         object(v)?,
         "version kind host_id context agent network root_state_id request_id request_packet_id person_public_key host_public_key device_public_key member person_lease_id local_host provider provider_id signature_format scopes not_after host_admission created_at expires_at effects",
@@ -296,12 +296,18 @@ fn meta_record(
     r.result_base64 = "-".into();
     Ok(r)
 }
-struct Receipt {
-    meta: Intent,
-    owner: Intent,
-    review: Value,
+pub(super) struct Receipt {
+    pub(super) meta: Intent,
+    pub(super) owner: Intent,
+    pub(super) review: Value,
 }
-fn load(c: &Connection, store: &Store, p: &Pending, id: &str, now: &str) -> Result<Receipt> {
+pub(super) fn load(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+    id: &str,
+    now: &str,
+) -> Result<Receipt> {
     let meta = Intent::load(c, id)?;
     require(
         meta.kind == "machine_owner_review" && meta.record.operation_id == key_for(store, p),
@@ -437,7 +443,7 @@ fn view(
         "next_action":match s {"review"=>"approve_machine_owner_intent","approved"=>"follow_machine_link",_=>"inspect_machine_link"}}),
     )
 }
-fn wrapper(
+pub(super) fn wrapper(
     c: &Connection,
     store: &Store,
     input: &Input,

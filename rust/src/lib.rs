@@ -45,6 +45,7 @@ pub mod onboarding_invitation;
 pub mod onboarding_join;
 pub mod onboarding_machine;
 pub mod onboarding_machine_consent;
+pub mod onboarding_machine_signing;
 pub mod onboarding_reachability;
 pub(crate) mod onboarding_readiness;
 pub mod peer;
