@@ -626,6 +626,8 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
                         "target_udp_thread_alive": f["a"].counted_peer.thread.is_alive(),
                         "project_udp_thread_alive": f["b"].counted_peer.thread.is_alive(),
                         "carriers": traffic(f),
+                        "elapsed_ms": elapsed_ms,
+                        "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(carrier_after, carrier_before)],
                         "prior_observations": list(f.get("reachability_observations", [])),
                         "target_udp_errors": f["a"].counted_peer.error_counts(),
                         "project_udp_errors": f["b"].counted_peer.error_counts()}, sort_keys=True), flush=True)
