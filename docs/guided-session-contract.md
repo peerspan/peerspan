@@ -6350,8 +6350,13 @@ until pressed. Opening it clears other volatile setup panes, preserves any
 already connected authorized runtime, and verifies terminal/root/conversation,
 current host and the exact authoritative attached project before each stage.
 Use configured executable plus literal --state,5s process bounds, no shell.
-Read existing `onboarding` for explicit ID-sorted network choices (ten/page),
-then `network members NETWORK_ID` for the exact closed runtime section2 member
+Read existing `onboarding` for explicit ID-sorted DEC network choices (ten/page),
+retaining the known context ID to bind each later member response; legacy
+history entries are not grant choices. Refuse a member response for another
+context before presenting people. The quoted current project root is visible
+inside this private human pane, while remaining absent from logs/model/outside
+UI/argv; native session and internal flow/review/intent IDs stay undisplayed.
+Read `network members NETWORK_ID` for the exact closed runtime section2 member
 view. Group current bound members by exact person public key; ignore unbound
 rows, never merge different keys by label, refuse duplicate hosts/malformed
 fields. A member row's member is its HOST label, not necessarily the person
