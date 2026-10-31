@@ -120,6 +120,10 @@ fn bindings(store: &Store, p: &Pending, i: &Intent, v: &Value) -> Result<()> {
             && v["host_id"] == store.identity().id
             && v["request_id"] == p.id
             && v["request_packet_id"] == request.id
+            && r.person_public_key == p.record.expected_person_public_key
+            && d.network_id == p.record.expected_network_id
+            && d.context_id() == p.record.expected_context_id
+            && (device || r.provider.signer_public_key == r.person_public_key)
             && v["person_public_key"] == r.person_public_key
             && v["host_public_key"] == r.host_public_key
             && v["device_public_key"] == r.device_public_key
