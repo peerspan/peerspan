@@ -78,6 +78,25 @@ pub(crate) fn inspect_in(
     p: &requests::Pending,
     now: Option<&str>,
 ) -> Result<Value, Error> {
+    inspect_mode(c, store, input, p, now, false)
+}
+pub(crate) fn inspect_signing_in(
+    c: &rusqlite::Connection,
+    store: &Store,
+    input: &Inspect,
+    p: &requests::Pending,
+    now: &str,
+) -> Result<Value, Error> {
+    inspect_mode(c, store, input, p, Some(now), true)
+}
+fn inspect_mode(
+    c: &rusqlite::Connection,
+    store: &Store,
+    input: &Inspect,
+    p: &requests::Pending,
+    now: Option<&str>,
+    signing: bool,
+) -> Result<Value, Error> {
     // Verify the exact attached parent before projecting network authority.
     let raw = now
         .map(str::to_owned)
@@ -97,7 +116,9 @@ pub(crate) fn inspect_in(
     {
         return Err(coded("review_changed"));
     }
-    let e = if now.is_some() {
+    let e = if signing {
+        crate::decentralized::inspect_machine_owner_signing(c, store, p, &raw)
+    } else if now.is_some() {
         crate::decentralized::inspect_machine_owner_prepared(c, store, p, &raw)
     } else {
         inspect_machine_owner(c, store, p)

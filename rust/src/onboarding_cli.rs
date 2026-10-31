@@ -68,6 +68,17 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum MachineCommand {
+    /// Read exact retained initial machine-owner signature status
+    Signing {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Sign only the exact approved initial owner packet and reviewed fold
+    Sign {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+
     /// Recover exact project machine-owner consent
     Lookup {
         #[arg(long, required = true)]
@@ -372,6 +383,8 @@ pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> 
     }) = command
     {
         let op = match command {
+            MachineCommand::Signing { .. } => Some("signing"),
+            MachineCommand::Sign { .. } => Some("sign"),
             MachineCommand::Lookup { .. } => Some("lookup"),
             MachineCommand::Prepare { .. } => Some("prepare"),
             MachineCommand::Approve { .. } => Some("approve"),
@@ -1091,7 +1104,7 @@ async fn machine_consent(socket: &Path, operation: &str) -> Result<Value> {
         .map_err(|_| invalid())?;
     let unavailable = || anyhow::anyhow!("machine owner consent unavailable");
     tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        std::time::Duration::from_secs(if operation == "sign" { 95 } else { 5 }),
         Local(socket).post(
             format!("/v1/onboarding/machine-owner-consent/{operation}"),
             payload,

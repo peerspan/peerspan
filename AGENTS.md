@@ -112,3 +112,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `machine_owner_consent`: exact project-bound ordinary owner intent and unsigned
   receipt, atomic dual approval, replacement/history and router/privacy boundaries
   (guided session contract section42).
+
+- `machine_owner_signing`: bounded exact dual-approved initial owner/fold signatures,
+  configured original/owned device, atomic storage/history and owner-route privacy
+  (guided session contract section43).

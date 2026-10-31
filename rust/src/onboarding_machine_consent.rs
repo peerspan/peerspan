@@ -29,6 +29,8 @@ pub(crate) struct Input {
     pub inspection_review_id: Option<String>,
     #[serde(default, deserialize_with = "non_null")]
     pub replace_consent_id: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    pub decision: Option<String>,
 }
 fn non_null<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     String::deserialize(d).map(Some)
@@ -60,13 +62,15 @@ pub fn decode_input(bytes: &[u8], operation: &str) -> Result<Value, Error> {
             "context request_id inspection_review_id replace_consent_id"
         }
         "prepare" => "context request_id inspection_review_id",
-        "approve" => "context request_id consent_id consent_review_id",
+        "approve" | "signing" => "context request_id consent_id consent_review_id",
+        "sign" => "context request_id consent_id consent_review_id decision",
         _ => return Err(invalid()),
     };
     codec::fields(codec::object(&v).map_err(|_| invalid())?, shape).map_err(|_| invalid())?;
     let i: Input = serde_json::from_value(v.clone()).map_err(|_| invalid())?;
     i.context.validate().map_err(|_| invalid())?;
-    if !codec::ident(&i.request_id, "link_")
+    if operation == "sign" && i.decision.as_deref() != Some("sign_machine_owner_offer")
+        || !codec::ident(&i.request_id, "link_")
         || [&i.consent_id, &i.replace_consent_id].iter().any(|v| {
             v.as_deref()
                 .is_some_and(|s| !crate::peer_store::valid_id(s, "dint", 16))

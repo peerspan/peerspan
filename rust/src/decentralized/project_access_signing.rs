@@ -208,7 +208,11 @@ fn attempt(
 
 /// Only the daemon's configured exact original key is eligible. A device seed
 /// failure never reaches this fallback, and no global agent discovery is used.
-fn original_signer(store: &Store, key: [u8; 32], until: Instant) -> HostResult<PersonSigner> {
+pub(super) fn original_signer(
+    store: &Store,
+    key: [u8; 32],
+    until: Instant,
+) -> HostResult<PersonSigner> {
     budget(until)?;
     let socket = store
         .person_agent
