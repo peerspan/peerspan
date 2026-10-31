@@ -3771,3 +3771,13 @@ review/session plumbing from human review. Show public project/agent labels and
 actual machine/consent terms. Discard raw context dumping. The first validator
 runner invocation stopped before launch on root's incorrect expected-head
 literal; retain it as no-start, not a product/runtime test failure.
+
+GU.impl44 first local native413/415in79.82s (runner80.67s): new21/22; the
+no-attribution assertion matches a negated “this interface” phrase followed by
+retained signed evidence. Select concise “Signing attribution: not established”
+without changing the independent assertion. Old access-completion case8 exceeds
+its unchanged5s default; cause remains unclassified, no timeout/case change.
+First CI197 passes Rust/four checks/native393in99.09s and32/34 conformance jobs:
+access_signing4/6in83s reports genuine peer startup not completed (state error);
+machine_owner5/6in31s reports whole DB/files changed on refusal, all carriers
+unchanged. Retain both unknown causes; Rust and all64 old test files stay exact.

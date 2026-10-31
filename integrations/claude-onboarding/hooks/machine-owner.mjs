@@ -173,7 +173,7 @@ export function lines(v, selected, parent, expired = false) {
       `Recorded agent: ${quoted(r.agent.name)} (${r.agent.id}); owner: ${quoted(r.agent.owner)}; capabilities: ${r.agent.capabilities.map(quoted).join(', ')}`,
       `Receipt window: ${r.created_at} to ${r.expires_at}; original stage deadline: ${r.request_stage_deadline}`,
       `Consent effects: ${canonical(r.effects)}`,
-      own(v, parent) ? 'Exact recorded project consent; retained facts do not attribute signing to this interface.'
+      own(v, parent) ? 'Exact recorded project consent. Signing attribution: not established.'
         : 'Historical consent belongs to another recorded project. View only; no approval or signing here.',
     ] : ['Machine consent: none. Preparation grants nothing.']),
     ...(v?.signing ? [`Initial owner signatures recorded: ${v.signing.signature_count}/${v.signing.required_signatures} (${v.signing.state}). Historical signature evidence only.`] : []),
