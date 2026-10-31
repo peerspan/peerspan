@@ -7178,7 +7178,10 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    Positive-route captures still finish actual outstanding transport first.
    The selected deterministic bootstrap prerequisite now temporarily enables
    counted peer listeners without manual peer rows, exchanges genuine signed
-   current contacts and drains actual proof outboxes. It then publishes/imports
+   current contacts and drains actual proof outboxes. These counted listeners
+   may be available during the genuine initial admission/publication; the
+   no-route purity capture itself still requires bootstrap-only operation.
+   It then publishes/imports
    genuine newer empty-QUIC contacts while the listeners still accept the
    ordinary authenticated contact import, retires short handoff references
    through their real expiry/maintenance, and restarts bootstrap-only before
