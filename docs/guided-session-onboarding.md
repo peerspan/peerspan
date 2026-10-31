@@ -859,3 +859,24 @@ checks; final combined-head31-suite matrix/four checks/fresh review follow. The
 record preserves earlier resource/orchestration outcomes, source-only coverage
 limits and all hashes. It verifies the review backend, not completed machine
 admission, native approval, installed/model delivery or full-feature acceptance.
+
+
+### Existing computer: exact machine-owner consent backend
+
+Section42/GU.impl42 follows merged93 (`737c43b`). The private owner API and
+`onboarding machine lookup|prepare|approve --stdin` bind the current project to
+the exact inspected request, selected original/device provider, finite powers7,
+proposed owner offer and original signing deadline. Preparation reuses ordinary
+owner protocol records and adds an unsigned local attribution receipt in schema27.
+Approval sets both exact approvals/time atomically. Ordinary background signing
+and publication may proceed after approval; requester selection and final commit
+still require their own consent. This backend does not complete the native flow.
+
+History retains the original inspection and stage deadline through cancellation,
+expiry, project detachment and later protocol progress. Approval through an
+advanced interface alone invalidates a pending project receipt. Explicit review
+replacement by a current project preserves the ordinary intent's templates,
+creation time and powers deadline. Chosen under GU-OWN1; discarded alternatives
+and independent verification are recorded in the section42 contract and decision
+log. Bounded signer continuation, native controls, requester completion and full
+installed/model/combined acceptance remain open.
