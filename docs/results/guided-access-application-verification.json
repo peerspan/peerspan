@@ -1,0 +1,206 @@
+{
+  "status": "Required local Rust checks, new independent application6/6 and unchanged signing6/6,consent6/6,policy9/9 pass on frozen a8ccff3. Initial source-head all27 CI/PR checks and clean review pass. Final evidence-head all28 CI and fresh bot/root review are recorded on PR80/35 after this commit. Both first new-suite runs and PR79 original unclassified causes remain retained.",
+  "pr": "https://github.com/peerspan/peerspan/pull/80",
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "base": "830c1eef0f189edebf417ca373e741bab16c918b",
+  "contract_before_implementation": "9a9b8c0c09aa7d4e9ee56ace7607966145a2218d",
+  "contract_clarification": "924201035a9f4b285b40faa2d5c26b73f72566eb",
+  "frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
+  "frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
+  "boundaries": [
+    "Exact dual-approved and stored-signed policy only; no signer lookup or new signature.",
+    "First apply revalidates all current pins in one ordinary final transaction; every write rolls back together.",
+    "Historical marker verifies normal result/catalog signature closure and exact retained local proof/admission; it does not assert current grant, peer delivery or readiness.",
+    "No new schema/table/journal/protocol or guided direct peer request."
+  ],
+  "required_local_gates": {
+    "fmt": "pass",
+    "rust": "155 passed /2 ignored",
+    "clippy": "pass",
+    "shipped_binaries": "pass",
+    "logs": {
+      "rust-test": {
+        "path": "/dev/shm/g33/rust-test-first.log",
+        "sha256": "37c6c74e3626e1c29d8f6d732df0ea35a75fb2c22b1f6717730c9ae18b742f1f"
+      },
+      "rust-clippy": {
+        "path": "/dev/shm/g33/rust-clippy-first.log",
+        "sha256": "e69652d1013f9818bcca5528c21d40b42480b8ad7ddb0baa568c1993e2cff407"
+      },
+      "rust-build": {
+        "path": "/dev/shm/g33/rust-build-first.log",
+        "sha256": "a4f63646ebdfd0f3ac9f24ed6bd7961afac1da73d737eff1990dee5019a84941"
+      }
+    }
+  },
+  "frozen_binaries": {
+    "peerspan-host": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-host",
+      "sha256": "b52f6d37ee73f079b42f3502ae433dc21cc6f6cfa5dd74cfbc0e6ec0884f03cd"
+    },
+    "peerspan-peer-probe": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-peer-probe",
+      "sha256": "350781ed397720052c1e5d011efc4135f597b070a7fa8f43852b78366f4658a8"
+    },
+    "peerspan-helper": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-helper",
+      "sha256": "08e113eea59af6aa95e659c12de8e4061c4f5732d8e82c660c19002cb3cc0bca"
+    }
+  },
+  "local_unchanged_regressions": {
+    "access_signing": {
+      "result": "6 passed",
+      "seconds": 112.67,
+      "path": "/dev/shm/g33/access_signing-first.log",
+      "sha256": "8ef1eeeae0a004b736eb6c0282616e4ba8517aaa33f1bd2a6aa3908690584eac"
+    },
+    "access_consent": {
+      "result": "6 passed",
+      "seconds": 92.95,
+      "path": "/dev/shm/g33/access_consent-first.log",
+      "sha256": "f39a9e4f65bb855761a18e5204dd42e0976e2fe75a26336e52312d96c48bc181"
+    },
+    "policy": {
+      "result": "9 passed",
+      "seconds": 38.46,
+      "path": "/dev/shm/g33/policy-first.log",
+      "sha256": "8d9f7d0d739f135d5a1005c4644c595dd83fe9a315d99cf89a634808d0b4d2e4"
+    }
+  },
+  "initial_source_head_ci": {
+    "head": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
+    "conformance": {
+      "run_id": 41144855195,
+      "result": "build and all27 suites success"
+    },
+    "pull_request_checks": {
+      "run_id": 41144855154,
+      "result": "all4 jobs success",
+      "native": "312 passed /0 failed in50.28s"
+    },
+    "review": {
+      "receipt": 6535756268,
+      "result": "completed clean; no inline review threads"
+    }
+  },
+  "prior_unclassified_failures": {
+    "record": "docs/results/guided-access-signing-verification.json",
+    "completion": "Original PR79 detached API replay observed2 issuer UDP datagrams/2400 bytes; caller unclassified.",
+    "finalization": "Original PR79 pure history observed only dec_contacts3-to3 rows; changed row/cause unclassified.",
+    "policy": "Later passes do not identify those causes. No old assertion/helper/path/counter is removed or weakened; no unchanged rerun-to-green."
+  },
+  "runner": {
+    "tmpdir": "/dev/shm/g33",
+    "execution": "Root serializes its own compiler/runtime runs. An unrelated Claude name-fix build in a separate target directory overlapped initial compilation; it was not stopped or modified. No conformance ran during root compilation."
+  },
+  "limits": [
+    "Complex authority/root/member/lease fork/incomplete/unsettled, quota/u64/edit exhaustion and oversized/unsafe retained projections are source/manual limits.",
+    "Two actual concurrent calls and one discarded successful response are exercised; full90s timeout/cancellation and forced internal transaction-overlap boundaries remain unexecuted.",
+    "Negative result/signature/proof/admission/reference faults are exercised; full catalog-closure corruption matrices are not constructed.",
+    "Authenticated ordinary receiver directory authorization proves the exact two-action profile; an actual accepted message/task and native/model delivery are separate acceptance.",
+    "Native access controls, observed readiness, other-computer, installed/physical/actual-model/schema23-to27/full-state recovery/final combined acceptance remain open; PR35 stays unmerged.",
+    "The original corrected-run directory request cause and original PR79 UDP/contact causes remain unclassified; observed missing contact/queue prerequisites do not retrospectively identify those callers."
+  ],
+  "independent_conformance": {
+    "author": "/root/agent_access_inspection_conformance",
+    "contract_only": true,
+    "contract_base": "9a9b8c0",
+    "clarification_author_pick": "1356381",
+    "initial_author_commit": "8a319d8b05f29727bcfc20e134c6a03348923e85",
+    "initial_integration_commit": "0ae7d00",
+    "pre_execution_correction_author": "67ee69a0bc0f2a580d57563462d051a9b482d3fd",
+    "pre_execution_correction_integration": "5d23c88",
+    "pre_execution_corrections": [
+      "Unapproved explicit apply follows clarified409review_changed.",
+      "Malformed key is31bytes; arbitrary canonical32bytes is not assumed malformed."
+    ],
+    "first_executed_sha256": "cb2a468310dac82600f597c83f35ff3d401db0f4bd0a1693a7cc96459345aca8",
+    "first_run": {
+      "result": "2 passed /4 failed in62.31s",
+      "seconds": 62.31,
+      "production_unchanged": "a8ccff3",
+      "path": "/dev/shm/g33/access_application-first.log",
+      "sha256": "6994c270a54f4d0d98359078fc8f205ea593e2cb6d8e4c41044a22235bf3aebf",
+      "failures": [
+        "Cases1/4 stop at unsupported literal admission basis.kind=current assertion.",
+        "Cases5/6 lack positive fixtures because case1 stopped; these are dependent failures."
+      ],
+      "passing": [
+        "Case2 fresh guard/refusal checks.",
+        "Case3 late ordinary result SQL ABORT and whole-state/all-carrier rollback."
+      ],
+      "fixture": "/dev/shm/g33/slim-access_application-2_prcvwk",
+      "bounded_diagnosis": {
+        "path": "/dev/shm/g33/initial-admission-category.json",
+        "sha256": "7d4fc23d0a3272c997568b00660bafdb4ab7a4eb8997898b893f3a3d215be2bb"
+      }
+    },
+    "provenance_clarification": "dfc575a0bbd3e39c7bf9a680387c38159894f7e8",
+    "correction": "Exactly one18-line ordinary provenance shape/time/reference block replaces the unsupported literal current check. Restoring the prior two lines recreates prior bytes/AST; all other assertions/actions/delays/timeouts/captures are exact.",
+    "provenance_correction_author": "c4f90def1e350bfa0f4f7625d99a0aad428db93d",
+    "provenance_correction_integration": "11c7b5d4f73cd0a5a08537bd3c4de2b31cb4117c",
+    "provenance_corrected_sha256": "6927e5db14b20c9316204b4214b61839f8c7696924ee9c6b51ff9edc32d5c1c4",
+    "provenance_corrected_run": {
+      "result": "4 passed /2 failed in92.23s",
+      "seconds": 92.23,
+      "production_unchanged": "a8ccff3",
+      "path": "/dev/shm/g33/access_application-provenance-corrected.log",
+      "sha256": "6ad9d7f50176288a1be948504cd4eb9abdc0c85b1bcc5ee00478a61166976538",
+      "fixture": "/dev/shm/g33/slim-access_application-5wwvxd33",
+      "passing": [
+        "Exact application, ordinary evaluator and signature/receipt preservation.",
+        "Fresh guard/refusal cases.",
+        "Late SQL ABORT complete rollback.",
+        "Two actual concurrent calls and discarded successful response with pure-first recovery."
+      ],
+      "failures": [
+        "Case5 stops at post-expiry/restart directory-success prerequisite.",
+        "Case6 stops before its input checks at5s whole-transport retirement, with an actual return outbox still pending."
+      ],
+      "retained_categories": {
+        "corrected-retirement-categories.json": {
+          "path": "/dev/shm/g33/corrected-retirement-categories.json",
+          "sha256": "05c76057f311f10048d4cb5dd5fdd23cfe22a07f992884d20e3976ff66d24f46"
+        },
+        "corrected-expiry-categories.json": {
+          "path": "/dev/shm/g33/corrected-expiry-categories.json",
+          "sha256": "3f5dd65a0135e0314e8bf4b8caa66eb1003ff5e3489980dd3bf978d544c0ab27"
+        },
+        "corrected-contact-retry-categories.json": {
+          "path": "/dev/shm/g33/corrected-contact-retry-categories.json",
+          "sha256": "3872f1bd6170157393366def923785918973ffd686a3c66aa6e6ce255aa78d1e"
+        },
+        "corrected-new-generation-category.json": {
+          "path": "/dev/shm/g33/corrected-new-generation-category.json",
+          "sha256": "72008b4d1bed45acabd4fc0e7598f3a1f0d6f65f435a177846c54900ff523c84"
+        }
+      },
+      "classification": "An unretired return outbox contains the exact latest case5 policy generation, attempts2,transport_unavailable,next_attempt17s after exact history target. Both remote bound contacts expired before that target; standalone authority deadlines remain valid. Missing setup prerequisites identified; exact original directory failure and PR79 purity causes remain unclassified."
+    },
+    "history_prerequisite_contracts": [
+      "405c67fc34ecb160df7ae0518883bc7a9cbf3472",
+      "75f05b34930cf58e170c472e3b0b63ad11b2e332"
+    ],
+    "history_prerequisite_author": "e4487eb4584a79eb9e2e3a4ce8e4f0f2996879df",
+    "history_prerequisite_integration": "9a983fe59fc1549400583c98f013331a8ec1f9d4",
+    "final_source_sha256": "29ea6f0d255932bdedeb20ae7a5c2c3b0735d9ff6fc9217b3463a9d7c5d84bba",
+    "final_local_run": {
+      "result": "6 passed /0 failed /0 skipped in109.01s",
+      "seconds": 109.01,
+      "path": "/dev/shm/g33/access_application-history-prerequisites.log",
+      "sha256": "1ede0dd0acf539dcd35661495201242ba630e21ce252580411997e66640f5ced",
+      "fixture": "/dev/shm/g33/slim-access_application-wktjnev_",
+      "production_unchanged": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123"
+    },
+    "history_prerequisite_preservation": "Exactly116 additions: one helper block and two standalone calls. Removing only those additions restores c4f source bytes/AST; all existing assertions/actions/captures/sleeps/timeouts remain. Real current signed counted hints, actual latest policy proof/admission/queue retirement, short-invite expiry and unsigned maintenance precede unchanged history baselines. No queue/authority edits or forced ACK.",
+    "author_declaration": "Contracts/allowed existing conformance/helpers only; no product/native/hook implementation or product diffs, no suite imports/runtime/build/native/cargo. Static AST/compile-only/undefined-global/diff/fault checks before commits. Root executes and reviews separately."
+  },
+  "preservation": {
+    "base": "830c1eef0f189edebf417ca373e741bab16c918b",
+    "existing_slim_helper_native_files_byte_identical": 61,
+    "new_suite_only": "conformance/slim/access_application.py",
+    "root_pre_execution_review": "Closed cases and negative fault/setup scope reviewed before first execution.",
+    "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution."
+  },
+  "final_evidence_parent": "9a983fe59fc1549400583c98f013331a8ec1f9d4"
+}
