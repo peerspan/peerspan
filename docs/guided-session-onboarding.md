@@ -573,11 +573,19 @@ records exact source/binary/log provenance and required gates. All original27
 host suites/shared helpers/harness/native stay unchanged; PR79's earlier UDP/
 contact purity failures remain unclassified. Tracking PR35 stays unmerged.
 
-Frozen production `a8ccff3` passes existing Rust155/2ignored, formatting, Clippy
-and shipped-binary build. Independent application6/6in109.01s and unchanged
-signing6/6in112.67s, consent6/6in92.95s and policy9/9in38.46s pass serially.
-The record retains first2/6 and4/6 new-suite failures, independent contract-first
-provenance/setup corrections and exact preservation audits; no production change
-is attributed to those corrections. Initial source-head all27 CI/PR checks and
-clean bot review pass. PR80 records final evidence-head all28 CI and fresh review
-separately. Every full-feature acceptance gate remains incomplete.
+Initial production `a8ccff3` passed Rust and local application6/6in109.01s,
+plus unchanged signing6/6in112.67s, consent6/6in92.95s and policy9/9in38.46s.
+The initial evidence head passed all28 CI suites and PR checks, then fresh bot
+review identified missing required admission-reference validation on pure replay.
+Contract GU.impl33c and an independent negative regression preceded fix
+`4842404`: require the exact signed statement, root and all direct-parent IDs.
+The regression reproduces the bug on the original binaries (4/6; the history
+case returns200, then a dependent case finds the stopped host). Frozen fixed
+source passes Rust155/2ignored, fmt, Clippy, shipped binaries and the same
+independent application6/6in106.30s, including both pure refusal routes and exact
+restoration. PR80 records final exact-head all28 CI and fresh review separately.
+
+The record retains every first failure, contract-first independent fixture
+correction and byte-preservation audit. Those setup corrections did not change
+production; the later review fix changes the admission-reference check. Every
+full-feature acceptance gate remains incomplete.

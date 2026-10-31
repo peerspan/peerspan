@@ -1,12 +1,12 @@
 {
-  "status": "Required local Rust checks, new independent application6/6 and unchanged signing6/6,consent6/6,policy9/9 pass on frozen a8ccff3. Initial source-head all27 CI/PR checks and clean review pass. Final evidence-head all28 CI and fresh bot/root review are recorded on PR80/35 after this commit. Both first new-suite runs and PR79 original unclassified causes remain retained.",
+  "status": "P2 admission-reference bug reproduced on the original frozen binary and fixed in4842404. Required fixed-source Rust checks and independent application6/6 pass. Final exact-head all28 CI and fresh bot/root review are recorded on PR80/35 after this evidence commit. All earlier failures and unclassified causes remain retained.",
   "pr": "https://github.com/peerspan/peerspan/pull/80",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "base": "830c1eef0f189edebf417ca373e741bab16c918b",
   "contract_before_implementation": "9a9b8c0c09aa7d4e9ee56ace7607966145a2218d",
   "contract_clarification": "924201035a9f4b285b40faa2d5c26b73f72566eb",
-  "frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
-  "frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
+  "frozen_production": "48424041dea301cbd0a24dca82b23a751077c19d",
+  "frozen_rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
   "boundaries": [
     "Exact dual-approved and stored-signed policy only; no signer lookup or new signature.",
     "First apply revalidates all current pins in one ordinary final transaction; every write rolls back together.",
@@ -14,37 +14,48 @@
     "No new schema/table/journal/protocol or guided direct peer request."
   ],
   "required_local_gates": {
+    "production": "48424041dea301cbd0a24dca82b23a751077c19d",
     "fmt": "pass",
     "rust": "155 passed /2 ignored",
     "clippy": "pass",
     "shipped_binaries": "pass",
+    "seconds": {
+      "fmt": 3.03,
+      "rust": 106.38,
+      "clippy": 34.91,
+      "shipped_binaries": 73.59
+    },
     "logs": {
-      "rust-test": {
-        "path": "/dev/shm/g33/rust-test-first.log",
-        "sha256": "37c6c74e3626e1c29d8f6d732df0ea35a75fb2c22b1f6717730c9ae18b742f1f"
+      "fmt": {
+        "path": "/dev/shm/g33/rust-fmt-P2-fixed.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
-      "rust-clippy": {
-        "path": "/dev/shm/g33/rust-clippy-first.log",
-        "sha256": "e69652d1013f9818bcca5528c21d40b42480b8ad7ddb0baa568c1993e2cff407"
+      "test": {
+        "path": "/dev/shm/g33/rust-test-P2-fixed.log",
+        "sha256": "86bf0b30c1d41c7da805e9992ad1213c2ab65096d6e9ef0fb32179d0ecd8cc14"
       },
-      "rust-build": {
-        "path": "/dev/shm/g33/rust-build-first.log",
-        "sha256": "a4f63646ebdfd0f3ac9f24ed6bd7961afac1da73d737eff1990dee5019a84941"
+      "clippy": {
+        "path": "/dev/shm/g33/rust-clippy-P2-fixed.log",
+        "sha256": "405c214104c496a4e908f3c1a21a2c3bb51db2231e0ad818d843c6bc372f1d03"
+      },
+      "build": {
+        "path": "/dev/shm/g33/rust-build-P2-fixed.log",
+        "sha256": "572656ea40ec0d3ccdeb4ffc257db6aad11760244d2bd751f47e891741d038c6"
       }
     }
   },
   "frozen_binaries": {
     "peerspan-host": {
-      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-host",
-      "sha256": "b52f6d37ee73f079b42f3502ae433dc21cc6f6cfa5dd74cfbc0e6ec0884f03cd"
+      "path": "/dev/shm/peerspan-gu-app-4842404-bin/peerspan-host",
+      "sha256": "ff16ad1f2cf7d05c2cd8f340751b961728a59db43f02e5225c96a5fcd0e3a5cd"
     },
     "peerspan-peer-probe": {
-      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-peer-probe",
-      "sha256": "350781ed397720052c1e5d011efc4135f597b070a7fa8f43852b78366f4658a8"
+      "path": "/dev/shm/peerspan-gu-app-4842404-bin/peerspan-peer-probe",
+      "sha256": "be9ba7987b4498a4c849f9709cd3748e313125f499e239fde4be29d0518baa7f"
     },
     "peerspan-helper": {
-      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-helper",
-      "sha256": "08e113eea59af6aa95e659c12de8e4061c4f5732d8e82c660c19002cb3cc0bca"
+      "path": "/dev/shm/peerspan-gu-app-4842404-bin/peerspan-helper",
+      "sha256": "20f25be7118a52372a08f4d59bd6d49b93f99158f2e57dd81f8bfd9dd144c546"
     }
   },
   "local_unchanged_regressions": {
@@ -52,19 +63,22 @@
       "result": "6 passed",
       "seconds": 112.67,
       "path": "/dev/shm/g33/access_signing-first.log",
-      "sha256": "8ef1eeeae0a004b736eb6c0282616e4ba8517aaa33f1bd2a6aa3908690584eac"
+      "sha256": "8ef1eeeae0a004b736eb6c0282616e4ba8517aaa33f1bd2a6aa3908690584eac",
+      "production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123"
     },
     "access_consent": {
       "result": "6 passed",
       "seconds": 92.95,
       "path": "/dev/shm/g33/access_consent-first.log",
-      "sha256": "f39a9e4f65bb855761a18e5204dd42e0976e2fe75a26336e52312d96c48bc181"
+      "sha256": "f39a9e4f65bb855761a18e5204dd42e0976e2fe75a26336e52312d96c48bc181",
+      "production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123"
     },
     "policy": {
       "result": "9 passed",
       "seconds": 38.46,
       "path": "/dev/shm/g33/policy-first.log",
-      "sha256": "8d9f7d0d739f135d5a1005c4644c595dd83fe9a315d99cf89a634808d0b4d2e4"
+      "sha256": "8d9f7d0d739f135d5a1005c4644c595dd83fe9a315d99cf89a634808d0b4d2e4",
+      "production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123"
     }
   },
   "initial_source_head_ci": {
@@ -183,8 +197,11 @@
     ],
     "history_prerequisite_author": "e4487eb4584a79eb9e2e3a4ce8e4f0f2996879df",
     "history_prerequisite_integration": "9a983fe59fc1549400583c98f013331a8ec1f9d4",
-    "final_source_sha256": "29ea6f0d255932bdedeb20ae7a5c2c3b0735d9ff6fc9217b3463a9d7c5d84bba",
-    "final_local_run": {
+    "final_source_sha256": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+    "history_prerequisite_preservation": "Exactly116 additions: one helper block and two standalone calls. Removing only those additions restores c4f source bytes/AST; all existing assertions/actions/captures/sleeps/timeouts remain. Real current signed counted hints, actual latest policy proof/admission/queue retirement, short-invite expiry and unsigned maintenance precede unchanged history baselines. No queue/authority edits or forced ACK.",
+    "author_declaration": "Contracts/allowed existing conformance/helpers only; no product/native/hook implementation or product diffs, no suite imports/runtime/build/native/cargo. Static AST/compile-only/undefined-global/diff/fault checks before commits. Root executes and reviews separately.",
+    "pre_review_source_sha256": "29ea6f0d255932bdedeb20ae7a5c2c3b0735d9ff6fc9217b3463a9d7c5d84bba",
+    "pre_review_baseline_run": {
       "result": "6 passed /0 failed /0 skipped in109.01s",
       "seconds": 109.01,
       "path": "/dev/shm/g33/access_application-history-prerequisites.log",
@@ -192,15 +209,99 @@
       "fixture": "/dev/shm/g33/slim-access_application-wktjnev_",
       "production_unchanged": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123"
     },
-    "history_prerequisite_preservation": "Exactly116 additions: one helper block and two standalone calls. Removing only those additions restores c4f source bytes/AST; all existing assertions/actions/captures/sleeps/timeouts remain. Real current signed counted hints, actual latest policy proof/admission/queue retirement, short-invite expiry and unsigned maintenance precede unchanged history baselines. No queue/authority edits or forced ACK.",
-    "author_declaration": "Contracts/allowed existing conformance/helpers only; no product/native/hook implementation or product diffs, no suite imports/runtime/build/native/cargo. Static AST/compile-only/undefined-global/diff/fault checks before commits. Root executes and reviews separately."
+    "p2_regression_contract": "bcb05a3",
+    "p2_regression_author": "3806060ac4807eb0aadf37f36d8dd1f7606dc38f",
+    "p2_regression_integration": "3da2b42c2033744446b2c4add8b9cd87e80a568d",
+    "p2_regression_preservation": "Adds one fifth offline negative fault to the existing history case: remove only the genuine required statement ID from admission basis.evidence_ids, preserve valid shape/order/remaining evidence, reuse both409 unavailable and complete state/carrier purity checks, then restore the exact original admission record. Removing only this enum item/mutation/restoration recreates e448 bytes/AST. All prior cases/actions/assertions/delays/timeouts stay unchanged. Integrated bytes equal independent author3806060.",
+    "p2_regression_on_initial_source": {
+      "result": "4 passed /2 failed in99.88s",
+      "seconds": 99.88,
+      "production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
+      "path": "/dev/shm/g33/access_application-P2-old-source.log",
+      "sha256": "09661475f73a928006889d8801a24a7ea309ba59528b7c79c388f4de01feb326",
+      "fixture": "/dev/shm/g33/slim-access_application-2tjthg3u",
+      "failures": [
+        "Case5 reaches the new admission-evidence fault and observation incorrectly returns HTTP200 instead of409.",
+        "Case6 then encounters connection refused because case5 finally stopped the host and restored its exact admission; the failed case did not reach its final restart. This is a dependent failure."
+      ],
+      "passing": "Cases1 through4 pass."
+    },
+    "final_local_run": {
+      "result": "6 passed /0 failed /0 skipped in106.30s",
+      "seconds": 106.3,
+      "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+      "rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+      "path": "/dev/shm/g33/access_application-P2-fixed.log",
+      "sha256": "5439a1709e56f14ca275f4abbba5386ef46d0a42e59bb7aa9c09e2a46f0943df",
+      "fixture": "/dev/shm/g33/slim-access_application-6z5k4co5"
+    }
   },
   "preservation": {
     "base": "830c1eef0f189edebf417ca373e741bab16c918b",
     "existing_slim_helper_native_files_byte_identical": 61,
     "new_suite_only": "conformance/slim/access_application.py",
     "root_pre_execution_review": "Closed cases and negative fault/setup scope reviewed before first execution.",
-    "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution."
+    "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution. P2 regression scoped to one genuine required-reference corruption and exact restoration; fixed marker source reviewed separately."
   },
-  "final_evidence_parent": "9a983fe59fc1549400583c98f013331a8ec1f9d4"
+  "final_evidence_parent": "3da2b42c2033744446b2c4add8b9cd87e80a568d",
+  "initial_frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
+  "initial_frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
+  "initial_source_required_local_gates": {
+    "fmt": "pass",
+    "rust": "155 passed /2 ignored",
+    "clippy": "pass",
+    "shipped_binaries": "pass",
+    "logs": {
+      "rust-test": {
+        "path": "/dev/shm/g33/rust-test-first.log",
+        "sha256": "37c6c74e3626e1c29d8f6d732df0ea35a75fb2c22b1f6717730c9ae18b742f1f"
+      },
+      "rust-clippy": {
+        "path": "/dev/shm/g33/rust-clippy-first.log",
+        "sha256": "e69652d1013f9818bcca5528c21d40b42480b8ad7ddb0baa568c1993e2cff407"
+      },
+      "rust-build": {
+        "path": "/dev/shm/g33/rust-build-first.log",
+        "sha256": "a4f63646ebdfd0f3ac9f24ed6bd7961afac1da73d737eff1990dee5019a84941"
+      }
+    }
+  },
+  "initial_frozen_binaries": {
+    "peerspan-host": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-host",
+      "sha256": "b52f6d37ee73f079b42f3502ae433dc21cc6f6cfa5dd74cfbc0e6ec0884f03cd"
+    },
+    "peerspan-peer-probe": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-peer-probe",
+      "sha256": "350781ed397720052c1e5d011efc4135f597b070a7fa8f43852b78366f4658a8"
+    },
+    "peerspan-helper": {
+      "path": "/dev/shm/peerspan-gu-app-a8ccff3-bin/peerspan-helper",
+      "sha256": "08e113eea59af6aa95e659c12de8e4061c4f5732d8e82c660c19002cb3cc0bca"
+    }
+  },
+  "pre_fix_evidence_head_ci": {
+    "head": "52b19580c4916c8a30e3533b2cae1facf476d108",
+    "conformance": {
+      "run_id": 41148081011,
+      "result": "build and all28 suites success",
+      "application": "6/6 in75s; before independent P2 regression"
+    },
+    "pull_request_checks": {
+      "run_id": 41148080991,
+      "result": "all4 jobs success",
+      "native": "312 passed /0 failed in72.81s"
+    },
+    "review": {
+      "receipt": 6535741279,
+      "review_id": 5719983274,
+      "finding": 4429499751,
+      "result": "P2: missing required local admission evidence references accepted during historical replay"
+    }
+  },
+  "p2_fix": {
+    "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+    "scope": "The historical marker additionally requires the exact signed statement, root and every direct-parent ID in the retained ordinary admission evidence. Both pure routes refuse missing references without writes, repair, source probing or new authority.",
+    "root_review": "The only Rust change after a8ccff3 is this required-reference guard. The original provenance/setup corrections did not change production. Required Rust checks and the identical independent regression pass against frozen fixed binaries. Other unchanged areas are covered by fresh final CI; their initial local runs remain separately attributed."
+  }
 }
