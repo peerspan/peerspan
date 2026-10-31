@@ -8136,6 +8136,30 @@ No raw DB values, paths/IDs, hashes of private values, new probes/actions/retrie
 or altered pure/setup/assertion/bounds/allowed writes. A later genuine protocol
 barrier, if needed, requires its own contract and evidence before fixture changes.
 
+### GU.impl42e: retain the remaining standalone history observation
+
+First compiler-idle local owner-guard suite e9f7319 passes5/6in29s. The first
+four cases now pass; case5 lookup CLI changes one unrecognized existing-side
+logical table with no files/schema/version/database-set or carrier change.
+Keep log SHA256 c580a002a68649f0a58adec0d3a782a7defa4cc20af317333d8c76ccae025e9a.
+The first owner-guard CI independently passes6/6in33s; that does not classify the
+local changed table. Before a further run, the separate author may expand ONLY
+the captured observer's static table-name allowlist across the public host and
+embedded-mailbox schemas. Safe literal additions: identity sqlite_sequence grants
+received_messages outbound_messages deliveries received_replies outbound_replies
+adapter_routes network_statements access_blocks received_tasks task_events
+outbound_tasks outbound_task_events task_deliveries task_update_notifications
+artifact_files task_artifacts task_children policy_deliveries adapter_outbound
+directory_sends tool_servers tool_values capabilities source_access received_calls
+outbound_calls adapter_calls call_update_notifications link_device_keys link_pending
+link_frames link_operations link_objects link_features link_signers link_highwater
+call_approvals approval_notices builtin_sources oauth_clients oauth_credentials
+onboarding_project_flows onboarding_adapter_flows onboarding_invitation_flows
+onboarding_join_flows helper_format mailboxes frames. Continue mapping any other
+name to unknown; never print raw values/labels/paths/IDs. No assertion/setup/
+operation/purity-counter/bound change. Run once to classify this remaining
+observation; a passing sample leaves the prior cause unclassified.
+
 ## 43. Remaining flow contract
 
 Teammate/device admission, remaining
