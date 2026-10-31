@@ -27,6 +27,8 @@ import { inventory as admissionInventory, consent as parseAdmission, progress as
 
 import { application as parseAccessApplication, signed as parseAccessSignature, sameConsent as sameAccessConsent,
   eligible as accessCompletionEligible, lines as accessCompletionLines } from './access-completion.mjs';
+import { snapshot as parseReadiness, live as readinessLive, deadline as readinessDeadline,
+  lines as readinessLines, details as readinessDetails } from './readiness.mjs';
 import { inventory as accessNetworks, people as accessPeople, inspection as parseAccessInspection,
   consent as parseAccessConsent, liveInspection as accessInspectionLive, approvable as accessApprovable,
   deadline as accessDeadline, inspectionLines as accessInspectionLines, consentLines as accessConsentLines } from './access.mjs';
@@ -905,6 +907,7 @@ function accessStart($, previous, epoch) {
   if (accessing !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
   accessExpiry?.cancel(); accessExpiry = null;
   accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, canFinish: false, message: null,
+    readinessValue: null, readinessDetails: false,
     parent: project.flow, context: project.context, host: hostId };
   $.ui.invalidate('ui.render');
   return accessing;
@@ -1218,6 +1221,42 @@ async function finishAccess($, previous, epoch) {
   } catch { accessCompletionFailure($, running, epoch, sent); }
 }
 
+async function checkConnectionStatus($, previous, epoch) {
+  if (!previous.selected || previous.mode !== 'readiness' && !previous.inspected && !previous.value?.access) return;
+  const running = accessStart($, previous, epoch);
+  if (!running) return;
+  running.mode = 'readiness';
+  running.completionConsent = null; running.completionLast = null; running.completionSigned = false;
+  try {
+    if (!await accessParent($, running, epoch)) return;
+    const raw = await accessProcess($, ['onboarding', 'readiness', '--stdin'], accessPayload(running));
+    if (!await accessCurrent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    const value = await parseReadiness(raw, running.parent, running.host, running.network, running.selected, now);
+    if (!await accessCurrent($, running, epoch) || !await accessParent($, running, epoch) || !await accessCurrent($, running, epoch)) return;
+    const displayNow = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    if (!readinessLive(value, displayNow)) throw new Error('Elapsed connection status');
+    const token = {};
+    accessing = { ...running, busy: false, readinessValue: value, readinessDetails: false, expiryAuthority: token };
+    accessExpiry = $.clock.after(readinessDeadline(value) - displayNow, () => {
+      if (epoch === generation && accessing.expiryAuthority === token && accessing.mode === 'readiness') {
+        accessing = { ...accessing, readinessValue: null, readinessDetails: false, expiryAuthority: null,
+          message: 'Connection status observation expired. Check connection status again.' };
+        accessExpiry = null;
+        $.ui.invalidate('ui.render');
+      }
+    });
+    $.ui.invalidate('ui.render');
+  } catch {
+    if (accessing !== running || epoch !== generation) return;
+    accessing = { ...running, busy: false, readinessValue: null, readinessDetails: false,
+      message: 'Connection status unavailable. Check connection status again, review agent access or leave.' };
+    $.ui.invalidate('ui.render');
+  }
+}
+
 function accessPage($, previous, epoch, page) {
   const values = previous.stage === 'networks' ? previous.networks : previous.people;
   if (accessing !== previous || previous.busy || epoch !== generation || !['networks', 'people'].includes(previous.stage) ||
@@ -1231,10 +1270,10 @@ function accessControls($, { Text, Button }, epoch) {
   if (previous.stage === 'inactive') return admitting.stage === 'inactive' && joining.stage === 'inactive' &&
     recipient.stage === 'inactive' && invitation.stage === 'inactive' && adapter.stage === 'inactive'
     ? [button('access-open', 'Review agent access', () => openAccess($, previous, epoch))] : [];
-  const leave = button('access-leave', 'Leave agent access', () => {
+  const leave = button('access-leave', previous.mode === 'readiness' ? 'Leave connection status' : 'Leave agent access', () => {
     if (accessing === previous && epoch === generation) { clearAccess(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy) return [Text({ children: [previous.mode === 'completion'
+  if (previous.busy) return [Text({ children: [previous.mode === 'readiness' ? 'Connection status: checking local evidence…' : previous.mode === 'completion'
     ? previous.completionPhase === 'signing' ? 'Agent access: signing the approved policy…'
       : previous.completionPhase === 'applying' ? 'Agent access: applying the signed policy…' : 'Agent access: checking recorded application…'
     : 'Agent access: working…'] }), leave];
@@ -1249,11 +1288,25 @@ function accessControls($, { Text, Button }, epoch) {
       ...(page > 0 ? [button('access-prev', network ? 'Previous networks' : 'Previous people', () => accessPage($, previous, epoch, page - 1))] : []),
       ...(values.length > (page + 1) * 10 ? [button('access-next', network ? 'More networks' : 'More people', () => accessPage($, previous, epoch, page + 1))] : []), leave];
   }
+  const status = () => button('connection-status', 'Check connection status', () => checkConnectionStatus($, previous, epoch));
+  if (previous.mode === 'readiness') return [
+    ...(previous.readinessValue ? [Text({ children: [readinessLines(previous.readinessValue, previous.parent)] }),
+      ...(previous.readinessDetails ? [Text({ children: [readinessDetails(previous.readinessValue)] })] : []),
+      button('connection-details', previous.readinessDetails ? 'Hide connection details' : 'Show connection details', () => {
+        if (accessing === previous && epoch === generation) {
+          accessing = { ...previous, readinessDetails: !previous.readinessDetails };
+          $.ui.invalidate('ui.render');
+        }
+      })] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []), status(),
+    button('connection-access', 'Review agent access', () => readAccess($, previous, epoch)), leave,
+  ];
   if (previous.mode === 'completion') return [
     ...(previous.value?.application ? [Text({ children: [accessCompletionLines(previous.value, previous.parent)] })] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
     ...(previous.canFinish ? [button('access-finish', 'Finish agent access', () => finishAccess($, previous, epoch))] : []),
     button('access-application-check', 'Check application', () => checkAccessApplication($, previous, epoch)), leave,
+    ...(previous.value?.application ? [status()] : []),
   ];
   return [
     ...(previous.inspected ? [Text({ children: [accessInspectionLines(previous.inspected)] }),
@@ -1267,6 +1320,7 @@ function accessControls($, { Text, Button }, epoch) {
     ...(previous.value?.access && ['expired', 'invalidated'].includes(previous.value.access.state)
       ? [Text({ children: ['Existing terms require separate advanced review. No replacement or signing is automatic.'] })] : []),
     ...(previous.selected ? [button('access-check', 'Check agent access', () => readAccess($, previous, epoch))] : []), leave,
+    ...(previous.inspected || previous.value?.access ? [status()] : []),
   ];
 }
 

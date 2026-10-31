@@ -215,3 +215,4 @@ export function consentLines(v) {
     'Signing, local application, peer delivery and connection readiness: not verified here.',
     'Historical consent does not establish current access. Leaving does not revoke consent or retract prior or dispatched work.'].join('\n');
 }
+export { decode as decodePublic, personId };
