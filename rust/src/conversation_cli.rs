@@ -583,12 +583,41 @@ async fn watch(
     let mut held: Vec<Held> = Vec::new();
     // Printed and not yet posted to the read cursor.
     let mut shown: Vec<(String, String)> = Vec::new();
+    // Past their hold, waiting to print with this round's events.
+    let mut released: Vec<(String, Value)> = Vec::new();
     loop {
         if whole_host && reader.is_none() {
             note_agent_only(local, &mut noted).await;
         }
+        // Before the event read, so what closed a gap prints with what it released.
+        let mut waiting = Vec::new();
+        for h in held {
+            let path = format!(
+                "/v1/conversations/{}/messages/{}{participant}",
+                h.conversation, h.message
+            );
+            match local.get(path).await {
+                Ok(view) if view["earlier_missing"] == true && h.since.elapsed() < HOLD => {
+                    waiting.push(h);
+                }
+                Ok(view) => released.push((h.conversation, view["message"].clone())),
+                // Not reachable now: read again, and print by the limit if it can be read.
+                Err(e)
+                    if e.downcast_ref::<crate::integration::DaemonError>()
+                        .is_none() =>
+                {
+                    waiting.push(h);
+                }
+                Err(_) => {}
+            }
+        }
+        held = waiting;
         // A held message is read again at least once a second.
-        let wait = if held.is_empty() { 25 } else { 1 };
+        let wait = match (released.is_empty(), held.is_empty()) {
+            (false, _) => 0,
+            (true, true) => 25,
+            (true, false) => 1,
+        };
         let path = format!("/v1/conversations/events?after={after}&wait={wait}&limit=100{query}");
         let answer = match local.get(path).await {
             Ok(answer) => answer,
@@ -599,6 +628,7 @@ async fn watch(
         };
         after = answer["next_after"].as_i64().unwrap_or(after);
         let mut ready: Vec<(String, Value)> = Vec::new();
+        let events_read = answer["events"].as_array().map_or(0, Vec::len);
         for event in answer["events"].as_array().into_iter().flatten() {
             let id = text(&event["conversation_id"]);
             let short: String = id.chars().take(13).collect();
@@ -638,33 +668,18 @@ async fn watch(
                 _ => {}
             }
         }
-        let mut waiting = Vec::new();
-        for h in held {
-            let path = format!(
-                "/v1/conversations/{}/messages/{}{participant}",
-                h.conversation, h.message
-            );
-            match local.get(path).await {
-                Ok(view) if view["earlier_missing"] == true && h.since.elapsed() < HOLD => {
-                    waiting.push(h);
-                }
-                Ok(view) => ready.push((h.conversation, view["message"].clone())),
-                // Not reachable now: read again, and print by the limit if it can be read.
-                Err(e)
-                    if e.downcast_ref::<crate::integration::DaemonError>()
-                        .is_none() =>
-                {
-                    waiting.push(h);
-                }
-                Err(_) => {}
-            }
+        // Whatever closed a gap committed its event first, so the read above
+        // sees it. A full page may leave more: wait for the rest.
+        if events_read < 100 {
+            ready.append(&mut released);
         }
-        held = waiting;
         ready.sort_by_cached_key(|(id, m)| display_key(id, m));
         for (id, m) in &ready {
             let short: String = id.chars().take(13).collect();
             println!("{short}  {}", message_line(m, 0));
-            shown.push((id.clone(), text(&m["message_id"]).to_owned()));
+            if reader.is_none() {
+                shown.push((id.clone(), text(&m["message_id"]).to_owned()));
+            }
         }
         std::io::stdout().flush()?;
         if reader.is_none() {
