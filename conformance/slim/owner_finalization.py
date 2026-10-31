@@ -453,6 +453,235 @@ def report_contact_purity_failure(f, before, after):
         pass  # A failed diagnostic output must not mask the unchanged assertion below.
 
 
+def report_contact_purity_phase_failure(f, before, after, phase):
+    """GU.impl40a: failure-only phase/key/lifecycle metadata from captured rows."""
+    unknown = 'unknown'
+    summary = {'phase': phase if type(phase) is str and phase in
+               ('before_F', 'after_F', 'after_expiry', 'unknown') else unknown,
+               'changed_rows': unknown}
+    try:
+        if after == before:
+            return
+
+        def unique_object(pairs):
+            result = dict(pairs)
+            if len(result) != len(pairs):
+                raise ValueError
+            return result
+
+        def invalid_number(_):
+            raise ValueError
+
+        def integer(text):
+            if not re.fullmatch(r'[0-9]{1,20}', text) or int(text) >= 2**64:
+                raise ValueError
+            return int(text)
+
+        def strict_json(value, maximum):
+            if type(value) is bytes:
+                value = value.decode('utf-8')
+            if type(value) is not str or len(value.encode('utf-8')) > maximum:
+                raise ValueError
+            return json.loads(value, object_pairs_hook=unique_object, parse_int=integer,
+                              parse_float=invalid_number, parse_constant=invalid_number)
+
+        def binary(value, maximum):
+            if type(value) is not str or len(value) > 4 * ((maximum + 2) // 3):
+                raise ValueError
+            decoded = base64.b64decode(value, validate=True)
+            if len(decoded) > maximum or base64.b64encode(decoded).decode() != value:
+                raise ValueError
+            return decoded
+
+        def key(value):
+            if len(binary(value, 32)) != 32:
+                raise ValueError
+            return value
+
+        def sequence(value):
+            if type(value) is int and 0 <= value < 2**63:
+                return value
+            if type(value) is bytes and len(value) == 8:
+                result = int.from_bytes(value, 'big')
+                if result >= 2**63:
+                    return result
+            raise ValueError
+
+        def timestamp(value):
+            if type(value) is not str or not re.fullmatch(
+                    r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z', value):
+                raise ValueError
+            return datetime.fromisoformat(value[:-1] + '+00:00')
+
+        def endpoint(value):
+            if type(value) is not str or not value.isascii() or len(value) > 260:
+                raise ValueError
+            host, separator, port = value.rpartition(':')
+            if not separator or not re.fullmatch(r'[1-9][0-9]{0,4}', port) or int(port) > 65535:
+                raise ValueError
+            if host.startswith('['):
+                if not host.endswith(']'):
+                    raise ValueError
+                address = host[1:-1]
+                halves = address.split('::')
+                if len(halves) > 2:
+                    raise ValueError
+                left = halves[0].split(':') if halves[0] else []
+                right = halves[1].split(':') if len(halves) == 2 and halves[1] else []
+                if not all(re.fullmatch(r'[0-9a-f]{1,4}', part) for part in left + right):
+                    raise ValueError
+                if len(halves) == 1:
+                    groups = [int(part, 16) for part in left]
+                else:
+                    missing = 8 - len(left) - len(right)
+                    if missing < 1:
+                        raise ValueError
+                    groups = [int(part, 16) for part in left] + [0] * missing + [int(part, 16) for part in right]
+                if (len(groups) != 8 or not any(groups) or
+                    (groups[:5] == [0] * 5 and groups[5] == 65535)):
+                    raise ValueError
+                runs, start = [], 0
+                while start < 8:
+                    end = start
+                    while end < 8 and groups[end] == 0:
+                        end += 1
+                    if end - start >= 2:
+                        runs.append((start, end))
+                    start = max(start + 1, end)
+                parts = [format(part, 'x') for part in groups]
+                if runs:
+                    start, end = max(runs, key=lambda run: run[1] - run[0])
+                    canonical = ':'.join(parts[:start]) + '::' + ':'.join(parts[end:])
+                else:
+                    canonical = ':'.join(parts)
+                if address != canonical:
+                    raise ValueError
+            elif re.fullmatch(r'[0-9.]+', host):
+                parts = host.split('.')
+                if (len(parts) != 4 or not all(re.fullmatch(r'0|[1-9][0-9]{0,2}', part)
+                    and int(part) <= 255 for part in parts) or not any(int(part) for part in parts)):
+                    raise ValueError
+            elif (not 1 <= len(host) <= 253 or
+                  not all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', part)
+                          for part in host.split('.'))):
+                raise ValueError
+
+        def payload_record(payload):
+            value = strict_json(payload, 8192)
+            if type(value) is not dict or set(value) != {'quic_addresses', 'bootstrap_addresses', 'relays'}:
+                raise ValueError
+            for field in ('quic_addresses', 'bootstrap_addresses'):
+                items = value[field]
+                if (type(items) is not list or len(items) > 8 or
+                    not all(type(item) is str for item in items) or items != sorted(set(items))):
+                    raise ValueError
+                for item in items:
+                    endpoint(item)
+            if type(value['relays']) is not list or len(value['relays']) > 8:
+                raise ValueError
+            relays = []
+            for relay in value['relays']:
+                if type(relay) is not dict or set(relay) != {'address', 'public_key'}:
+                    raise ValueError
+                endpoint(relay['address']); key(relay['public_key'])
+                relays.append((relay['address'], relay['public_key']))
+            if (relays != sorted(set(relays)) or
+                sum(len(value[field]) for field in ('quic_addresses', 'bootstrap_addresses', 'relays')) > 16):
+                raise ValueError
+
+        def index(rows):
+            if type(rows) is not tuple or len(rows) > 65536:
+                raise ValueError
+            result = {}
+            for row in rows:
+                if (type(row) is not tuple or len(row) != 5 or
+                    not all(type(value) is str for value in row[:3]) or
+                    not ((row[0] == row[1] == '-') or
+                         (re.fullmatch(r'net_[0-9a-f]{64}', row[0]) and
+                          re.fullmatch(r'ctx_[0-9a-f]{64}', row[1]))) or
+                    key(row[2]) != row[2] or row[:3] in result):
+                    raise ValueError
+                sequence(row[3])
+                result[row[:3]] = row
+            return result
+
+        def singleton(row):
+            if type(row[4]) is not str:
+                raise ValueError
+            value = strict_json(row[4], 65536)
+            if (type(value) is not dict or
+                set(value) != {'format', 'message_hashes', 'conflicted', 'contacts_base64'} or
+                type(value['format']) is not int or value['format'] != 1 or
+                type(value['conflicted']) is not bool or
+                type(value['message_hashes']) is not list or
+                not all(type(item) is str and re.fullmatch(r'[0-9a-f]{64}', item)
+                        for item in value['message_hashes']) or
+                value['message_hashes'] != sorted(set(value['message_hashes'])) or
+                type(value['contacts_base64']) is not list):
+                raise ValueError
+            if len(value['contacts_base64']) != 1:
+                return None
+            body = strict_json(binary(value['contacts_base64'][0], 8192), 8192)
+            if (type(body) is not dict or
+                set(body) != {'format', 'context_id', 'host_public_key', 'sequence',
+                              'issued_at', 'expires_at', 'payload_base64', 'signature'} or
+                type(body['format']) is not int or body['format'] != 1 or
+                body['context_id'] != row[1] or body['host_public_key'] != row[2] or
+                type(body['sequence']) is not int or body['sequence'] != sequence(row[3]) or
+                len(binary(body['signature'], 64)) != 64):
+                raise ValueError
+            issued, expires = timestamp(body['issued_at']), timestamp(body['expires_at'])
+            if not 0 < (expires - issued).total_seconds() <= 300:
+                raise ValueError
+            payload = binary(body['payload_base64'], 8192)
+            payload_record(payload)
+            message = '\n'.join(('peerspan-decentralized-contact-v1', body['context_id'],
+                body['host_public_key'], str(body['sequence']), body['issued_at'], body['expires_at'],
+                hashlib.sha256(payload).hexdigest())).encode()
+            if hashlib.sha256(message).hexdigest() not in value['message_hashes']:
+                raise ValueError
+            return issued, expires, payload
+
+        requester, issuer = key(f['h'].public_key), key(f['a'].public_key)
+        if requester == issuer:
+            raise ValueError
+        deadline = timestamp(f['owner']['request']['expires_at'])
+        old, new = index(before[0]['dec_contacts']), index(after[0]['dec_contacts'])
+        metadata = []
+        for row_key in old.keys() | new.keys():
+            if old.get(row_key) == new.get(row_key):
+                continue
+            item = {name: unknown for name in ('host_role', 'sequence_increased',
+                'issued_changed', 'expiry_changed', 'payload_changed',
+                'before_issued_after_request_deadline', 'after_issued_after_request_deadline',
+                'before_expiry_after_request_deadline', 'after_expiry_after_request_deadline')}
+            try:
+                left, right = old.get(row_key), new.get(row_key)
+                item['host_role'] = ('requester' if row_key[2] == requester else
+                                     'issuer' if row_key[2] == issuer else 'other')
+                if left is not None and right is not None:
+                    item['sequence_increased'] = sequence(right[3]) > sequence(left[3])
+                left_contact = singleton(left) if left is not None else None
+                right_contact = singleton(right) if right is not None else None
+                if left_contact is not None and right_contact is not None:
+                    for column, field in enumerate(('issued_changed', 'expiry_changed', 'payload_changed')):
+                        item[field] = left_contact[column] != right_contact[column]
+                for side, contact in (('before', left_contact), ('after', right_contact)):
+                    if contact is not None:
+                        item[side + '_issued_after_request_deadline'] = contact[0] > deadline
+                        item[side + '_expiry_after_request_deadline'] = contact[1] > deadline
+            except Exception:
+                item = {name: unknown for name in item}
+            metadata.append(item)
+        summary['changed_rows'] = sorted(metadata, key=lambda item: json.dumps(item, sort_keys=True))
+    except Exception:
+        pass  # Malformed diagnostics remain unknown without replacing the original failure.
+    try:
+        print('contact_purity_phase_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Diagnostic parsing/output never masks the unchanged snapshot assertion.
+
+
 def public(value, *secrets):
     text = json.dumps(value, ensure_ascii=False, default=str)
     for n, marker in enumerate((*PREFIXES, 'payload_base64', 'template_base64', 'message_base64', 'secret_base64',
@@ -688,7 +917,7 @@ def validate(f, value):
     public(value, f['code'], f.get('reply', ''))
 
 
-def inspect(f, *, status=200, code=None, body=None, path=None, pure=True):
+def inspect(f, *, status=200, code=None, body=None, path=None, pure=True, diagnostic_phase='unknown'):
     h = f['h']
     if pure:
         quiet(f); before, network = snapshot(h), traffic(f)
@@ -699,6 +928,7 @@ def inspect(f, *, status=200, code=None, body=None, path=None, pure=True):
     if pure:
         after, after_network = snapshot(h), traffic(f)
         report_contact_purity_failure(f, before, after)
+        report_contact_purity_phase_failure(f, before, after, diagnostic_phase)
         check(after == before, f'pure finalization inspection changed state: {differences(before, after)}; relay_changed={network != after_network}')
         check(after_network == network, f'pure finalization inspection attempted carrier IO; before={network}, after={after_network}')
     if status == 200:
@@ -874,7 +1104,7 @@ def _():
 @suite.case('same_request_explicit_original_F_and_requester_commit_then_pure_refusal_and_owner_history', 'guided24 verification6')
 def _():
     f = main(); h, a, rid = f['h'], f['a'], f['rid']
-    before_owner = owner(f, 'lookup')['owner']; before = inspect(f)
+    before_owner = owner(f, 'lookup')['owner']; before = inspect(f, diagnostic_phase='before_F')
     a.relay.mode = h.relay.mode = 'pass'
     a.start()
     finalize(h, before['request'], f['key'])
@@ -882,7 +1112,7 @@ def _():
     check(view['state'] == 'needs_commit' and not view['commit_approved'] and get(h, '/v2/networks') == [], 'F supplied requester commit/adoption')
     pull_until(a, rid, 'owner_finalization_id', timeout=15)
     a.stop(); a.relay.mode = h.relay.mode = 'drop'; quiet(f)
-    inspect(f, status=409, code='finalization_inspection_unavailable')
+    inspect(f, status=409, code='finalization_inspection_unavailable', diagnostic_phase='after_F')
     check(owner(f, 'lookup')['owner'] == before_owner, 'original F changed immutable first owner consent')
     a.relay.mode = h.relay.mode = 'pass'
     a.start(); commit(h, view); wait_linked(h, a, rid, timeout=25)
@@ -900,7 +1130,7 @@ def _():
     quiet(f)
     # Both later-stage and expiry are refusal conditions; do not attribute this
     # combined historical refusal to one particular validation precedence.
-    inspect(f, status=409)
+    inspect(f, status=409, diagnostic_phase='after_expiry')
     state = snapshot(h); network = traffic(f); historical = owner(f, 'lookup')
     check(historical['owner'] == before_owner and historical['request']['state'] == 'linked' and snapshot(h) == state and traffic(f) == network,
           'later application/expiry changed or recreated first immutable owner consent')
