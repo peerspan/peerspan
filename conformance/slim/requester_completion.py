@@ -926,7 +926,25 @@ def validate_completion(f, value, prepared):
     public(value, f['code'], f['reply'])
 
 
-def complete(f, prepared, *, status=200, code=None, pure=False, data=None):
+def completion_carrier_diagnostic(actual, expected, f, phase):
+    """GU.impl43b: preserve the original tuple; one pure directory read only."""
+    if actual == expected:
+        return actual
+    try:
+        known_phase = phase in ('expired', 'detached', 'restarted')
+        print('pure_completion_carrier_failure_public=' + json.dumps({
+            'operation': 'wrong_review' if known_phase else 'unknown',
+            'phase': phase if known_phase else 'unknown', 'mode': 'API'}, sort_keys=True), flush=True)
+        terminal_carrier_diagnostic(actual, expected, phase, 'API')
+        network_id = f.get('network', {}).get('id')
+        if isinstance(network_id, str) and re.fullmatch(r'net_[0-9a-f]{64}', network_id):
+            terminal_directory_diagnostic(actual, expected, f['h'], f['a'], network_id)
+    except Exception:
+        pass  # No diagnostic failure may change or replace the captured verdict.
+    return actual
+
+
+def complete(f, prepared, *, status=200, code=None, pure=False, data=None, diagnostic_phase='unknown'):
     h = f['h']
     if pure:
         quiet(f); before, network = snapshot(h), traffic(f)
@@ -938,7 +956,7 @@ def complete(f, prepared, *, status=200, code=None, pure=False, data=None):
     if pure:
         after = snapshot(h)
         check(after == before, f'pure completion changed records/private files: {differences(before, after)}')
-        check(traffic(f) == network, f'pure completion attempted carrier IO: before={network}, after={traffic(f)}')
+        check(completion_carrier_diagnostic(traffic(f), network, f, diagnostic_phase) == network, f'pure completion attempted carrier IO: before={network}, after={traffic(f)}')
     if actual == 200:
         validate_completion(f, value, prepared)
     else:
@@ -1597,7 +1615,7 @@ def _():
             after = snapshot(h)
             check(after == before, f'{phase} completed{mode} replay changed DB/state/home: {differences(before, after)}')
             check(terminal_directory_diagnostic(terminal_timing_diagnostic(terminal_carrier_diagnostic(traffic(f), network, phase, mode), network, phase, mode, timing_offsets), network, h, a, f['network']['id']) == network, f'{phase} completed{mode} replay performed carrier IO')
-        complete(f, approved, status=409, code='review_changed', pure=True,
+        complete(f, approved, status=409, code='review_changed', pure=True, diagnostic_phase=phase,
                  data={**completion_body(f, approved), 'commit_review_id': 'review_' + 'f' * 64})
     application_proof(f, baseline)
     public(get(h, '/v1/activity?limit=1000'), f['code'], f['reply'])
