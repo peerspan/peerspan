@@ -3515,3 +3515,10 @@ owner controls for a remote existing person. Section40 contracts twelve separate
 author native cases before implementation; preserve all381 old native cases,
 all30 host suites, deadlines and earlier unclassified outcomes. Existing-
 computer guided approval and all full-feature acceptance gates remain open.
+
+GU.impl40 pre-execution source review: preserve the fixed machine-review timer
+through pending guards/IO, and retain the private invitation only through the
+explicit volatile identity-review stage before publication review. Clear both
+on expiry/navigation; do not cancel expiry when a human starts another action
+or drop the required code before its next explicit review. This is a source
+correction before any runtime execution, with no test failure attribution.
