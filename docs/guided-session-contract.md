@@ -6818,7 +6818,10 @@ native helper/assertion/action/delay/timeout. Cover:
 2. Ordinary current grant then withdrawal/block changes receiver-advertised
    entries; preserve exact message/task bounds and requester-agent restrictions.
    Compare with the ordinary authenticated receiver directory projection where
-   feasible. No historical consent/application receipt stands in for current
+   feasible. The fixture's ordinary policy uses explicit --valid-days1, keeping
+   its signed end within genuine seven-day parents so an exact-effective-end
+   assertion does not silently rely on the CLI's longer default lifetime.
+   No historical consent/application receipt stands in for current
    permission; existing self/grant/policy semantics remain unchanged.
 3. Registered/unverified/verified adapter states through ordinary public adapter
    handshakes, exact project session only, expiry/revocation exclusions, and
