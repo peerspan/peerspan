@@ -356,6 +356,135 @@ def differences(before, after):
             for label, old, new in zip(('tables', 'state_paths', 'home_paths'), before, after)}
 
 
+def report_keyless_contact_failure(f, before, after):
+    """GU.impl33d: bounded captured metadata only; never change the verdict."""
+    if after == before:
+        return
+    unknown = 'unknown'
+    empty = {name: unknown for name in ('before_count', 'after_count', 'added_count',
+             'removed_count', 'changed_count', 'categories')}
+    summary = dict(empty)
+    try:
+        def unique_object(pairs):
+            result = dict(pairs)
+            if len(result) != len(pairs):
+                raise ValueError
+            return result
+
+        def binary(value, maximum):
+            if type(value) is not str or len(value) > 4 * ((maximum + 2) // 3):
+                raise ValueError
+            decoded = base64.b64decode(value, validate=True)
+            if len(decoded) > maximum or base64.b64encode(decoded).decode() != value:
+                raise ValueError
+            return decoded
+
+        def sequence(value):
+            if type(value) is int and 0 < value < 2**63:
+                return value
+            if type(value) is bytes and len(value) == 8 and int.from_bytes(value, 'big') >= 2**63:
+                return int.from_bytes(value, 'big')
+            raise ValueError
+
+        def timestamp(value):
+            if (type(value) is not str or not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', value)
+                or rfc3339(parse_time(value)) != value):
+                raise ValueError
+            return parse_time(value)
+
+        def index(rows):
+            if type(rows) is not tuple or len(rows) > 65536:
+                raise ValueError
+            result = {}
+            for row in rows:
+                if (type(row) is not tuple or len(row) != 5 or
+                    not all(type(value) is str for value in row[:3]) or
+                    not ((row[0] == row[1] == '-') or
+                         (re.fullmatch(r'net_[0-9a-f]{64}', row[0]) and
+                          re.fullmatch(r'ctx_[0-9a-f]{64}', row[1]))) or
+                    len(binary(row[2], 32)) != 32 or row[:3] in result):
+                    raise ValueError
+                sequence(row[3])
+                result[row[:3]] = row
+            return result
+
+        def record(row):
+            if row is None:
+                return None
+            if type(row[4]) is not str or len(row[4]) > 65536:
+                raise ValueError
+            value = json.loads(row[4], object_pairs_hook=unique_object)
+            if (type(value) is not dict or set(value) != {'format', 'message_hashes', 'conflicted', 'contacts_base64'} or
+                type(value['format']) is not int or value['format'] != 1 or type(value['conflicted']) is not bool or
+                type(value['message_hashes']) is not list or not 1 <= len(value['message_hashes']) <= 2 or
+                not all(type(item) is str and re.fullmatch(r'[0-9a-f]{64}', item) for item in value['message_hashes']) or
+                value['message_hashes'] != sorted(set(value['message_hashes'])) or
+                type(value['contacts_base64']) is not list or len(value['contacts_base64']) > 2):
+                raise ValueError
+            contacts = []
+            for encoded in value['contacts_base64']:
+                body = json.loads(binary(encoded, 8192), object_pairs_hook=unique_object)
+                if (type(body) is not dict or set(body) != {'format', 'context_id', 'host_public_key', 'sequence',
+                    'issued_at', 'expires_at', 'payload_base64', 'signature'} or type(body['format']) is not int or
+                    body['format'] != 1 or body['context_id'] != row[1] or body['host_public_key'] != row[2] or
+                    type(body['sequence']) is not int or body['sequence'] != sequence(row[3]) or
+                    len(binary(body['signature'], 64)) != 64):
+                    raise ValueError
+                issued, expires = timestamp(body['issued_at']), timestamp(body['expires_at'])
+                if not 0 < (expires - issued).total_seconds() <= 300:
+                    raise ValueError
+                binary(body['payload_base64'], 8192)
+                contacts.append((body['issued_at'], body['expires_at'], body['payload_base64']))
+            return value, sorted(contacts)
+
+        expiry = timestamp(f['view']['expires_at'])
+        known_context = (f['network']['id'], f['network']['context_id'])
+        local_key, other_key = f['h'].public_key, f['a'].public_key
+        old, new = index(before[0]['dec_contacts']), index(after[0]['dec_contacts'])
+        added, removed = set(new) - set(old), set(old) - set(new)
+        changed = {key for key in set(old) & set(new) if old[key] != new[key]}
+        categories = []
+        for change, keys in (('added', added), ('removed', removed), ('changed', changed)):
+            for key in sorted(keys)[:8 - len(categories)]:
+                item = {name: unknown for name in ('host_role', 'context_role', 'sequence_changed', 'sequence_increased',
+                    'format_changed', 'message_hashes_changed', 'conflicted_changed', 'contacts_changed',
+                    'before_contact_count', 'after_contact_count', 'issued_changed', 'expiry_changed', 'payload_changed',
+                    'before_issued_after_request_expiry', 'after_issued_after_request_expiry',
+                    'before_expiry_after_request_expiry', 'after_expiry_after_request_expiry')}
+                item['change'] = change
+                try:
+                    left, right = old.get(key), new.get(key)
+                    left_record, right_record = record(left), record(right)
+                    item['host_role'] = 'local' if key[2] == local_key else 'other' if key[2] == other_key else unknown
+                    item['context_role'] = 'bound_network' if key[:2] == known_context else 'unbound' if key[:2] == ('-', '-') else unknown
+                    if left is not None and right is not None:
+                        item['sequence_changed'] = sequence(left[3]) != sequence(right[3])
+                        item['sequence_increased'] = sequence(right[3]) > sequence(left[3])
+                        for field, label in (('format', 'format_changed'), ('message_hashes', 'message_hashes_changed'),
+                                             ('conflicted', 'conflicted_changed'), ('contacts_base64', 'contacts_changed')):
+                            item[label] = left_record[0][field] != right_record[0][field]
+                        for column, label in ((0, 'issued_changed'), (1, 'expiry_changed'), (2, 'payload_changed')):
+                            item[label] = sorted(body[column] for body in left_record[1]) != sorted(body[column] for body in right_record[1])
+                    for side, value in (('before', left_record), ('after', right_record)):
+                        if value is not None:
+                            item[side + '_contact_count'] = len(value[1])
+                            if value[1]:
+                                item[side + '_issued_after_request_expiry'] = all(timestamp(body[0]) > expiry for body in value[1])
+                                item[side + '_expiry_after_request_expiry'] = all(timestamp(body[1]) > expiry for body in value[1])
+                except Exception:
+                    item = {name: unknown for name in item}
+                categories.append(item)
+        summary = {'before_count': len(old), 'after_count': len(new), 'added_count': len(added),
+                   'removed_count': len(removed), 'changed_count': len(changed),
+                   'categories': sorted(categories, key=lambda item: json.dumps(item, sort_keys=True))[:8]}
+    except Exception:
+        summary = dict(empty)
+    try:
+        print('keyless_contact_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Diagnostic parsing/output never masks the original assertion.
+
+
 def public(value, *secrets):
     text = json.dumps(value, ensure_ascii=False, default=str)
     for n, marker in enumerate((*PREFIXES, 'payload_base64', 'template_base64', 'message_base64', 'secret_base64',
@@ -928,6 +1057,7 @@ def keyless_refusal(f, proxy, agent=None, *, data=None):
     check(len(calls) == 1 and calls[0][0] == 'POST' and calls[0][1].endswith('/owner/lookup'), 'recorded F refusal did more than pure owner lookup')
     check(len(proxy.submissions) == submitted and (agent is None or len(agent.messages) == messages), 'recorded F refusal touched ordinary signing/key/agent')
     after = snapshot(f['h'])
+    report_keyless_contact_failure(f, before, after)
     check(after == before, f'recorded F refusal changed DB/files: {differences(before, after)}')
     check(traffic(f) == network, 'recorded F refusal attempted carrier IO')
     return answer
