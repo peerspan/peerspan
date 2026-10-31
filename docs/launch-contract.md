@@ -686,7 +686,7 @@ error: terminal_required: This integration needs a terminal, and standard output
 Claude Code's plan sets `terminal: true`, because without a terminal on stdout it switches to `--print` mode and exits at once for lack of a prompt. It leaves `terminal` out when the arguments after `--` contain `-p`, `--print`, `-h`, `--help`, `-v` or `--version`, which work without one, so `attach claude -- -p "text" | tee log` still runs. A prompt piped into `attach claude | tee log` without `-p` is refused; adding `-- -p` is the fix. The Codex and OpenCode plans, which run a bridge to a conversation already running, leave it out.
 
 Verification: spec-only cases in `conformance/slim/naming.py`'s suite or a new one, with a bundle whose helper returns a launch plan for a small fixture program that records that it ran:
-- `terminal: true`, stdout a pipe: exit 1 with the exact text; the fixture did not run; the output object is on stderr. `session doctor --directory` on the profile reports `registered`. The same command with `tty=True` runs the fixture with `reused: true`.
+- `terminal: true`, stdout a pipe: exit 1 with the exact text; the fixture did not run; the output object is on stderr. `session doctor --directory` on the profile reports `registered`. The same command with stdout on a terminal runs the fixture with `reused: true`. The harness's `tty=True` gives stdin a terminal and leaves stdout a pipe, so it does not count: only stdout decides, and with `tty=True` the command is still refused.
 - `terminal: true` with `--no-start`, stdout a pipe: exit 0, printing the object on stdout.
 - `terminal: true`, `session start --directory`, stdout a pipe: the fixture runs.
 - `terminal` false or absent, stdout a pipe: the fixture runs.
