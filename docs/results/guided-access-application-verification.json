@@ -1,5 +1,5 @@
 {
-  "status": "P2 admission-reference bug reproduced on the original frozen binary and fixed in4842404. Required fixed-source Rust checks and independent application6/6 pass. Final exact-head all28 CI and fresh bot/root review are recorded on PR80/35 after this evidence commit. All earlier failures and unclassified causes remain retained.",
+  "status": "Fixed-source Rust checks and independent application6/6 pass; admission-reference P2 is reproduced, fixed and regressed. First fixed-head78df456 CI passes27/28 suites/all PR checks/clean review but section25 historical F purity changes dec_contacts. One independently contracted diagnostic local run passes6/6in147.75s without triggering, so the CI cause stays unclassified and the local duration exceeds120s. Final changed-diagnostic-head CI/review are recorded on PR80/35 after this evidence commit.",
   "pr": "https://github.com/peerspan/peerspan/pull/80",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "base": "830c1eef0f189edebf417ca373e741bab16c918b",
@@ -113,7 +113,8 @@
     "Negative result/signature/proof/admission/reference faults are exercised; full catalog-closure corruption matrices are not constructed.",
     "Authenticated ordinary receiver directory authorization proves the exact two-action profile; an actual accepted message/task and native/model delivery are separate acceptance.",
     "Native access controls, observed readiness, other-computer, installed/physical/actual-model/schema23-to27/full-state recovery/final combined acceptance remain open; PR35 stays unmerged.",
-    "The original corrected-run directory request cause and original PR79 UDP/contact causes remain unclassified; observed missing contact/queue prerequisites do not retrospectively identify those callers."
+    "The original corrected-run directory request cause and original PR79 UDP/contact causes remain unclassified; observed missing contact/queue prerequisites do not retrospectively identify those callers.",
+    "Section25 local diagnostic passes6/6in147.75s, exceeding120s. The earlier78df456 CI contact change remains unclassified; this pass and the failure-only observer establish no cause or runtime/setup correction."
   ],
   "independent_conformance": {
     "author": "/root/agent_access_inspection_conformance",
@@ -234,16 +235,38 @@
       "path": "/dev/shm/g33/access_application-P2-fixed.log",
       "sha256": "5439a1709e56f14ca275f4abbba5386ef46d0a42e59bb7aa9c09e2a46f0943df",
       "fixture": "/dev/shm/g33/slim-access_application-6z5k4co5"
+    },
+    "section25_contact_diagnostic": {
+      "contract": "a0684092dbb0a5669f7ca0aeb18d875f7ecda2c3",
+      "author_contract_pick": "53d4028",
+      "author": "e273c6b4a816e9ac579fb770e376e659f755166c",
+      "integration": "4979c03ad298fc1b738a684fa07eb2430dbb9d76",
+      "source_before_sha256": "6dfd60ef946fdb791b52a1650ed5f6fb32ef4919f4ec435f8fdb84049f5956e9",
+      "source_after_sha256": "d639596490e9db2e59ea1b1a74a3dcdfdfce5837fa3a5fbc0d55975f09168c39",
+      "preservation": "Exactly130 additions: one failure-only bounded observer and one call before the original state assertion. Removal restores entire830c1ee source bytes/AST and every original action/assertion/order/short circuit/sleep/timeout. No new IO, setup, controls or verdict. Root independently verified restoration and author byte equality; other60 old slim/helper/native files remain exact.",
+      "run": {
+        "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+        "rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+        "result": "6 passed /0 failed /0 skipped in147.75s",
+        "seconds": 147.75,
+        "path": "/dev/shm/g33/owner_finalization_signing-contact-diagnostic.log",
+        "sha256": "bbebc065cece03ffe9425a994c574b2710a5d9defda93770b6c7916c004ff830",
+        "fixture": "/dev/shm/g33/slim-owner_finalization_signing-9hwqrt84",
+        "observer_triggered": false,
+        "classification": "No contact mismatch observed in this local run. The original78df456 CI contact row/caller remains unclassified; no product/setup fix is claimed. Duration exceeds the120s target; no timeout or delay changed, and no unchanged rerun followed."
+      }
     }
   },
   "preservation": {
     "base": "830c1eef0f189edebf417ca373e741bab16c918b",
-    "existing_slim_helper_native_files_byte_identical": 61,
-    "new_suite_only": "conformance/slim/access_application.py",
+    "existing_slim_helper_native_files_byte_identical": 60,
+    "new_suite_only": "conformance/slim/access_application.py; one existing-suite diagnostic-only observer is separately attributed above",
     "root_pre_execution_review": "Closed cases and negative fault/setup scope reviewed before first execution.",
-    "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution. P2 regression scoped to one genuine required-reference corruption and exact restoration; fixed marker source reviewed separately."
+    "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution. P2 regression scoped to one genuine required-reference corruption and exact restoration; fixed marker source reviewed separately.",
+    "on_78df456_old_files_byte_identical": 61,
+    "diagnostic_only_old_file": "conformance/slim/owner_finalization_signing.py; removing helper/call restores exact base bytes/AST"
   },
-  "final_evidence_parent": "3da2b42c2033744446b2c4add8b9cd87e80a568d",
+  "final_evidence_parent": "4979c03ad298fc1b738a684fa07eb2430dbb9d76",
   "initial_frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
   "initial_frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
   "initial_source_required_local_gates": {
@@ -303,5 +326,33 @@
     "production": "48424041dea301cbd0a24dca82b23a751077c19d",
     "scope": "The historical marker additionally requires the exact signed statement, root and every direct-parent ID in the retained ordinary admission evidence. Both pure routes refuse missing references without writes, repair, source probing or new authority.",
     "root_review": "The only Rust change after a8ccff3 is this required-reference guard. The original provenance/setup corrections did not change production. Required Rust checks and the identical independent regression pass against frozen fixed binaries. Other unchanged areas are covered by fresh final CI; their initial local runs remain separately attributed."
+  },
+  "first_fixed_head_ci": {
+    "head": "78df456c916b955baefbd80d3f02345cf95fbb55",
+    "rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+    "conformance": {
+      "run_id": 41149436414,
+      "result": "build success;27 suites success,1 suite failure",
+      "application": "6/6 in78s",
+      "failure": {
+        "suite": "owner_finalization_signing",
+        "job_id": 124382715571,
+        "result": "5/6 in102s",
+        "category": "recorded F refusal changes only dec_contacts; no state/home paths changed; row/caller unclassified",
+        "log": {
+          "path": "/tmp/gu80-owner-finalization-signing-78df456-ci.log",
+          "sha256": "00529da30faa8beb74edcfcbe5a7bef3eaae4030dcf83d1496c2c2ccc1aca562"
+        }
+      }
+    },
+    "pull_request_checks": {
+      "run_id": 41149436456,
+      "result": "all4 jobs success",
+      "native": "312/312 in65.78s"
+    },
+    "review": {
+      "summary_receipt": 6535741279,
+      "result": "completed clean on78df456; initial admission-reference P2 resolved; no unresolved findings"
+    }
   }
 }

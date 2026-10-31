@@ -3232,3 +3232,10 @@ comparison/action/delay/timeout and record this failure before proceeding.
 Discard treating the earlier similarly named failure as the same caller,
 guessed global fences, disabling workers/paths, altered counters or unchanged
 retry-to-green. A passing diagnostic run leaves this CI cause unknown.
+
+GU.impl33d result: the independent130-addition observer plus call restores
+entire830c source by bytes/AST when removed; all other60 old files stay exact.
+One frozen4842404 local diagnosis passes6/6in147.75s, above120s, and the observer
+does not trigger. Retain the failure and duration; neither a changed contact
+row/caller nor a runtime/setup fix is established. Final changed-diagnostic-head
+CI/review follows without an unchanged rerun or altered old verdict/timeout.
