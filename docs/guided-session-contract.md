@@ -7181,11 +7181,17 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    current contacts and drains actual proof outboxes. These counted listeners
    may be available during the genuine initial admission/publication; the
    no-route purity capture itself still requires bootstrap-only operation.
-   It then publishes/imports
-   genuine newer empty-QUIC contacts while the listeners still accept the
-   ordinary authenticated contact import, retires short handoff references
-   through their real expiry/maintenance, and restarts bootstrap-only before
-   the no-route capture. No manual hint/helper or cached dial route survives.
+   An enabled peer listener supplies an actual advertised default when the
+   configured QUIC list is empty (the existing private-handoff default), so an
+   empty advertise list alone does not withdraw a bound listener. Issue the
+   genuine newer empty-QUIC handoffs while bootstrap-only, retain their actual
+   signed contacts, temporarily enable counted listeners for authenticated
+   imports, then restart bootstrap-only. Reissue own empty contact handoffs if
+   a genuine intermediate own-contact refresh superseded them; require all
+   actual retained local/remote contacts empty before capture. Retire every
+   short handoff through real expiry/maintenance. No manual hint/helper or
+   cached dial route survives. Preserve the failed empty-list expectation and
+   its exact source/log; this corrects the fixture, not runtime advertising.
    Require actual empty outboxes/secrets/frames and the unchanged quiet gate;
    never delete/acknowledge rows directly. Earlier natural-window failures and
    diagnostics stay recorded; no sleep or deadline increase substitutes for
