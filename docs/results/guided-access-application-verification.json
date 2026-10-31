@@ -1,5 +1,5 @@
 {
-  "status": "Admission-reference P2 reproduced/fixed/regressed; frozen fixed Rust gates and application6/6 pass. Independently contracted current-own-contact correction passes section25 history6/6in135.98s (above120s); independent delivery diagnostic16/16in69.56s passes without triggering, leaving original relay cause unknown. Every first CI/local/fixture failure and duration is retained. Final combined-head all28 CI/PR checks/fresh bot/root review are recorded on PR80/35 after this evidence commit.",
+  "status": "Admission-reference P2 reproduced/fixed/regressed; frozen fixed Rust gates and application6/6 pass. Current-own-contact section25 history6/6in135.98s exceeds120s; diagnostic delivery16/16in69.56s passes without triggering. Combinedcfbe CI27/28/all PR checks/clean review retained: existing input corpus changes clock/contacts, actual caller unknown. Independent genuine fresh-start/sync/current-lifetime setup passes access_consent6/6in96.02s on frozen484 binaries, preserving every original assertion/path. Final new combined-head CI/PR checks/fresh bot/root review are recorded on PR80/35 after this evidence commit.",
   "pr": "https://github.com/peerspan/peerspan/pull/80",
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "base": "830c1eef0f189edebf417ca373e741bab16c918b",
@@ -115,7 +115,8 @@
     "Native access controls, observed readiness, other-computer, installed/physical/actual-model/schema23-to27/full-state recovery/final combined acceptance remain open; PR35 stays unmerged.",
     "The original corrected-run directory request cause and original PR79 UDP/contact causes remain unclassified; observed missing contact/queue prerequisites do not retrospectively identify those callers.",
     "Section25 local diagnostic passes6/6in147.75s, exceeding120s. The earlier78df456 CI contact change remains unclassified; this pass and the failure-only observer establish no cause or runtime/setup correction.",
-    "Corrected section25 current-own-contact local run6/6in135.98s exceeds120s; one delivery diagnostic16/16in69.56s leaves original CI relay caller unknown. Latest delivery metadata-prefix correction is verified by final CI, not an unchanged extra local run."
+    "Corrected section25 current-own-contact local run6/6in135.98s exceeds120s; one delivery diagnostic16/16in69.56s leaves original CI relay caller unknown. Latest delivery metadata-prefix correction is verified by final CI, not an unchanged extra local run.",
+    "Combinedcfbe input-refusal dec_clock/dec_contacts caller and carrier changes remain unclassified. Fresh ordinary startup, awaited actual sync and whole-window current prerequisites isolate the standalone input case without changing production or disabling workers; one first local6/6 pass in96.02s is retained."
   ],
   "independent_conformance": {
     "author": "/root/agent_access_inspection_conformance",
@@ -323,21 +324,79 @@
       "final_source_sha256": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
       "category_prefix_scope": "Only classify fixed category before colon, without interpreting/printing suffix. Authored while first run used its untouched prior source; no unchanged local rerun. Fresh final-head CI runs the final source.",
       "preservation": "One failure-only bounded observer, daemon-only debug-timing start wrapper delegating once with environment restored, pre-commit offset stats and failure call. Removing additions restores entire original830c1ee delivery source bytes/AST, SHA4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971. All16 original cases/actions/assertions/waits/exception/public diagnostics stay exact. No normal-path DB/peer calls, new verdict, repair, timeout or driver. Each correction reverses exactly to its prior bytes/AST. Root independently verified final author bytes and full normalization."
+    },
+    "section31_fresh_start_input": {
+      "contract_commits": [
+        "5482eb14912c4a295c49b9a435548840577960f4",
+        "b3cccb5e7aea5df087ff5f1f0a9df7eb7759e76b"
+      ],
+      "author": "68edf9b491d415a295253aa28f0c9eeed18df31c",
+      "integration": "dcaf97748eae243e0f93609475e767c00d9b9d4b",
+      "original_author": "4a9617a12fa94397e3b5709727e7d592527fa4b1",
+      "original_sha256": "4426bce1c7cf8821df552dc04c542827a41c07b4add715beb5cd109339cafda5",
+      "source_sha256": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+      "scope": "72 added lines only: one real startup/sync/authority/member/contact/directory/retirement helper and call, plus two monotonic metadata checks. Both normal restarts preserve identities, env/args, clock and all counted paths. Current public lifetimes cover the remaining earliest60s sync window. All original cases/actions/assertions/capture and short-circuit order/delays/timeouts/router/corruption restoration remain byte-exact when additions are removed. No worker suppression, timer override, counter reset, extra signing/renewal or invented authority.",
+      "pre_execution_root_review": "Actual counted QUIC/bootstrap configuration, documented closed sync response, read-only current-lifetime guards and full original source restoration reviewed before execution. No product change.",
+      "author_declaration": "Contract-only independent author; no product reads/imports/runtimes/builds. Root ran once serially on unchanged frozen484 binaries.",
+      "first_local_run": {
+        "suite": "access_consent",
+        "exit": 0,
+        "seconds": 96.02,
+        "source_sha256": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+        "log": "/dev/shm/g33/access_consent-fresh-start-first.log",
+        "log_sha256": "05f0b96a3c56404c71c9168ba83abbc21265c95165ac3cbf8a62b6b199726c0d",
+        "production": "48424041dea301cbd0a24dca82b23a751077c19d",
+        "integration": "dcaf97748eae243e0f93609475e767c00d9b9d4b",
+        "result": "6 passed /0 failed",
+        "fixture": "/dev/shm/g33/slim-access_consent-g2joseil"
+      },
+      "limits": "This pass establishes the standalone fixture prerequisites. It does not identify the original cfbe caller or establish a global traffic fence. Earlier history cases and their restarts remain exact."
     }
   },
   "preservation": {
     "base": "830c1eef0f189edebf417ca373e741bab16c918b",
-    "existing_slim_helper_native_files_byte_identical": 59,
-    "new_suite_only": "conformance/slim/access_application.py; the two existing-suite changes are separately contracted/attributed and exactly removable.",
+    "existing_slim_helper_native_files_byte_identical": 58,
+    "new_suite_only": "New access_application suite; three existing-suite changes are independently contracted/attributed and exactly removable.",
     "root_pre_execution_review": "Closed cases and negative fault/setup scope reviewed before first execution.",
     "new_source_root_review": "Original six cases, exact API/CLI schemas, genuine setup/fault scope, strict complete DB/state/home/TCP/UDP comparisons, provenance correction and addition-only contact/retirement correction reviewed before each execution. P2 regression scoped to one genuine required-reference corruption and exact restoration; fixed marker source reviewed separately.",
     "on_78df456_old_files_byte_identical": 61,
     "independently_contracted_old_file_additions": [
       "conformance/slim/owner_finalization_signing.py: failure metadata plus genuine current-own-contact prerequisite; removal restores entire830c bytes/AST.",
-      "conformance/slim/delivery.py: failure-only bounded state/timing observer; removal restores entire830c bytes/AST."
-    ]
+      "conformance/slim/delivery.py: failure-only bounded state/timing observer; removal restores entire830c bytes/AST.",
+      "conformance/slim/access_consent.py: standalone input startup/sync/lifetime prerequisites and elapsed metadata; removal restores entire830c bytes/AST."
+    ],
+    "previous_combined_head_old_files_byte_identical": 59,
+    "final_root_audit": {
+      "base": "830c1eef0f189edebf417ca373e741bab16c918b",
+      "existing_files": 61,
+      "byte_identical": 58,
+      "addition_only": [
+        {
+          "path": "conformance/slim/access_consent.py",
+          "additions": 72,
+          "original_sha256": "4426bce1c7cf8821df552dc04c542827a41c07b4add715beb5cd109339cafda5",
+          "source_sha256": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+          "full_original_bytes_and_ast_restored": true
+        },
+        {
+          "path": "conformance/slim/delivery.py",
+          "additions": 315,
+          "original_sha256": "4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971",
+          "source_sha256": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+          "full_original_bytes_and_ast_restored": true
+        },
+        {
+          "path": "conformance/slim/owner_finalization_signing.py",
+          "additions": 190,
+          "original_sha256": "6dfd60ef946fdb791b52a1650ed5f6fb32ef4919f4ec435f8fdb84049f5956e9",
+          "source_sha256": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+          "full_original_bytes_and_ast_restored": true
+        }
+      ],
+      "shared_harness_counted_peer_and_native_unchanged": true
+    }
   },
-  "final_evidence_parent": "3eb2cb39eb6ed72ecffd8c4840eb00bd6b3ca106",
+  "final_evidence_parent": "dcaf97748eae243e0f93609475e767c00d9b9d4b",
   "initial_frozen_production": "a8ccff3381aa2e6eb83ce9293b18ae8d782dd123",
   "initial_frozen_rust_tree": "574edd7b3e61d1e8a8e235efbd17d6d783018d43",
   "initial_source_required_local_gates": {
@@ -500,6 +559,39 @@
     "review": {
       "summary_receipt": 6535741279,
       "result": "completed clean onb937f96; no unresolved findings"
+    }
+  },
+  "third_fixed_head_ci": {
+    "head": "cfbe31ddc31c4829777dc5a6a06cdbeeac976558",
+    "rust_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+    "conformance": {
+      "run_id": 41153166394,
+      "result": "build success;27 suites success,1 suite failure",
+      "passing_selected": {
+        "owner_finalization_signing": "6/6 in88s",
+        "delivery": "16/16 in60s",
+        "access_application": "6/6 in61s"
+      },
+      "failure": {
+        "suite": "access_consent",
+        "job_id": 124394502077,
+        "result": "5/6 in62s",
+        "case": "strict_private_input_cli_routers_schema_nonsigning_kind_and_corruption_fail_closed",
+        "observation": "2.5s input_refusal corpus changes dec_clock1-to1 and dec_contacts3-to3 on both hosts; state/home paths unchanged. Carrier comparison short-circuits after state comparison. Actual caller and carrier change remain unclassified.",
+        "log": {
+          "path": "/tmp/gu80-cfbe-access-consent-CI.log",
+          "sha256": "c7c6bca9dceb0de21d4ad2c63afcb3ba17c78f985dbfd82ef7ffd9ae1435bedd"
+        }
+      }
+    },
+    "pull_request_checks": {
+      "run_id": 41153166185,
+      "result": "all4 jobs success",
+      "native": "312/312 in59.43s"
+    },
+    "review": {
+      "summary_receipt": 6535741279,
+      "result": "completed clean for exactcfbe31d; no unresolved findings"
     }
   }
 }
