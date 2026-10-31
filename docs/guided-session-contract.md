@@ -7991,7 +7991,10 @@ true, templates/signatures empty, terminal/result dash and canonical review
 in review_base64. Operation_id is mrev_+SHA256 of UTF8
 `peerspan-machine-owner-review-key-v1\n` plus canonical JSON
 `{host_id,request_id}`. Remaining immutable provider/root/person/target/scopes/
-not_after fields copy the actual ordinary owner intent; created/expires are the
+not_after fields copy the actual ordinary owner intent at preparation; root is
+bound to the immutable first offer even if the ordinary finalization root later
+advances. Actual folded slots must use the selected person/device, never root
+fallback. Created/expires are the
 receipt's reviewed times. This is nonsigning local attribution, never authority.
 Validate exact closed review/bindings/record and first ordinary template on
 load; corruption refuses without repair/fallback. Receipt quota256 and16MiB

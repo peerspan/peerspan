@@ -109,6 +109,26 @@ fn bindings(store: &Store, p: &Pending, i: &Intent, v: &Value) -> Result<()> {
     } else {
         &r.person_public_key
     };
+    // A reviewed ordinary intent must never smuggle the advanced root-fold
+    // exception into project consent. The actual folded slot is part of the
+    // immutable evidence, including during historical recovery.
+    let folded = r.templates.iter().find(|t| t.object_type == "host_lease");
+    require(
+        folded.is_some() == (v["host_admission"] == "owner_may_fold"),
+        "state_conflict",
+    )?;
+    if let Some(t) = folded {
+        let fixed =
+            super::template::FixedStatement::read(&d, &b64(&t.template_base64, MAX_OBJECT)?)?;
+        let s = fixed.typed();
+        require(
+            text(s.issuer()?, "kind")? == if device { "device" } else { "person" }
+                && text(s.issuer()?, "person_public_key")? == r.person_public_key
+                && s.signer("issuer")?.public_key == r.provider.signer_public_key
+                && s.signer("issuer")?.format == r.provider.signature_format,
+            "state_conflict",
+        )?;
+    }
     let mut issuer_ids = vec![text(o, "person_lease_id")?.to_owned()];
     if device {
         issuer_ids.push(r.provider.lease_id.clone());
