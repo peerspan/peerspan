@@ -3232,3 +3232,32 @@ comparison/action/delay/timeout and record this failure before proceeding.
 Discard treating the earlier similarly named failure as the same caller,
 guessed global fences, disabling workers/paths, altered counters or unchanged
 retry-to-green. A passing diagnostic run leaves this CI cause unknown.
+
+GU.impl33d result: the independent130-addition observer plus call restores
+entire830c source by bytes/AST when removed; all other60 old files stay exact.
+One frozen4842404 local diagnosis passes6/6in147.75s, above120s, and the observer
+does not trigger. Retain the failure and duration; neither a changed contact
+row/caller nor a runtime/setup fix is established. Final changed-diagnostic-head
+CI/review follows without an unchanged rerun or altered old verdict/timeout.
+
+### GU.impl33e — Establish the actual current own hint before history purity
+
+Diagnostic b937f96 CI identifies one local bound contact renewal: sequence and
+issued/expiry move past original request expiry, payload unchanged. Select one
+unconsumed short public invitation and actual expiry/ordinary maintenance to
+establish a current genuine own hint before the unchanged strict history checks.
+The original real commit, clock advance, cleanup, restart and replay stay.
+Discard hand-edited hints, stopping maintenance, longer sleeps, filtered rows or
+claiming the new observation identifies old PR79 callers. An independent author
+adds only contract-defined setup; preserve every prior failure and147.75s limit.
+
+### GU.impl33f — Diagnose the separate relay completion failure before repair
+
+On the same b937f96, delivery11/16in98s stops at inviter application after60s;
+requester is linked, inviter needs_commit, four later failures are dependent.
+Select bounded failure-only retained-state and existing daemon-timing projections
+plus classification of the original commit attention. No new protocol driver or
+changed wait/setup/verdict. Discard treating a helper storage ACK or requester
+local outcome as inviter application, a longer timeout, guessed transport fixes
+and unchanged retry-to-green. An independent author commits before one retained
+run; a pass does not erase the original failure or establish its cause.
