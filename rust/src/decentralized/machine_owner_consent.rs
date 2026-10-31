@@ -242,7 +242,7 @@ fn current(c: &Connection, store: &Store, input: &Input, p: &Pending, now: &str)
     )
     .map_err(|_| Error::new("review_changed"))?;
     if p.record.owner_intent_id != "-" {
-        matching(c, store, p, &v["review"])?;
+        matching(c, store, p, &v["review"]).map_err(|_| Error::new("review_changed"))?;
     }
     Ok(json!({"review_id":v["review_id"],"review":v["review"]}))
 }
@@ -569,7 +569,7 @@ pub(crate) fn run(c: &Connection, store: &Store, op: &str, input: &Input) -> Res
         let code = p
             .code(c, &now)?
             .ok_or_else(|| Error::new("state_conflict"))?;
-        ceremony::owner_in(
+        ceremony::owner_in_guided(
             store,
             c,
             object(&json!({"code":code,"network_id":frozen["network"]["id"],
