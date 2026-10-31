@@ -490,7 +490,7 @@ machine's quoted label and host ID; the selected view also shows its public key.
 Choosing a machine starts no connection check.
 
 The result reports an authenticated outbound response with its HTTP status, or
-an outbound connection that is not verified. A403/404/500 response still proves
+an outbound connection that is not verified. A 403/404/500 response still proves
 an authenticated exchange with that machine; permissions, incoming agent
 delivery and model receipt have their own evidence. Overall readiness remains
 not verified by this observation.
@@ -501,7 +501,7 @@ the result. **Check connection status** returns through a fresh local status
 read. **Leave machine connection** returns to the project while an authorized
 adapter keeps its existing lifecycle.
 
-The machine roster expires at most30 seconds after its original observation,
+The machine roster expires at most 30 seconds after its original observation,
 or earlier when relevant membership/policy ends. Results also expire at their
 own earliest bound, and a check cannot extend the original roster window.
 Expired choices require a new Check connection status. Checks run only on an
@@ -533,7 +533,7 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite includes365 cases:16 current-status cases,16 access-completion cases,21 access inspection/consent
+The independent native suite includes381 cases:16 outbound-connection cases,16 current-status cases,16 access-completion cases,21 access inspection/consent
 cases,20 requester consent/completion cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
 message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.

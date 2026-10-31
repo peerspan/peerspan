@@ -3487,3 +3487,7 @@ GU.impl39 pre-execution presentation review: an unavailable attempted check
 must not say no check was performed. Keep volatile attempted/result states
 distinct and display no result available after an attempt. This adds no work,
 retry, persistence or readiness claim; no runtime failure is attributed.
+
+GU.impl39 pre-execution wording audit uses the contract's literal public
+outbound direction sentence, with plain apostrophes. No semantics, tests,
+permissions, traffic, timing or validation change is implied.

@@ -57,7 +57,7 @@ export function lines(source, parent, target, value = null, attempted = false) {
       ? 'Outbound authenticated response observed (HTTP ' + value.reachability.http_status + ').'
       : 'Outbound connection: not verified'] : [attempted
       ? 'No outbound result is available for this check.' : 'No outbound check has been performed.']),
-    'Direction: from this project’s host to the selected person’s machine.',
+    "Direction: from this project's host to the selected person's machine.",
     'Incoming agent delivery: not verified', 'Model receipt from this observation: not verified',
     'Overall connection readiness: not verified',
     'An authenticated HTTP response does not establish permission or incoming delivery.',
