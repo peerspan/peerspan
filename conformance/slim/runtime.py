@@ -172,9 +172,10 @@ def make_tar(files, refused=None):
     return buffer.getvalue()
 
 
-def policy_statement(host, person_public):
+def policy_statement(host, person_public, net=None):
     """The person's current policy statement on HOST: (statement_id, envelope, payload, body)."""
-    status, current = host.api("GET", f"/v2/networks/{state['net']}/policy/{urllib.parse.quote(person_public, safe='')}")
+    net = net or state["net"]
+    status, current = host.api("GET", f"/v2/networks/{net}/policy/{urllib.parse.quote(person_public, safe='')}")
     check(status == 200, f"{host.name}: current policy: {status} {current}")
     envelope = json.loads(base64.b64decode(current["statement_base64"]))
     payload = json.loads(base64.b64decode(envelope["payload_base64"]))
@@ -365,6 +366,61 @@ def local_artifact(task_id, sha256, sender=None, receiver=None, timeout=20):
     return found["data"]
 
 
+def sign_policy(mutate, host=None, net=None, person_public=None, key=None):
+    """Prepare the successor of a person's current policy (alice's by default) with MUTATE(body) applied, through
+    POST .../actions (appendix 16.4), signing any requests with the person's original key. Returns (status,
+    response)."""
+    host, net = host or state["a"], net or state["net"]
+    person_public, key = person_public or state["alice_public"], key or state["alice_key"]
+    statement_id, _, payload, body = policy_statement(host, person_public, net)
+    now = host.now().replace(microsecond=0)
+    until = now + timedelta(hours=23)
+    body.update(version=body["version"] + 1, issued_at=rfc3339(now), valid_until=rfc3339(until))
+    # A content change is an edit: it names this host's next local edit number (spec 12.1, DEC-S16), which the
+    # read-only plan route gives (appendix 16.6).
+    status, plan = host.api("POST", f"/v2/networks/{net}/policy-edits/plan", {"provider_id": person_public})
+    check(status == 200, f"policy-edits/plan: {status} {plan}")
+    body["edits"] = sorted([e for e in body.get("edits", []) if e["host"] != host.id]
+                           + [{"host": host.id, "seq": plan["seq"]}], key=lambda e: e["host"])
+    body = mutate(body)
+    # Signed by the original key (a policy signer, wire appendix 5), whose only parent is the person grant.
+    payload.update(sequence=payload["sequence"] + 1, predecessors=[statement_id], resolves=[],
+                   issuer={"kind": "person", "person_public_key": person_public},
+                   parents=[p for p in payload["parents"] if p["role"] == "issuer_person"],
+                   issued_at=rfc3339(now), not_before=rfc3339(now), not_after=rfc3339(until),
+                   body_base64=base64.b64encode(json.dumps(body, separators=(",", ":")).encode()).decode())
+    status, response = host.api("POST", f"/v2/networks/{net}/actions", {
+        "kind": "policy", "provider_id": person_public, "signature_format": "sshsig",
+        "payload_base64": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode(),
+        "approve": True})
+    while status == 200 and response.get("signing_requests"):
+        signatures = [{"slot_id": r["slot_id"], "role": r["role"],
+                       "signature": sshsig(key, base64.b64decode(r["message_base64"]))}
+                      for r in response["signing_requests"]]
+        status, response = host.api("POST", f"/v2/networks/{net}/actions/{response['action_id']}/signed",
+                                    {"intent_id": response["signing_requests"][0]["intent_id"],
+                                     "signatures": signatures})
+    return status, response
+
+
+def sshsig(key, message):
+    signed = subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "peerspan-person-v1"],
+                            input=message, capture_output=True, check=True).stdout.decode()
+    return "".join(line for line in signed.splitlines() if not line.startswith("-----"))
+
+
+def with_runtime_rules(body, rules):
+    """BODY with `runtime_rules` placed right after `capability_rules`."""
+    out = {}
+    for key, value in body.items():
+        if key == "runtime_rules":
+            continue
+        out[key] = value
+        if key == "capability_rules":
+            out["runtime_rules"] = rules
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # CLOCK-HEAVY CASES: Rust-test candidates if the runtime job exceeds 2 minutes in CI.
 #
@@ -398,10 +454,20 @@ def lapse_world():
           f"{rfc3339(sam_end)} (join --not-after)")
     s.stop()
 
-    def sign(*extra):
-        result = r.cli("runtime", "enable", "--socket", str(rt.socket), "--person-key", rhea_key,
-                       "--for", f"person:{sam_pid}", *extra, timeout=90)
+    def sign(allow_disconnected=False):
+        """rhea's runtime rule for her host with sam as its principal. sam's person grant has lapsed with his host
+        grant, so `runtime enable --for person:sam` refuses him as no current person: the CLI signs a rule for
+        rhea herself (making the policy current and the rule this host's), and the action route then names sam."""
+        extra = ["--allow-disconnected"] if allow_disconnected else []
+        result = r.cli("runtime", "enable", "--socket", str(rt.socket), "--person-key", rhea_key, *extra,
+                       timeout=90)
         check(result.ok, f"rhea: runtime enable: exit {result.code} {result.stderr.strip()[-300:]}")
+        status, response = sign_policy(
+            lambda body: with_runtime_rules(body, [dict(rule, principals=[f"person:{sam_pid}"])
+                                                   if rule["host"] == r.id else rule
+                                                   for rule in body["runtime_rules"]]),
+            host=r, net=net, person_public=rhea_public, key=rhea_key)
+        check(status == 200 and response.get("committed"), f"rhea: the rule naming sam: {status} {response}")
         return policy_version(r, rhea_public, net)
 
     def body():
@@ -425,7 +491,7 @@ def lapse_world():
             return peer(s, r, "POST", "/peer/v1/tasks", body)
         status, answer = attempt()
         check(status == 403, f"a lapsed sender without allow_disconnected: {status} {answer}")
-        sign("--allow-disconnected")
+        sign(allow_disconnected=True)
         status, answer = attempt()
         check(status == 200 and answer["state"] == "queued", f"a lapsed sender with allow_disconnected: {status} "
                                                              f"{answer}")
@@ -434,8 +500,9 @@ def lapse_world():
     def renewal():
         if clock.offset < 4 * DAY:  # the lapse step failed before moving the clock
             clock.set(4 * DAY + 2 * HOUR)
-        version = sign("--allow-disconnected")
+        version = sign(allow_disconnected=True)
         rules = body()["runtime_rules"]
+        check(rules and rules[0]["principals"] == [f"person:{sam_pid}"], f"rhea's runtime rules {rules}")
         clock.set(clock.offset + 16 * HOUR + 10 * 60)  # 7 h 50 min left on the 24-hour policy (threshold 8 h)
         wait_for(lambda: policy_version(r, rhea_public, net) > version, timeout=WINDOW, interval=1,
                  message="rhea's host to renew its policy automatically")
@@ -642,59 +709,6 @@ def _():
     check(before is not None and "runtime_rules" not in before, f"alice's body before enable: {list(before or {})}")
     _, _, _, bobs = policy_statement(a, state["bob_public"])
     check("runtime_rules" not in bobs, f"bob's policy, with no runtime rules, has keys {list(bobs)}")
-
-
-def sign_policy(mutate):
-    """Prepare the successor of alice's current policy with MUTATE(body) applied through POST .../actions (appendix
-    16.4), signing any requests with her original key. Returns (status, response)."""
-    a = state["a"]
-    statement_id, _, payload, body = policy_statement(a, state["alice_public"])
-    now = a.now().replace(microsecond=0)
-    until = now + timedelta(hours=23)
-    body.update(version=body["version"] + 1, issued_at=rfc3339(now), valid_until=rfc3339(until))
-    # A content change is an edit: it names this host's next local edit number (spec 12.1, DEC-S16), which the
-    # read-only plan route gives (appendix 16.6).
-    status, plan = a.api("POST", f"/v2/networks/{state['net']}/policy-edits/plan",
-                         {"provider_id": state["alice_public"]})
-    check(status == 200, f"policy-edits/plan: {status} {plan}")
-    body["edits"] = sorted([e for e in body.get("edits", []) if e["host"] != a.id] + [{"host": a.id, "seq": plan["seq"]}],
-                           key=lambda e: e["host"])
-    body = mutate(body)
-    # Signed by alice's original key (a policy signer, wire appendix 5), whose only parent is her person grant.
-    payload.update(sequence=payload["sequence"] + 1, predecessors=[statement_id], resolves=[],
-                   issuer={"kind": "person", "person_public_key": state["alice_public"]},
-                   parents=[p for p in payload["parents"] if p["role"] == "issuer_person"],
-                   issued_at=rfc3339(now), not_before=rfc3339(now), not_after=rfc3339(until),
-                   body_base64=base64.b64encode(json.dumps(body, separators=(",", ":")).encode()).decode())
-    status, response = a.api("POST", f"/v2/networks/{state['net']}/actions", {
-        "kind": "policy", "provider_id": state["alice_public"], "signature_format": "sshsig",
-        "payload_base64": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode(),
-        "approve": True})
-    while status == 200 and response.get("signing_requests"):
-        signatures = [{"slot_id": r["slot_id"], "role": r["role"],
-                       "signature": sshsig(state["alice_key"], base64.b64decode(r["message_base64"]))}
-                      for r in response["signing_requests"]]
-        status, response = a.api("POST", f"/v2/networks/{state['net']}/actions/{response['action_id']}/signed",
-                                 {"intent_id": response["signing_requests"][0]["intent_id"], "signatures": signatures})
-    return status, response
-
-
-def sshsig(key, message):
-    signed = subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "peerspan-person-v1"],
-                            input=message, capture_output=True, check=True).stdout.decode()
-    return "".join(line for line in signed.splitlines() if not line.startswith("-----"))
-
-
-def with_runtime_rules(body, rules):
-    """BODY with `runtime_rules` placed right after `capability_rules`."""
-    out = {}
-    for key, value in body.items():
-        if key == "runtime_rules":
-            continue
-        out[key] = value
-        if key == "capability_rules":
-            out["runtime_rules"] = rules
-    return out
 
 
 @suite.case("policy_body_refusals", "runtime Policy body (Reading): empty, unknown key, duplicate host, out of range; "
@@ -1426,7 +1440,9 @@ class Channel:
 
     def __init__(self, host, setup, directory):
         node = shutil.which("node")
-        script = REPO / "integrations" / "claude-channel" / "channel.mjs"
+        # PEERSPAN_SLIM_INTEGRATIONS points at another checkout's integrations/ (a branch under test); default: this one.
+        integrations = Path(os.environ.get("PEERSPAN_SLIM_INTEGRATIONS") or REPO / "integrations")
+        script = integrations / "claude-channel" / "channel.mjs"
         sdk = script.parent / "node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"
         if node is None or not sdk.exists():
             raise Skip("node and the claude-channel MCP SDK are needed (npm ci in integrations/claude-channel)")
