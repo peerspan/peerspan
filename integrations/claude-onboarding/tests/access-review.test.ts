@@ -125,7 +125,7 @@ function member(person = PERSON, key = DEVICE, n = 20, label = 'Participant "Ã©æ
 function baseline(w: World) {
   return { format: 2, network_id: w.selected.id, person_public_key: OWNER, version: 4,
     issued_at: stamp(NOW - 600_000), valid_until: stamp(w.policyEnd),
-    rules: [{ agent: w.parent.review.agent.name, principals: ['network'], actions: ['message.append', 'task.submit'],
+    rules: [{ agent: w.parent.review.agent.name, principals: ['network'], actions: clone(w.ruleActions),
       max_message_bytes: 65536, max_artifact_bytes: 0, allow_disconnected: false },
     { agent: 'Other "retained" agent', principals: ['network'], actions: ['message.append'],
       max_message_bytes: 4096, allow_disconnected: false },
@@ -181,7 +181,7 @@ async function receipt(w: World, options: any = {}) {
   body.edits = [{ host: HOST, seq: 3 }]
   const matching = body.rules.find((rule: any) => rule.agent === grant.agent_name && rule.max_message_bytes === 65536 &&
     (rule.max_artifact_bytes ?? 0) === 0 && rule.allow_disconnected === false &&
-    JSON.stringify(rule.actions) === JSON.stringify(grant.actions))
+    JSON.stringify([...new Set(rule.actions)].sort()) === JSON.stringify([...new Set(grant.actions)].sort()))
   if (matching) { if (!matching.principals.includes(grant.principal)) matching.principals.push(grant.principal) }
   else body.rules.push({ agent: grant.agent_name, principals: [grant.principal], actions: clone(grant.actions),
     max_message_bytes: 65536, max_artifact_bytes: 0, allow_disconnected: false })
@@ -213,7 +213,8 @@ function fixture(on: On) {
     surfaces: ['terminal'], parent: null as any, child: null as any, selected: network(), person: PERSON,
     networks: [network()] as any[], members: [{ ...member(OWNER, HOST_KEY, 10, 'Owner machine "alias"'),
       not_after: stamp(NOW + 604_800_000) }, member()] as any[],
-    noPolicy: false, uniqueDevice: true, enforced: null as any, ownerEnd: NOW + 604_800_000, personEnd: NOW + 259_200_000,
+    noPolicy: false, uniqueDevice: true, ruleActions: ['message.append', 'task.submit'], enforced: null as any,
+    ownerEnd: NOW + 604_800_000, personEnd: NOW + 259_200_000,
     providerEnd: NOW + 604_800_000, policyEnd: NOW + 3_600_000, access: null as any, lastInspection: null as any,
     calls: [] as any[], trace: [] as any[], outside: [] as string[], tools: [] as any[], prompts: [] as any[],
     forbidden: [] as string[], http: [] as any[], materials: [] as any[],
@@ -801,4 +802,32 @@ test('access review preserves established authorized lease through Leave Close a
   await press(again, 'Review proposed grant'); await recorded(again)
   expect(calls(w, PREPARE)).toHaveLength(1); expect(calls(w, APPROVE)).toHaveLength(1)
   privacy(w, await shown(again), true)
+})
+
+test('reversed inherited matching actions append one principal without rewriting order defaults or unrelated policy before separate approval', async ($, on) => {
+  const w = fixture(on); w.ruleActions = ['task.submit', 'message.append']
+  const ui = await attached($, w), raw = clone(baseline(w))
+  await inspectPerson(ui, w); await inspectionTerms(ui, w)
+  expect(w.lastInspection.review.policy.body).toEqual(raw)
+  expect(w.lastInspection.review.policy.enforced_content.rules).toEqual(raw.rules)
+  expect(calls(w, PREPARE)).toEqual([]); expect(calls(w, APPROVE)).toEqual([])
+  await press(ui, 'Review proposed grant'); await consentTerms(ui, w)
+  const review = clone(w.access.review), body = review.statement.payload.body
+  const expected = clone(raw)
+  expected.version++; expected.issued_at = review.created_at; expected.valid_until = review.statement.payload.not_after
+  expected.edits = [{ host: HOST, seq: 3 }]; expected.rules[0].principals.push(await principal(PERSON))
+  expect(body).toEqual(expected)
+  expect(body.rules).toHaveLength(raw.rules.length)
+  expect(body.rules[0].actions).toEqual(['task.submit', 'message.append'])
+  expect(review.grant.actions).toEqual(['message.append', 'task.submit'])
+  expect(body.rules[0].principals).toEqual(['network', await principal(PERSON)])
+  expect(body.rules[0].max_artifact_bytes).toBe(0)
+  expect(Object.hasOwn(body.rules[1], 'max_artifact_bytes')).toBe(false)
+  expect(calls(w, PREPARE)).toHaveLength(1); expect(calls(w, APPROVE)).toEqual([])
+  await press(ui, 'Approve agent access'); await recorded(ui)
+  expect(calls(w, APPROVE)).toHaveLength(1); expect(w.access.review).toEqual(review)
+  await checkPure(ui, w); await recorded(ui)
+  expect(calls(w, PREPARE)).toHaveLength(1); expect(calls(w, APPROVE)).toHaveLength(1)
+  expect(w.access.review.statement.payload.body).toEqual(expected)
+  privacy(w, await shown(ui))
 })
