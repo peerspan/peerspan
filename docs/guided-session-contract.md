@@ -8201,7 +8201,199 @@ name to unknown; never print raw values/labels/paths/IDs. No assertion/setup/
 operation/purity-counter/bound change. Run once to classify this remaining
 observation; a passing sample leaves the prior cause unclassified.
 
-## 43. Remaining flow contract
+## 43. Bounded existing-computer owner-offer signing
+
+GU.impl43 follows merged94. Add an explicit bounded private signing continuation
+for section42's exact dual-approved existing-person machine owner intent. Reuse
+ordinary typed owner/host-lease slots, configured daemon signer and owned device
+resolver; no new approval, schema, signature format or attribution journal. Native
+controls and requester selection/completion remain later work.
+
+### Private commands, input and safe public result
+
+Owner-local POST `/v1/onboarding/machine-owner-consent/{signing,sign}` and
+`onboarding machine {signing,sign} --stdin` accept exactly
+`{context,request_id,consent_id,consent_review_id}`; sign additionally requires
+`decision:"sign_machine_owner_offer"`. Section42 canonical IDs/context, recursive
+JSON duplicate/null/unknown/type checks and65536-byte bound apply. No caller code,
+provider/key/file/socket selector, scope/deadline, template/message or signature.
+No startup/state/key creation; argv diagnostics are fixed/redacted. Signing
+lookup HTTP/CLI timeout5s; sign has one90s total host budget and95s CLI transport
+bound, no retry/poll loop. Success HTTP200. Missing request/specified receipt404;
+invalid400 invalid; changed context/review/provider/ordinary terms409 review_changed;
+elapsed fixed consent expiry409 review_expired; other unsupported/corrupt signer/
+slot/evidence failures409 machine_owner_signing_unavailable. Fixed generic errors
+never expose underlying diagnostics. Routes stay absent on adapter/peer/bootstrap.
+
+Response is exactly section42's seven-field wrapper plus `signing`. Section42
+lookup/prepare/approve and section41 inspection behavior/shapes stay unchanged.
+Signing is null unless that exact receipt and ordinary owner are both approved
+at the same time. Otherwise it is exactly:
+`{state,intent_id,proposed_owner_offer_id,signature_count,required_signatures,
+can_sign,next_action,owner_offer_publication:"not_verified",
+host_admission:"not_verified",machine_powers:"not_verified",
+requester_selection:"not_verified",request_commit:"not_verified",
+agent_access:"not_verified",connection_readiness:"not_verified"}`.
+State unsigned when count0, partial when0<count<required, signed when equal.
+Count refers ONLY to actual valid signatures of the immutable initial owner
+packet (host+authority) and its folded host-lease issuer when present: required2
+or3. Later B/D/F signatures do not count. Require the complete first packet's
+ordinary pending owner_packet/owner_offer references match its actual typed
+assembled bytes/semantic ID whenever its two slots are full. Corruption refuses;
+no marker based on an approval flag or packet ID alone. Metadata, templates,
+review/hash, ordinary approval time and original deadlines stay exact.
+
+Both routes require the exact recorded receipt context/digest/request/IDs. An
+exact old context may read history after detachment; a different project's
+context does not adopt this signing operation. can_sign is true only for an
+incomplete dual-approved latest receipt with current public eligibility below.
+It is NOT a key-availability probe. Next action is sign_machine_owner_offer when
+can_sign, follow_machine_link when signed, inspect_machine_link otherwise. A
+signed marker is retained historical signature evidence, not frontend attribution,
+publication, admission, current powers/readiness or completion of the link.
+Public result <=2MiB and section42 label/privacy rules; no raw templates,
+messages/signatures, seeds, configured paths, agent identities/comments or codes.
+
+### Pure observation, completed replay and fresh eligibility
+
+Signing lookup holds one read snapshot, verifies retained receipt/ordinary
+references and typed signatures, and computes public eligibility without clock
+save, signer/availability probe, key resolution, cleanup, network, fetch/resume,
+event, signature creation or persistence. Existing section42 inspection may be
+null on approved records; retain that wrapper behavior. Exact sign replay of a
+fully signed initial packet/fold is the same pure historical read, even after
+provider/project changes, cancellation, later stages, request expiry or restart.
+Do not dispatch live authority/key checks or later work for that complete replay.
+
+Fresh work requires latest exact dual approval; pending approver/new/nonmigration
+request, actual different target host, current attached exact parent and agent;
+current signed request pins, selected original/device and complete original
+inspection root/P/H/B/D/member/restrictions/conflicts/migration/finite7 terms.
+Recompute the full section41 inspection in a narrow signing-only mode that may
+accept this approved intent, partial initial signatures and the exact recorded
+first owner packet. All selection/administrator/F/commit/result references and
+requester selection/commit approvals remain absent. Never broaden section41 or
+section42 eligibility. Compare complete current inspection digest to the frozen
+receipt. Ordinary provider and first template/fold must match; root fallback,
+foreign original/device, possession-only offers or silent provider switches refuse.
+
+Fresh explicit signing is bounded by the ORIGINAL section42 expires_at and its
+frozen request_stage_deadline, signed request deadline and powers not_after; no
+refresh after approval. This conservative explicit action does not redefine
+ordinary already-approved background work. Recheck guarded current time at every
+phase and immediately before commit. A partial original packet may be complete
+while its reviewed folded issuer remains missing: only that initial missing slot
+may still be signed, before the same deadlines and before any later-stage packet.
+No B/D/F, administrator, selection, commit or arbitrary signature in this action.
+
+### Typed finite plan, exact configured key and atomic storage
+
+Derive a stable finite plan from the actual immutable ordinary first template
+and optional folded host_lease only. At most3 distinct typed roles: first packet
+slot1 host Ed25519 with this host's key, slot1 authority with the reviewed
+original SSHSIG or owned device Ed25519 key, plus the folded host-lease issuer
+with that same reviewed original/device. Check all role/key/format/message/
+object-ID/descriptor/network/context/request/person/target/scopes7/deadline and
+fold parent pins using the ordinary typed validators. Verify every produced
+signature locally with those types. No signer receives caller-selected bytes.
+Never substitute another original, root or device, or use a requester device key.
+
+Resolve only the exact reviewed owned device seed or the daemon's configured
+original source. Reuse section32's configured original behavior: exact identity
+from configured agent (even among multiple identities), else configured file;
+no environment/global-agent discovery, generated-key discovery fallback,
+key import/copy/generation or subprocess signer. File no-follow/nonblocking
+leaf, owner-owned regular file, permissions&077==0, <=16384 bytes, bounded read
+and existing OpenSSH parser, exact approved public key. Existing explicitly
+configured ancestor semantics are unchanged. Missing/malformed/wrong/unsafe file
+or absent exact agent identity refuses. No signer IO in a DB transaction.
+
+Each phase holds its own coherent transaction/clock/authority snapshot. Drop it
+before original identity lookup/key use and before producing any slot outside
+SQLite. Revalidate exact receipt, current parent/authority, deadline and immutable
+whole plan after identity lookup, immediately before key use and again before
+storage. Other approved work may fill some planned roles in between: a fresh
+plan signs only still-missing roles; before commit existing valid filled roles
+may be retained, but no changed target/message/role/terms are accepted. No
+automatic key-use retry. Whole action budget guards every dispatch/commit;
+source timeouts/outer timeout cannot retract an already-dispatched key operation.
+Do not claim key use, cancellation or an unknown HTTP response is transactional.
+
+Atomically store the new verified initial signature batch in the existing
+ordinary intent, and its complete owner_packet/owner_offer references when
+complete; retain the current revalidated public owner catalog there before
+later ordinary proof/offer frame publication. Save the guarded clock in the
+same transaction. Metadata receipt and ordinary templates/created_at/approval/
+not_after remain unchanged. No partial batch on SQL ABORT, no new table/journal,
+event, frame/outbox/publication, peer/helper IO or explicit resume/F driver in
+this API. Ordinary approved background work MAY publish the offer/fold and later
+perform its authorized B/D/F work immediately after commit, independently. Keep
+separate requester selection/commit and agent access. A returned signed marker
+only proves the exact initial typed signature set is durably valid/recorded.
+
+### Verification
+
+A separate contract-only author adds six compact machine_owner_signing cases,
+from public sections32/41/42/43 and independent fixture source only. No product/
+Rust/hooks reads/imports or author runtime/process/host/network/model execution.
+Copy independent fixture source without eager suite imports; no old suite/helper
+changes. Commit cases before root runs them. Genuine signed automatic returns,
+current P/H/B/D and schema27; only schema-only atomic ABORT fault permitted.
+Target <2min, original comparisons/bounds/counters preserved. A genuine consumed
+TLS ClientHello hold outside DB may isolate already-approved worker IO; confirm
+its generation before/after the observed action, do not invent a worker-pause
+flag, fabricate authority or attribute background work to this route.
+
+1. Null/unapproved signing and fresh sign refusal are DB/state/home +bothTCP/UDP
+   pure, no key/agent contact or approval attribution; strict closed wrapper,
+   inspection/consent domains and actual ordinary intent/template IDs.
+2. Exact dual-approved original using a configured safe file: real typed first
+   authority/host/fold signatures, unchanged immutable review/approvals/window,
+   no key writes, no route network/events/frames and independent requester
+   consent. Validate counts/types and actual SSHSIG/Ed25519 messages/signatures.
+3. Exact configured SSH-agent identity among multiple identities; absent/wrong/
+   unsafe file and agent/key failures refuse without fallback or secret output.
+   Public parent/provider/review/deadline changes before/after delayed identity/
+   key dispatch refuse new persistence. No raw private material in diagnostics.
+4. Actual GUIDED receipt approval with owned device15 (not advanced approval),
+   then explicit sign while an actual worker TLS request is held outside DB.
+   Verify exact first+fold Ed25519 set and retained owner catalog. Release the
+   hold and observe actual ordinary proof+owner frame retention/publication
+   using the same intent/packet/provider, without requester selection/commit.
+   This closes section42's guided-only device proof-retention coverage gap.
+5. Late schema-only ABORT after actual signature/pending/clock writes rolls back
+   the whole new batch/pins/catalog/clock. Exact signed API/CLI replay is whole
+   DB/files/carriers pure after cancellation/provider/parent changes, restart,
+   actual expiry and later stages where a bounded genuine fixture permits;
+   otherwise retain explicit source-only limits. Lost-response recovery may
+   use an owner-local HTTP proxy over authentic responses, never invented grants.
+6. Strict recursive JSON64KiB/decision/IDs/unknown/null/type/private argv/socket
+   no-startup boundaries; owner-only method/router isolation. Controlled proxy
+   faults over authentic captured ordinary/public views may test changed typed
+   fields without altering stored authority. Retain bounded-case limits for
+   complex authority, corrupt/quota, exact90s timeout, syscall attribution and
+   narrow key-dispatch/commit races; do not infer them from snapshots.
+
+Root serializes its language/runtime gates, logs/hashes fresh binaries and every
+first result. Reuse section42's explicit separate-target compilation scheduling
+for language gates only; host suites require compiler idle, regular-disk TMPDIR.
+Run Rust fmt/test/Clippy/build, this suite and unchanged machine_owner_consent
+locally; all33 host suites+build(34 jobs) and four checks/native393/fresh bot/root
+review on one final head. Preserve all prior suites/helpers/native393 byteexact.
+Keep first unknown history-table/requester UDP limits and no-starts; no unchanged
+retry-to-green or quota-refused model probes. Native/installed/terminal/reload/
+physical/model/schema-upgrade/full-state/final combined acceptance remain open.
+Leave slice and tracking35 unmerged for owner review.
+
+Selected: private server-side bounded initial owner/fold signing under the exact
+existing project receipt, shared typed protocol/configured signer and atomic
+ordinary storage, truthful historical marker and current public eligibility.
+Discarded: client access to device seeds, new approval/journal, arbitrary signer
+inputs, broader resume/F/commit automation, proofless completion, indefinite
+polling, unbounded fallback or historical signature evidence as current readiness.
+Recommended under GU-OWN1; no new choice attributed to the owner.
+
+## 44. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
