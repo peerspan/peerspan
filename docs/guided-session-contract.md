@@ -8365,7 +8365,10 @@ advance may make the clock write observable before that fault is installed.
    then explicit sign while an actual worker TLS request is held outside DB.
    Verify exact first+fold Ed25519 set and retained owner catalog. Release the
    hold and observe actual ordinary proof+owner frame retention/publication
-   using the same intent/packet/provider, without requester selection/commit.
+   using the same intent/packet/provider. Before release, the explicit signing
+   action changes no requester selection/commit; after ordinary requester work
+   is released, unchanged spec8.4 may automatically select one valid offer, but
+   never supplies commit consent. See the first-run clarification below.
    This closes section42's guided-only device proof-retention coverage gap.
 5. Late schema-only ABORT after actual signature/pending/clock writes rolls back
    the whole new batch/pins/catalog/clock. Exact signed API/CLI replay is whole
@@ -8379,6 +8382,46 @@ advance may make the clock write observable before that fault is installed.
    fields without altering stored authority. Retain bounded-case limits for
    complex authority, corrupt/quota, exact90s timeout, syscall attribution and
    narrow key-dispatch/commit races; do not infer them from snapshots.
+
+### GU.impl43a: first-run fixture and attribution clarification
+
+Keep first root source e435f16 (SHA256
+e4e305001200a3c049a164ff548b5af3ade050925f2a23fcaf752d040afbccf2):4/6
+in69s at bcc58b2, log SHA256
+2370ca77419ae09c03d3ec90c951f79c4205015e5e2e871682c56dc81db4ec20.
+The device action independently verified its complete3-slot set and owner
+publication, and both hosts actually retained request/owner/proofs frames, but
+the requester had not retained the parsed owner/catalog. Captured genuine
+invitation member was `Existing person next computer`, while the signed owner
+offered the current person's `Existing "é" owner`; the existing invitation pin
+requires equality. Use that exact current verified person member in a genuine
+positive invitation before request creation. Do not relax invitation/offer
+validation or change any signed retained bytes. This is a fixture prerequisite,
+not evidence that all remaining recipient validation succeeds.
+
+Unchanged decentralized spec8.4/DEC-S5/DEC-Q5 permits the ordinary requester to
+select its single valid matching offer automatically. Section43 forbids this
+signing action from performing that work, not separately authorized requester
+work after release. Preserve the strict before/after remote snapshot and no
+selection/F/commit assertion while the real transport hold is active. After
+release, verify actual same owner/proofs retention/publication; permit the
+existing automatic selection, require no requester commit and make no readiness
+claim. Discard changing ordinary selection policy or disguising automatic
+selection as consent granted by this signing route.
+
+The history case's pure-signing snapshot changed only embedded helper `frames`
+and `mailboxes`, with no host DB/schema/files or TCP/UDP change. Captured later
+state has expired mailboxes with zero ciphertext. This is consistent with
+independent helper expiry collection, but the original crossing is not yet
+causally classified. Before history assertions after a genuine fixture-clock
+advance, establish bounded actual retirement of expired helper ciphertext from
+read-only public-schema snapshots. No row edits, sleeps in place of evidence,
+carrier disabling, table exclusions or relaxed whole-state comparisons. Tag
+fresh-expiry versus retained-history phases distinctly and use captured-only
+closed mailbox-state/frame-count summaries if another failure occurs. Preserve
+the first observation even if the corrected prerequisite passes. No unchanged
+retry-to-green. A separate author amends only the new suite from this contract;
+all prior files remain exact.
 
 Root serializes its language/runtime gates, logs/hashes fresh binaries and every
 first result. Reuse section42's explicit separate-target compilation scheduling

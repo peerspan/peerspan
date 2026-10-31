@@ -3711,3 +3711,13 @@ paths independently. Discard caller signer/material inputs, client device seeds,
 broad resume, root fallback and proofless/readiness claims. Section43 settles
 all behavior and six independent cases before product code; native controls and
 requester completion remain separate. Recommended under delegated GU-OWN1.
+
+GU.impl43a retains first runtime4/6 and fixes positive fixture prerequisites:
+the genuine invitation's member must match the current verified person member.
+Preserve spec8.4 automatic requester selection after ordinary work is released;
+the strict held signing action still changes no requester state. Commit remains
+separate. After real expiry, establish actual helper ciphertext retirement before
+whole-state historical assertions; first helper-table changes remain explicitly
+unclassified. Discard relaxing invite pins, changing ordinary selection policy,
+excluding helper tables or rerunning an unchanged failure. Section43 records
+the exact first hashes, independent correction and remaining limits.
