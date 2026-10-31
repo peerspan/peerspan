@@ -7888,7 +7888,210 @@ as ownership, weakening bits, implicit approval, another schema/journal, protoco
 progress while reading, and treating the new-original requester owner UI as an
 existing-computer review. Choices are recommendations under GU-OWN1.
 
-## 42. Remaining flow contract
+## 42. Exact existing-computer machine-owner consent
+
+GU.impl42 adds durable consent after section41's public machine review. It uses
+ordinary owner intent/transport and an unsigned local review receipt in existing
+schema27 dec_intents; no new table, signature format or peer route. Native
+controls and explicit bounded signer continuation follow in later sections.
+
+### Private operations and exact input
+
+Owner-local `POST /v1/onboarding/machine-owner-consent/{lookup,prepare,approve}`
+and advanced `onboarding machine {lookup,prepare,approve} --stdin` accept:
+
+- lookup: exactly `{context,request_id}`, optionally `consent_id` for a retained
+  historical receipt;
+- prepare: exactly `{context,request_id,inspection_review_id}`, optionally
+  `replace_consent_id` naming the exact latest unapproved receipt;
+- approve: exactly `{context,request_id,consent_id,consent_review_id}`.
+
+Context is the existing exact five-field AdapterContext. IDs are canonical
+link_64hex/review_64hex/dint_32hex. Reject duplicate/unknown/missing/null/wrong-type
+and malformed fields recursively, at most65536 bytes, before work. No private
+payload or ID positional argv; fixed redacted CLI parsing/transport errors,
+configured owner socket,5s request bound, no daemon startup. API missing request
+or specified receipt is404 not_found; malformed400 invalid; changed context/
+inspection/replacement/review409 review_changed; elapsed consent409 review_expired;
+other unsupported/corrupt evidence409 machine_owner_consent_unavailable. Generic
+fixed messages expose no private/raw diagnostics. All routes remain absent from
+scoped adapter, mTLS peer and bootstrap routers.
+
+### Public lookup and ordinary intent preparation
+
+One held transaction returns exactly `{version:1,host_id,context,observed_at,
+request,inspection,consent}`. Request is the complete ordinary public LINK_VIEW.
+Inspection is null or exactly `{review_id,review}` with section41's complete
+current review and digest, at this wrapper's observed time. Consent is null or
+exactly `{consent_id,review_id,review,state,next_action}`. Public result <=2MiB
+and no unsafe/private-prefixed label/aggregate. No codes, original key files,
+credentials/seeds, raw templates/signatures/messages, routes or signer diagnostics.
+
+Lookup is pure: no cleanup/clock save/intent/key creation, signing/availability
+probe, fetch/resume, network IO or event. For a current attached parent it may
+inspect a pending request with an existing UNAPPROVED unsigned owner intent;
+this narrowly expanded inspection is used only here. Section41's standalone
+inspection still refuses every owner intent. Check exactly the same signed
+request pins, stage/request windows, current selected original/device/P/H/B/D,
+root/restrictions/conflicts/migration and proposed7/deadline cap. An existing
+owner intent must match these exact ordinary immutable owner terms, current
+public provider and initial owner packet, with no root fallback, possession-only
+exception, signature, other approvals or later packet. No original-file/agent
+availability check; original public authority remains reviewable when private
+signing is unavailable. Public inspection never becomes a new key prerequisite.
+
+Before first preparation require the supplied inspection digest equal this
+current review, then call the ordinary owner preparation with the concrete
+selected provider, signature format, scopes7, fixed not_after and actual target
+host/device/network/person pins. Reconstruct its private code only from retained
+ordinary request frames/secret, without export or IO. Preparation may use the
+ordinary owned-key resolver; it invokes no signer or external file/agent probe.
+It atomically creates/reuses that exact UNAPPROVED owner intent and writes one
+unsigned machine_owner_review receipt. No fresh requester key, signature,
+publication, membership, access, event or protocol-stage advancement. Existing
+ordinary unapproved intents may be reused only when every reviewed term matches;
+never replace their templates, provider, creation time or proposed deadline.
+
+### Immutable review and record
+
+Review is exactly `{version:1,kind:"approve_existing_person_machine",consent_id,
+host_id,context,agent,request_id,request_packet_id,inspection_review_id,inspection,
+intent_id,proposed_owner_offer_id,replaces_consent_id,created_at,expires_at,effects}`.
+Inspection is the complete frozen section41 review (not its wrapper); agent
+exactly matches inspection.agent; context/host/request pins match throughout.
+Proposed owner_offer ID derives from the actual ordinary first owner template,
+not caller text. Intent ID is the actual owner intent. Replaces is dash or the
+exact earlier receipt. Created_at is the actual first receipt preparation time.
+Expires_at is the earliest of ordinary owner intent.created_at+300s, signed
+request expiry, current stage deadline (latest stage_at, else signed creation,
+plus600s) and proposed powers not_after. It must be strictly after created_at;
+replays never refresh either timestamp or ordinary honest-signing window.
+
+Effects are exactly:
+`{approve_owner_intent:true,authorize_owner_offer_signature:true,
+publish_owner_offer_after_signatures:true,authorize_owner_finalization:true,
+authorize_binding_and_device_signatures:true,
+authorize_host_admission_if_folded:BOOLEAN,grant_membership_now:false,
+grant_machine_powers_now:false,grant_agent_access:false,
+authorize_requester_selection:false,commit_request:false,share_files:false,
+share_conversation:false,capability_calls:false}`. Fold boolean is true exactly
+when frozen inspection.host_admission is owner_may_fold. The later ordinary
+owner finalization is bounded by the same exact request/owner offer/provider,
+scopes7, deadline and current verified authority. Administrator8 is not granted
+to the new machine. Requester selection and final commit remain independent.
+
+Review ID is review_+SHA256 of UTF8 `peerspan-machine-owner-consent-v1\n` plus
+recursively sorted compact canonical JSON of the entire review. Metadata uses
+existing strict Record with kind machine_owner_review, secret none, completed
+true, templates/signatures empty, terminal/result dash and canonical review
+in review_base64. Operation_id is mrev_+SHA256 of UTF8
+`peerspan-machine-owner-review-key-v1\n` plus canonical JSON
+`{host_id,request_id}`. Remaining immutable provider/root/person/target/scopes/
+not_after fields copy the actual ordinary owner intent; created/expires are the
+receipt's reviewed times. This is nonsigning local attribution, never authority.
+Validate exact closed review/bindings/record and first ordinary template on
+load; corruption refuses without repair/fallback. Receipt quota256 and16MiB
+aggregate serialized record bytes; total ordinary4096-intent quota also applies.
+Schema/user_version remain27. Generic workers never sign metadata receipts.
+
+### Approval, replacement and recovery
+
+Before approval require exact latest receipt ID/digest and exact recorded
+context. Recheck attached current parent/agent, complete frozen inspection,
+current selected provider/ordinary owner terms, unsigned unapproved ordinary
+intent and fixed windows in the same transaction. Set receipt and ordinary
+approved flags/approved_at to the same guarded decision time and save the clock
+atomically. An ABORT leaves both approvals, pending state and clock unchanged;
+no signatures are produced inside this transaction. No extra host/peer/model IO.
+Ordinary background work may sign/publish immediately after commit under this
+explicit approval, including folded host admission and bounded B/D/F work after
+requester selection. This API does not call resume/sign/publication. Never say
+that approval guarantees delivery or that later authorized work cannot run.
+
+Recorded approval state is approved only when BOTH exact receipt and ordinary
+approval agree at the same approved_at. Another interface's ordinary approval
+alone invalidates this unapproved receipt; never attribute it to this project.
+Approved is immutable historical consent, not current powers, cancellation,
+admission, access or readiness. Exact approved replay is a pure read even after
+cancellation/expiry/provider change/project detachment; no clock/sign/revalidation
+work is dispatched. It still requires exact recorded IDs/digest/context and
+valid retained ordinary evidence, and never approves a different current review.
+
+For unapproved receipts state precedence is cancelled when ordinary request or
+intent is cancelled, expired at fixed expiry/request expiry, otherwise
+invalidated for replacement, context/authority/terms changes or outside approval,
+else review. Next action is approve_machine_owner_intent for review,
+follow_machine_link for approved, inspect_machine_link otherwise. Missing receipt
+is null, not approval. Inspection is null when current eligibility cannot be
+verified; lookup never guesses or advances it. Historical exact consent may be
+read with its old context after that parent is detached; a different context may
+read latest old terms only when it is itself a current attached project. Its
+wrapper must not imply the old review belongs to that new context.
+
+Identical prepare (same recorded context/inspection digest) returns the exact
+receipt without mutation, even after it is terminal. Explicit replacement must
+name the latest unapproved receipt, and is allowed only after it became expired/
+invalidated/cancelled AND the ordinary request/intent is still live, unsigned,
+unapproved with the same immutable terms. A fresh attached parent can then
+re-review using lookup's new current inspection. Replacement creates a new
+receipt only, retaining the old one and ordinary intent; its fixed ordinary
+signing window never restarts. Exact replacement retry with the same predecessor
+and terms returns the same latest receipt. Stale IDs, live-review replacement,
+approved receipt replacement, silent current-provider/terms switches, old review
+approval and cancellation/revocation as a side effect all refuse. Ordinary
+intent/request expiry still requires ordinary recovery/new explicit attempt.
+
+### Verification
+
+Separate contract-only author adds compact machine_owner_consent slim suite,
+six real-host cases from sections5/12/41/42 and public ordinary DEC contracts,
+using independent fixture source only. No product/Rust/hooks reads/imports or
+author runtime/process/host/network/model execution. Commit cases before root
+runs them. All prior31 suites/helpers/native393 remain byte-identical. Under2min
+suite target; preserve original actions, counters and bounds. Genuine signed
+requests/automatic return/current P/H/B/D, selected unavailable original and
+owned device fixtures; no authority/pending/clock/queue row fabrication.
+Only schema-only ABORT triggers may inject atomic-write failure, removed exactly.
+
+1. Pure initial lookup and exact inspected prepare: closed wrapper/whole review,
+   independent digest/proposed packet ID/current pins, fixed finite7/expiry;
+   one ordinary owner intent plus one unsigned receipt, no signing/publication.
+2. Lookup/exact prepare replay/unsuccessful mutations are whole DB/private-file/
+   TCP+UDP pure after genuine transport settling. Fixed terms/times and no
+   caller/frontend approval attribution; no original key on requester.
+3. Exact approval flags/time/guard atomicity and schema-only ABORT rollback,
+   with retry only after removal of the injected fault. Selected unavailable
+   original remains reviewable/approvable without fallback; owned device may
+   perform ordinary approved work, without implicit requester selection/commit.
+4. Wrong inspection/context/person/provider/review/receipt/stale replacement,
+   actual expiry/cancel/parent changes and explicit current-parent replacement;
+   immutable original ordinary intent, exact replacement replay, old refusal.
+5. Exact approved history and private stdin/API equivalence across restart,
+   detachment, cancellation and expiry with settled real owner work; replacing
+   approved or laundering outside ordinary approval into project consent refuses.
+6. Strict recursive JSON/64KiB/argv redaction/missing socket/no startup and all
+   three owner-router isolation boundaries. Retain source-only crypto/complex
+   authority/5s-stalled-client limits where no bounded genuine fixture exists.
+
+Root serializes actual runtime/build/host gates with task lock; distinguish an
+external noncompiling cargo-test wrapper from actual compilers and record all
+samples. Use regular-disk task TMPDIR/logs and hashed fresh binaries. Run Rust
+fmt/test/Clippy/build, new suite and unchanged machine_owner locally; native393
+is unchanged and runs in final CI. Preserve first outcomes/hashes, no unchanged
+retry-to-green, weaker old assertions/bounds or quota-refused model probes.
+Final exact-head32 host suites+build(33jobs), four PR checks and fresh bot/root
+review required; all full-feature/native/installed/model/combined gates remain
+open. Leave slice and tracking35 unmerged for owner review.
+
+Selected: unsigned exact project attribution bound to ordinary owner intent,
+explicit current-parent replacement preserving protocol terms/time, atomic dual
+approval and truthful ordinary background authority. Discarded: reconstructing
+consent from a mutable protocol review, attributing advanced approval to a
+frontend, key copying, root fallback, template/time replacement, new schema,
+implicit requester consent and overall readiness claims. Recommended under
+GU-OWN1; no new choice is attributed to the owner.
+
+## 43. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
