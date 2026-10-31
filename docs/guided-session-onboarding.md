@@ -946,3 +946,19 @@ conformance files remain unchanged, without timeout overrides or local retries.
 The first bot's foreign-project review case is fixed and independently covered.
 Final exact-head combined CI and fresh review receipts are attached to PR97;
 passing later samples do not classify prior failures.
+
+
+### New computer: verified machine requester review
+
+Section45/GU.impl45 follows merged97 (`2a503e9`). The private inspection binds
+the published machine request to this attached project, then verifies retained
+remote owner/selection/admission/finalization and actual P/H/B/D references.
+It returns finite7 machine powers and binding scope2 without a local original
+key/owner receipt, signer probe, commit intent, approval or adoption. Folded
+admission correctly has no separate administrator packet or stage.
+
+This is the read-only backend prerequisite for requester consent/completion and
+its native controls. Independent real-host fixtures cover retained authority
+after the existing computer goes offline, without claiming both-live worker
+attribution. Final combined-head CI/review and full #35 terminal/installed/
+two-machine/model acceptance remain required; inspection is not readiness.

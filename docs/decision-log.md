@@ -3817,3 +3817,10 @@ shape and crate limits. Independent static audit notes restarted requested
 flows cannot rebind their detached parent, so that refusal cannot prove catalog
 corruption validation. Preserve that distinction as a source-only coverage
 limit; do not invent restoration or claim authority-validation execution.
+
+GU.impl45 pure fixture availability choice: a genuine existing computer may
+go offline after verified F publication and before the whole-state baseline.
+The requester stays live and both hosts/files/carriers remain counted. Select
+explicit offline-owner coverage; discard claiming both-live worker attribution,
+requester/worker-flag/queue/authority edits or mid-snapshot shutdown. No service
+is needed to inspect its already retained finite signed authority.
