@@ -76,7 +76,13 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
     let root = projection.root_state_id()?;
     projection.active(root)?;
     let person = &r.expected_person_public_key;
-    let own = projection.member_for(&store.identity().public_key, person)?;
+    let members = projection.members()?;
+    let own = members
+        .iter()
+        .find(|m| {
+            m.host_public_key == store.identity().public_key && m.person_public_key == *person
+        })
+        .ok_or_else(|| Error::new("forbidden"))?;
     let selection = s
         .selection
         .as_ref()
@@ -98,7 +104,7 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
     )?;
     let scopes = num(object(&provider)?, "scopes")?;
     require(scopes & 7 == 7, "forbidden")?;
-    for member in projection.members()? {
+    for member in &members {
         if member.host_public_key == r.host_public_key {
             require(
                 member.person_public_key == "-" || member.person_public_key == *person,
