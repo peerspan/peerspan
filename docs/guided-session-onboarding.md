@@ -668,3 +668,15 @@ After observing the known external compiler completed, fixed-source full native
 333/333 passes in61.13s on its first run. Earlier timeouts remain unclassified;
 this pass does not establish their cause. Final corrected-head CI/review are
 recorded on PR82/35, with all full-feature acceptance gates still incomplete.
+
+### Native completion of approved access
+
+After merged82 (`a0ea55d`), section35/GU.impl35 composes existing exact signing
+and application through one explicit Finish agent access. It observes retained
+state first, skips already recorded work, rechecks fresh immutable/current pins
+before each dispatch and stops on unknown outcomes. Check application remains
+read-only, retaining proof/state comparison guards through uncertainty. Local
+application is historical evidence and never a claim of current permission,
+peer delivery, actual model receipt or connection readiness. All333 existing
+native cases/all28 host suites and Rust remain unchanged; independent new native
+cases and final exact-head CI/review follow. Full-feature acceptance stays open.
