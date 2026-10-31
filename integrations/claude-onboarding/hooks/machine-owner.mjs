@@ -124,8 +124,8 @@ export async function snapshot(raw, selected, parent, host, previous = null, wit
     await inspection(r.inspection, r.inspection_review_id, v.request, host, r.context, r.agent);
     if (!same(r.effects, consentEffects(r.inspection.host_admission === 'owner_may_fold'))) fail();
     await digest('peerspan-machine-owner-consent-v1', r, c.review_id);
-    if (c.state === 'review' && (v.inspection === null || !same(v.inspection.review, r.inspection) ||
-        v.inspection.review_id !== r.inspection_review_id || !own(v, parent) || !live(v, Date.parse(v.observed_at)))) fail();
+    if (c.state === 'review' && own(v, parent) && (v.inspection === null || !same(v.inspection.review, r.inspection) ||
+        v.inspection.review_id !== r.inspection_review_id || !live(v, Date.parse(v.observed_at)))) fail();
     if (previous?.consent && !sameConsent(v, previous)) fail();
   } else if (previous?.consent) fail();
   if (withSigning) {
