@@ -397,6 +397,7 @@ class CountedBarrierUDP:
         self.routes, self.pending = {}, []
         self.received_datagrams = self.received_bytes = 0
         self.returned_datagrams = self.returned_bytes = 0
+        self.errors = {"upstream_send": 0, "upstream_receive": 0, "forwarding_loop": 0}
         self.armed = False
         self.dispatch = threading.Event()
         self.generation = 0
@@ -413,6 +414,8 @@ class CountedBarrierUDP:
         try:
             self.routes[client].send(data)
         except OSError:
+            with self.lock:
+                self.errors["upstream_send"] += 1
             pass
 
     def _forward(self):
@@ -442,12 +445,16 @@ class CountedBarrierUDP:
                         try:
                             data = source.recv(65536)
                         except OSError:
+                            with self.lock:
+                                self.errors["upstream_receive"] += 1
                             continue
                         with self.lock:
                             self.returned_datagrams += 1
                             self.returned_bytes += len(data)
                         self.socket.sendto(data, upstreams[source])
         except OSError:
+            with self.lock:
+                self.errors["forwarding_loop"] += 1
             pass
 
     def arm(self):
@@ -468,6 +475,10 @@ class CountedBarrierUDP:
     def counts(self):
         with self.lock:
             return self.received_datagrams, self.received_bytes, self.returned_datagrams, self.returned_bytes
+
+    def error_counts(self):
+        with self.lock:
+            return dict(self.errors)
 
     def close(self):
         if self.done.is_set():
@@ -588,8 +599,12 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
     parent = parent or f["pb"]
     body = body or request(f, parent)
     began = f["b"].now()
+    carrier_before = traffic(f)
+    monotonic_start = time.monotonic()
     actual, value = f["b"].api("POST", BASE, body, timeout=13)
+    elapsed_ms = int((time.monotonic() - monotonic_start) * 1000)
     ended = f["b"].now()
+    carrier_after = traffic(f)
     check(actual == status, f"explicit reachability HTTP {actual}, want {status}")
     if status == 200:
         verify(f, parent, body, value, (began, ended))
@@ -610,10 +625,25 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
                         "target_process_status": process_status,
                         "target_udp_thread_alive": f["a"].counted_peer.thread.is_alive(),
                         "project_udp_thread_alive": f["b"].counted_peer.thread.is_alive(),
-                        "carriers": traffic(f)}, sort_keys=True), flush=True)
+                        "carriers": traffic(f),
+                        "prior_observations": list(f.get("reachability_observations", [])),
+                        "target_udp_errors": f["a"].counted_peer.error_counts(),
+                        "project_udp_errors": f["b"].counted_peer.error_counts()}, sort_keys=True), flush=True)
                 except Exception:
                     pass
             check(value["reachability"]["result"] == outcome, "unexpected explicit transport observation")
+        try:
+            process = f["a"].process
+            poll = process.poll() if process is not None else "absent"
+            category = "running" if poll is None else "absent" if poll == "absent" else (
+                "exited_zero" if poll == 0 else "exited_nonzero" if type(poll) is int else "unknown")
+            prior = f.setdefault("reachability_observations", [])
+            prior.append({"expected": outcome if outcome in ("authenticated_response", "not_verified") else "unknown",
+                "actual": value["reachability"]["result"], "target_process_status": category,
+                "elapsed_ms": elapsed_ms, "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(carrier_after, carrier_before)]})
+            del prior[:-4]
+        except Exception:
+            pass
     else:
         check(type(value) is dict and (code is None or value.get("code") == code)
               and "inspection" not in value and "reachability" not in value, "refusal became empty successful evidence or wrong fixed code")
@@ -724,12 +754,12 @@ def world():
         local.restart()
     empty_bounds, contacts = issue_empty_contacts(state, previous)
     for local in (a, b):
-        local.direct = True
+        local.direct = local.advertise_direct = True
         transport_config(local)
         local.restart()
     import_empty_contacts(state, contacts)
     for local in (a, b):
-        local.direct = False
+        local.direct = local.advertise_direct = False
         transport_config(local)
         local.restart()
     # Re-pin genuine own-empty contacts after any intermediate worker refresh;
@@ -739,7 +769,7 @@ def world():
     advance(state, max(*[parse_time(x) for x in [*direct_bounds, *empty_bounds]], a.now(), b.now()) + timedelta(seconds=1))
     for local in (a, b):
         unsigned_maintenance(local)
-        local.direct = False
+        local.direct = local.advertise_direct = False
         transport_config(local)
         local.restart()
     restart_project(state)
