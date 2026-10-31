@@ -674,8 +674,9 @@ async fn watch(
         }
         // Whatever closed a gap committed its event first, so the read above
         // sees it. A full page may leave more: wait for the rest.
+        released.append(&mut ready);
         if events_read < 100 {
-            ready.append(&mut released);
+            ready = std::mem::take(&mut released);
         }
         // A later message of an author with an earlier one held waits behind it.
         let (later, mut ready): (Vec<_>, Vec<_>) = ready.into_iter().partition(|(id, m)| {
