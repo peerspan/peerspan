@@ -23,6 +23,7 @@ import copy
 import hashlib
 import http.client
 import json
+import linecache
 import math
 import os
 import re
@@ -33,6 +34,7 @@ import socketserver
 import sqlite3
 import ssl
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -595,6 +597,28 @@ def verify(f, parent, body, value, bounds):
     return value
 
 
+def proxy_frame_category(proxy):
+    """Read only this test helper's source; emit no frame/path/line data."""
+    try:
+        frame = sys._current_frames().get(proxy.thread.ident)
+        while frame is not None:
+            if frame.f_code.co_filename == __file__:
+                source = linecache.getline(__file__, frame.f_lineno)
+                if "select.select(" in source:
+                    return "selector_wait"
+                if ".recvfrom(" in source:
+                    return "client_receive"
+                if "source.recv(" in source:
+                    return "upstream_receive"
+                if ".send(" in source or ".sendto(" in source:
+                    return "send"
+                return "other"
+            frame = frame.f_back
+    except Exception:
+        pass
+    return "other"
+
+
 def manual_hint_matches(f):
     """Pure owner read; only the exact-known-match boolean may leave here."""
     try:
@@ -681,6 +705,8 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
                         "target_process_status": process_status,
                         "target_udp_thread_alive": f["a"].counted_peer.thread.is_alive(),
                         "project_udp_thread_alive": f["b"].counted_peer.thread.is_alive(),
+                        "target_udp_frame": proxy_frame_category(f["a"].counted_peer),
+                        "project_udp_frame": proxy_frame_category(f["b"].counted_peer),
                         "carriers": traffic(f),
                         "elapsed_ms": elapsed_ms,
                         "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(carrier_after, carrier_before)],
