@@ -338,5 +338,113 @@
     "Guided existing-computer machine approval/owner selection/final consent and complete other-computer flow remain subsequent work.",
     "Actual terminal/reload/installed/physical/model/schema23-to27/full-state upgrade/recovery/final combined/full-feature acceptance remains incomplete.",
     "Earlier unclassified native/transport/history results remain preserved; no unchanged local retries, raised deadlines or old-test edits."
-  ]
+  ],
+  "first_final_head_ci": {
+    "head": "8183a22fe9c8aceae9aac6642c626ed9664cdcdd",
+    "checks": "https://github.com/peerspan/peerspan/actions/runs/41224381236",
+    "checks_result": "all4pass; native393/393in75.27s; Rust155passed/2ignored/fmt/Clippy/build",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41224381242",
+    "conformance_result": "31 jobs inspected with pagination:29success includingbuild,2failures;28/30suitespass",
+    "failures": [
+      {
+        "suite": "owner_finalization",
+        "job_id": 124605718262,
+        "result": "5/6; case6 observes one known-context existing contact replacement, no files/relay change; original observer lacks exact phase and requester classification. Cause unclassified.",
+        "log_sha256": "22e78916859bbe76fdbfdc23d245389965be126d28387014727600e66ca69ba2"
+      },
+      {
+        "suite": "requester_completion",
+        "job_id": 124605718231,
+        "result": "5/6; detached/API full DB/state/home equality passes, issuer UDP+2datagrams/+2400bytes, zero returns, timing callerunknown. Cause unclassified.",
+        "log_sha256": "0df2b2f7b39ef87b6e2c53b0784a027fc079c71c5ebbee6b3d4339bba66154c6"
+      }
+    ],
+    "bot_review": "https://github.com/peerspan/peerspan/pull/91#issuecomment-6546712657",
+    "bot_result": "completed, no findings on8183a22",
+    "no_workflow_reruns": true
+  },
+  "ci_diagnostic_revision": {
+    "contract_commits": [
+      "f3646314fa6749ddb72debd0108470cb0fce29d9",
+      "517d21cad6e45b6d50a49cb286ed1c7be00152b1"
+    ],
+    "separate_author_commits": {
+      "owner": "8b0a6425537888faee03bf239d623ab7a8c682d9",
+      "requester": "5a9eb8f6d29aa4236edd136a14128f74bdebca49"
+    },
+    "root_copy_commits": [
+      "82fd661b3222c7d2a8f5271e35d6b181f89cd527",
+      "93edc5386afe80ae1179d99d08f48034b1ee07ce"
+    ],
+    "scope": "Failure-only captured-contact phase/lifecycle metadata; one bounded pure directory-cacheGET only after already-captured mismatch. No setup/actions/waits/deadlines/counters/authority/runtime change.",
+    "restoration_audit": {
+      "owner_finalization": {
+        "new_sha256": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+        "original_sha256": "e4d4f6c08c1eace60fae11e5859f82b245542d5de891dcc59909e4be6237c5fb",
+        "bytes_restored": true,
+        "ast_restored": true
+      },
+      "requester_completion": {
+        "new_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+        "original_sha256": "bf68c0ccdb115ee5a2dfd4699ed2532a452ab117f8ace3e128637d14ce58d23c",
+        "bytes_restored": true,
+        "ast_restored": true
+      }
+    },
+    "prior_files_changed_only_for_diagnostics": [
+      "conformance/slim/owner_finalization.py",
+      "conformance/slim/requester_completion.py"
+    ],
+    "other_prior_files_byte_identical": 58,
+    "all_prior_native_files_cases_unchanged": true,
+    "frozen_rust_and_frontend_unchanged": true,
+    "local_runs": [
+      {
+        "gate": "requester-completion-diagnostic-first",
+        "head": "82fd661b3222c7d2a8f5271e35d6b181f89cd527",
+        "command": [
+          "python3",
+          "conformance/slim/requester_completion.py",
+          "--bin",
+          "/dev/shm/gu38/final-bin"
+        ],
+        "exit": 0,
+        "seconds": 137.39,
+        "log": "/dev/shm/gu40/requester-completion-diagnostic-first.log",
+        "sha256": "0dbb564d45abcd4eb43007a7591f537f846a5ba922f3ac58677c75520645f7f7",
+        "preflight_active": [],
+        "postflight_active": [],
+        "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+        "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+        "artifact": null,
+        "conformance_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+        "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+      },
+      {
+        "gate": "owner-finalization-diagnostic-first",
+        "head": "93edc5386afe80ae1179d99d08f48034b1ee07ce",
+        "command": [
+          "python3",
+          "conformance/slim/owner_finalization.py",
+          "--bin",
+          "/dev/shm/gu38/final-bin"
+        ],
+        "exit": 0,
+        "seconds": 79.45,
+        "log": "/dev/shm/gu40/owner-finalization-diagnostic-first.log",
+        "sha256": "e221827476357491069b4f7b6de0195a3029c4bc66272f72c49ddf419be1e548",
+        "preflight_active": [],
+        "postflight_active": [],
+        "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+        "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+        "artifact": null,
+        "conformance_sha256": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+        "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+      }
+    ],
+    "diagnostic_observers_triggered": false,
+    "cause_or_fix_established": false,
+    "requester_duration_note": "137.39s exceeds2-minute suite target; retained unchanged timing/delays; no attribution or wait increase.",
+    "conclusion": "Both independent diagnostic revisions pass one retained local run. Original CI causes remain unclassified; final exact-head full matrix/native393/Rust/freshreview required."
+  }
 }

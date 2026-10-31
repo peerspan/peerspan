@@ -3547,3 +3547,12 @@ cache observation, contracted in section40 before author edits. Preserve all
 original assertions/captures/actions/delays/timeouts/counters/records; diagnostic
 removal must restore source bytes/AST. Discard blind reruns, transplanting an
 earlier suite's cause, guessed setup changes, worker disabling and weaker gates.
+
+GU.impl40a verification: one retained requester diagnostic run passes6/6 in
+137.39s (over the2-minute target), owner diagnostic6/6in79.45s. Neither observer
+triggers; neither pass classifies the original CI cause or proves a runtime fix.
+Root independently confirms removing only diagnostics restores both original
+source bytes and full AST. All381 prior native cases and other58 prior test/
+helper files remain exact. Frontend/Rust stay frozen; final full CI and fresh
+review run on the combined documentation/diagnostic head. Preserve first CI,
+first local outcomes, duration and unknown causes; no unchanged rerun.

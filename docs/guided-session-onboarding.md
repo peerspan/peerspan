@@ -819,3 +819,13 @@ deadline edit. Strict303 validation passes on the preceding source; final CI
 validates the exact final head/full393 plus all30 host suites and Rust gates.
 Fresh bot/root review receipts go on the slice/tracking PR after this evidence
 commit. Earlier and full-feature acceptance limits remain open.
+
+First exact-head8183a22 CI passes all four PR checks (native393/393in75.27s,
+all Rust gates), while28/30 host suites pass. Existing owner-finalization and
+requester-completion purity failures remain unclassified. Contract-first
+GU.impl40a adds independently authored failure-only metadata, preserving every
+original assertion/action/deadline/counter; removal restores both source bytes
+and AST. Their retained local diagnostic runs pass6/6in79.45s and6/6in137.39s
+respectively, without triggering either observer; the latter exceeds the suite
+duration target. No cause or runtime fix is established. Frontend/Rust and
+all381 old native cases remain exact; combined-head full CI/review follows.
