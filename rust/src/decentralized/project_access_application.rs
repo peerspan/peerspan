@@ -61,13 +61,29 @@ fn marker(c: &Connection, input: &Input, r: &consent::Receipt) -> Result<Value> 
             rusqlite::params![input.network_id, d.context_id(), signed.id], |row| row.get(0),
         ).map_err(|_| Error::new("access_application_unavailable"))?;
         let admission = storage::marker(&record, false)?;
+        let basis = object(
+            admission
+                .get("basis")
+                .ok_or_else(|| Error::new("access_application_unavailable"))?,
+        )?;
+        let evidence = array(basis, "evidence_ids")?;
+        let mut required: Vec<_> = signed.parents()?.into_values().collect();
+        required.extend([
+            signed.id.clone(),
+            text(&signed.payload, "root_state_id")?.to_owned(),
+        ]);
         require(
             kind == "policy"
                 && signed.kind == kind
                 && body == signed.body
                 && text(&admission, "kind")? == "policy"
                 && text(&admission, "proof_id")? == signed.proof_id
-                && text(&admission, "admitted_at")? >= r.action.record.created_at.as_str(),
+                && text(&admission, "admitted_at")? >= r.action.record.created_at.as_str()
+                && required.iter().all(|id| {
+                    evidence
+                        .iter()
+                        .any(|value| value.as_str() == Some(id.as_str()))
+                }),
             "access_application_unavailable",
         )?;
     }
