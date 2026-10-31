@@ -362,3 +362,16 @@ project/person/network inspection, the ordinary receiver directory's advertised
 authorizations and only this project's session connections. It makes no overall
 ready, peer reachability or model-receipt claim, starts no network/model work and
 changes no authority/schema. Native presentation and explicit peer probes follow.
+
+### Explicit selected-machine peer reachability
+
+[Guided section38](guided-session-contract.md#38-explicit-selected-machine-peer-reachability)
+adds owner-only `POST /v1/onboarding/reachability` and advanced stdin-only
+`onboarding reachability --stdin`. Exact project/network/person/remote-host input
+selects one current pinned machine. One bounded existing peer directory GET uses
+current direct/helper routes without contact-learning sync or directory refresh.
+Complete current project/inspection pins are checked again after IO. An
+authenticated HTTP response, including a refusal, proves only this outbound
+exchange; its body is discarded. Incoming agent delivery, model receipt and
+overall readiness remain unverified. No new schema, remote route, consent or
+durable observation is added. Native controls follow separately.

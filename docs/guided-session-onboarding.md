@@ -734,3 +734,20 @@ unclassified. No known compiler overlaps were observed, no timeouts were raised,
 and no unchanged local retry follows. All57 prior native-test/conformance files
 are byte-identical. Strict pinned303 validation passes; final exact-head all29 CI,
 four PR checks and fresh bot/root review follow on the slice/tracking PR.
+
+### Explicit selected-machine peer reachability
+
+Section38/GU.impl38 follows merged87 (`c112cdd`). One owner-local check captures
+the current project/network/person and exact remote machine key, uses the
+existing pinned peer directory GET over current routes, and rechecks complete
+inspection/project pins after IO. It does not learn contacts, refresh the
+directory or store observations. Only response status is projected, never the
+remote body or diagnostics. Authenticated outbound response is separate from
+incoming agent delivery, model receipt and overall readiness. Native controls
+and complete connection acceptance follow separately.
+
+First local Rust format/test155+2ignored/Clippy/all shipped binaries pass on
+frozen1e78059. The unchanged readiness suite passes6/6 in45.60s. Independent
+new peer-reachability conformance and final exact-head all30/four CI checks/fresh
+review follow. The entire native plugin remains unchanged from merged87; its
+strict validation/CI365 and retained local timeout history are reused locally.
