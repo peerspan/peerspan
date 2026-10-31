@@ -3803,3 +3803,10 @@ pretending a folded admin packet exists, key copying, broad resume as lookup,
 implicit commit/adoption and a new schema. Section45 settles the exact closed
 public contract and independent six-case suite before product code. Requester
 consent, bounded completion and native controls follow as small feature PRs.
+
+GU.impl45 verification choices: allow one explicit ordinary finalize using the
+existing computer's configured original under its exact prior approval; the
+requester receives no original. Allow isolated stopped-requester malformed
+catalog negative with restart/fresh parent before snapshot and no positive
+reuse. Discard authority-row fabrication, positive corrupt fixtures and worker
+disabling. Record bounded separate-admin/reused-binding gaps honestly.

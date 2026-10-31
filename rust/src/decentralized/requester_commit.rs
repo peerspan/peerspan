@@ -192,7 +192,8 @@ pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Res
     let prepared = &stage.prepared;
     check(
         num(prepared.binding.subject()?, "scopes")? == 2
-            && num(prepared.device.subject()?, "scopes")? == 7,
+            && num(prepared.device.subject()?, "scopes")? == 7
+            && text(&prepared.binding.payload, "not_after")? == not_after,
     )?;
     for s in [
         &prepared.admissions.person,
