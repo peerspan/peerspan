@@ -1826,7 +1826,7 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const commitCanApprove = !!extra.commitActive && requesterEligible(requester, now, true);
   const commitCanComplete = !!extra.commitActive && requesterEligible(requester, now);
   const commitCanPrepare = !!extra.commitActive && requester?.commit === null && requesterCanPrepare(extra.owner, now);
-  const secret = ['choose', 'create_review', 'review'].includes(stage) ? extra.secret ?? null : null;
+  const secret = ['choose', 'create_review', 'machine_identity', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
     ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired,
