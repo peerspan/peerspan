@@ -1,0 +1,1100 @@
+{
+  "slice": "GU.impl44",
+  "pull_request": "https://github.com/peerspan/peerspan/pull/97",
+  "tracking_pr": 35,
+  "base": "be198c5afcfdcf0d47611e164eaa380142c216bf",
+  "source_head": "47553ed5139f92eed3d7baf331fa0b8adef298b7",
+  "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+  "hooks_tree": "b19d39ac2320f9f386ee984aea9e18c4567fb2df",
+  "independent_author": {
+    "source_commit": "4b25d394e9d5c0dbf76585b619f469cf99884720",
+    "branch": "codex/gu-native-machine-owner-tests",
+    "test_sha256": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f",
+    "native_cases": 22,
+    "existing_cases": 393,
+    "source_only": true,
+    "no_product_reads_or_runtime": true,
+    "unchanged_after_first_execution": true
+  },
+  "preservation": {
+    "base": "be198c5afcfdcf0d47611e164eaa380142c216bf",
+    "existing_native_files": 20,
+    "existing_host_test_files": 44,
+    "all_byte_identical": true,
+    "files": {
+      "conformance/agent_adapter.py": {
+        "sha256": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
+        "unchanged": true
+      },
+      "conformance/claude_setup.py": {
+        "sha256": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+        "unchanged": true
+      },
+      "conformance/fixtures/gh/gh.py": {
+        "sha256": "4afd0f0505e0d2fbf89d6af91aa00c39200c2e19d1a858b7f24480f0c47a2d81",
+        "unchanged": true
+      },
+      "conformance/fixtures/mcp/server.py": {
+        "sha256": "3e24b43f4b8f2bb713dfa32518d35cd9e36362e2f2cb929eaf1cc2339a1f1da6",
+        "unchanged": true
+      },
+      "conformance/fixtures/remote/remote.py": {
+        "sha256": "2be308e4bf93ccd58113b59e30bb7aec686f5c1470b7227fa2af127c174d3550",
+        "unchanged": true
+      },
+      "conformance/host_service.py": {
+        "sha256": "2b7aae580c610fe7270b837b76be4acead89e72555d7964b4a069974c88e01af",
+        "unchanged": true
+      },
+      "conformance/installed_bundle.py": {
+        "sha256": "1f61d9c11c13649a5e5157fe659a5c318f049556b7fe98c947cc64f852ff6f9a",
+        "unchanged": true
+      },
+      "conformance/peer_messaging.py": {
+        "sha256": "ed735dcc9360997add4abfa3ddd6da430110b0d7757ff57acbced297b61722a4",
+        "unchanged": true
+      },
+      "conformance/slim/access_application.py": {
+        "sha256": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+        "unchanged": true
+      },
+      "conformance/slim/access_consent.py": {
+        "sha256": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+        "unchanged": true
+      },
+      "conformance/slim/access_onboarding.py": {
+        "sha256": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+        "unchanged": true
+      },
+      "conformance/slim/access_signing.py": {
+        "sha256": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+        "unchanged": true
+      },
+      "conformance/slim/adapter_onboarding.py": {
+        "sha256": "d07d1ed9b7088b71ce0af54db50ecfcbbb2cd32d5c48200c511a736e4b2a5714",
+        "unchanged": true
+      },
+      "conformance/slim/admission_consent.py": {
+        "sha256": "bb1e4a1a9513beaca28621b57eb1c0688c112fb453a38d5fa160566de787f8c6",
+        "unchanged": true
+      },
+      "conformance/slim/admission_onboarding.py": {
+        "sha256": "e3fa6b749a5225135c23cf5799291d7598b99066434640d403a77da5c9888e08",
+        "unchanged": true
+      },
+      "conformance/slim/basics.py": {
+        "sha256": "55828ce8de9efeb01c5b83a07574ea31d4374e3a00c10cadb146eb5b23ad0185",
+        "unchanged": true
+      },
+      "conformance/slim/capabilities.py": {
+        "sha256": "7c07428b7da068866fa65541913fa915cce27498cd8bcd32c4262aa003435b81",
+        "unchanged": true
+      },
+      "conformance/slim/counted_peer.py": {
+        "sha256": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+        "unchanged": true
+      },
+      "conformance/slim/delivery.py": {
+        "sha256": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+        "unchanged": true
+      },
+      "conformance/slim/harness.py": {
+        "sha256": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+        "unchanged": true
+      },
+      "conformance/slim/incoming_progress.py": {
+        "sha256": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc",
+        "unchanged": true
+      },
+      "conformance/slim/invitation_onboarding.py": {
+        "sha256": "819425617254996c02bc2825c971ef31e156c24b4584e9f5529190f16ecd6286",
+        "unchanged": true
+      },
+      "conformance/slim/join.py": {
+        "sha256": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+        "unchanged": true
+      },
+      "conformance/slim/join_onboarding.py": {
+        "sha256": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+        "unchanged": true
+      },
+      "conformance/slim/live.py": {
+        "sha256": "6a3296a8ee3f6a2d6a0cd3777b59417620362e55540ae6d34078cfcc3bc3ec0b",
+        "unchanged": true
+      },
+      "conformance/slim/machine_owner.py": {
+        "sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+        "unchanged": true
+      },
+      "conformance/slim/machine_owner_consent.py": {
+        "sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+        "unchanged": true
+      },
+      "conformance/slim/machine_owner_signing.py": {
+        "sha256": "0cd90eeb046ae54f67371806f0c32ea384184aa07bcd6d10422834a18487f8ae",
+        "unchanged": true
+      },
+      "conformance/slim/onboarding.py": {
+        "sha256": "25a5a8d0f4dc9aebff038b4a212d7db854bb479a5fb9d1d762c61d4642fbbfe1",
+        "unchanged": true
+      },
+      "conformance/slim/owner_finalization.py": {
+        "sha256": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+        "unchanged": true
+      },
+      "conformance/slim/owner_finalization_signing.py": {
+        "sha256": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+        "unchanged": true
+      },
+      "conformance/slim/owner_onboarding.py": {
+        "sha256": "beb06d9a6194bf617ac20d941803c753bf2eed7663bd0079a9558c0eefa6b668",
+        "unchanged": true
+      },
+      "conformance/slim/owner_signing.py": {
+        "sha256": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0",
+        "unchanged": true
+      },
+      "conformance/slim/peer_reachability.py": {
+        "sha256": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+        "unchanged": true
+      },
+      "conformance/slim/policy.py": {
+        "sha256": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+        "unchanged": true
+      },
+      "conformance/slim/project_onboarding.py": {
+        "sha256": "9990241a3a5f7f23c6887aa03293f10bcdcfcb21c0ef9dc0a0718c01c2aa1b5e",
+        "unchanged": true
+      },
+      "conformance/slim/readiness.py": {
+        "sha256": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+        "unchanged": true
+      },
+      "conformance/slim/renewal.py": {
+        "sha256": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+        "unchanged": true
+      },
+      "conformance/slim/requester_commit.py": {
+        "sha256": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+        "unchanged": true
+      },
+      "conformance/slim/requester_completion.py": {
+        "sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+        "unchanged": true
+      },
+      "conformance/slim/root.py": {
+        "sha256": "58cdb05b0cfef63504b24e2a0a8fc918662153320919cd31e6cc26c4ac89bf29",
+        "unchanged": true
+      },
+      "conformance/slim/sync.py": {
+        "sha256": "dcf42dd76b6f238f4a6089412e0afe66c737b88a7c8b8f071e086711aaf254b3",
+        "unchanged": true
+      },
+      "conformance/slim/work.py": {
+        "sha256": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af",
+        "unchanged": true
+      },
+      "conformance/test_package_release.py": {
+        "sha256": "fd3e1045836ecf687498cf14b6a09b324f39030a69cf286ac207659d932ca10b",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/access-completion.test.ts": {
+        "sha256": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/access-review.test.ts": {
+        "sha256": "65d903019d7bfabb6086d7725d1925fdc020103d4c82e52bda8e011bc4c0bc98",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/adapter-review.test.ts": {
+        "sha256": "bebb2ba5d8703e63fbbb5781f2adbe318d40101766a05d50e224158feb229941",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/admission-review.test.ts": {
+        "sha256": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts": {
+        "sha256": "7e1b662a12b5190e578a7b4be77793a823d9cb7a979af056249d2caa42adda31",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/invitation-review.test.ts": {
+        "sha256": "d7d0dc37392844df4a2b1873a6718769ad2239b3a640bed6e2bcc699a8e87f39",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/join-progress.test.ts": {
+        "sha256": "21db445cf0421adfc6e4e9951b00d4d56b189c51b45eeae5afb964af30e9cecb",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/join-review.test.ts": {
+        "sha256": "09e2d5d546711bc60d1ec55ffac2f1e359e6cc4163ca45f827a7eb591839b982",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/machine-request.test.ts": {
+        "sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/native-entry.test.ts": {
+        "sha256": "6a71c73a641247870a9b2a8a7c6e987cfea57eb981b7b4f80d2ae675cf0acfbf",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/native-message.test.ts": {
+        "sha256": "58fde146a5e31e661c83c95cb4573d7f2ed965ffb2c1e24fc3a19334053f51da",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/native-task.test.ts": {
+        "sha256": "becc4f8f1e41ea708166bb9f7eca6b46154b657dd1cd27f80f77a72a90fa9518",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/new-identity.test.ts": {
+        "sha256": "a24abf5a887c6eb63aae1dd007233482c1658ce9635ce12f496946af7988faf2",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts": {
+        "sha256": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/owner-review.test.ts": {
+        "sha256": "2083ea5e72369e22df2bf5a345065b5cda8f3e9cbd7378c124a81277b8336aa7",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/owner-signing.test.ts": {
+        "sha256": "5efae8ad77d509e842cdc1d642ec1699f35ecb49796a48ade179d85fbf39bdf1",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts": {
+        "sha256": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/project-review.test.ts": {
+        "sha256": "f9430f52ddc0f0c5b7da5833a3e923df29ae4ba55bfd481504b2c820c9b2c330",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/readiness.test.ts": {
+        "sha256": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a",
+        "unchanged": true
+      },
+      "integrations/claude-onboarding/tests/requester-commit.test.ts": {
+        "sha256": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653",
+        "unchanged": true
+      }
+    }
+  },
+  "runtime_records": [
+    {
+      "gate": "native-test-corrected-first",
+      "head": "47553ed5139f92eed3d7baf331fa0b8adef298b7",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 79.87,
+      "log": "/tmp/gu44-runtime/native-test-corrected-first.log",
+      "sha256": "ae18b9acdde6eae41e78a621bd8563ffea20640b3dacd52f88d003aa8e9c7c54",
+      "runtime_sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450",
+      "preflight_active": [],
+      "samples": [
+        {
+          "seconds": 15.01,
+          "active": [
+            [
+              "2754220",
+              "2.1.303"
+            ],
+            [
+              "2754273",
+              "2.1.303"
+            ],
+            [
+              "2754274",
+              "2.1.303"
+            ],
+            [
+              "2754275",
+              "2.1.303"
+            ],
+            [
+              "2754276",
+              "2.1.303"
+            ],
+            [
+              "2754277",
+              "2.1.303"
+            ],
+            [
+              "2754278",
+              "2.1.303"
+            ],
+            [
+              "2754279",
+              "2.1.303"
+            ],
+            [
+              "2754286",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.27,
+          "active": [
+            [
+              "2754220",
+              "2.1.303"
+            ],
+            [
+              "2754273",
+              "2.1.303"
+            ],
+            [
+              "2754274",
+              "2.1.303"
+            ],
+            [
+              "2756458",
+              "2.1.303"
+            ],
+            [
+              "2756681",
+              "2.1.303"
+            ],
+            [
+              "2756682",
+              "2.1.303"
+            ],
+            [
+              "2757519",
+              "2.1.303"
+            ],
+            [
+              "2757694",
+              "2.1.303"
+            ],
+            [
+              "2757701",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.51,
+          "active": [
+            [
+              "2754220",
+              "2.1.303"
+            ],
+            [
+              "2756458",
+              "2.1.303"
+            ],
+            [
+              "2757519",
+              "2.1.303"
+            ],
+            [
+              "2757694",
+              "2.1.303"
+            ],
+            [
+              "2757701",
+              "2.1.303"
+            ],
+            [
+              "2758309",
+              "2.1.303"
+            ],
+            [
+              "2758934",
+              "2.1.303"
+            ],
+            [
+              "2759062",
+              "2.1.303"
+            ],
+            [
+              "2759304",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.69,
+          "active": [
+            [
+              "2754220",
+              "2.1.303"
+            ],
+            [
+              "2757694",
+              "2.1.303"
+            ],
+            [
+              "2758309",
+              "2.1.303"
+            ],
+            [
+              "2758934",
+              "2.1.303"
+            ],
+            [
+              "2759062",
+              "2.1.303"
+            ],
+            [
+              "2759304",
+              "2.1.303"
+            ],
+            [
+              "2760032",
+              "2.1.303"
+            ],
+            [
+              "2760187",
+              "2.1.303"
+            ],
+            [
+              "2760585",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.81,
+          "active": [
+            [
+              "2754220",
+              "2.1.303"
+            ],
+            [
+              "2760585",
+              "2.1.303"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": [],
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+      "hooks_tree": "b19d39ac2320f9f386ee984aea9e18c4567fb2df",
+      "new_test_sha256": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f"
+    },
+    {
+      "gate": "native-test-first",
+      "head": "bcc2a197558103057d437a05578f7803600b8db9",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 80.67,
+      "log": "/tmp/gu44-runtime/native-test-first.log",
+      "sha256": "beaba3939e7d93444465a5ae841cef0e7aeddcde97015d1b1484842115d96eab",
+      "runtime_sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450",
+      "preflight_active": [],
+      "samples": [
+        {
+          "seconds": 15.01,
+          "active": [
+            [
+              "2738031",
+              "2.1.303"
+            ],
+            [
+              "2738065",
+              "2.1.303"
+            ],
+            [
+              "2738066",
+              "2.1.303"
+            ],
+            [
+              "2738067",
+              "2.1.303"
+            ],
+            [
+              "2738068",
+              "2.1.303"
+            ],
+            [
+              "2738069",
+              "2.1.303"
+            ],
+            [
+              "2738070",
+              "2.1.303"
+            ],
+            [
+              "2738071",
+              "2.1.303"
+            ],
+            [
+              "2738078",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.12,
+          "active": [
+            [
+              "2738031",
+              "2.1.303"
+            ],
+            [
+              "2738065",
+              "2.1.303"
+            ],
+            [
+              "2738066",
+              "2.1.303"
+            ],
+            [
+              "2740142",
+              "2.1.303"
+            ],
+            [
+              "2740145",
+              "2.1.303"
+            ],
+            [
+              "2740505",
+              "2.1.303"
+            ],
+            [
+              "2741252",
+              "2.1.303"
+            ],
+            [
+              "2741274",
+              "2.1.303"
+            ],
+            [
+              "2741443",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.29,
+          "active": [
+            [
+              "2738031",
+              "2.1.303"
+            ],
+            [
+              "2740142",
+              "2.1.303"
+            ],
+            [
+              "2741252",
+              "2.1.303"
+            ],
+            [
+              "2741274",
+              "2.1.303"
+            ],
+            [
+              "2741443",
+              "2.1.303"
+            ],
+            [
+              "2742380",
+              "2.1.303"
+            ],
+            [
+              "2742383",
+              "2.1.303"
+            ],
+            [
+              "2742796",
+              "2.1.303"
+            ],
+            [
+              "2743448",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.47,
+          "active": [
+            [
+              "2738031",
+              "2.1.303"
+            ],
+            [
+              "2741274",
+              "2.1.303"
+            ],
+            [
+              "2742380",
+              "2.1.303"
+            ],
+            [
+              "2742383",
+              "2.1.303"
+            ],
+            [
+              "2742796",
+              "2.1.303"
+            ],
+            [
+              "2743448",
+              "2.1.303"
+            ],
+            [
+              "2743808",
+              "2.1.303"
+            ],
+            [
+              "2744124",
+              "2.1.303"
+            ],
+            [
+              "2744785",
+              "2.1.303"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.6,
+          "active": [
+            [
+              "2738031",
+              "2.1.303"
+            ],
+            [
+              "2744785",
+              "2.1.303"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": [],
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "native_tree": "c6076b53457b6219f61b8a26db60b61df40e8adf",
+      "hooks_tree": "380394e649d4d896c29d8023767eb328cb895b38",
+      "new_test_sha256": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f"
+    },
+    {
+      "gate": "native-validate-corrected-first",
+      "head": "47553ed5139f92eed3d7baf331fa0b8adef298b7",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 1.0,
+      "log": "/tmp/gu44-runtime/native-validate-corrected-first.log",
+      "sha256": "56d9e78a8e09cc6cd36d5cb97eaab2afc92bd746309a95aaa86fc5a3ac14b4fa",
+      "runtime_sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450",
+      "preflight_active": [],
+      "samples": [],
+      "postflight_active": [],
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+      "hooks_tree": "b19d39ac2320f9f386ee984aea9e18c4567fb2df",
+      "new_test_sha256": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f"
+    },
+    {
+      "gate": "native-validate-first",
+      "outcome": "no_start",
+      "reason": "Root supplied an incorrect expected commit literal; clean-head assertion failed before plugin launch.",
+      "expected": "48a7572cd4e75a84cf4e442159bc429bb56080a8",
+      "actual": "48a7572787243847b93f9f72428eb4554f38a76f",
+      "exit": 1
+    },
+    {
+      "gate": "native-validate-first",
+      "head": "bcc2a197558103057d437a05578f7803600b8db9",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 2.0,
+      "log": "/tmp/gu44-runtime/native-validate-first.log",
+      "sha256": "56d9e78a8e09cc6cd36d5cb97eaab2afc92bd746309a95aaa86fc5a3ac14b4fa",
+      "runtime_sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450",
+      "preflight_active": [],
+      "samples": [],
+      "postflight_active": [],
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "native_tree": "c6076b53457b6219f61b8a26db60b61df40e8adf",
+      "hooks_tree": "380394e649d4d896c29d8023767eb328cb895b38",
+      "new_test_sha256": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f"
+    }
+  ],
+  "logs": {
+    "first-ci-access_signing.log": {
+      "sha256": "03287bb7f97424e401e7a88e9ca26f4157469f74faa72161ec282953cff3bf10",
+      "bytes": 18362,
+      "path": "/tmp/gu44-runtime/first-ci-access_signing.log"
+    },
+    "first-ci-machine_owner.log": {
+      "sha256": "918ef52c85fc0f839eec88665ba068d20df6b2b22124ae299d483b59d299005e",
+      "bytes": 18164,
+      "path": "/tmp/gu44-runtime/first-ci-machine_owner.log"
+    },
+    "first-ci-native.log": {
+      "sha256": "a14b1411c3f8ad9b41cebb13b6c56ba5c47c335a9f88f179e113f936b58db5e9",
+      "bytes": 80209,
+      "path": "/tmp/gu44-runtime/first-ci-native.log"
+    },
+    "native-test-corrected-first.log": {
+      "sha256": "ae18b9acdde6eae41e78a621bd8563ffea20640b3dacd52f88d003aa8e9c7c54",
+      "bytes": 51091,
+      "path": "/tmp/gu44-runtime/native-test-corrected-first.log"
+    },
+    "native-test-first.log": {
+      "sha256": "beaba3939e7d93444465a5ae841cef0e7aeddcde97015d1b1484842115d96eab",
+      "bytes": 60883,
+      "path": "/tmp/gu44-runtime/native-test-first.log"
+    },
+    "native-validate-corrected-first.log": {
+      "sha256": "56d9e78a8e09cc6cd36d5cb97eaab2afc92bd746309a95aaa86fc5a3ac14b4fa",
+      "bytes": 3568,
+      "path": "/tmp/gu44-runtime/native-validate-corrected-first.log"
+    },
+    "native-validate-first.log": {
+      "sha256": "56d9e78a8e09cc6cd36d5cb97eaab2afc92bd746309a95aaa86fc5a3ac14b4fa",
+      "bytes": 3568,
+      "path": "/tmp/gu44-runtime/native-validate-first.log"
+    },
+    "second-ci-native.log": {
+      "sha256": "b1ed3e4d99a3baee9c75457acbd61e85a8c45b51712e40edc0e2ee10980fd5fa",
+      "bytes": 93354,
+      "path": "/tmp/gu44-runtime/second-ci-native.log"
+    }
+  },
+  "first_ci": {
+    "head": "197753480341188bb7f7920ad5583fe045d101c1",
+    "conformance_run": 41250164794,
+    "checks_run": 41250164817,
+    "attempt": 1,
+    "jobs": [
+      {
+        "id": 124681821251,
+        "name": "Build host, peer probe and helper",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157348,
+        "name": "adapter_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157356,
+        "name": "capabilities",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157367,
+        "name": "owner_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157388,
+        "name": "join",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157389,
+        "name": "requester_commit",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157391,
+        "name": "incoming_progress",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157396,
+        "name": "onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157404,
+        "name": "requester_completion",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157406,
+        "name": "sync",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157407,
+        "name": "project_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157410,
+        "name": "live",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157419,
+        "name": "admission_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157430,
+        "name": "policy",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157436,
+        "name": "machine_owner_consent",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157440,
+        "name": "join_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157451,
+        "name": "access_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157453,
+        "name": "invitation_onboarding",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157456,
+        "name": "delivery",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157457,
+        "name": "owner_signing",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157458,
+        "name": "renewal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157461,
+        "name": "access_application",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157462,
+        "name": "root",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157471,
+        "name": "owner_finalization",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157480,
+        "name": "work",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157500,
+        "name": "access_signing",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 124682157509,
+        "name": "machine_owner",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 124682157510,
+        "name": "readiness",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157519,
+        "name": "admission_consent",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157529,
+        "name": "basics",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157530,
+        "name": "owner_finalization_signing",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157544,
+        "name": "peer_reachability",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157563,
+        "name": "machine_owner_signing",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124682157593,
+        "name": "access_consent",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "native": {
+      "job": 124681821739,
+      "passed": 393,
+      "files": 20,
+      "seconds": 99.09
+    },
+    "checks": "4/4 success",
+    "failures": [
+      {
+        "suite": "access_signing",
+        "passed": 4,
+        "failed": 2,
+        "seconds": 83,
+        "observed": "Verification5/6 genuine peer startup directory query not completed; state error, HTTP200, known row1, refreshed_at absent.",
+        "cause": "unclassified"
+      },
+      {
+        "suite": "machine_owner",
+        "passed": 5,
+        "failed": 1,
+        "seconds": 31,
+        "observed": "Verification5 whole DB/schema/state/home changed during refusal API; every counted carrier unchanged.",
+        "cause": "unclassified"
+      }
+    ]
+  },
+  "first_local": {
+    "head": "bcc2a197558103057d437a05578f7803600b8db9",
+    "passed": 413,
+    "failed": 2,
+    "seconds": 79.82,
+    "new_passed": 21,
+    "new_failed": 1,
+    "failures": [
+      {
+        "case": "new now-signed preflight attribution",
+        "observed": "Broad unchanged assertion matches negated this-interface wording followed by retained signed marker.",
+        "correction": "Concise product signing-attribution wording only; no test edit."
+      },
+      {
+        "case": "existing access-completion Apply exact locally-applied evidence",
+        "observed": "Unchanged default5000ms timeout,5072.75ms reported.",
+        "cause": "unclassified",
+        "test_or_timeout_change": false
+      }
+    ]
+  },
+  "review": {
+    "first_head": "197753480341188bb7f7920ad5583fe045d101c1",
+    "finding": "P2 foreign-project still-review receipt refused",
+    "thread": "PRRT_kwDOVZ-Tss6yVV7v",
+    "fixed_commit": "c72689c",
+    "independent_case": "foreign review and approved receipts with two attached projects",
+    "resolved": true,
+    "final_exact_head_review": "required on PR"
+  },
+  "verification_scope": {
+    "native": "Pinned2.1.303 actual mod runtime, mocked owner-local CLI/native effects, complete415 cases; no test timeout overrides. Root alone executes, serialized, regular-disk TMPDIR, compiler-idle preflight.",
+    "backend": "Rust/API/schema/protocol tree unchanged; combined-head CI owns all33 old host suites+build/four checks. No optional local host rerun.",
+    "final_ci": "Required on exact final PR head; receipts remain on PR to avoid evidence-only CI commit loops."
+  },
+  "remaining_limits": [
+    "Original first CI startup/history causes and old local5s timeout remain unclassified even if later samples pass. Prior96/94 unclassified UDP/TCP/helper/history observations remain in their records.",
+    "Old rendered callback retention and microscopic last-await/dispatch race are source/manual limits of pinned test kit.",
+    "Mocked native fixtures do not establish actual signer/key possession, backend signature/storage purity or physical-machine networking.",
+    "No new actual terminal/reload/installed/two-machine/model receipt or full #35 combined acceptance. Requester-side machine selection/completion remains separate.",
+    "No native replacement/revocation/cancellation or background protocol driver; signed initial evidence is not publication, admission, machine powers, access or readiness."
+  ],
+  "attachment": "App attach attempted for PR97; host reported thread attachment identity count exceeds100. No unrelated artifacts removed.",
+  "corrected_local": {
+    "head": "47553ed5139f92eed3d7baf331fa0b8adef298b7",
+    "passed": 412,
+    "failed": 3,
+    "new_passed": 22,
+    "new_failed": 0,
+    "seconds": 79.14,
+    "runner_seconds": 79.87,
+    "failures": [
+      {
+        "case": "existing access-completion closed signed-result corpus",
+        "observed": "Unchanged5000ms timeout,5013.22ms reported.",
+        "cause": "unclassified"
+      },
+      {
+        "case": "existing access review navigation/context/end",
+        "observed": "Unchanged5000ms timeout,5005.01ms reported.",
+        "cause": "unclassified"
+      },
+      {
+        "case": "existing adapter pending-HTTP conversation change",
+        "observed": "Expected one dispatched connection, received zero.",
+        "cause": "unclassified"
+      }
+    ],
+    "old_test_edits": false,
+    "unchanged_local_retry": false
+  },
+  "second_ci": {
+    "head": "bcc2a197558103057d437a05578f7803600b8db9",
+    "conformance_run": 41250670773,
+    "checks_run": 41250670995,
+    "native_job": 124683344074,
+    "native_passed": 414,
+    "native_failed": 1,
+    "native_seconds": 78.62,
+    "failure": "Only the corrected product attribution wording case; all393 old native cases pass.",
+    "attempt": 1
+  }
+}

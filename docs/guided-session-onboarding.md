@@ -938,3 +938,11 @@ This composes sections41–43 without changing Rust/API/schema/protocol behavior
 Independent native fixtures, root runtime validation, combined-head CI and fresh
 review are required before owner review. Requester completion, real terminal/
 reload, installed/two-machine/model and full #35 acceptance remain open.
+
+The [native machine-owner verification record](results/guided-native-machine-owner-verification.json)
+retains first local413/415, corrected new22/22 with three old runtime failures,
+and first CI startup/history failures. Existing393 cases and all64 old test/
+conformance files remain unchanged, without timeout overrides or local retries.
+The first bot's foreign-project review case is fixed and independently covered.
+Final exact-head combined CI and fresh review receipts are attached to PR97;
+passing later samples do not classify prior failures.

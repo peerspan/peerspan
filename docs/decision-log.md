@@ -3781,3 +3781,12 @@ First CI197 passes Rust/four checks/native393in99.09s and32/34 conformance jobs:
 access_signing4/6in83s reports genuine peer startup not completed (state error);
 machine_owner5/6in31s reports whole DB/files changed on refusal, all carriers
 unchanged. Retain both unknown causes; Rust and all64 old test files stay exact.
+
+Corrected native source47553ed passes all22 new cases; complete run412/415in
+79.14s (runner79.87s). Three unchanged old cases fail: access signed-result
+corpus and access navigation exceed5s; adapter pending-HTTP conversation case
+expects one dispatched connection but observes zero. Causes remain unclassified.
+No source/test/timeout edit or unchanged local retry follows. Prior combined
+bcc2 CI414/415in78.62s fails only the now-corrected wording case; old393 pass.
+All64 preexisting test/conformance files and Rust105e8c54 remain exact. Final
+combined-head CI and fresh bot/root review must establish the review candidate.
