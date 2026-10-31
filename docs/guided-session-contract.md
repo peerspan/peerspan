@@ -6355,7 +6355,9 @@ then `network members NETWORK_ID` for the exact closed runtime section2 member
 view. Group current bound members by exact person public key; ignore unbound
 rows, never merge different keys by label, refuse inconsistent labels/duplicate
 hosts/malformed fields. Show public keys alongside quoted labels and network
-names; ten choices/page sorted by person key. The network ID is public argv;
+names; ten choices/page sorted by person key. Choice text includes the full public
+ID/key and quoted label; paging labels need not have a particular wording.
+The network ID is public argv;
 no private context/payload/code enters argv. This slice lists only people with
 at least one current bound host, including self. Hostless-person selection is
 not added, and a label or list entry never establishes current access.
@@ -6406,7 +6408,11 @@ selected person's ordinary `person:person_SHA256(decoded_public_key)` principal,
 message.append/task.submit only,65536 message bytes,0 artifacts, disconnected
 false. Disclose that the name applies across the owner's machines and unrelated
 broader policy remains. Provider is original_person or device, never network_root;
-exact owner host/person/root/lease references, scope1 and finite bounds. Public
+exact owner host/person/root/lease references, required scope1 among actual
+available powers (original commonly7), and finite bounds. A member device lease
+may be the ordinary ambiguous/absent marker '-'; it does not invalidate the
+person choice. An explicitly selected device provider still names its concrete
+lease and public key, independent of that display marker. Public
 statement payload binds root, issuer person/provider kind, required issuer-person/
 optional-device parents, predecessor baseline, sequence/body version, issued_at/
 not_before and finite not_after/body valid_until; created_at equals issued_at,
