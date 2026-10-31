@@ -3413,3 +3413,19 @@ not retained, so no claim of observed200 is made. The missing fresh-window
 field is a downstream setup failure. Contract-first independent corrections
 change only those fixture prerequisites, preserving all assertions/traffic/DB
 checks/delays/timeouts. Product stays frozen; the first result remains recorded.
+
+### GU.impl37 — Native explicit current connection status
+
+After merged86, add Check connection status to verified selected-person access
+views. Read the exact section36 snapshot only on that explicit action. Present
+receiver advertisements and exact-session adapter observations separately; show
+full public details without internal native/session/adapter plumbing. A fixed
+30s/earliest finite-bound timer clears stale evidence without IO. Current native
+model/peer/overall readiness is not inferred. Existing runtime remains separate.
+
+Selected: one read-only human status pane with explicit Check/details/access
+review/Leave. Discarded: implicit work after approvals, an overall-ready badge,
+permission unions/evaluation in the frontend, borrowed channels, automatic model
+or peer probes, new storage and edits to349 existing tests. Independent16-case
+source precedes root runtime; unchanged Rust/local gates are reused, final all29/
+four checks/fresh review run on one head. Full feature acceptance remains open.
