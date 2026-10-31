@@ -6257,6 +6257,25 @@ artifact and duration; production stays frozen4842404. Commit before one run of
 the corrected source. Do not treat this new fixture error as a runtime fix or
 attribute old callers from its correction.
 
+### GU.impl33h: pre-execution delivery diagnostic scope clarification
+
+Static review before the delivery observer's first runtime identifies three
+metadata gaps. A normal enabled host has its actual host.db plus the separate
+dec-bootstrap.db; do not require exactly one *.db. For this standard fixture,
+open only the existing host.state/host.db read-only, with the same single bounded
+transaction. Never inspect or mutate the bootstrap store to find authority.
+
+The original commit attention may be the documented transport_recovery_required
+category: classify recovery_required explicitly, alongside quota_exceeded and
+the other fixed documented transport codes, without printing arbitrary text.
+Existing debug served timing has the form timing #N serve METHOD PATH STATUS
+DURATIONms; recognize its trailing bare HTTP status as well as any supported
+explicit status form. This remains fixed count/duration/route-class metadata,
+not a trace or caller attribution. A contract-only author corrects only these
+three newly added diagnostic parts before first execution, preserving every
+old action/wait/exception/assertion and all caps. Record this as pre-execution
+correction, not a runtime failure or product fix. Production stays4842404.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining
