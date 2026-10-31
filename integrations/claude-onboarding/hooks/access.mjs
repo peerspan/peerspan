@@ -168,7 +168,7 @@ export async function consent(raw, parent, host, network, selected) {
       Date.parse(p.not_after) > Math.min(Date.parse(p.issued_at) + 86400000, Date.parse(provider.not_after), Date.parse(i.participant.not_after)) ||
       Date.parse(r.expires_at) !== Math.min(Date.parse(r.created_at) + 300000, Date.parse(p.not_after)) ||
       Date.parse(r.expires_at) <= Date.parse(r.created_at) || !p.body.rules.some(rule => rule.agent === r.grant.agent_name &&
-        same(rule.actions, r.grant.actions) && rule.principals.includes(r.grant.principal) && rule.max_message_bytes === 65536 &&
+        same([...new Set(rule.actions)].sort(), [...r.grant.actions].sort()) && rule.principals.includes(r.grant.principal) && rule.max_message_bytes === 65536 &&
         (rule.max_artifact_bytes ?? 0) === 0 && rule.allow_disconnected === false) ||
       a.review_id !== await digest('peerspan-project-access-consent-v1', r)) throw new Error('Unavailable exact grant');
   const actions = { review: 'approve_policy_intent', approved: 'follow_policy_action', expired: 'inspect_agent_access', invalidated: 'inspect_agent_access' };
