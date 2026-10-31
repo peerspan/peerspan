@@ -21,6 +21,7 @@ import io
 import json
 import os
 import queue
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -1515,7 +1516,13 @@ def _():
             "destination": "rt-mcp", "argv": argv, "workspace_path": str(work), "results": "output"}})
         check(not answer.get("isError"), f"run_task: {answer}")
         text = answer["content"][0]["text"]
-        task_id = next((w for w in text.replace('"', " ").replace(",", " ").split() if w.startswith("task_")), None)
+        try:
+            task_id = json.loads(text).get("task_id")
+        except (ValueError, AttributeError):
+            task_id = None
+        if not task_id:
+            found = re.search(r"task_[0-9a-f]{32}", text)
+            task_id = found.group(0) if found else None
         check(task_id, f"run_task returned no task ID: {text[:300]}")
         updates = []
         while True:
