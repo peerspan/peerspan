@@ -395,4 +395,26 @@ adds owner-local `POST /v1/onboarding/machine-owner-inspection` and stdin-only
 the actual incoming same-person host/device keys and current selected public
 owner authority. Fixed proposed powers7 are capped at that authority's deadline.
 The inspection reads no private signer material, creates no consent or grant,
-and makes no readiness claim. Exact consent/signing and native controls follow.
+and makes no readiness claim. Exact consent and initial signing are below;
+native controls remain separate.
+
+### Existing-computer consent and initial machine-owner signatures
+
+[Guided section42](guided-session-contract.md#42-exact-existing-computer-machine-owner-consent)
+defines owner-local `POST /v1/onboarding/machine-owner-consent/{lookup,prepare,approve}`
+and stdin-only `onboarding machine lookup|prepare|approve --stdin`. An unsigned
+project receipt binds the actual ordinary owner intent; approval records both
+exact approvals and time atomically, without new protocol authority or schema.
+
+[Guided section43](guided-session-contract.md#43-bounded-existing-computer-owner-offer-signing)
+adds `.../signing` and `.../sign`, with `onboarding machine signing|sign --stdin`.
+The exact dual-approved receipt permits only the initial owner packet's host and
+authority signatures and its reviewed folded host-lease issuer. Use the selected
+owned device or exact daemon-configured original; no caller signer/material input
+or original-key copy. Fresh public/project/provider/whole-plan checks surround key
+use; recheck original fixed deadlines before atomic signature/packet/catalog/clock
+storage. Status and completed-signature replay are pure retained-history reads.
+The signed marker verifies neither publication, admission, current machine powers,
+requester commit, agent access nor readiness. Independently authorized ordinary
+work may publish and select an offer under existing spec8.4. Native controls and
+the remaining requester flow follow separately.

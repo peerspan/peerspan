@@ -891,3 +891,27 @@ bot/root review. Final evidence-only-head receipts follow on PR94. Earlier
 standalone history-table and requester-completion UDP causes remain unclassified;
 a passing sample does not erase them. Full guided/native/installed/model/combined
 acceptance stays open.
+
+### Existing computer: bounded initial machine-owner signing backend
+
+Section43/GU.impl43 follows merged94 (`405f879`). Owner-local signing status and
+explicit stdin-only Sign bind the exact dual-approved section42 receipt and
+recorded project. Only the initial typed owner host/authority and reviewed fold
+issuer are eligible, using the selected owned device or exact configured original
+file/agent. Fresh checks run before each key dispatch and again before atomic
+storage; original consent, stage, request and powers deadlines never restart.
+Completed-signature replay is pure history, not proof of publication, admission,
+current powers, access or readiness. Native controls remain a later slice.
+
+The [signing verification record](results/guided-machine-owner-signing-verification.json)
+retains first compile/runtime/CI failures, independent fixture corrections and
+the bot's pre-commit wall-time fix. The corrected new suite passes6/6in68s,
+including actual GUIDED device15 signatures, catalog/proof publication and
+requester retention after ordinary release. No selection/commit is supplied by
+Sign; ordinary single-offer selection follows unchanged spec8.4. All85 prior
+conformance/native files and native393 remain exact. The unchanged consent
+suite first passes6/6in38s; its later final-binary sample5/6in49s has an
+unclassified TCP-only crossing under externally approved worker activity, with
+DB/files unchanged. No old-case edit or unchanged local retry hides it. Final
+exact-head full33-suite+build/four checks/native393 and fresh review receipts go
+on PR96; full guided/installed/model/combined acceptance remains open.

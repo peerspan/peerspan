@@ -3721,3 +3721,14 @@ whole-state historical assertions; first helper-table changes remain explicitly
 unclassified. Discard relaxing invite pins, changing ordinary selection policy,
 excluding helper tables or rerunning an unchanged failure. Section43 records
 the exact first hashes, independent correction and remaining limits.
+
+Final product Rust105e8c54 passes fmt/test155+2ignored/Clippy/build; corrected
+independent signing6/6in68s verifies actual guided device proof publication and
+requester retention. Bot P2 fixes stale beginning-of-phase wall time with a
+fresh guarded read and all fixed deadlines immediately before commit. First CI
+passes all32 old suites+build/four checks/native393 while new cases4/6 fail the
+documented prerequisites. Unchanged local consent first6/6in38s, later final
+sample5/6in49s: outside-approval-held TCP counters changed, DB/files unchanged;
+cause remains unclassified. Preserve every first log, all85 old test/native
+files, and all source-only limits; no unchanged local retry. Final exact-head
+CI and review receipts on PR96 remain required before owner review.
