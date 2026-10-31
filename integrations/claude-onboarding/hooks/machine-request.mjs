@@ -28,7 +28,7 @@ const limits = [
   'Approval creates or reuses one request with a separate local device key and publishes it through ordinary transport.',
   'The actual requester host and device keys are reviewed in the later machine approval; no pre-publication key is asserted here.',
   'This publication grants no ownership, membership, machine powers or agent access.',
-  'Approval on the existing computer is still required. Guided existing-computer approval is subsequent work.',
+  'Approval on the existing computer is still required. Use Review machine requests on the existing computer.',
   'Publication and automatic-return availability do not prove delivery, current link state, permissions, transport or model receipt.',
 ].join('\n');
 export function reviewLines(flow) {

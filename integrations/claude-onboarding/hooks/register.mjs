@@ -37,6 +37,9 @@ import { inventory as accessNetworks, people as accessPeople, inspection as pars
   consent as parseAccessConsent, liveInspection as accessInspectionLive, approvable as accessApprovable,
   deadline as accessDeadline, inspectionLines as accessInspectionLines, consentLines as accessConsentLines } from './access.mjs';
 
+import { snapshot as parseMachineOwner, own as machineOwnerOwn, sameConsent as sameMachineOwnerConsent,
+  live as machineOwnerLive, deadline as machineOwnerDeadline, lines as machineOwnerLines } from './machine-owner.mjs';
+
 let options;
 let hostId = null;
 let project = { stage: 'inactive', busy: false };
@@ -60,6 +63,8 @@ let admissionExpiry = null;
 let accessing = { stage: 'inactive', busy: false };
 let accessExpiry = null;
 let machineEvidenceExpiry = null;
+let machineOwning = { stage: 'inactive', busy: false };
+let machineOwnerExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -104,6 +109,7 @@ function summary() {
 }
 
 async function refresh($) {
+  clearMachineOwner();
   clearAccess();
   clearAdmission();
   const previousJoining = joining;
@@ -202,6 +208,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  clearMachineOwner();
   clearAccess();
   clearAdmission();
   clearJoining();
@@ -274,6 +281,8 @@ async function projectView($, running, epoch, context, agents, flow) {
       admitting.parent?.review_id !== flow.review_id || !same(admitting.parent?.review, flow.review))) clearAdmission();
   if (accessing.stage !== 'inactive' && (stage !== 'attached' || accessing.parent?.flow_id !== flow.flow_id ||
       accessing.parent?.review_id !== flow.review_id || !same(accessing.parent?.review, flow.review))) clearAccess();
+  if (machineOwning.stage !== 'inactive' && (stage !== 'attached' || machineOwning.parent?.flow_id !== flow.flow_id ||
+      machineOwning.parent?.review_id !== flow.review_id || !same(machineOwning.parent?.review, flow.review))) clearMachineOwner();
   const view = { stage, context, host: hostId, agents, flow, busy: false, page: 0,
     name: running.name ?? defaultName(context.project_root), owner: running.owner ?? 'local owner' };
   project = view;
@@ -1425,6 +1434,7 @@ function accessPage($, previous, epoch, page) {
   $.ui.invalidate('ui.render');
 }
 function accessControls($, { Text, Button }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = accessing, button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.stage === 'inactive') return admitting.stage === 'inactive' && joining.stage === 'inactive' &&
@@ -1485,6 +1495,200 @@ function accessControls($, { Text, Button }, epoch) {
       ? [Text({ children: ['Existing terms require separate advanced review. No replacement or signing is automatic.'] })] : []),
     ...(previous.selected ? [button('access-check', 'Check agent access', () => readAccess($, previous, epoch))] : []), leave,
     ...(previous.inspected || previous.value?.access ? [status()] : []),
+  ];
+}
+
+function clearMachineOwner() {
+  machineOwnerExpiry?.cancel(); machineOwnerExpiry = null;
+  machineOwning = { stage: 'inactive', busy: false };
+}
+function machineOwnerStart($, previous, epoch) {
+  if (machineOwning !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy ||
+      previous.stage === 'inactive' && [accessing, admitting, joining, recipient, invitation, adapter].some(v => v.stage !== 'inactive')) return null;
+  machineOwning = { ...previous, busy: true, retained: previous.value ?? previous.retained ?? null, value: null, message: null,
+    parent: project.flow, context: project.context, host: hostId };
+  $.ui.invalidate('ui.render');
+  return machineOwning;
+}
+async function machineOwnerCurrent($, running, epoch) {
+  if (machineOwning !== running || epoch !== generation || project.stage !== 'attached' ||
+      project.flow.flow_id !== running.parent.flow_id || project.flow.review_id !== running.parent.review_id ||
+      !same(project.flow.review, running.parent.review)) return false;
+  const current = await projectContext($), surfaces = await $.session.surfaces();
+  if (machineOwning !== running || epoch !== generation) return false;
+  if (!same(current, running.context) || current.native_session_id !== session || running.host !== hostId || !surfaces.includes('terminal')) {
+    if (runtime) stopRuntime('Adapter: stopped after project, conversation or surface change.');
+    clearProject(); $.ui.invalidate('ui.render'); return false;
+  }
+  return true;
+}
+async function machineOwnerParent($, running, epoch) {
+  if (!await machineOwnerCurrent($, running, epoch)) return null;
+  const raw = await projectRun($, ['inspect', running.parent.flow_id]);
+  if (!await machineOwnerCurrent($, running, epoch)) return null;
+  const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
+  if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
+      !same(parent.review, running.parent.review)) throw new Error('Changed machine project');
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), 'onboarding'], { timeoutMs: 5000 });
+  if (!await machineOwnerCurrent($, running, epoch)) return null;
+  if (result.exitCode !== 0) throw new Error('Unavailable machine inventory');
+  const requests = admissionInventory(machinePublic(result.stdout, true), running.host);
+  if (running.selected && !requests.some(r => sameRequest(r, running.selected))) throw new Error('Changed machine request');
+  return requests;
+}
+async function machineOwnerRun($, command, running, value = null) {
+  const c = value?.consent;
+  const payload = { context: adapterContext(running.parent), request_id: running.selected.request_id,
+    ...(command === 'lookup' && c ? { consent_id: c.consent_id } : {}),
+    ...(command === 'prepare' ? { inspection_review_id: value.inspection.review_id } : {}),
+    ...(['approve', 'signing', 'sign'].includes(command) ? { consent_id: c.consent_id, consent_review_id: c.review_id } : {}),
+    ...(command === 'sign' ? { decision: 'sign_machine_owner_offer' } : {}) };
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+    'onboarding', 'machine', command, '--stdin'], { timeoutMs: command === 'sign' ? 95000 : 5000, stdin: JSON.stringify(payload) });
+  if (result.exitCode !== 0) throw new Error('Unavailable machine consent');
+  return result.stdout;
+}
+async function machineOwnerParse($, raw, running, epoch, previous = null, signing = false) {
+  if (!await machineOwnerCurrent($, running, epoch)) return null;
+  const value = await parseMachineOwner(raw, running.selected, running.parent, running.host, previous, signing);
+  if (!await machineOwnerCurrent($, running, epoch)) return null;
+  return value;
+}
+async function machineOwnerLookup($, running, epoch, previous = null, signing = true) {
+  const raw = await machineOwnerRun($, 'lookup', running, previous);
+  let value = await machineOwnerParse($, raw, running, epoch, previous);
+  if (!value) return null;
+  if (signing && value.consent?.state === 'approved' && machineOwnerOwn(value, running.parent)) {
+    if (!await machineOwnerParent($, running, epoch)) return null;
+    const signedRaw = await machineOwnerRun($, 'signing', running, value);
+    value = await machineOwnerParse($, signedRaw, running, epoch, value, true);
+    if (previous?.signing && value?.signing && value.signing.signature_count < previous.signing.signature_count) {
+      throw new Error('Regressed machine signatures');
+    }
+  }
+  return value;
+}
+function machineOwnerFailure($, running, epoch, uncertain = false) {
+  if (machineOwning !== running || epoch !== generation) return;
+  machineOwnerExpiry?.cancel(); machineOwnerExpiry = null;
+  machineOwning = { ...running, stage: running.selected ? 'selected' : 'unavailable', busy: false, value: null, expiryAuthority: null,
+    message: uncertain ? 'Machine action outcome unknown. Check machine consent for recorded evidence; no automatic retry.'
+      : 'Machine review unavailable. Check machine consent or leave and reopen; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function machineOwnerView($, running, epoch, value, extra = {}) {
+  if (!await machineOwnerCurrent($, running, epoch) || !await machineOwnerParent($, running, epoch)) return;
+  const now = await $.clock.now();
+  if (!await machineOwnerCurrent($, running, epoch)) return;
+  if (!Number.isFinite(now) || value && Date.parse(value.observed_at) > now + 30000) throw new Error('Unavailable machine time');
+  machineOwnerExpiry?.cancel(); machineOwnerExpiry = null;
+  const end = machineOwnerDeadline(value), token = {};
+  machineOwning = { ...running, ...extra, stage: value || running.selected ? 'selected' : 'choose', busy: false,
+    value, retained: value ?? running.retained, expired: end !== null && now >= end, expiryAuthority: token, message: null };
+  if (end !== null && end > now) machineOwnerExpiry = $.clock.after(end - now, () => {
+    if (machineOwning.expiryAuthority === token && epoch === generation) {
+      machineOwning = { ...machineOwning, value: null, busy: false, expired: true, expiryAuthority: null,
+        message: 'Original machine action deadline elapsed. Check machine consent for recorded evidence; no automatic retry.' };
+      $.ui.invalidate('ui.render');
+    }
+  });
+  $.ui.invalidate('ui.render');
+}
+async function openMachineOwner($, previous, epoch) {
+  const running = machineOwnerStart($, previous, epoch);
+  if (!running) return;
+  clearAccess(); clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); clearAdapter();
+  try {
+    const requests = await machineOwnerParent($, running, epoch);
+    if (requests) await machineOwnerView($, running, epoch, null, { requests, selected: null, page: 0 });
+  } catch { machineOwnerFailure($, running, epoch); }
+}
+async function readMachineOwner($, previous, epoch, selected = previous.selected) {
+  if (!selected || previous.stage === 'choose' && !previous.requests.includes(selected)) return;
+  const running = machineOwnerStart($, previous, epoch);
+  if (!running) return;
+  running.selected = selected;
+  try {
+    if (!await machineOwnerParent($, running, epoch)) return;
+    const value = await machineOwnerLookup($, running, epoch, running.retained);
+    if (value) await machineOwnerView($, running, epoch, value);
+  } catch { machineOwnerFailure($, running, epoch); }
+}
+async function decideMachineOwner($, previous, epoch, command) {
+  const captured = previous.value;
+  if (!captured || previous.expired || command === 'prepare' && (captured.consent !== null || !captured.inspection) ||
+      command === 'approve' && (captured.consent?.state !== 'review' || !machineOwnerOwn(captured, previous.parent)) ||
+      command === 'sign' && (captured.consent?.state !== 'approved' || !captured.signing?.can_sign || !machineOwnerOwn(captured, previous.parent))) return;
+  const running = machineOwnerStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await machineOwnerParent($, running, epoch)) return;
+    const value = await machineOwnerLookup($, running, epoch, captured, command === 'sign');
+    if (!value) return;
+    running.retained = value;
+    if (command === 'prepare' ? value.consent !== null || !same(value.inspection, captured.inspection)
+      : !sameMachineOwnerConsent(value, captured) || value.consent.state !== captured.consent.state) {
+      throw new Error('Changed displayed machine consent');
+    }
+    if (command === 'sign' && value.signing?.state === 'signed') {
+      await machineOwnerView($, running, epoch, value); return;
+    }
+    if (command === 'sign' && !value.signing?.can_sign) throw new Error('Unavailable machine signer eligibility');
+    if (!await machineOwnerParent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (!await machineOwnerCurrent($, running, epoch)) return;
+    if (!machineOwnerLive(value, now)) throw new Error('Elapsed machine action');
+    sent = true;
+    const raw = await machineOwnerRun($, command, running, value);
+    let result = await machineOwnerParse($, raw, running, epoch, value, command === 'sign');
+    if (!result) return;
+    if (command === 'prepare') {
+      if (result.consent?.state !== 'review' || !machineOwnerOwn(result, running.parent) ||
+          result.consent.review.inspection_review_id !== value.inspection.review_id ||
+          !same(result.consent.review.inspection, value.inspection.review)) throw new Error('Changed prepared machine consent');
+    } else if (!sameMachineOwnerConsent(result, value) || result.consent.state !== 'approved') throw new Error('Changed machine outcome');
+    running.retained = result;
+    if (command === 'approve') {
+      if (!await machineOwnerParent($, running, epoch)) return;
+      const signedRaw = await machineOwnerRun($, 'signing', running, result);
+      result = await machineOwnerParse($, signedRaw, running, epoch, result, true);
+    }
+    if (result) await machineOwnerView($, running, epoch, result);
+  } catch { machineOwnerFailure($, running, epoch, sent); }
+}
+function machineOwnerControls($, { Text, Button }, epoch) {
+  if (project.stage !== 'attached' || project.busy) return [];
+  const previous = machineOwning, button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.stage === 'inactive') return [accessing, admitting, joining, recipient, invitation, adapter].every(v => v.stage === 'inactive')
+    ? [button('machine-owner-open', 'Review machine requests', () => openMachineOwner($, previous, epoch))] : [];
+  const leave = button('machine-owner-leave', 'Leave machine review', () => {
+    if (machineOwning === previous && epoch === generation) { clearMachineOwner(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.busy) return [Text({ children: ['Machine owner review: working…'] }), leave];
+  if (previous.stage === 'choose') {
+    const page = previous.page ?? 0;
+    const change = n => {
+      if (machineOwning === previous && epoch === generation) { machineOwning = { ...previous, page: n }; $.ui.invalidate('ui.render'); }
+    };
+    return [Text({ children: [previous.requests.length ? 'Choose a retained machine request. Inventory claims require verification.' : 'No retained machine requests.'] }),
+      ...previous.requests.slice(page * 10, page * 10 + 10).map((r, i) => button(`machine-owner-choice-${r.request_id}`,
+        admissionChoiceLabel(r, page * 10 + i), () => readMachineOwner($, previous, epoch, r))),
+      ...(page ? [button('machine-owner-prev', 'Previous machine requests', () => change(page - 1))] : []),
+      ...(previous.requests.length > (page + 1) * 10 ? [button('machine-owner-next', 'More machine requests', () => change(page + 1))] : []), leave];
+  }
+  const v = previous.value, c = v?.consent;
+  return [
+    ...(previous.selected ? [Text({ children: [machineOwnerLines(v, previous.selected, previous.parent, previous.expired)] })] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []),
+    ...(!previous.expired && v ? [
+      ...(c === null && v.inspection ? [button('machine-owner-prepare', 'Review machine consent', () => decideMachineOwner($, previous, epoch, 'prepare'))] : []),
+      ...(c?.state === 'review' && machineOwnerOwn(v, previous.parent)
+        ? [button('machine-owner-approve', 'Approve machine consent', () => decideMachineOwner($, previous, epoch, 'approve'))] : []),
+      ...(v.signing?.can_sign && machineOwnerOwn(v, previous.parent)
+        ? [button('machine-owner-sign', 'Sign machine owner offer', () => decideMachineOwner($, previous, epoch, 'sign'))] : []),
+    ] : []),
+    ...(previous.selected ? [button('machine-owner-check', 'Check machine consent', () => readMachineOwner($, previous, epoch))] : []), leave,
   ];
 }
 
@@ -1677,6 +1881,7 @@ async function approveAdmission($, previous, epoch) {
   } catch { admissionFailure($, running, epoch, sent); }
 }
 function admissionControls($, { Text, Button }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (accessing.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = admitting, button = (key, label, onPress) => Button({ key, label, onPress });
@@ -2478,6 +2683,7 @@ function joinPage($, previous, epoch, page) {
   $.ui.invalidate('ui.render');
 }
 function joiningControls($, { Text, Button, Input }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
@@ -2655,6 +2861,7 @@ async function inspectRecipient($, previous, epoch) {
   } catch { recipientFailure($, running, epoch); }
 }
 function recipientControls($, { Text, Button, Input }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
@@ -2868,6 +3075,7 @@ async function replaceInvitation($, previous, epoch) {
   } catch { invitationFailure($, running, epoch); }
 }
 function invitationControls($, { Text, Button, Input }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
@@ -2914,6 +3122,7 @@ function invitationControls($, { Text, Button, Input }, epoch) {
 }
 
 function adapterControls($, { Text, Button }, epoch) {
+  if (machineOwning.stage !== 'inactive') return [];
   if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive' || recipient.stage !== 'inactive' || joining.stage !== 'inactive') return [];
@@ -2944,7 +3153,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'attached' && (accessing.stage !== 'inactive' || admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+  if (previous.stage === 'attached' && (machineOwning.stage !== 'inactive' || accessing.stage !== 'inactive' || admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
@@ -2998,8 +3207,13 @@ export function register(on, configured = {}) {
   });
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== 'peerspan') return next(e);
-    if (e.surface !== 'terminal') { clearAccess(); clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
+    if (e.surface !== 'terminal') { clearMachineOwner(); clearAccess(); clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
     const epoch = generation;
+    if (machineOwning.stage !== 'inactive') {
+      const captured = machineOwning;
+      try { if (!await machineOwnerCurrent($, captured, epoch) && machineOwning === captured) clearMachineOwner(); }
+      catch { if (machineOwning === captured) clearMachineOwner(); }
+    }
     if (accessing.stage !== 'inactive') {
       const captured = accessing;
       try { if (!await accessCurrent($, captured, epoch) && accessing === captured) clearAccess(); }
@@ -3040,6 +3254,7 @@ export function register(on, configured = {}) {
       ...recipientControls($, { Text, Button, Input }, epoch),
       ...joiningControls($, { Text, Button, Input }, epoch),
       ...admissionControls($, { Text, Button }, epoch),
+      ...machineOwnerControls($, { Text, Button }, epoch),
       ...accessControls($, { Text, Button }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
