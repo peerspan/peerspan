@@ -3836,3 +3836,11 @@ full native415 tree stay exact. Retain macro-size and formatter-edit failures,
 source/fault-only authority/expiry/privacy limits and prior unclassified history;
 no unrelated local rerun. Final combined-head34 suites+build/four checks/native
 415 and fresh bot/root review remain required on PR98.
+
+GU.impl45 root source review adds an explicit non-root folded-host issuer check.
+Comparing only its signing key to the owner assumes role-distinct keys; equal
+keys must not admit the advanced root-fold exception. Ordinary verification
+already binds every non-root issuer to the owner path, so preserve all typed
+checks and the public shape. The genuine reused-root-key negative remains
+source/fault-only; verify normal original/device folds on fresh binaries, keep
+independent source unchanged and require new final-head CI/review.

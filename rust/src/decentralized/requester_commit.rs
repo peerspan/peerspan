@@ -211,6 +211,7 @@ pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Res
         // Exclude the advanced explicit network-root fold exception here.
         check(
             num(object(provider)?, "scopes")? & 8 == 8
+                && text(prepared.admissions.host.issuer()?, "kind")? != "root"
                 && prepared.admissions.host.signer("issuer")?.public_key
                     == text(&owner.object, "signer_public_key")?,
         )?;
