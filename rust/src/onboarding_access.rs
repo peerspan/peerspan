@@ -35,7 +35,7 @@ fn coded(code: &'static str) -> Error {
     }
 }
 impl Inspect {
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         self.context.validate().map_err(|_| invalid())?;
         if !codec::ident(&self.network_id, "net_") || !codec::key(&self.person_public_key) {
             return Err(invalid());
