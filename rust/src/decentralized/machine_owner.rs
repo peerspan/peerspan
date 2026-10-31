@@ -47,7 +47,7 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
     let created = text(&packet.payload, "created_at")?;
     let raw =
         controls::guarded_decision(c, &r.expected_network_id, &controls::local_decision_time()?)?;
-    let s = Snapshot::load(c, &r.expected_network_id, &store.identity().public_key)?;
+    let s = Snapshot::load_public(c, &r.expected_network_id, &store.identity().public_key)?;
     require(
         s.descriptor.context_id() == r.expected_context_id
             && s.network.own_identity.person_public_key == r.expected_person_public_key
@@ -107,8 +107,8 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
         }
     }
     let (person_lease, _) = projection.current_statement(&["person".into(), person.clone()])?;
-    let end =
-        (stamp(created)? + chrono::TimeDelta::days(7)).min(stamp(field(&provider, "not_after")?)?);
+    let end = (stamp(created)? + chrono::TimeDelta::days(7))
+        .min(stamp(text(object(&provider)?, "not_after")?)?);
     require(end > stamp(now)?, "expired")?;
     let result = json!({"observed_at":now,"request":request,
         "network":{"id":s.descriptor.network_id,"name":s.descriptor.name,
