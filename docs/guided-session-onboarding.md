@@ -711,3 +711,16 @@ record](results/guided-project-readiness-verification.json) records every source
 binary/test/log hash and first outcome. Required final all29/four PR checks and
 fresh bot/root review are recorded on the slice/tracking PR after the evidence
 commit. Native presentation and actual peer/model readiness remain open.
+
+### Native current connection status
+
+Section37/GU.impl37 follows merged86 (`3e759c9`). An explicit Check connection
+status reads the exact current project/network/person observation and displays
+separate receiver-advertised entries and exact-session adapter states. Details
+retain complete public membership, signed/enforced policy and connection terms.
+The earliest membership/policy/grant/lease or 30-second bound clears the view;
+errors clear old evidence and require an explicit new Check. Review agent access
+returns to ordinary inspection. No implicit status reads, permission evaluation,
+peer/model probe or authorized-runtime changes are introduced. Independent new
+native cases and final exact-head CI/review follow; actual peer/model and
+full-feature acceptance remain open.

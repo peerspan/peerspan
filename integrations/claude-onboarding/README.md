@@ -462,6 +462,26 @@ comes first; another Finish requires a separate press while the work remains liv
 **Leave agent access** clears the pane and does not revoke consent or retract
 prior or dispatched work. Existing authorized delivery keeps its own lifecycle.
 
+## Check connection status
+
+After choosing a network and person under **Review agent access**, press
+**Check connection status** from the verified inspection, consent or completion
+pane. This reads current local evidence for that person's machines sending to
+this project's agent. It does not change permissions or start a connection.
+
+The pane shows each machine's separate advertised permissions and restrictions,
+plus the local adapter's registered, connected or offline state for this exact
+project session. **Show connection details** exposes current membership, signed
+and separately enforced policy terms, permission entries and connection dates.
+Evidence clears after at most 30 seconds, or sooner when a relevant membership,
+grant or connection lease ends. Press Check again for a new observation.
+
+Peer reachability, model receipt and overall connection readiness remain
+**not verified** by this local read. **Review agent access** returns to inspection;
+**Leave connection status** returns to the project without revoking access or
+stopping an authorized adapter. Use the adapter's separate incoming-delivery
+check to verify its model path.
+
 ## Check this conversation
 
 Press **Check this conversation** to submit one fixed, plugin-attributed local
