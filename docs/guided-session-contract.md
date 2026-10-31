@@ -8423,6 +8423,24 @@ the first observation even if the corrected prerequisite passes. No unchanged
 retry-to-green. A separate author amends only the new suite from this contract;
 all prior files remain exact.
 
+Public test-observation schema reference for that prerequisite: embedded helper
+format1 has `mailboxes` columns in order
+`locator,request_id,read_cap_hash,created_at,expires_at,expires_unix,creator_key,
+source_bucket,account_id,creation_identity_hash,state,ciphertext_bytes` and
+`frames` columns `locator,frame_id,role,writer_key,body,ciphertext_bytes`.
+`expires_unix` is whole UTC seconds, state is active/deleted/expired, and frames
+reference their mailbox locator. Collection erases expired ciphertext and marks
+the mailbox expired; deleted/expired tombstones may later disappear. A live
+host's retirement prerequisite may read PRAGMA/table metadata and SELECT these
+fixed fields in one read snapshot, waiting within a fixed bounded interval
+until mailboxes with expires_unix<=that fixture's current clock are nonactive,
+have zero ciphertext_bytes and no corresponding frames (or have been fully
+collected). Do not require an already deleted mailbox to become expired. Do not
+start a stopped requester merely for collection: its unchanged state remains
+part of every whole-state comparison. Diagnostics use only captured state
+categories/counts, not locators, capabilities, rows or ciphertext. This documents
+observation of existing helper format1, not a schema/API change or a route action.
+
 Root serializes its language/runtime gates, logs/hashes fresh binaries and every
 first result. Reuse section42's explicit separate-target compilation scheduling
 for language gates only; host suites require compiler idle, regular-disk TMPDIR.
