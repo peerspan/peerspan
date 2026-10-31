@@ -54,15 +54,12 @@ async fn run(
 ) -> Result<Json<Value>, Error> {
     let input: Input = serde_json::from_value(decode_input(&b.map_err(|_| invalid())?, op)?)
         .map_err(|_| invalid())?;
-    let until = (op == "sign").then(|| Instant::now() + Duration::from_secs(90));
+    let deadline = Instant::now() + Duration::from_secs(if op == "sign" { 90 } else { 5 });
+    let until = (op == "sign").then_some(deadline);
     let task = blocking(s, move |s| machine_owner_signing::run(s, &input, until));
-    let v = if let Some(until) = until {
-        tokio::time::timeout_at(tokio::time::Instant::from_std(until), task)
-            .await
-            .map_err(|_| unavailable())??
-    } else {
-        task.await?
-    };
+    let v = tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), task)
+        .await
+        .map_err(|_| unavailable())??;
     Ok(Json(v))
 }
 async fn signing(

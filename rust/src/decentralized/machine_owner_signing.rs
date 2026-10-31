@@ -393,39 +393,32 @@ fn produce(
     store: &Store,
     plan: &Plan,
     signer: Option<&PersonSigner>,
+    index: usize,
     until: Instant,
-) -> HostResult<Vec<Produced>> {
-    let mut signatures = Vec::new();
-    for index in &plan.needed {
-        budget(until)?;
-        let s = &plan.slots[*index];
-        let signature = if s.id == 1 && s.role == "host" {
-            encode(&store.signing_key.sign(&s.message).to_bytes())
-        } else if plan.provider_kind == "device"
-            && s.format == "ed25519"
-            && s.key == plan.provider_key
-        {
-            let seed = plan.device_seed.ok_or_else(unavailable)?;
-            encode(&SigningKey::from_bytes(&seed).sign(&s.message).to_bytes())
-        } else if plan.provider_kind == "original"
-            && s.format == "sshsig"
-            && s.key == plan.provider_key
-        {
-            let text = std::str::from_utf8(&s.message).map_err(|_| unavailable())?;
-            signer
-                .ok_or_else(unavailable)?
-                .sign(&text.split('\n').collect::<Vec<_>>())
-                .map_err(|_| unavailable())?
-        } else {
-            return Err(unavailable());
-        };
-        budget(until)?;
-        signatures.push(Produced {
-            slot: *index,
-            signature,
-        });
-    }
-    Ok(signatures)
+) -> HostResult<Produced> {
+    budget(until)?;
+    let s = &plan.slots[index];
+    let signature = if s.id == 1 && s.role == "host" {
+        encode(&store.signing_key.sign(&s.message).to_bytes())
+    } else if plan.provider_kind == "device" && s.format == "ed25519" && s.key == plan.provider_key
+    {
+        let seed = plan.device_seed.ok_or_else(unavailable)?;
+        encode(&SigningKey::from_bytes(&seed).sign(&s.message).to_bytes())
+    } else if plan.provider_kind == "original" && s.format == "sshsig" && s.key == plan.provider_key
+    {
+        let text = std::str::from_utf8(&s.message).map_err(|_| unavailable())?;
+        signer
+            .ok_or_else(unavailable)?
+            .sign(&text.split('\n').collect::<Vec<_>>())
+            .map_err(|_| unavailable())?
+    } else {
+        return Err(unavailable());
+    };
+    budget(until)?;
+    Ok(Produced {
+        slot: index,
+        signature,
+    })
 }
 pub(crate) fn run(store: &Store, input: &Input, until: Option<Instant>) -> HostResult<Value> {
     let first = match attempt(store, input, until, None)? {
@@ -461,7 +454,24 @@ pub(crate) fn run(store: &Store, input: &Input, until: Option<Instant>) -> HostR
         "review_changed",
     )
     .map_err(dec)?;
-    let signatures = produce(store, &current, signer.as_ref(), until)?;
+    let mut signatures = Vec::new();
+    for index in &current.needed {
+        // A previous agent call may have blocked while public authority or the
+        // project changed. Recheck the entire immutable plan before every key
+        // dispatch, retaining roles another approved worker already completed.
+        let fresh = match attempt(store, input, Some(until), None)? {
+            Attempt::Done(v) => return Ok(v),
+            Attempt::Work(p) => p,
+        };
+        require(
+            current.same(&fresh) && fresh.needed.iter().all(|i| current.needed.contains(i)),
+            "review_changed",
+        )
+        .map_err(dec)?;
+        if fresh.needed.contains(index) {
+            signatures.push(produce(store, &fresh, signer.as_ref(), *index, until)?);
+        }
+    }
     match attempt(store, input, Some(until), Some((&current, &signatures)))? {
         Attempt::Done(v) => Ok(v),
         Attempt::Work(_) => Err(unavailable()),
