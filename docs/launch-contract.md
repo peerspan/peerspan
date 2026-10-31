@@ -674,7 +674,7 @@ Before launching, `attach` prints its output object on stderr, so the address is
 **A launch that needs a terminal.** When the integration's launch plan has `terminal: true` ([harness integration contract](harness-integration-contract.md)) and `attach`'s stdout is not a terminal, `attach` does not start the harness. It exits 1, after its output object on stderr, with exactly:
 
 ```
-error: terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. To set up only, use --no-start.
+error: terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. For one non-interactive Claude Code run, add -- -p. To set up only, use --no-start.
 ```
 
 - The setup stays: the session is `registered` and has never connected, so the same `attach` at a terminal reuses it and starts the harness.
