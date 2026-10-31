@@ -620,21 +620,39 @@ def restart_project(f):
     f["pb"] = project(f["b"], "current", old=old, agent={"kind": "existing", "id": old["review"]["agent"]["id"]})
 
 
-def bootstrap_retry_times(f):
+def bootstrap_retry_times(f, diagnostic=None):
     """All genuine retained outboxes, without editing/filtering retry state."""
     retry_times = []
-    for local in (f["a"], f["b"]):
+    if diagnostic is not None:
+        diagnostic["participants"] = []
+    for role, local in (("target", f["a"]), ("project", f["b"])):
+        observed = {"role": role, "pending_secrets": "unknown", "pending_readcaps": "unknown",
+                    "frames": "unknown", "journals": "unknown", "retry_seconds_remaining": []}
+        if diagnostic is not None:
+            diagnostic["participants"].append(observed)
         with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
-            if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
+            # Same rows/query as before; project the two constituent counts too.
+            pending = db.execute("SELECT count(*),sum(secret IS NOT NULL),sum(terminal_read_cap IS NOT NULL) "
+                "FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()
+            observed["pending_secrets"], observed["pending_readcaps"] = int(pending[1] or 0), int(pending[2] or 0)
+            if pending[0]:
                 return None
-            if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
+            frames = db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]
+            observed["frames"] = frames
+            if frames:
                 return None
             for (record,) in db.execute("SELECT record FROM dec_outbox"):
                 value = json.loads(record)
                 check(type(value) is dict and type(value.get("next_attempt_at")) is str,
                       "ordinary outbox lacks a documented retry timestamp")
-                retry_times.append(parse_time(value["next_attempt_at"]))
-        if list(local.state.glob("*-journal")):
+                deadline = parse_time(value["next_attempt_at"])
+                retry_times.append(deadline)
+                observed["retry_seconds_remaining"].append({
+                    "target_clock": round((deadline - f["a"].now()).total_seconds(), 3),
+                    "project_clock": round((deadline - f["b"].now()).total_seconds(), 3)})
+        journals = list(local.state.glob("*-journal"))
+        observed["journals"] = len(journals)
+        if journals:
             return None
     if any(local.now() + timedelta(seconds=2) >= deadline for local in (f["a"], f["b"]) for deadline in retry_times):
         return None
@@ -643,16 +661,45 @@ def bootstrap_retry_times(f):
 
 def bootstrap_quiet(f, h):
     previous = snapshot(h), traffic(f)
-    stable_since = time.monotonic()
+    started = stable_since = time.monotonic()
+    samples = []
     def settled():
         nonlocal previous, stable_since
         current = snapshot(h), traffic(f)
         if current != previous:
             stable_since = time.monotonic()
+        old = previous
         previous = current
-        window = bootstrap_retry_times(f)
+        diagnostic = {}
+        window = bootstrap_retry_times(f, diagnostic)
+        try:
+            logical = {name: 0 for name in ("$schema", "$version", "dec_outbox", "dec_pending", "dec_frames",
+                "dec_contacts", "dec_decision_clock", "dec_clock", "decision_clock", "other")}
+            for database in set(old[0][0]) | set(current[0][0]):
+                for table in set(old[0][0].get(database, {})) | set(current[0][0].get(database, {})):
+                    if old[0][0].get(database, {}).get(table) != current[0][0].get(database, {}).get(table):
+                        logical[table if table in logical else "other"] += 1
+            diagnostic.update({"elapsed_ms": int((time.monotonic() - started) * 1000),
+                "since_stable_ms": int((time.monotonic() - stable_since) * 1000),
+                "logical_table_changes": logical,
+                "state_file_changes": sum(old[0][1].get(k) != current[0][1].get(k) for k in set(old[0][1]) | set(current[0][1])),
+                "home_file_changes": sum(old[0][2].get(k) != current[0][2].get(k) for k in set(old[0][2]) | set(current[0][2])),
+                "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(current[1], old[1])],
+                "retry_window_available": window is not None})
+            samples.append(diagnostic)
+            del samples[:-8]
+        except Exception:
+            pass
         return window if time.monotonic() - stable_since >= .3 and window is not None else None
-    return wait_for(settled, timeout=5, interval=.1, message="genuine whole-state no-route quiescence before all retained retry times")
+    try:
+        return wait_for(settled, timeout=5, interval=.1, message="genuine whole-state no-route quiescence before all retained retry times")
+    except Exception:
+        try:
+            print("reachability_bootstrap_quiet_public=" + json.dumps({"participant": "target" if h is f["a"] else "project",
+                "samples": samples}, sort_keys=True), flush=True)
+        except Exception:
+            pass
+        raise
 
 
 def before_retries(f, window):
