@@ -528,6 +528,36 @@ def raw_post(h, action, raw):
         conn.close()
 
 
+def pending_prepare_diagnostic(before, after, secret, same_secret, intent_id):
+    """GU.impl42a: captured field names only, without changing the verdict."""
+    try:
+        if not (after['owner_intent_id'] == intent_id and same_secret == secret
+                and unchanged_except(before, after, 'roles', 'owner_intent_id')):
+            fields = set('format roles mode migration_proposal_id expected_network_id expected_context_id expected_person_public_key contact_invitation_base64 descriptor_base64 host_public_key device_public_key request_nonce request_packet_base64 owner_packet_base64 selection_packet_base64 administrator_packet_base64 owner_finalization_packet_base64 commit_packet_base64 outcome_packet_base64 catalog_base64 owner_offer_id selection_id administrator_offer_id owner_finalization_id manifest_id activation_id outcome_id selection_approved commit_approved owner_intent_id administrator_intent_id selection_intent_id commit_intent_id terminal carrier_endpoints outbound_frames stage_at'.split())
+            changed = [name for name in set(before) | set(after)
+                       if name not in before or name not in after or before[name] != after[name]]
+            summary = {'changed_fields': sorted({name if name in fields else 'unknown' for name in changed}),
+                       'secret_unchanged': same_secret == secret}
+            print('machine_consent_pending_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Diagnostic failure cannot replace the original captured check.
+
+
+def refusal_code_diagnostic(action, status, value, expected):
+    """GU.impl42a: no new request, only a closed code-mismatch summary."""
+    try:
+        if not (type(value) is dict and value.get('code') == expected):
+            codes = {'invalid', 'not_found', 'review_changed', 'review_expired', 'machine_owner_consent_unavailable'}
+            actual = value.get('code') if type(value) is dict else None
+            summary = {'operation': action if action in {'lookup', 'prepare', 'approve'} else 'unknown',
+                'http_status': status if type(status) is int and 100 <= status <= 599 else 'unknown',
+                'actual_code': actual if isinstance(actual, str) and actual in codes else 'unknown',
+                'expected_code': expected if isinstance(expected, str) and expected in codes else 'unknown'}
+            print('machine_consent_code_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Keep the original assertion and failure unchanged.
+
+
 def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, override=None,
        status=200, code=None, cli=False, validate_result=True):
     h = f['a']; parent = parent or f['parent']
@@ -548,6 +578,7 @@ def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, o
                 'machine_owner_consent_unavailable'} else 'unknown'}, sort_keys=True), flush=True)
         check(actual == status, f'machine consent {action} HTTP {actual}, expected {status}')
         if code:
+            refusal_code_diagnostic(action, actual, value, code)
             check(type(value) is dict and value.get('code') == code, 'machine consent controlled refusal code mismatch')
     public(value, *f['secrets'])
     if status != 200:
@@ -789,6 +820,7 @@ def _():
     check(owner['approved'] is False and owner['approved_at'] == '-' and owner['signatures'] == [] and owner['completed'] is False,
           'preparation signed or approved ordinary work')
     current, same_secret = pending(h, f['rid'])
+    pending_prepare_diagnostic(record, current, secret, same_secret, receipt['review']['intent_id'])
     check(current['owner_intent_id'] == receipt['review']['intent_id'] and same_secret == secret
           and unchanged_except(record, current, 'roles', 'owner_intent_id'), 'preparation changed pending evidence or pairing material')
     check(value['request'] == initial['request'], 'preparation advanced protocol stage or requester selection/commit')
