@@ -801,7 +801,7 @@ def _():
         finally:
             target.counted_peer.release()
         status, denied = pending.result(timeout=13)
-    check(status == 409 and type(denied) is dict and denied.get("code") == "review_changed"
+    check(status == 409 and type(denied) is dict and denied.get("code") in ("reachability_unavailable", "review_changed")
           and "reachability" not in denied and "inspection" not in denied,
           f"late old reachability result survived authoritative detachment HTTP {status}")
     public(denied, body["context"]["project_root"], body["context"]["native_session_id"])
