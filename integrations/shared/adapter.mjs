@@ -329,7 +329,7 @@ export const tools = [
           maxItems: 16,
           items: { type: 'string', minLength: 1, maxLength: 256 },
           description:
-            'Who this is mainly for: participant IDs or labels as the conversation shows them. Everyone still receives it; omit it to address everyone.'
+            'Who this is mainly for: participant IDs, labels as the conversation shows them, or person:LABEL. Everyone still receives it; omit it to address everyone.'
         },
         message_id: {
           type: 'string',

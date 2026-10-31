@@ -1009,14 +1009,20 @@ The author's host records the 429 as `refused` with code `limit`, as C2's answer
 
 Every joined participant still receives an addressed message. The field only tells the others it is not mainly for them.
 
-**Local sending.** `POST /v1/conversations/{id}/messages` and `POST /adapter/v1/conversations/{id}/messages` gain optional `addressed_to`: an array of at most 16 strings of at most 256 characters each. Each is a participant ID or a label as this host shows it, resolved against the entries of `participants` in the held roster that have an `id` and are `joined` or `inviting`:
+**Local sending.** `POST /v1/conversations/{id}/messages` and `POST /adapter/v1/conversations/{id}/messages` gain optional `addressed_to`: an array of at most 16 strings of at most 256 characters each. Each names a participant in any of these forms, the forms `conversation start` takes for a target plus the full ID, resolved against the entries of `participants` in the held roster that have an `id` and are `joined` or `inviting`:
+- a participant ID;
+- a label as this host shows it (`alice`, `alice/claude`);
+- for a person participant, `person:LABEL`, `person:PERSON_ID`, or `PERSON_ID`;
+- for an agent participant, `HOST_ID/NAME` or `HOST_ID/AGENT_ID`, HOST_ID being the host in its participant ID.
+
+The result of resolving:
 - no match is 404 `{code: "not_found", error: "No such participant in that conversation."}`, so a departed participant or a person not yet joined cannot be named;
 - several matches are 409 `ambiguous` with the matching IDs in `matches`, as C2's `remove`;
 - entries resolving to one participant count once; the author may be named.
 
 The stored `message.addressed_to` holds the resolved participant IDs in roster order. An empty array is the same as none: the field is left out of the stored and sent message, so the peer route's existing 1-to-16 rule still holds. The first message of `POST /v1/conversations` and `POST /adapter/v1/conversations` has no `addressed_to`.
 
-**Repeats.** C1's repeat rule compares `addressed_to` as well as `content`. A repeat matches when, against the stored IDs and their current labels, the given entries name exactly the stored set; absent or empty matches only a message with none. This is decided before resolution, so a repeat still succeeds after a named participant departed. A difference is 409 `conflict` with C1's text.
+**Repeats.** C1's repeat rule compares `addressed_to` as well as `content`. A repeat matches when, against the stored IDs and their current labels, the given entries, in any of the forms above, name exactly the stored set; absent or empty matches only a message with none. This is decided before resolution, so a repeat still succeeds after a named participant departed. Every form above still matches a departed participant, including `HOST_ID/NAME` for a departed agent, whose name this host remembers; a host that no longer knows the name matches only the other forms. A difference is 409 `conflict` with C1's text.
 
 **Views.**
 - The owner message view and the adapter message view gain `addressed_to_labels`, the label of each `addressed_to` entry in the same order, derived as `author_label` is.
@@ -1086,9 +1092,11 @@ Entries older than 30 days on this host's clock, and those beyond the newest 10,
 
 | Route | Query | Answer |
 | --- | --- | --- |
-| `GET /v1/conversations/{id}/messages/{message_id}` | `participant` | 200 `{message: MESSAGE VIEW}` |
+| `GET /v1/conversations/{id}/messages/{message_id}` | `participant` | 200 `{message: MESSAGE VIEW, earlier_missing}` |
 
 It follows C1's read rule for `participant`. A message that does not exist, or is not visible to P, is 404 `not_found` with the same text either way.
+
+`earlier_missing` is true while this message lies past a gap for P: its author is on another host and P's chain head for that author (C4) is below this message's `seq`. It is false otherwise, including for P's own messages and for authors on this host. It turns false once the gap closes, so it can change between reads. A gap the fetch cannot close keeps it true until a sync closes it.
 
 ### `home_unavailable`
 
@@ -1157,12 +1165,37 @@ A local delivery is one `conversation.message_sent` only. A repeat records nothi
 | `conversation forget ID [--yes]` | `DELETE /v1/conversations/{id}` | The route's JSON. |
 | `conversation watch [ID] [--as AGENT]` | `GET /v1/conversations/events`, `GET .../messages/{message_id}`, `POST .../read` | Below. |
 
+**A host where only agents take part.** A host's person may be outside a conversation that an agent on the host has joined: `conversations` lists it, and the person's reads are refused by C1's rule. The routes do not change. The CLI adds what to do:
+
+- `conversation show ID` without `--as` (readable or `--json`), when the read is refused with `not_participant` or `not_bound` and at least one agent on this host is `joined` in the conversation, exits 1 with C1's line followed by the agents' names, sorted by name and separated by `, `, for example:
+
+  ```
+  error: not_participant: This participant is not in that conversation. Agents on this host that are: claude-8e17, helper. Use --as NAME.
+  ```
+
+  It does not choose an agent by itself, even when there is only one: the reader stays explicit, and `--as` leaves the person's read cursor alone. With no such agent, the line is C1's, unchanged.
+- `conversation watch ID` makes the same read first and exits 1 before the `Watching` line when it is refused. Without `--as` the error is the one above. With `--as` the agent is outside the conversation, and the error is C1's line, unchanged.
+- `conversation watch` with no `ID` and no `--as` keeps running, and writes one line to stderr for each open conversation where an agent on this host is `joined` and this host's person participant is not:
+
+  ```
+  Not showing conv_0123abcd: this host's person is not in it. Agents on this host that are: claude-8e17, helper. Use conversation watch --as NAME.
+  ```
+
+  For conversations already there when it starts, the line comes right after the `Watching` line. For one that comes to qualify later, the line comes within 30 seconds. Each conversation gets the line once per run. Nothing about these conversations goes to stdout.
+
 **`conversation watch`.**
-- It first reads `latest` with `wait=0&limit=1`, then writes `Watching; press Ctrl-C to stop.` to stderr, so it prints only what happens after that line. It then long-polls with `wait=25`. `ID` follows C1's prefix rule and limits it to that conversation.
+- It first reads `latest` with `wait=0&limit=1`, then writes `Watching; press Ctrl-C to stop.` to stderr, so it prints only what happens after that line. It then long-polls with `wait=25`, or shorter while it holds a message (below). `ID` follows C1's prefix rule and limits it to that conversation.
 - For each `message_sent` and `message_received` it fetches the message, and prints one line to stdout: the conversation ID's first 13 characters, the `sent_at` time (`HH:MM`, UTC), the author label, `to LABEL, LABEL` when addressed, and the content, all escaped. A message the fetch no longer shows is skipped. Each `target_changed` to `refused`, `unsupported` or `stopped` prints the line `show` uses for that target. Each `roster_changed` and `invited` prints one line starting with the conversation ID's first 13 characters, followed by the change. Other wording and spacing are not part of the contract.
+- **Order.** Messages print in display order as far as the host can know it:
+  - A message with `earlier_missing` true is held and not printed, and each held message is read again at least once a second. It prints when `earlier_missing` turns false, or at the latest 5 seconds after watch first read it, whichever comes first. A message that comes in later than that prints when it arrives, out of order; its `HH:MM` time shows this.
+  - A later message of an author with an earlier one held waits behind it. While any of an author's messages in a conversation is held, a further one of that author takes the same limit, which runs from the first of them; so no arrival extends the 5 seconds.
+  - Messages that become printable together print in display order, per conversation. So one author's messages print in `seq` order whenever the earlier ones arrive within the hold.
+  - Messages of different authors that arrive in separate polls print as they arrive: nothing tells this host that an earlier one is on its way.
 - stdout is flushed after each line.
-- It posts the cursor after printing each batch (see above).
+- It posts the cursor after printing each batch (see above). A held message has not been printed, so the cursor does not count it, and it stays unread if watch ends first. The cursor is a single high-water mark, so while a conversation holds a message, watch posts nothing for that conversation: messages it printed meanwhile are posted once the hold ends, and stay unread if watch ends first.
 - SIGINT or SIGTERM ends it with exit 0. A daemon that cannot be reached exits 1 as for any command; a failure after it started is retried once a second until the daemon answers again.
+
+**Daemon stop.** A held `GET /v1/conversations/events` answers at once when the daemon gets SIGINT or SIGTERM, with what it has, possibly `events` `[]`, so a running `watch` does not delay the stop. The routes that wait up to 15 seconds for another host do not delay it either: `POST /v1/conversations` and C2's `add` answer at once as they do at 15 seconds, with the target `inviting`, and `POST /v1/conversations/{id}/join` answers at once with its 503 `unavailable`. See the [host service contract](host-service-contract.md) for the limits.
 
 ### Node adapter
 
@@ -1227,7 +1260,7 @@ Spec-only cases in `conformance/slim/conversations_tools.py`, written from this 
   - bob's own message does not count;
   - `POST .../read` with a message ID not visible to bob is 400.
 - **Watch.** Before watch, bob has one unread message. It is not printed, and it stays unread until a later cursor moves past it. With watch running, alice's new message prints a line with its content and the unread count reaches 0 within 20 seconds. A message in another conversation prints only without an `ID`. After the watch is terminated (exit 0), a new message stays unread.
-- **Event log.** `GET /v1/conversations/events` on bob lists `message_received` and `read_changed` for the person, with exactly the keys `sequence, kind, conversation_id, message_id, participant, at` and ascending sequence. `after=latest&wait=2` answers `events` `[]` after about 2 seconds, and a message arriving during `wait=20` ends it early. `wait=26`, `limit=0` and an unknown parameter are 400.
+- **Event log.** `GET /v1/conversations/events` on bob lists `message_received` and `read_changed` for the person, with exactly the keys `sequence, kind, conversation_id, message_id, participant, at` and ascending sequence. `after=N&wait=2`, N being the number in an earlier answer's `latest` field, answers `events` `[]` after about 2 seconds, and a message arriving during `wait=20` ends it early. `wait=26`, `limit=0` and an unknown parameter are 400.
 - **Nothing hidden leaks.** alice sends s1 to `bert`, `delivered`, unclaimed. After `deny alice` on bob:
   - `GET /v1/conversations/events?participant=BERT&after=0` has no entry with s1's ID;
   - `GET /v1/conversations/{id}/messages/S1?participant=BERT` is 404;
@@ -1249,6 +1282,18 @@ Spec-only cases in `conformance/slim/conversations_tools.py`, written from this 
   - A title with a control character is 400 from the owner route.
 - **Activity.** `activity --limit 1000` on alice holds `conversation.created`, `.roster_changed`, `.message_sent`, `.message_received`, `.message_refused` and `.closed`, and on bob at least `.roster_changed`, `.closed`, `.message_sent` and `.message_received`, with the subject shapes above, and no case's message content or title anywhere in either output.
 - **Help.** `peerspan --help` lists `conversations` and `conversation`.
+
+**Multi-machine run fixes.** Spec-only cases in a new suite `conformance/slim/conversations_run_fixes.py`, with its own matrix entry and a 2-minute limit. Same setup as above.
+- **`addressed_to` forms.** In a conversation of alice's person, bob's person and `bert`, each of these resolves to the same participant through `conversation say --to`, through the owner route, and through `bert`'s adapter route: `person:alice`, `alice`, `person:PERSON_ID`, `PERSON_ID` and the participant ID, for alice's person; `bob/bert`, `HOST_ID/bert` and `HOST_ID/AGENT_ID`, for `bert`. `person:nobody` is 404 `not_found` with `No such participant in that conversation.`. `person:bob/bert` is the same 404. A person still `invited` named as `person:LABEL` is the same 404. A repeat of a `message_id` first sent with `--to alice` and repeated with `--to person:alice` is 200 with the stored message; repeated with `--to bob/bert` it is 409 `conflict`.
+- **Agents only: `show`.** alice runs `conversation start bob/bert`, so bob's person is not in it, and bob's `conversations` lists it. bob's `conversation show ID` exits 1 with exactly `error: not_participant: This participant is not in that conversation. Agents on this host that are: bert. Use --as NAME.`, with `--json` too. `conversation show ID --as bert` exits 0. After `bea` on bob is added, the sentence reads `bea, bert`. After every agent of bob's has been removed from the conversation, the error is C1's line alone.
+- **Agents only: `watch`.** In that conversation, bob's `conversation watch ID` exits 1 with the same text, and writes no `Watching` line. bob's `conversation watch` with no `ID` writes `Watching`, then the `Not showing` line with this conversation's first 13 characters and `bea, bert`; after alice sends a message, its stdout stays empty for 3 seconds. `conversation watch --as bert` prints that message. A conversation started for `bert` while the no-`ID` watch runs gets its line within 30 seconds, and each conversation's line appears once. A conversation with bob's person joined gets no such line, and its messages print.
+- **Order, gap closed.** In a conversation of alice's person and bob's person, with alice's real message s1 `delivered` and with `conversation watch` running on bob: a probe message with `seq` 3, `prev_seq` 2 and `clock` above s1's by 2, then within 1 second a probe message with `seq` 2, `prev_seq` 1 and `clock` above s1's by 1. stdout prints seq 2's line, then seq 3's. `GET /v1/conversations/{id}/messages/{seq 3's ID}` answers `earlier_missing` false after this.
+- **Order, gap not closed.** A probe message with `seq` 6 and `prev_seq` 5 alone: the route answers `earlier_missing` true; the line has not printed 2 seconds after the push, and has printed within 8 seconds of it. bob's unread count includes it until it has printed. A probe `seq` 5 with `prev_seq` 4 that follows later still prints.
+- **`earlier_missing` otherwise.** It is false on a message's own author's read, and false for a message of an agent on this host.
+- **Stop with a watch.** With `conversation watch` running on bob for 2 seconds, SIGINT to bob's daemon ends it within the 2-second limit of the host service contract, and again with SIGTERM; the suite's margin allows 5 seconds. The same watch keeps running across the restart and prints a later message.
+- **Stop with a route waiting.** With bob's daemon stopped, alice's `conversation start person:bob` running for 1 second, SIGINT to alice's daemon ends it within the same limit and margin. The command exits 0 with the target `inviting`, and the conversation is there after the restart. `conversation add ID person:bob` behaves the same. With alice's daemon, the home host, stopped, and bob's `conversation join ID` waiting for it, SIGINT to bob's daemon ends it within the same limit and margin, and the command exits 1 with `unavailable`.
+
+The next live run also checks the order the way a person meets it: stop a host, send two messages to it, restart it with a watch running there.
 
 **Claim order.** The claim route takes notifications in the order they were created, which is the order messages reached this host (C5). A host's fan-out sends each message's request on its own, so two messages sent in quick succession can arrive, and be claimed, in either order; a case that needs one order waits for the first to be `delivered` before sending the second.
 

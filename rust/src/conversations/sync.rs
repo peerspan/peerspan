@@ -240,7 +240,7 @@ impl Store {
     /// The `seq`s this host resolved for `target` from `author` (accepted
     /// or refused at a fetch), with their `prev_seq`, and the unacked
     /// refusals.
-    fn chain(
+    pub(super) fn chain(
         &self,
         conn: &Connection,
         id: &str,

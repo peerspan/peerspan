@@ -671,6 +671,28 @@ For an integration that supports launch, `attach` ends by doing what `peerspan s
 
 Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness. The object is the same as with `--no-start`, including `next`, which names `peerspan session start` for later launches.
 
+**A launch that needs a terminal.** When the integration's launch plan has `terminal: true` ([harness integration contract](harness-integration-contract.md)) and `attach`'s stdout is not a terminal, `attach` does not start the harness. It exits 1, after its output object on stderr, with exactly:
+
+```
+error: terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. For one non-interactive Claude Code run, add -- -p. To set up only, use --no-start.
+```
+
+- The setup stays: the session is `registered` and has never connected, so the same `attach` at a terminal reuses it and starts the harness.
+- `up` refuses the same way, as a failed `launch` stage in its envelope, with that text (without `error: `) as the stage's attention `detail`, and exits 1.
+- Only stdout decides. stdin is not checked.
+- `--no-start` never launches, so this does not apply to it. Neither does an integration without launch.
+- `peerspan session start` does not refuse: it is the explicit foreground launch for scripts and starts the plan whatever stdout is.
+
+Claude Code's plan sets `terminal: true`, because without a terminal on stdout it switches to `--print` mode and exits at once for lack of a prompt. It leaves `terminal` out when the arguments after `--` contain `-p`, `--print`, `-h`, `--help`, `-v` or `--version`, which work without one, so `attach claude -- -p "text" | tee log` still runs. A prompt piped into `attach claude | tee log` without `-p` is refused; adding `-- -p` is the fix. The Codex and OpenCode plans, which run a bridge to a conversation already running, leave it out.
+
+Verification: spec-only cases in `conformance/slim/naming.py`'s suite or a new one, with a bundle whose helper returns a launch plan for a small fixture program that records that it ran:
+- `terminal: true`, stdout a pipe: exit 1 with the exact text; the fixture did not run; the output object is on stderr. `session doctor --directory` on the profile reports `registered`. The same command with stdout on a terminal runs the fixture with `reused: true`. The harness's `tty=True` gives stdin a terminal and leaves stdout a pipe, so it does not count: only stdout decides, and with `tty=True` the command is still refused.
+- `terminal: true` with `--no-start`, stdout a pipe: exit 0, printing the object on stdout.
+- `terminal: true`, `session start --directory`, stdout a pipe: the fixture runs.
+- `terminal` false or absent, stdout a pipe: the fixture runs.
+- `terminal: "yes"`: exit 1, `integration returned an invalid launch plan`, and the fixture did not run.
+- `node --test` in `integrations/claude-channel`: the launch plan has `terminal: true` with no arguments and with `--name x`, and leaves it out with each of the six listed arguments.
+
 ### The documented guided path
 
 The [guided setup contract](guided-setup-proposal.md) defines `up`, its scope,
