@@ -404,7 +404,7 @@ function statusConnection(w: World, state = 'registered', verified = false, n = 
   const now = w.clock.now(), ready = state === 'ready', past = state === 'offline'
   return { adapter_id: id('adapter', n), session_id: w.parent.review.session_id, state, recoverable: state !== 'registered',
     lease_expires_at: ready ? stamp(now + 12_345) : past ? stamp(now - 1000) : null,
-    last_seen_at: state === 'registered' ? null : stamp(now - 2000), channel: state === 'registered' ? null : verified ? 'verified' : 'unverified',
+    last_seen_at: state === 'registered' ? null : stamp(now - 2000), channel: ready ? verified ? 'verified' : 'unverified' : null,
     channel_verified_at: verified ? stamp(now - 3000) : null, protocol_version: state === 'registered' ? null : 'public-status-v1' }
 }
 async function selected($: Engine, w: World) {
