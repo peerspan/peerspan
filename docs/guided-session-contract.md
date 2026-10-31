@@ -7216,6 +7216,10 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    exit/status/body-type categories, elapsed time and before/after carrier
    deltas; no response body/raw errors. Retain the original failed verdict,
    never retry the observation endpoint or turn a diagnostic pass into success.
+   A failure-only snapshot of each new proxy thread's current Python frame may
+   emit a fixed selector/client-receive/upstream-receive/send/other category;
+   inspect only this suite's own helper source, no raw frames/paths/lines. This
+   distinguishes a live but blocked forwarding thread from a listening route.
    A read-only exact manual-hint match boolean may accompany it. This exception
    adds diagnostic IO only after the original failure, outside purity captures.
    Temporary enabled listeners during setup explicitly advertise the counted
