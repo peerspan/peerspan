@@ -7865,6 +7865,22 @@ Preserve the first log/hash. Do not guess a stale-code/contact fixture fix befor
 observing the response. Native/Rust checks pass in this first draft workflow;
 full matrix outcomes are retained separately, including all32 jobs.
 
+### GU.impl41b: distinguish compilation from an external test wrapper
+
+The repeated local no-start fence eventually observes cargo test still alive
+with an actual test-binary child but no rustc for several minutes. Its independent
+mmfix target is separate from this task's target/binaries. Do not kill other
+work or wait indefinitely by calling every cargo wrapper a compiler. Preserve
+all no-start observations. The local runner still blocks actual rustc/native
+plugin execution and any cargo command other than a test wrapper with no rustc.
+Record those external noncompiling test PIDs and every before/during/after
+compiler sample as a receipt limitation; don't call the machine wholly idle.
+A task-owned exclusive gate lock continues to serialize this stream's runtime,
+build and host gates. Test sources/assertions/bounds and resource counters stay
+unchanged. Corrected product Rust requires fresh format/test/Clippy/build before
+the first local diagnostic suite. Discard killing external tests, hiding their
+activity, weaker deadlines and another unbounded compiler-name-only hold.
+
 Selected: pure current existing-owner review, persisted public signer selection,
 explicit finite profile7 capped by current authority, concrete public dependencies.
 Discarded: seed/key/agent probes, root fallback, original-key copying, label/pin
