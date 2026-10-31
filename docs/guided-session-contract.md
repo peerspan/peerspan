@@ -8342,7 +8342,13 @@ current P/H/B/D and schema27; only schema-only atomic ABORT fault permitted.
 Target <2min, original comparisons/bounds/counters preserved. A genuine consumed
 TLS ClientHello hold outside DB may isolate already-approved worker IO; confirm
 its generation before/after the observed action, do not invent a worker-pause
-flag, fabricate authority or attribute background work to this route.
+flag, fabricate authority or attribute background work to this route. Establish
+that hold before making the configured exact original file/agent available on
+the existing computer when the automatic signer could otherwise win. No original
+key is installed on the requester. Schema-only triggers on each affected
+dec_intents/dec_pending/dec_clock table may ABORT only when all genuine intended
+writes are visible, independent of write order; a genuine in-window fixture clock
+advance may make the clock write observable before that fault is installed.
 
 1. Null/unapproved signing and fresh sign refusal are DB/state/home +bothTCP/UDP
    pure, no key/agent contact or approval attribution; strict closed wrapper,
