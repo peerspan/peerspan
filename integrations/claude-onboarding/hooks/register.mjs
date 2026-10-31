@@ -1584,7 +1584,8 @@ async function machineOwnerView($, running, epoch, value, extra = {}) {
   machineOwnerExpiry?.cancel(); machineOwnerExpiry = null;
   const end = machineOwnerDeadline(value), token = {};
   machineOwning = { ...running, ...extra, stage: value || running.selected ? 'selected' : 'choose', busy: false,
-    value, retained: value ?? running.retained, expired: end !== null && now >= end, expiryAuthority: token, message: null };
+    value, retained: value ?? running.retained, actionable: !!value && machineOwnerLive(value, now),
+    expired: end !== null && now >= end, expiryAuthority: token, message: null };
   if (end !== null && end > now) machineOwnerExpiry = $.clock.after(end - now, () => {
     if (machineOwning.expiryAuthority === token && epoch === generation) {
       machineOwning = { ...machineOwning, value: null, busy: false, expired: true, expiryAuthority: null,
@@ -1681,7 +1682,7 @@ function machineOwnerControls($, { Text, Button }, epoch) {
   return [
     ...(previous.selected ? [Text({ children: [machineOwnerLines(v, previous.selected, previous.parent, previous.expired)] })] : []),
     ...(previous.message ? [Text({ children: [previous.message] })] : []),
-    ...(!previous.expired && v ? [
+    ...(!previous.expired && previous.actionable && v ? [
       ...(c === null && v.inspection ? [button('machine-owner-prepare', 'Review machine consent', () => decideMachineOwner($, previous, epoch, 'prepare'))] : []),
       ...(c?.state === 'review' && machineOwnerOwn(v, previous.parent)
         ? [button('machine-owner-approve', 'Approve machine consent', () => decideMachineOwner($, previous, epoch, 'approve'))] : []),
