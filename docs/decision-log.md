@@ -3747,3 +3747,15 @@ no observer output, so the original CI cause remains unknown; retain over2min
 duration and runner-label no-start. Rust105e8c54, signing0cd90eeb, other84 old
 files and native393 stay exact. No additional local retry or transport change;
 new final-head full CI/fresh review remains required.
+
+
+### GU.impl44: native existing-computer machine-owner controls
+
+After merged96, select one explicit retained-request lane composing the closed
+sections41/42/43 public APIs: pure review, exact nonsigning consent and explicit
+bounded initial signing. Keep original/device selection on the host, project
+attribution and fixed windows, view-only history and separate readiness facts.
+Discard auto-approval/signing/retry, key copying, root fallback, native review
+replacement, a new protocol driver and signed-as-linked presentation. Section44
+settles the public native contract and independent fixture cases before code.
+Requester completion and full feature acceptance remain separate.
