@@ -3491,3 +3491,13 @@ retry, persistence or readiness claim; no runtime failure is attributed.
 GU.impl39 pre-execution wording audit uses the contract's literal public
 outbound direction sentence, with plain apostrophes. No semantics, tests,
 permissions, traffic, timing or validation change is implied.
+
+GU.impl39 verification: new16/16 pass on their first native run; full379/381 in
+70.08s retains two unchanged old5s access-completion timeouts, unclassified.
+Strict303 validation and old real-host reachability6/6in51.25s pass. Preserve
+all59 old test/helper files, old deadlines and every first outcome/hash. Choose
+required final exact-head CI on a separate runner plus fresh review; discard an
+unchanged local retry, guessed runtime fix or weaker tests. Existing Rust gates
+are reused from merged89, with the full final all30/four matrix repeated. Actual
+terminal/reload/installed/physical/model/other-computer/schema23-to27/full-state/
+final combined acceptance remains open.

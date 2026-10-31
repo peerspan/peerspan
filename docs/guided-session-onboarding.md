@@ -780,3 +780,16 @@ readiness stay separate. No Rust/schema/runtime-scope change or new persistence.
 Independent16 native cases, unchanged365 old cases/all30 host suites and final
 exact-head gates/review follow. Actual terminal/reload/installed/physical/model/
 other-computer/schema23-to27/full-state/final combined acceptance stays open.
+
+The [native outbound verification record](results/guided-native-peer-reachability-verification.json)
+retains first full379/381 in70.08s: all16 new cases pass, while two unchanged old
+access-completion cases hit their existing5s limits. Their cause remains
+unclassified; no semantic mismatch is reported and no known compiler is seen
+at the before/during/after samples. Strict pinned303 validation passes, and the
+unchanged real two-person/two-host peer suite passes6/6 in51.25s on the verified
+merged89 binaries. All59 prior test/helper files and Rust treeeac511ee remain
+exact. Pre-execution presentation/expiry clarifications, independent committed
+source and every source/test/binary/log hash are recorded. No unchanged local
+retry or old-test/deadline change follows. Final all30/four checks and fresh
+exact-head bot/root review are recorded on the slice/tracking PR after the
+evidence commit; all full-feature acceptance limits remain open.
