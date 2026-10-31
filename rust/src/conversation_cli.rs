@@ -587,6 +587,7 @@ async fn watch(
     let mut shown: Vec<(String, String)> = Vec::new();
     // Past their hold, waiting to print with this round's events.
     let mut released: Vec<(String, Value)> = Vec::new();
+    let mut drain_to: Option<i64> = None;
     loop {
         if whole_host && reader.is_none() {
             note_agent_only(local, &mut noted).await;
@@ -687,7 +688,13 @@ async fn watch(
         // Whatever closed a gap committed its event first, so the read above
         // sees it. A full page may leave more: wait for the rest.
         released.append(&mut ready);
-        if events_read < 100 {
+        // Full pages drain to the log's end as of the first one, not to a
+        // quiet log, so a steady stream cannot put printing off for good.
+        if events_read >= 100 && drain_to.is_none() {
+            drain_to = answer["latest"].as_i64();
+        }
+        if events_read < 100 || drain_to.is_some_and(|end| after >= end) {
+            drain_to = None;
             ready = std::mem::take(&mut released);
         }
         // A later message of an author with an earlier one held waits behind it.
