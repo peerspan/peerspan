@@ -171,6 +171,19 @@ fn bindings(store: &Store, p: &Pending, i: &Intent, v: &Value) -> Result<()> {
         "state_conflict",
     )?;
     let local = object(&v["local_host"])?;
+    fields(
+        local,
+        "host_public_key member person_public_key host_lease_id binding_lease_id device_lease_id not_after",
+    )?;
+    require(
+        local["member"] == v["member"]
+            && ident(text(local, "host_lease_id")?, "ds_")
+            && ident(text(local, "binding_lease_id")?, "ds_")
+            && (text(local, "device_lease_id")? == "-"
+                || ident(text(local, "device_lease_id")?, "ds_")),
+        "state_conflict",
+    )?;
+    stamp(text(local, "not_after")?)?;
     require(
         local.get("host_public_key") == Some(&json!(store.identity().public_key))
             && local.get("person_public_key") == Some(&json!(r.person_public_key)),
