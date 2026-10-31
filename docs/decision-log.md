@@ -3372,3 +3372,15 @@ Independent fixture semantics plus one positive reverse-order regression precede
 root verification. Retain all previous failures; wait for the observed external
 compiler to finish before the corrected-source run, without stopping that track
 or changing test bounds. Final exact-head CI/review remains required.
+
+### GU.impl35 — Finish approved agent access through one native action
+
+After merged82, choose one explicit Finish agent access to compose exact approved
+signing and local application, with pure Check application first for recovery.
+Existing approval/entry/Check stay nonsigning, preserving333 original cases.
+Discard two technical mutation buttons, automatic work after a read/approval,
+new consent/provider/state, retry and local-application readiness claims. Each
+existing mutation keeps its own95s client/90s server bound and the original
+five-minute deadline. Fresh guards precede each dispatch; unknown signing stops
+before apply. Contract-first independent native cases and full final-head gates
+remain required. No Rust/protocol/evaluator changes or new peer/model IO.
