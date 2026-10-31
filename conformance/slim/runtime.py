@@ -345,6 +345,15 @@ def local_artifact(task_id, sha256, sender=None, receiver=None, timeout=20):
     sender, receiver = sender or state["b"], receiver or state["a"]
     found = {}
 
+    def stored_final():
+        # Until the submitter stores the final event it has no row for the result, and 404 is correct
+        # (artifact contract): wait for its record first.
+        status, record = sender.api("GET", f"/v1/tasks/{receiver.id}/{task_id}")
+        check(status == 200, f"{sender.name}: record of {task_id}: {status} {record}")
+        status_record = record.get("status") or {}
+        return status_record.get("state") in FINAL and record["events_after"] >= status_record.get("last_event", 0)
+    wait_for(stored_final, timeout=timeout, interval=0.3, message=f"{sender.name} to store the final event")
+
     def fetched():
         status, data = raw(sender, "GET", f"/v1/tasks/{receiver.id}/{task_id}/artifacts/{sha256}")
         if status == 200:
@@ -367,17 +376,27 @@ def local_artifact(task_id, sha256, sender=None, receiver=None, timeout=20):
 # ---------------------------------------------------------------------------------------------------------------
 
 def lapse_world():
+    """Spec 7.1: the root renews a host grant deadline-only, without the target's consent (DEC-Q28), from 4 days
+    before its end, but only while it is still current. So sam joins with host and person grants that end after
+    4 days and 1 hour, which is not yet inside the root's threshold, and the clock then jumps past that end in one
+    step: rhea's root never sees sam's grant both current and due, and it lapses. rhea's own 7-day grants stay
+    current throughout."""
     clock = Clock(suite.work / "clock-lapse")
     r, s = suite.host("rhea", clock=clock), suite.host("sam", clock=clock)
     rt = FakeRuntime("rhea").start()
     net = create_network(r, "runtime-lapse", "rhea")["id"]
     key = ssh_key(s.root, "sam")
-    join_new_person(r, s, "sam", key, net)
+    sam_end = clock.now().replace(microsecond=0) + timedelta(days=4, hours=1)
+    join_new_person(r, s, "sam", key, net, not_after=rfc3339(sam_end))
     rhea_public = r.api("GET", f"/v2/networks/{net}")[1]["person_public_key"]
     rhea_key = r.home / ".config/peerspan/person_ed25519"
     rhea_pid = r.ok("person", "show", "--person-key", rhea_key)["person_id"]
     sam_pid = s.ok("person", "show", "--person-key", key)["person_id"]
-    s.stop()  # sam's host cannot consent to renewing its own host grant from here on
+    joined = members(r, net).get(s.public_key)
+    check(joined is not None and joined["not_after"] <= rfc3339(sam_end),
+          f"fixture: sam's host grant on rhea's host ends {joined and joined['not_after']}, want at most "
+          f"{rfc3339(sam_end)} (join --not-after)")
+    s.stop()
 
     def sign(*extra):
         result = r.cli("runtime", "enable", "--socket", str(rt.socket), "--person-key", rhea_key,
@@ -391,26 +410,12 @@ def lapse_world():
         payload = json.loads(base64.b64decode(json.loads(base64.b64decode(current["statement_base64"]))["payload_base64"]))
         return json.loads(base64.b64decode(payload["body_base64"]))
 
-    def renewal():
-        clock.set(4 * DAY + 8 * HOUR + 50 * 60)
-        version = sign()
-        rules = body()["runtime_rules"]
-        start = members(r, net)[r.public_key]
-        clock.set(5 * DAY + 1 * HOUR)  # 7 h 50 min left on the policy; every grant of rhea's due
-        wait_for(lambda: policy_version(r, rhea_public, net) > version
-                 and all(members(r, net)[r.public_key][k] != start[k]
-                         for k in ("host_lease_id", "device_lease_id", "binding_lease_id")),
-                 timeout=WINDOW, interval=1, message="rhea's host to renew its policy and grants")
-        check(body().get("runtime_rules") == rules, f"runtime_rules after renewal {body().get('runtime_rules')}, "
-                                                    f"want {rules}")
-    step("renewal_keeps_runtime_rules", renewal)
-
     def lapsed():
-        clock.set(7 * DAY + 1 * HOUR)  # sam's host grant, unrenewed, has ended
-        sign()
+        clock.set(4 * DAY + 2 * HOUR)  # one step past the end of sam's grants
         sam = members(r, net).get(s.public_key)
         check(sam is None or sam["not_after"] <= rfc3339(r.now()),
               f"fixture: sam's host is still a current member on rhea's host: {sam}")
+        sign()
         s.start()
 
         def attempt():
@@ -425,6 +430,18 @@ def lapse_world():
         check(status == 200 and answer["state"] == "queued", f"a lapsed sender with allow_disconnected: {status} "
                                                              f"{answer}")
     step("lapsed_sender_needs_allow_disconnected", lapsed)
+
+    def renewal():
+        if clock.offset < 4 * DAY:  # the lapse step failed before moving the clock
+            clock.set(4 * DAY + 2 * HOUR)
+        version = sign("--allow-disconnected")
+        rules = body()["runtime_rules"]
+        clock.set(clock.offset + 16 * HOUR + 10 * 60)  # 7 h 50 min left on the 24-hour policy (threshold 8 h)
+        wait_for(lambda: policy_version(r, rhea_public, net) > version, timeout=WINDOW, interval=1,
+                 message="rhea's host to renew its policy automatically")
+        check(body().get("runtime_rules") == rules, f"runtime_rules after renewal {body().get('runtime_rules')}, "
+                                                    f"want {rules}")
+    step("renewal_keeps_runtime_rules", renewal)
 
 
 def step(name, function):
@@ -1524,13 +1541,14 @@ def _():
             found = re.search(r"task_[0-9a-f]{32}", text)
             task_id = found.group(0) if found else None
         check(task_id, f"run_task returned no task ID: {text[:300]}")
-        updates = []
+        updates, contents = [], {}
         while True:
             note = channel.notification(seconds=40)
             meta = note.get("meta", {})
             if meta.get("kind") != "task_update" or task_id not in meta.values():
                 continue
             updates.append(meta)
+            contents[len(updates) - 1] = note.get("content")
             if meta.get("state") in FINAL:
                 break
         # Output notifications are the running-state updates that carry meta.output text.
@@ -1541,8 +1559,10 @@ def _():
         events = b.api("GET", f"/v1/tasks/{a.id}/{task_id}/events")[1]
         stored = len([e for e in events if e["kind"] == "output"])
         check(stored < 3 or len(outputs) < stored, f"{len(outputs)} output notifications for {stored} output events")
-        last = updates[-1]
-        check(last.get("state") == "succeeded" and "exit_code" in json.dumps(last), f"final update {last}")
+        last, content = updates[-1], contents[len(updates) - 1]
+        text = "".join(c.get("text", "") for c in content) if isinstance(content, list) else str(content or "")
+        check(last.get("state") == "succeeded" and '"exit_code":0' in text.replace(" ", ""),
+              f"final update {last}, content {text[:300]!r}: want the run result as the content")
     finally:
         channel.close()
 
