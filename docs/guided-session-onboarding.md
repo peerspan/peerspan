@@ -767,3 +767,16 @@ all four PR jobs pass (native365/365), while new reachability and unchanged owne
 finalization fail. The latter immutable-history cause remains unclassified.
 Corrected-source final all30/four CI and fresh exact-head bot/root review follow
 on PR89/35. No unchanged local rerun or old assertion/deadline edit is used.
+
+### Native selected-machine outbound connection check
+
+Section39/GU.impl39 follows merged89 (`9ca61f5`). A verified connection-status
+snapshot supplies a ten-per-page remote machine picker with explicit ID/key
+selection; only Check outbound connection sends the private section38 command.
+Full current inspection/target/parent validation and separate roster/result
+expiry authorities guard before/after IO. The human result reports only outbound
+transport status; permissions, incoming delivery, model receipt and overall
+readiness stay separate. No Rust/schema/runtime-scope change or new persistence.
+Independent16 native cases, unchanged365 old cases/all30 host suites and final
+exact-head gates/review follow. Actual terminal/reload/installed/physical/model/
+other-computer/schema23-to27/full-state/final combined acceptance stays open.

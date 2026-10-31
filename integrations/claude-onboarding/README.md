@@ -482,6 +482,31 @@ Peer reachability, model receipt and overall connection readiness remain
 stopping an authorized adapter. Use the adapter's separate incoming-delivery
 check to verify its model path.
 
+## Check a machine connection
+
+From **Check connection status**, press **Check a machine connection**, choose a
+remote machine, then press **Check outbound connection**. Each choice shows the
+machine's quoted label and host ID; the selected view also shows its public key.
+Choosing a machine starts no connection check.
+
+The result reports an authenticated outbound response with its HTTP status, or
+an outbound connection that is not verified. A403/404/500 response still proves
+an authenticated exchange with that machine; permissions, incoming agent
+delivery and model receipt have their own evidence. Overall readiness remains
+not verified by this observation.
+
+**Show outbound connection details** displays the current public membership and
+signed/enforced policy from that observation. **Choose another machine** clears
+the result. **Check connection status** returns through a fresh local status
+read. **Leave machine connection** returns to the project while an authorized
+adapter keeps its existing lifecycle.
+
+The machine roster expires at most30 seconds after its original observation,
+or earlier when relevant membership/policy ends. Results also expire at their
+own earliest bound, and a check cannot extend the original roster window.
+Expired choices require a new Check connection status. Checks run only on an
+explicit press; leaving clears the pane and discards late results.
+
 ## Check this conversation
 
 Press **Check this conversation** to submit one fixed, plugin-attributed local
