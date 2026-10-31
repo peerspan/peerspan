@@ -6959,7 +6959,10 @@ out of routine output/model/prompts/logs/argv.
 Details make all current agent/owner/participant/finite terms, signed baseline
 body, separately enforced content, public policy references, exact authorization
 entries and connection state/lease/last-seen/channel/protocol inspectable, without
-printing internal context/session/adapter IDs. Do not reuse the consent-only
+printing internal context/session/adapter IDs. Structured public details use
+canonical JSON escaped once, including safe visible escapes for display controls;
+do not wrap the JSON document in a second JSON string that obscures its labels.
+Do not reuse the consent-only
 footer or imply missing signatures/application from this independent read.
 State **Peer reachability: not verified**, **Model receipt from this observation:
 not verified**, and **Overall connection readiness: not verified**. Existing
@@ -6997,6 +7000,11 @@ execution or model inference. Derive public section36 fixtures from the specs
 and existing independent fixtures. Commit before root executes. Preserve every
 old349 native/29 host/helper case/action/assertion/delay/timeout byte-for-byte;
 keep individual new corpora compact under the unchanged default5s limit. Cover:
+
+Lifecycle fixtures count each actual session.start and require exactly one
+ordinary delivery_acknowledge registration per start, in order, with no other
+tools. Ending and explicitly starting another native session legitimately
+registers that same tool again; status itself never registers a tool.
 
 1. Inert existing entry/review/approval/Finish/Check; explicit configured Check
    only, exact literal argv/private input/5s bounds, no hidden mutations/probes.
