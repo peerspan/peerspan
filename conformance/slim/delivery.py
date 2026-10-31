@@ -90,6 +90,310 @@ def report_join_failure(committed, requester, inviter, request_id):
     print("join_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
 
 
+def install_join_timing(host):
+    """Enable existing debug observations on daemons only, including restarts."""
+    original_start = host.start
+    def start():
+        original_env = host.extra_env
+        host.extra_env = {**original_env, "PEERSPAN_TIMING": "1"}
+        try:
+            return original_start()
+        finally:
+            host.extra_env = original_env
+    host.start = start
+
+
+def join_timing_offsets(requester, inviter):
+    offsets = {}
+    for role, host in (("requester", requester), ("inviter", inviter)):
+        try:
+            offsets[role] = (host.log, host.log.stat().st_size)
+        except Exception:
+            offsets[role] = None
+    return offsets
+
+
+def report_join_details(committed, requester, inviter, request_id, offsets):
+    """GU.impl33f: bounded failure-only projections; never drive or repair work."""
+    import re
+    import sqlite3
+    unknown = "unknown"
+    codes = {"-", "invalid", "forbidden", "not_found", "state_conflict", "operation_conflict", "quota_exceeded",
+             "expired", "rate_limited", "transport_unavailable", "authority_expired", "proof_required", "internal"}
+    frame_roles = {"request", "owner", "selection", "administrator", "owner_finalization", "commit", "outcome", "proofs"}
+
+    def enum(value, values):
+        return value if type(value) is str and value in values else unknown
+
+    def count(value, maximum=65536):
+        return value if type(value) is int and 0 <= value <= maximum else unknown
+
+    def obj(value, limit=262144):
+        if type(value) is not str or len(value.encode()) > limit:
+            raise ValueError
+        def pairs(items):
+            result = dict(items)
+            if len(result) != len(items):
+                raise ValueError
+            return result
+        def invalid(_):
+            raise ValueError
+        result = json.loads(value, object_pairs_hook=pairs, parse_float=invalid, parse_constant=invalid)
+        if type(result) is not dict:
+            raise ValueError
+        return result
+
+    def binary(value, maximum=131072):
+        if type(value) is not str or len(value) > 4 * ((maximum + 2) // 3):
+            raise ValueError
+        decoded = base64.b64decode(value, validate=True)
+        if len(decoded) > maximum or base64.b64encode(decoded).decode() != value:
+            raise ValueError
+        return decoded
+
+    def version(record, fields):
+        if set(record) != set(fields.split()) or type(record.get("format")) is not int or record["format"] != 1:
+            raise ValueError
+        return record
+
+    def canonical_key(value):
+        return len(binary(value, 32)) == 32
+
+    def helper_match(address, public_key):
+        if type(address) is not str or not 1 <= len(address) <= 260 or not address.isascii() or not canonical_key(public_key):
+            return unknown
+        return address == helper.address and public_key == helper.public_key
+
+    def when(value):
+        if type(value) is not str or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", value):
+            raise ValueError
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    def code_category(value):
+        if type(value) is not str or len(value) > 4096:
+            return unknown
+        if value == "delivery_pending":
+            return value
+        if re.search(r"(?<![a-z_])transport_unavailable(?![a-z_])", value):
+            return "transport_unavailable"
+        for category, markers in (("timeout", ("timeout", "timed out")),
+            ("connection_refused", ("connection refused",)), ("connection_reset", ("connection reset", "reset by peer")),
+            ("tls", ("tls", "certificate", "handshake")), ("quic", ("quic",)),
+            ("relay", ("relay",)), ("unreachable", ("unreachable", "no route to host"))):
+            if any(marker in value.lower() for marker in markers):
+                return category
+        return unknown
+
+    def database(host, other, role):
+        summary = {"participant": role, "state": unknown, "pending": unknown, "outcome": unknown,
+                   "frames": unknown, "outbox_scope": "network_candidates", "outbox_count": unknown, "outbox": unknown,
+                   "contacts": unknown, "stored_helpers": unknown}
+        paths = list(host.state.glob("*.db"))
+        if len(paths) != 1:
+            return summary
+        db = sqlite3.connect(f"file:{paths[0]}?mode=ro", uri=True, timeout=1)
+        try:
+            db.execute("BEGIN")
+            now = host.now()
+            row = db.execute("SELECT deadline,CASE WHEN length(record)<=262144 THEN record ELSE NULL END,"
+                "length(secret),length(terminal_read_cap) FROM dec_pending WHERE request_id=?", (request_id,)).fetchone()
+            if row is not None:
+                pending = {"present": True, "terminal": unknown, "roles": unknown, "request_expired": unknown,
+                    "secret_present": row[2] == 16 if row[2] in (None, 16) else unknown,
+                    "read_cap_present": row[3] == 32 if row[3] in (None, 32) else unknown,
+                    "outcome_present": unknown, "carriers": unknown, "outbound_frames": unknown}
+                try:
+                    pending["request_expired"] = when(row[0]) <= now
+                    record = version(obj(row[1]), "format roles mode migration_proposal_id expected_network_id expected_context_id "
+                        "expected_person_public_key contact_invitation_base64 descriptor_base64 host_public_key device_public_key request_nonce "
+                        "request_packet_base64 owner_packet_base64 selection_packet_base64 administrator_packet_base64 owner_finalization_packet_base64 "
+                        "commit_packet_base64 outcome_packet_base64 catalog_base64 owner_offer_id selection_id administrator_offer_id owner_finalization_id "
+                        "manifest_id activation_id selection_approved commit_approved owner_intent_id administrator_intent_id selection_intent_id "
+                        "commit_intent_id terminal carrier_endpoints outbound_frames")
+                    pending["terminal"] = enum(record.get("terminal"), {"-", "applied", "cancelled", "expired", "stopped", "migration_prepared", "migration_adopted"})
+                    roles = record.get("roles")
+                    if type(roles) is list and len(roles) <= 3:
+                        pending["roles"] = [enum(item, {"requester", "owner", "administrator"}) for item in roles]
+                    outcome = record.get("outcome_packet_base64")
+                    pending["outcome_present"] = False if outcome == "-" else bool(binary(outcome))
+                    carriers = record.get("carrier_endpoints")
+                    if type(carriers) is list and len(carriers) <= 32:
+                        pending["carriers"] = [{"kind": enum(item.get("kind"), {"helper", "participant"}),
+                            "matches_fixture_helper": helper_match(item.get("address"), item.get("public_key")),
+                            "is_other_participant": item.get("public_key") == other.public_key if canonical_key(item.get("public_key")) else unknown}
+                            if type(item) is dict and set(item) == {"kind", "address", "public_key"} else unknown for item in carriers]
+                    outbound = record.get("outbound_frames")
+                    if type(outbound) is list and len(outbound) <= 64:
+                        groups = {}
+                        for frame in outbound:
+                            if (type(frame) is not dict or set(frame) != {"role", "writer_public_key", "frame_id", "acknowledged_by"}
+                                    or type(frame.get("acknowledged_by")) is not list or len(frame["acknowledged_by"]) > 32):
+                                raise ValueError
+                            name = enum(frame.get("role"), frame_roles)
+                            group = groups.setdefault(name, {"role": name, "count": 0, "helper_ack_count": 0,
+                                "participant_ack_count": 0, "unknown_ack_count": 0})
+                            group["count"] += 1
+                            for ack in frame["acknowledged_by"]:
+                                if type(ack) is not dict or set(ack) != {"address", "public_key"}:
+                                    raise ValueError
+                                category = "helper_ack_count" if ack.get("address") == helper.address and ack.get("public_key") == helper.public_key else (
+                                    "participant_ack_count" if ack.get("public_key") in (host.public_key, other.public_key) else "unknown_ack_count")
+                                group[category] += 1
+                        pending["outbound_frames"] = [groups[key] for key in sorted(groups)][:9]
+                except Exception:
+                    pass
+                summary["pending"] = pending
+            else:
+                summary["pending"] = {"present": False}
+            outcomes = db.execute("SELECT locally_applied,CASE WHEN length(record)<=262144 THEN record ELSE NULL END "
+                "FROM dec_operations WHERE network_id=? AND request_id=? LIMIT 2", (state.get("net"), request_id)).fetchall()
+            summary["outcome"] = {"selected_count": len(outcomes), "locally_applied": unknown, "outcome_present": unknown}
+            if len(outcomes) == 1:
+                summary["outcome"]["locally_applied"] = True if type(outcomes[0][0]) is int and outcomes[0][0] == 1 else unknown
+                try:
+                    record = version(obj(outcomes[0][1]), "format activation_base64 catalog_base64 outcome_packet_base64 applied_at")
+                    summary["outcome"]["outcome_present"] = bool(binary(record["outcome_packet_base64"]))
+                except Exception:
+                    pass
+            frames = db.execute("SELECT role,writer_key FROM dec_frames WHERE request_id=? ORDER BY role,writer_key,frame_id LIMIT 65", (request_id,)).fetchall()
+            frame_counts = {}
+            for name, writer in frames[:64]:
+                key = (enum(name, frame_roles), "local" if writer == host.public_key else "other" if writer == other.public_key else unknown)
+                frame_counts[key] = frame_counts.get(key, 0) + 1
+            summary["frames"] = {"count": len(frames) if len(frames) < 65 else unknown,
+                "categories": [{"role": key[0], "writer_role": key[1], "count": value} for key, value in sorted(frame_counts.items())][:16]}
+            summary["outbox_count"] = count(db.execute("SELECT count(*) FROM dec_outbox WHERE network_id=?", (state.get("net"),)).fetchone()[0], 4096)
+            deliveries = db.execute("SELECT target_key,CASE WHEN length(record)<=262144 THEN record ELSE NULL END "
+                "FROM dec_outbox WHERE network_id=? ORDER BY delivery_id LIMIT 8", (state.get("net"),)).fetchall()
+            summary["outbox"] = []
+            for target, encoded in deliveries:
+                item = {"kind": unknown, "target_role": "other" if target == other.public_key else "local" if target == host.public_key else unknown,
+                        "request_matches": unknown, "attempts": unknown, "retry_due": unknown, "error_code": unknown}
+                try:
+                    delivery = version(obj(encoded), "format kind body_base64 proof_ids created_at attempts next_attempt_at last_error_code last_error_detail")
+                    item["kind"] = enum(delivery.get("kind"), {"proofs", "activation", "migration"})
+                    if item["kind"] == "activation":
+                        body = obj(binary(delivery["body_base64"]).decode())
+                        if set(body) != {"activation", "catalog"} or type(body["activation"]) is not dict:
+                            raise ValueError
+                        activation = version(body["activation"], "format context_id request owner selection administrator owner_finalization commit")
+                        packet = activation["request"]
+                        if type(packet) is not dict or not re.fullmatch(r"link_[0-9a-f]{64}", packet.get("request_id", "")):
+                            raise ValueError
+                        item["request_matches"] = packet["request_id"] == request_id
+                    if item["request_matches"] is True:
+                        item.update(attempts=count(delivery.get("attempts"), 2**64 - 1),
+                            retry_due=when(delivery.get("next_attempt_at")) <= now,
+                            error_code=enum(delivery.get("last_error_code"), codes))
+                except Exception:
+                    pass
+                summary["outbox"].append(item)
+            contacts = db.execute("SELECT network_id,context_id,host_key,CASE WHEN length(record)<=65536 THEN record ELSE NULL END "
+                "FROM dec_contacts WHERE network_id IN (?,'-') AND host_key IN (?,?) ORDER BY network_id,context_id,host_key LIMIT 8",
+                (state.get("net"), host.public_key, other.public_key)).fetchall()
+            summary["contacts"] = []
+            for network, context_id, key, encoded in contacts:
+                item = {"host_role": "local" if key == host.public_key else "other", "context_role": "unbound" if network == context_id == "-" else (
+                            "bound_network" if network == state.get("net") and type(context_id) is str and re.fullmatch(r"ctx_[0-9a-f]{64}", context_id) else unknown),
+                        "conflicted": unknown, "contact_count": unknown, "bodies": unknown}
+                try:
+                    record = version(obj(encoded, 65536), "format message_hashes conflicted contacts_base64")
+                    item["conflicted"] = record.get("conflicted") if type(record.get("conflicted")) is bool else unknown
+                    bodies = record.get("contacts_base64")
+                    if type(bodies) is not list or len(bodies) > 2:
+                        raise ValueError
+                    item["contact_count"] = len(bodies); item["bodies"] = []
+                    for encoded_body in bodies:
+                        body = version(obj(binary(encoded_body, 8192).decode(), 8192),
+                            "format context_id host_public_key sequence issued_at expires_at payload_base64 signature")
+                        if body["context_id"] != context_id or body["host_public_key"] != key:
+                            raise ValueError
+                        payload = obj(binary(body["payload_base64"], 8192).decode(), 8192)
+                        if set(payload) != {"quic_addresses", "bootstrap_addresses", "relays"}:
+                            raise ValueError
+                        relays = payload.get("relays")
+                        item["bodies"].append({"expired": when(body["expires_at"]) <= now,
+                            "relay_hint_count": count(len(relays), 8) if type(relays) is list else unknown,
+                            "has_fixture_relay": any(type(relay) is dict and relay.get("address") == helper.address and relay.get("public_key") == helper.public_key
+                                for relay in relays) if type(relays) is list and len(relays) <= 8 else unknown})
+                except Exception:
+                    pass
+                summary["contacts"].append(item)
+            rows = db.execute("SELECT kind,address,public_key,CASE WHEN length(record)<=4096 THEN record ELSE NULL END "
+                              "FROM dec_helpers ORDER BY kind,address,public_key LIMIT 16").fetchall()
+            summary["stored_helpers"] = []
+            for kind, address, public_key, encoded in rows:
+                enabled = unknown
+                try:
+                    record = version(obj(encoded, 4096), "format enabled")
+                    if type(record.get("enabled")) is bool:
+                        enabled = record["enabled"]
+                except Exception:
+                    pass
+                summary["stored_helpers"].append({"kind": enum(kind, {"rendezvous", "relay"}), "enabled": enabled,
+                    "matches_fixture_helper": helper_match(address, public_key)})
+            summary["state"] = "observed"
+        finally:
+            db.close()
+        return summary
+
+    def timing(captured, role):
+        """Request-class metadata is a log-context tag, never caller attribution."""
+        summary = {"participant": role, "state": unknown, "spans": unknown, "unrecognized_count": unknown, "read_limit_reached": unknown}
+        if captured is None:
+            return summary
+        path, offset = captured
+        if type(offset) is not int or offset < 0:
+            return summary
+        with path.open("rb") as stream:
+            stream.seek(offset); data = stream.read(65536)
+        groups = {}; unrecognized = 0
+        for line in data.decode(errors="replace").splitlines():
+            match = re.fullmatch(r"timing #(0|[1-9][0-9]{0,19}) (peer|serve|step|cli|total) (.{1,4096}) ([0-9]{1,9}(?:\.[0-9]{1,6})?)(?:\s*ms)?", line.strip()) if len(line) <= 4096 else None
+            if match is None:
+                unrecognized += 1; continue
+            number, kind, what, duration = match.groups()
+            if kind not in {"peer", "serve"}:
+                continue
+            duration = float(duration)
+            if not 0 <= duration <= 600000:
+                unrecognized += 1; continue
+            routes = re.findall(r"(?:^|\s)(/(?:bootstrap|v2)/[^\s]*)", what)
+            route = routes[0].split("?", 1)[0] if len(routes) == 1 else None
+            route_class = "completion" if route == "/bootstrap/v1/activations" or (route is not None and re.fullmatch(r"/bootstrap/v1/operations/link_[0-9a-f]{64}", route)) else (
+                "local_resume" if route is not None and re.fullmatch(r"/v2/link/requests/link_[0-9a-f]{64}/resume", route) else "other")
+            status = re.findall(r"(?:^|\s)(?:status=|HTTP(?:/1\.[01])?\s+)([1-5][0-9]{2})(?:\s|$)", what)
+            status = int(status[0]) if len(status) == 1 else unknown
+            key = ("background" if number == "0" else "served", route_class, status)
+            group = groups.setdefault(key, {"count": 0, "duration_total_ms": 0.0, "duration_max_ms": 0.0})
+            group["count"] += 1; group["duration_total_ms"] = min(1000000000.0, group["duration_total_ms"] + duration)
+            group["duration_max_ms"] = max(group["duration_max_ms"], duration)
+        summary.update(state="observed" if groups else unknown, unrecognized_count=unrecognized, read_limit_reached=len(data) == 65536,
+            spans=[{"request_class": key[0], "route_class": key[1], "http_status": key[2], "count": value["count"],
+                    "duration_total_ms": round(value["duration_total_ms"], 3), "duration_max_ms": round(value["duration_max_ms"], 3)}
+                for key, value in sorted(groups.items(), key=lambda item: json.dumps(item[0]))[:16]] if groups else unknown)
+        return summary
+
+    try:
+        values = committed.get("attention") if type(committed) is dict else None
+        summary = {"commit_attention": [code_category(value) for value in values[:32]] if type(values) is list else unknown,
+                   "participants": []}
+        for role, host, other in (("requester", requester, inviter), ("inviter", inviter, requester)):
+            item = {"participant": role, "database": unknown, "timing": unknown}
+            try:
+                item["database"] = database(host, other, role)
+            except Exception:
+                pass
+            try:
+                item["timing"] = timing(offsets.get(role), role)
+            except Exception:
+                pass
+            summary["participants"].append(item)
+        print("join_failure_details_public=" + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Extra diagnostic observations cannot mask the original wait exception.
+
+
 def H(data):
     return hashlib.sha256(data if isinstance(data, bytes) else data.encode()).hexdigest()
 
@@ -311,6 +615,7 @@ def transport(host, helpers, publish=False):
 e, f = suite.host("erin", start=False), suite.host("finn", start=False)
 for _h in (e, f):
     transport(_h, [helper])
+    install_join_timing(_h)
     _h.start()
 
 
@@ -394,6 +699,7 @@ def _():
     view = pull_until(f, rid, "administrator_offer_id", timeout=60)
     finalize(f, view, key)
     view = pull_until(f, rid, "owner_finalization_id", timeout=60)
+    join_offsets = join_timing_offsets(f, e)
     committed = commit(f, view)
     # Neither host can reach the other's first-contact listener (both advertise a dead one), so the activation
     # can only arrive over QUIC completion through the relay (path 3).
@@ -404,6 +710,10 @@ def _():
             report_join_failure(committed, f, e, rid)
         except Exception:
             pass  # Diagnostic errors must never mask the original wait failure.
+        try:
+            report_join_details(committed, f, e, rid, join_offsets)
+        except Exception:
+            pass  # Preserve the existing public diagnostic and original wait failure.
         raise
     members = {m["host_public_key"] for m in e.api("GET", f"/v2/networks/{net['id']}/members")[1]["members"]}
     check(f.public_key in members, "erin does not list finn after the join")
