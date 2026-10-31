@@ -627,7 +627,7 @@ def _():
     check(auths(f) == [entry for entry in expected if entry["grant_id"] == task["id"]], "revoked origin-restricted grant remained advertised")
     h.ok("access", "allow", "--network", f["net"], "--agent", agent["name"],
          "--principal", "agent:" + source.id + "/" + origin["id"], "--action", "message.append", "--action", "task.submit",
-         "--max-message-bytes", "3210", "--max-artifact-bytes", "4096")
+         "--max-message-bytes", "3210", "--max-artifact-bytes", "4096", "--valid-days", "1")
     entries = auths(f)
     policy = [entry for entry in entries if entry["kind"] == "policy"]
     check(len(policy) == 1 and policy[0]["actions"] == ["message.append", "task.submit"]
