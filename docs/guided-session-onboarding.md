@@ -793,3 +793,16 @@ source and every source/test/binary/log hash are recorded. No unchanged local
 retry or old-test/deadline change follows. Final all30/four checks and fresh
 exact-head bot/root review are recorded on the slice/tracking PR after the
 evidence commit; all full-feature acceptance limits remain open.
+
+### Request this computer under an existing person
+
+Section40/GU.impl40 follows merged90 (`a0e546b`). Explicit **Connect this
+computer** uses a privately entered invitation with an exact existing-person
+pin. Identity preview and publication review/approval are separate; the original
+key stays on the existing computer. Reuse sections11/12/15 without a new schema,
+API or key inventory. Lookup-first recovery, exact-code reentry and fixed expiry
+guard the volatile lane. Publication and pure progress never establish machine
+powers, membership, access, transport or model receipt. Existing-computer guided
+approval is still subsequent work. Independent12 native cases, unchanged381
+old cases/all30 host suites, local relevant gates and final exact-head review
+follow. Full-feature acceptance remains open.

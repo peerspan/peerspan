@@ -526,6 +526,33 @@ not establish a Peerspan adapter, remote reachability or peer message receipt.
 The existing [Claude channel integration](../claude-channel/README.md) retains
 its separate startup opt-in and readiness contract.
 
+## Request to connect this computer
+
+After attaching the project, choose **Connect this computer** on the new
+computer. Privately enter an invitation that pins your existing person's public
+key. **Review this computer's identity** shows the signed invitation and that
+exact person; **Review machine request** then prepares its publication terms.
+**Approve machine request** creates/reuses and publishes one ordinary request
+with a separate local device key. **Decline machine request** creates no request.
+
+The original person key stays on the existing computer. This path does not
+inventory, generate, import or copy an original key. An unpinned invitation is
+unavailable in this lane; get a pinned invitation from the existing computer.
+Typing or pressing Enter does not submit a review or grant anything.
+
+**Machine request: publication recorded** is separate from machine approval,
+membership, agent access and readiness. **Check machine request progress** reads
+the actual recorded next participant without advancing it. Approval on the
+existing computer is still required; its guided controls are subsequent work.
+The normal **Join a network** original-identity flow remains available separately.
+
+Refresh/reopen recover public state without publishing again. A pending review
+requires its exact invitation to be privately reentered through **Check
+invitation for this machine request** before Approve returns. Unknown outcomes
+require explicit reopening/lookup; no automatic retry. A replacement request
+does not revoke the previous one. Close, expiry and navigation clear private
+input; the invitation never enters agent chat or plugin storage.
+
 ## Verify
 
 ```sh
@@ -533,7 +560,7 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite includes381 cases:16 outbound-connection cases,16 current-status cases,16 access-completion cases,21 access inspection/consent
+The independent native suite includes393 cases:12 machine-request cases,16 outbound-connection cases,16 current-status cases,16 access-completion cases,21 access inspection/consent
 cases,20 requester consent/completion cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
 message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
