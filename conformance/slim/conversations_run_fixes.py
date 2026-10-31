@@ -14,7 +14,9 @@ the contract allows it to happen: such a case is skipped, not passed or failed.
 The order cases force the race: the probe pushes the later message first, and the case confirms that it is being held
 before pushing the earlier one. Not proven here: `up`'s refusal (its service stage installs a real user service, so
 it needs an installed run), a gap closed by a real sync, the 5-second and 10-second limits with a peer request in
-flight (no fixture holds one open), `not_bound` in the agents-only error, and the Claude Code plan (`node --test`).
+flight (no fixture holds one open), `not_bound` in the agents-only error, and the Claude Code plan (`node --test`, in
+integrations/claude-channel). A cursor that passes a released message before it prints is only caught if the sampling
+lands in that window: nothing can hold watch between printing and posting.
 """
 import json
 import os
@@ -46,6 +48,7 @@ PRINT_LIMIT = 12.0  # Fixes says 8 seconds: the 5-second hold, then a margin
 LATE_LINE_LIMIT = 38.0  # the contract says 30 seconds
 HOLD = 5.0  # the contract's longest hold; no claim that a message is still held is made near it
 BLOCKED_AFTER = 1.0  # how long a command runs before the stop, as Fixes says
+SHARED_HOLD_LIMIT = 4.25  # from a push 3s into a hold: its limit is 2s off, a read 1s more; its own hold would be 5s
 
 
 # The markers come off as the fixes land: a marked case that passes fails the suite.
@@ -178,9 +181,10 @@ class Watch:
         check(code == 0, f"watch exit {code} on SIGTERM, want 0")
 
 
-def chat(what):
-    """A conversation of alice's person and bob's person with s1 `delivered`; returns (ID, roster version, s1's clock)."""
-    conv = start("person:bob")
+def chat(what, *others):
+    """A conversation of alice's person, bob's person and OTHERS with s1 `delivered`; returns (ID, roster version, s1's
+    clock)."""
+    conv = start("person:bob", *others)
     s1 = say(conv, f"{what} s1")
     show_targets(a, conv, s1, bob_p(), "delivered")
     status, body = b.api("GET", f"/v1/conversations/{conv}/messages?limit=100")  # the route: `show` moves the cursor
@@ -199,6 +203,19 @@ def push(conv, version, s1_clock, seq, prev_seq, content):
                         {"message": message, "target": bob_p(), "prev_seq": prev_seq})
     check(status == 200, f"probe seq {seq}: {status} {body}")
     return mid
+
+
+def latest_event():
+    status, body = b.api("GET", "/v1/conversations/events?wait=0&limit=1")
+    check(status == 200, f"bob: events: {status} {body}")
+    return body["latest"]
+
+
+def cursor_posts(conv, after):
+    """The cursor moves of bob's person in CONV since event AFTER: the route's only view of what watch has posted."""
+    status, body = b.api("GET", f"/v1/conversations/events?after={after}&limit=1000&conversation={conv}")
+    check(status == 200, f"bob: events: {status} {body}")
+    return [e for e in body["events"] if e["kind"] == "read_changed"]
 
 
 def signal_stop(host, number, limit=STOP_LIMIT):
@@ -616,6 +633,7 @@ def _():
     with Watch(b, conv) as watch:
         b.ok("conversation", "read", conv)
         check(unread(conv) == 0, f"unread {unread(conv)} before the push")
+        mark = latest_event()
         began = time.monotonic()
         six = push(conv, version, clock, 6, 5, "open seq6")
         check(message_view(b, conv, six)["earlier_missing"] is True, "seq 6 past a gap: earlier_missing not true")
@@ -626,15 +644,73 @@ def _():
             raise Skip(f"the machine took {elapsed:.1f}s to get here, too near the hold to say anything")
         check("open seq6" not in printed, f"seq 6 printed {elapsed:.1f}s after the push: {printed!r}")
         check(count >= 1, f"unread {count} while seq 6 is held: it does not count until printed")
+        # The same hold: another author's message prints through it and moves no cursor, and further messages of this
+        # author wait behind seq 6 on its limit, one that follows it and one past a gap of its own.
+        say(conv, "open own", b)
+        watch.wait_text("open own", timeout=PRINT_LIMIT)  # with nothing about seq 6: it may have released on a stall
+        time.sleep(max(0.0, began + 2.3 - time.monotonic()))
+        seven = push(conv, version, clock, 7, 6, "open seq7")
+        check(message_view(b, conv, seven)["earlier_missing"] is True, "seq 7 past a gap: earlier_missing not true")
+        time.sleep(max(0.0, began + 3.0 - time.monotonic()))
+        nine = push(conv, version, clock, 9, 8, "open seq9")
+        pushed = time.monotonic()
+        check(message_view(b, conv, nine)["earlier_missing"] is True, "seq 9 past a gap: earlier_missing not true")
+        printed, count, posts = watch.text(), unread(conv), cursor_posts(conv, mark)
+        elapsed = time.monotonic() - began
+        in_time = elapsed < HOLD - 1  # a stall costs only these claims: the rest of the case still gives its verdict
+        if in_time:
+            for n in (6, 7, 9):
+                check(f"open seq{n}" not in printed, f"seq {n} printed during seq 6's hold: {printed!r}")
+            check(count == 3, f"unread {count} with seq 6, 7 and 9 held, want 3: the cursor passed a held message")
+            check(not posts, f"a cursor post while the conversation holds a message: {posts}")
+        else:
+            print(f"  NO VERDICT on the shared hold: the machine took {elapsed:.1f}s to get here", flush=True)
         watch.wait_text("open seq6", timeout=max(0.1, began + PRINT_LIMIT - time.monotonic()))
+        if in_time:
+            try:
+                watch.wait_text("open seq9", timeout=max(0.1, pushed + SHARED_HOLD_LIMIT - time.monotonic()))
+            except AssertionError as error:
+                raise Failure(f"seq 9 not printed {SHARED_HOLD_LIMIT}s after its push, so it extended seq 6's hold: "
+                              f"{error}") from None
+            printed = watch.text()
+            positions = [printed.find(f"open seq{n}") for n in (6, 7, 9)]
+            check(-1 not in positions and positions == sorted(positions), f"seq 6, 7, 9 in order: {printed!r}")
         check(message_view(b, conv, six)["earlier_missing"] is True, "a gap that stayed open: earlier_missing not true")
         wait_for(lambda: unread(conv) == 0, timeout=20, interval=0.2, message="seq 6 to leave the unread count")
+        check(cursor_posts(conv, mark), "unread 0 with no cursor move in the event log")
         # Later than the hold, so out of order, and they still print. seq 4 closes the gap, so nothing waits out a hold.
         push(conv, version, clock, 5, 4, "open seq5")
         push(conv, version, clock, 4, 3, "open seq4")
         watch.wait_text("open seq5", timeout=PRINT_LIMIT)
         watch.wait_text("open seq4", timeout=PRINT_LIMIT)
         check(message_view(b, conv, six)["earlier_missing"] is False, "earlier_missing still true after the gap closed")
+        watch.stop()
+
+
+@suite.case("order_lower_arrival", "C6 watch Order: any held message of the author shares its limit, a lower seq too")
+def _():
+    need("alice_p")
+    conv, version, clock = chat("lower")
+    with Watch(b, conv) as watch:
+        began = time.monotonic()
+        push(conv, version, clock, 5, 4, "lower seq5")
+        time.sleep(max(0.0, began + 3.0 - time.monotonic()))
+        three = push(conv, version, clock, 3, 2, "lower seq3")
+        pushed = time.monotonic()
+        check(message_view(b, conv, three)["earlier_missing"] is True, "seq 3 past a gap: earlier_missing not true")
+        printed = watch.text()
+        elapsed = time.monotonic() - began
+        if elapsed >= HOLD - 1:
+            raise Skip(f"the machine took {elapsed:.1f}s to get here, too near the hold to say anything")
+        check("lower seq" not in printed, f"printed during the hold: {printed!r}")
+        try:
+            watch.wait_text("lower seq3", timeout=max(0.1, pushed + SHARED_HOLD_LIMIT - time.monotonic()))
+            watch.wait_text("lower seq5", timeout=max(0.1, pushed + SHARED_HOLD_LIMIT - time.monotonic()))
+        except AssertionError as error:
+            raise Failure(f"not printed {SHARED_HOLD_LIMIT}s after seq 3's push, so it extended seq 5's hold: "
+                          f"{error}") from None
+        printed = watch.text()
+        check(printed.index("lower seq3") < printed.index("lower seq5"), f"seq 3, then seq 5: {printed!r}")
         watch.stop()
 
 
@@ -693,6 +769,73 @@ def _():
         watch.stop()
         check("ended seq3" not in watch.text(), f"printed: {watch.text()!r}")
     check(unread(conv) == 1, f"unread {unread(conv)} after a watch ended holding the message, want 1")
+
+
+@suite.case("order_printed_stays_unread", "C6 watch: no cursor post while a conversation holds a message")
+def _():
+    need("alice_p", "bert")
+    wide = state.get("wide_watch")
+    if wide:  # it would post for this conversation too
+        wide.__exit__()
+    conv, version, clock = chat("kept", "bob/bert")
+    with Watch(b, conv) as watch:
+        b.ok("conversation", "read", conv)
+        check(unread(conv) == 0, f"unread {unread(conv)} before the push")
+        mark = latest_event()
+        began = time.monotonic()
+        push(conv, version, clock, 3, 2, "kept seq3")
+        status, body = state["bert"].post(f"/adapter/v1/conversations/{conv}/messages",
+                                          {"content": "kept bert", "message_id": message_id()})
+        check(status == 200, f"bert: send: {status} {body}")
+        watch.wait_text("kept bert", timeout=PRINT_LIMIT)
+        printed, count, posts = watch.text(), unread(conv), cursor_posts(conv, mark)
+        elapsed = time.monotonic() - began
+        if elapsed >= HOLD - 1:
+            raise Skip(f"the machine took {elapsed:.1f}s to get here, too near the hold to say anything")
+        check("kept seq3" not in printed, f"printed: {printed!r}")
+        check(count == 2, f"unread {count} with one message held and one printed, want 2")
+        check(not posts, f"a cursor post while the conversation holds a message: {posts}")
+        watch.stop()
+    check(unread(conv) == 2, f"unread {unread(conv)} after a watch ended during the hold, want 2: what it printed "
+                             "meanwhile stays unread")
+    check(not cursor_posts(conv, mark), f"a cursor post on the way out: {cursor_posts(conv, mark)}")
+
+
+@suite.case("order_cursor_follows_print", "C6 watch Order: a cursor does not pass a held or released, unprinted message")
+def _():
+    need("alice_p")
+    wide = state.get("wide_watch")
+    if wide:  # its output is not this watch's, so its posts say nothing about what this one printed
+        wide.__exit__()
+    conv, version, clock = chat("released")
+    pieces = [f"released seq{n}" for n in (2, 3, 4)]
+    with Watch(b, conv) as watch:
+        mark = latest_event()
+        began = time.monotonic()
+        push(conv, version, clock, 4, 3, pieces[2])
+        push(conv, version, clock, 3, 2, pieces[1])
+        printed, count, posts = watch.text(), unread(conv), cursor_posts(conv, mark)
+        elapsed = time.monotonic() - began
+        if elapsed >= HOLD - 1:
+            raise Skip(f"the machine took {elapsed:.1f}s to get here, too near the hold to say anything")
+        check("released seq" not in printed, f"printed while the gap was open: {printed!r}")
+        check(count == 3, f"unread {count} with s1 and two held, want 3")
+        check(not posts, f"a cursor post while the conversation holds a message: {posts}")
+        push(conv, version, clock, 2, 1, pieces[0])
+        deadline = time.monotonic() + 20
+        while True:  # read the count first: a cursor that has moved must find every line already out
+            count = unread(conv)
+            printed = watch.text()
+            if count < 4:
+                missing = [p for p in pieces if p not in printed]
+                check(not missing, f"unread {count}: the cursor moved before {missing} printed: {printed!r}")
+            if count == 0:
+                break
+            check(time.monotonic() < deadline, f"unread still {count} 20s after the gap closed: {printed!r}")
+            time.sleep(0.01)
+        positions = [printed.find(p) for p in pieces]
+        check(positions == sorted(positions), f"seq 2, 3, 4 in order: {printed!r}")
+        watch.stop()
 
 
 @suite.case("only_agents_gone", "C6 A host where only agents take part: no agent, C1's line; Fixes: Agents only: `show`")
