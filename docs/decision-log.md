@@ -3764,3 +3764,10 @@ GU.impl44 first bot P2: an independently validated receipt from another still-
 attached project can legitimately remain review. Keep it view-only, comparing
 the current inspection only for this exact project's actionable review. Never
 convert foreign review into approval/signing eligibility or attribute it here.
+
+GU.impl44 privacy clarification before first native execution: retain exact
+private context comparisons but omit native conversation IDs and parent flow/
+review/session plumbing from human review. Show public project/agent labels and
+actual machine/consent terms. Discard raw context dumping. The first validator
+runner invocation stopped before launch on root's incorrect expected-head
+literal; retain it as no-start, not a product/runtime test failure.
