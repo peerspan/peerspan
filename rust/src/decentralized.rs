@@ -63,7 +63,10 @@ pub use peer::state_worker;
 pub use probe::{MAX_PROBE_LINE, probe};
 pub(crate) use project_access::inspect as inspect_project_access;
 pub(crate) use project_access_consent::run as access_consent_in;
-pub(crate) use requester::{commit_in, commit_live, commit_proposal, resume_commit_guarded};
+pub(crate) use requester::{
+    commit_in, commit_live, commit_proposal, inspect_machine_requester_commit,
+    resume_commit_guarded,
+};
 pub(crate) use requests::views_in as request_views_in;
 pub(crate) use requests_io::publish as publish_request;
 pub(crate) use requests_io::{IncomingPlan, fetch_incoming, incoming_plan, incoming_role};

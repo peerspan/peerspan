@@ -426,4 +426,5 @@ pub(super) fn routes() -> Router<Arc<Store>> {
             post(approve),
         )
         .merge(complete::routes())
+        .merge(super::machine_commit::routes())
 }
