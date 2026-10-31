@@ -557,7 +557,7 @@ A session's credential may be created with **directory access**. Then its adapte
 - **Naming** (revised 2026-10-16). Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
   1. `BASE`;
   2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE` is used on this host;
-  3. `BASE-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE` is used only on another host; then 6, 8, and so on while that is taken;
+  3. `BASE-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE` is used only on another host of this person; then 6, 8, and so on while that is taken;
   4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
   The machine's host name is never part of a default name, because other hosts in the network see agent names (DEC-OWN12). Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A project part left with no letters or digits after that, including the root directory's empty base name, is replaced by `project`. So that the whole name fits in 64 characters, parts are cut in this order, each down to 1 character before the next is cut: the project, then `BASE`. The reserved name `builtin` is never free. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
   An agent named under an earlier rule keeps its name, and re-attaching reuses it.
