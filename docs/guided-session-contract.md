@@ -7205,6 +7205,14 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    A mismatched expected transport observation may similarly print only its
    expected/actual fixed result tags and numeric HTTP status, target process
    running/exit category, counted-proxy thread liveness and fixed carrier counts.
+   For a later mismatch, retain at most four preceding ordinary observations:
+   fixed expected/actual result and target-running category, elapsed monotonic
+   milliseconds and existing carrier deltas. Count fixed-category existing
+   proxy socket send/receive errors without changing their handling; expose
+   those counts only on failure. No addresses, records or raw errors appear.
+   Temporary enabled listeners during setup explicitly advertise the counted
+   endpoint; bootstrap-only issuance/final captures advertise no QUIC endpoint.
+   This prevents an intermediate bound-address default bypassing accounting.
    It adds no daemon/network/SQL operation or changed assertion/action/timing;
    the original failure remains a failure. These diagnostics establish no cause
    when they do not trigger.
