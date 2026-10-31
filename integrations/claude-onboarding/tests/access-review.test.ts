@@ -687,8 +687,9 @@ test('earliest live bound removes approval at its exact timer boundary with no r
 test('registered async preflight expiry blocks dispatch while exact post-dispatch approval can show durable history', async ($, on) => {
   const w = fixture(on), normal = w.read; let ui: Pane
   for (const phase of ['preflight', 'dispatched']) {
-    w.read = normal; w.access = await receipt(w, { created: w.clock.now() - 299_000 })
-    ui = await attached($, w); await inspectPerson(ui, w); await press(ui, 'Review proposed grant')
+    w.read = normal; ui = await attached($, w)
+    w.access = await receipt(w, { created: w.clock.now() - 299_000 })
+    await inspectPerson(ui, w); await press(ui, 'Review proposed grant')
     const delayed = delaySignal(w, 2000), before = calls(w, APPROVE).length
     w.read = async (kind, payload, e) => { const value = await normal(kind, payload, e)
       if (kind === (phase === 'preflight' ? LOOKUP : APPROVE)) await delayed.wait(); return value }
