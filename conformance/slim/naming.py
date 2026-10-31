@@ -16,7 +16,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-from harness import Suite, check, create_network, join_new_person, link_machine, ssh_key
+from harness import Suite, attention, check, create_network, join_new_person, link_machine, ssh_key, wait_for
 
 HELPER = """import json, sys
 json.load(sys.stdin)
@@ -112,6 +112,7 @@ def _():
     status, network = a.api("GET", f"/v2/networks/{net['id']}")
     check(status == 200, f"network: {status} {network}")
     key = a.home / ".config/peerspan/person_ed25519"
+    state["alice_key"] = key
     join_new_person(a, b, "bob", ssh_key(b.root, "bob"), net["id"])
     link_machine(a, a2, net["id"], network["person_public_key"], key=key)
     for host in (a, a2, b, solo):
@@ -261,6 +262,7 @@ def _():
     need("claude")
     result = attach(a, directory=project("fourteen/given"), name="chosen")
     check(result.ok and result.json["agent"]["name"] == "chosen", f"attach --name chosen: {result}")
+    state["chosen"] = result.json["agent"]
 
 
 @suite.case("name-taken-here", "launch Refusals: 409 before any registration, naming the host")
@@ -318,12 +320,43 @@ def _():
     check(again["adapter_id"] != first["adapter_id"], "the adapter credential was not replaced")
 
 
-@suite.case("other-person", "launch Names are unique per person: another person's names stay free")
+@suite.case("other-person", "launch Names are unique per person: another person's names stay free; Peer route: "
+                            "an agent with no authorizations is never listed")
 def _():
-    need("net")
-    out = expect_name(b, "claude", project("bob/any"))
-    result = attach(b, directory=project("bob/second"), name="chosen")  # alice has `chosen`
+    key, chosen = need("alice_key", "chosen")
+
+    def reachable():
+        return {m["address"]: m for m in b.ok("agents", "--refresh", "--json")["reachable"]}
+
+    check("alice/chosen" not in reachable(), "bob lists alice's chosen before any allow")
+    a.ok("allow", "bob", "--person-key", key)
+    # Without this the case proves nothing: a name of alice's that bob cannot see could not be wrongly refused.
+    # second is on both of alice's hosts, so its addresses use the host ID (launch Discovery).
+    held = ("alice/chosen", "alice/claude", "alice/claude-dup", f"{a.id}/second", f"{a2.id}/second")
+
+    def all_held():
+        now = reachable()
+        return now if all(address in now for address in held) else None
+
+    listed = wait_for(all_held, timeout=25, interval=1, message=f"bob's directory to list {held}")
+    seen = listed["alice/chosen"]
+    check(seen["agent_id"] == chosen["id"] and seen["host_id"] == a.id, f"bob sees alice/chosen as {seen}")
+
+    # Each of these would be suffixed if alice's agents counted as bob's.
+    expect_name(b, "claude", project("bob/any"))  # Naming 1, not 3
+    expect_name(b, "claude-dup", project("bob/dup"))  # Naming 2, not 4
+    expect_name(b, "second", project("bob/omega"), harness="second")  # Naming 1, not 3
+
+    result = attach(b, directory=project("bob/second"), name="chosen")
     check(result.ok, f"bob's --name chosen: {result}")
+    mine = result.json["agent"]
+    check(mine["name"] == "chosen" and mine["address"] == "bob/chosen", f"bob's agent {mine}")
+    check(mine["id"] != chosen["id"], "bob's chosen is alice's agent")
+    view = b.ok("agents", "--refresh", "--json")
+    check(any(m["agent_id"] == mine["id"] for m in view["mine"]), f"bob's mine: {view['mine']}")
+    check(any(m["address"] == "alice/chosen" for m in view["reachable"]), "bob no longer lists alice/chosen")
+    kinds = {kind for kind, _ in attention(b)[0]}
+    check("agent_name_conflict" not in kinds, f"another person's name raised a conflict on bob: {kinds}")
 
 
 @suite.case("unbound-host", "launch Output and Registering: HOST_ID/NAME and the login name with no person")
