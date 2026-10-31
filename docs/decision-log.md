@@ -3316,6 +3316,9 @@ both existing hosts before this standalone input case, actual explicit sync/
 current hints/directory/retirement, and a monotonic entire-case bound before the
 normal first60s periodic sync. All real workers/paths/arguments/clock and lifetime
 counters remain enabled and unchanged; all earlier history cases remain exact.
+Require observed authority, binding/member and contact lifetimes to cover the
+remaining monotonic window; discard instant-only validity that can expire during
+the input corpus. This adds read-only guards and no renewal action.
 An independent author adds only setup/metadata; removing it restores the old
 source bytes/AST. Discard guessed global directory fences, delaying/disabling
 workers, hidden traffic, larger waits or changing any old assertion/verdict.
