@@ -3629,3 +3629,12 @@ messages and verifies actual request dpk_ after genuine host/device signatures.
 Separate author commits4c0615/7776522 precede the first suite execution; all old
 tests/bounds remain exact. Record the author's bounded fixture and syscall/5s
 client-cutoff limits in section41 rather than infer those from snapshots.
+
+GU.impl41a first draft CI: new suite0/6in22s. Four exact-member failures reveal
+product inspection used member_for, whose device summary is dash; ordinary
+members includes the active creator device. Use current members projection
+without relaxing the test. Ordinary approval setup in case5 separately fails
+with unobserved status/code; case6 cancellation expectation is consequently
+unestablished. Contract bounded captured-response diagnostics by separate author
+before guessing or changing that fixture. Retain CI log06f14af6 and all first
+outcomes; native/Rust checks pass, full matrix still being observed.

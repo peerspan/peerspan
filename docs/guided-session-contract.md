@@ -7842,6 +7842,29 @@ local ordinary join claim. Correct the local runner with a task-owned exclusive
 nonblocking gate lock. Do not rerun unchanged local suites for a cleaner receipt;
 final exact-head CI independently runs both unchanged suites in isolated jobs.
 
+### GU.impl41a: first CI and ordinary-setup observation
+
+First draft CI at2c8a51e (run41230550919, machine_owner job124624035296)
+records0/6in22s. Four cases fail exact current local P/H/B/D member comparison:
+product inspection used a member-for-authority helper that deliberately leaves
+its device-lease summary dash, while the ordinary members view includes the
+actual single active device. Use the current members projection for that exact
+local member, preserving all selected-provider and current authority checks.
+This is a product correction, not a weaker test.
+
+Case5 fails the ordinary unapproved owner-approval prerequisite; its status/code
+were not retained, so cause is unknown. Case6 then expects the cancelled result
+that case5 did not establish. A separate author may add ONLY failure-time
+metadata for the already-returned case5 approval HTTP status and whitelisted
+code (invalid/expired/forbidden/state_conflict/operation_conflict/proof_required/
+clock_rollback/signer_unavailable/authority_expired/not_yet_valid/internal/unknown),
+and boolean whether an owner_intent_id is retained. No new IO/time reads beyond
+the original already required pending snapshot, no raw response/error/IDs/keys/
+codes/labels/paths or exceptions, and no setup/action/assertion/wait/bound change.
+Preserve the first log/hash. Do not guess a stale-code/contact fixture fix before
+observing the response. Native/Rust checks pass in this first draft workflow;
+full matrix outcomes are retained separately, including all32 jobs.
+
 Selected: pure current existing-owner review, persisted public signer selection,
 explicit finite profile7 capped by current authority, concrete public dependencies.
 Discarded: seed/key/agent probes, root fallback, original-key copying, label/pin
