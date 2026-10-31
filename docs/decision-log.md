@@ -3429,3 +3429,23 @@ permission unions/evaluation in the frontend, borrowed channels, automatic model
 or peer probes, new storage and edits to349 existing tests. Independent16-case
 source precedes root runtime; unchanged Rust/local gates are reused, final all29/
 four checks/fresh review run on one head. Full feature acceptance remains open.
+
+
+### GU.impl38 — Explicit selected-machine authenticated reachability
+
+After merged87, add one owner-local exact-project/network/person/remote-host
+check. Reuse the ordinary pinned peer directory GET, with contact learning
+disabled only for this explicit observation. One target and8s exchange/12s API/
+15s CLI bounds keep the operation finite while retaining current direct/helper
+routing and the existing safe cached-connection retry. Recheck complete current
+inspection/project pins after IO; no durable readiness or directory-cache write.
+An authenticated HTTP response, including403/404, proves only the outbound
+transport exchange. Incoming delivery, model receipt and overall readiness stay
+unverified. Native controls follow separately.
+
+Selected: one explicit bounded current-route check and no response-body trust.
+Discarded: fanout, directory refresh/contact-learning sync, short direct-only
+timeouts that exclude existing helper fallback, new ping/admin protocol, remote
+permission inference, implicit model/work probes and a combined ready badge.
+Independent six-case real-host source precedes root execution; all365 old native/
+29 old host suites stay exact and final all30/four checks/fresh review run.
