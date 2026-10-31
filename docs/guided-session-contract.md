@@ -6276,6 +6276,18 @@ three newly added diagnostic parts before first execution, preserving every
 old action/wait/exception/assertion and all caps. Record this as pre-execution
 correction, not a runtime failure or product fix. Production stays4842404.
 
+### GU.impl33i: classify a displayed transport category without its detail
+
+Existing public transport attention may be displayed as transport_CODE followed
+by a colon and explanatory text. For the33f observer's fixed recovery_required
+and quota_exceeded categories, compare only that leading category before the
+first colon, as well as the supported bare code. Never output or interpret the
+explanatory suffix. An independent diagnostic-only correction preserves every
+other projection and the complete old source on normalization. Keep the first
+local delivery run attributed to its original65222cc2 source even if this narrow
+metadata correction is authored while it runs; do not modify that running input
+or retry unchanged. No product/runtime/verdict/wait change follows.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining
