@@ -3810,3 +3810,10 @@ requester receives no original. Allow isolated stopped-requester malformed
 catalog negative with restart/fresh parent before snapshot and no positive
 reuse. Discard authority-row fabrication, positive corrupt fixtures and worker
 disabling. Record bounded separate-admin/reused-binding gaps honestly.
+
+GU.impl45 first Rust compile fails on the large JSON macro's recursion depth.
+Split the fixed effects object into its own value; preserve the exact public
+shape and crate limits. Independent static audit notes restarted requested
+flows cannot rebind their detached parent, so that refusal cannot prove catalog
+corruption validation. Preserve that distinction as a source-only coverage
+limit; do not invent restoration or claim authority-validation execution.

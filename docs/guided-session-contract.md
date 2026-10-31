@@ -8800,8 +8800,12 @@ explicit ordinary finalize after verified selection under its recorded owner
 consent. The requester never receives/loads that key. An isolated stopped-
 requester malformed retained catalog negative may restart and freshly attach
 BEFORE its unchanged-state snapshot; assert refusal/no repair and never reuse
-that corrupt fixture for positive authority. These are genuine setup/negative
-stimuli, not permission to fabricate grants or disable workers.
+that corrupt fixture for positive authority. Restart detaches the exact join
+parent; a resulting review_changed proves context refusal only, not malformed
+catalog validation. The bounded suite may therefore retain corruption as a
+source/fault-only limit instead of inventing a public parent restoration. These
+are genuine setup/negative stimuli, not permission to fabricate grants or
+disable workers.
 
 Root owns all execution, serializes compiler/runtime gates, verifies fresh debug
 binary hashes and records every first compiler/no-start/local/CI outcome. Run

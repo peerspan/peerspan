@@ -51,6 +51,11 @@ impl Store {
             return Err(unavailable());
         }
         let r = &e["request"];
+        let effects = json!({"verify_existing_owner":true,"verify_requester_selection":true,"verify_host_admission":true,
+                "verify_owner_finalization":true,"prepare_commit_intent":false,"approve_commit_intent":false,
+                "sign_requester_commit":false,"publish_requester_commit":false,"apply_network":false,
+                "grant_membership":false,"grant_machine_powers":false,"grant_agent_access":false,
+                "share_files":false,"share_conversation":false,"capability_calls":false}});
         let review = json!({"version":1,"kind":"inspect_existing_person_requester_commit","host_id":self.identity().id,
             "context":input.context,"agent":parent["agent"],"flow_id":f.id,"join_review_id":f.review_id,
             "request_id":p.id,"network":e["network"],"member":e["member"],"person_public_key":r["person_public_key"],
@@ -62,11 +67,7 @@ impl Store {
             "device_lease_id":e["device_lease_id"],"owner_provider":e["owner_provider"],"host_admission":e["host_admission"],
             "reused_binding":e["reused_binding"],"scopes":7,"binding_scopes":2,"not_after":e["not_after"],
             "created_at":r["created_at"],"expires_at":r["expires_at"],"request_stage_deadline":e["request_stage_deadline"],
-            "effects":{"verify_existing_owner":true,"verify_requester_selection":true,"verify_host_admission":true,
-                "verify_owner_finalization":true,"prepare_commit_intent":false,"approve_commit_intent":false,
-                "sign_requester_commit":false,"publish_requester_commit":false,"apply_network":false,
-                "grant_membership":false,"grant_machine_powers":false,"grant_agent_access":false,
-                "share_files":false,"share_conversation":false,"capability_calls":false}});
+            "effects":effects});
         let review_id = format!(
             "review_{}",
             codec::hash(
