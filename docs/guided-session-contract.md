@@ -8560,8 +8560,11 @@ no administrator8), not_after and owner fold versus separate administrator.
 Quote every public label. Explain this does not probe private key availability.
 **Review machine consent** appears only after current inspection and null consent;
 it prepares the exact inspection digest after a fresh matching lookup. Display
-all immutable consent fields including ID/digest/intent/offer/predecessor and
-original receipt/stage/request/powers deadlines, plus effects. Preparation grants
+the immutable consent terms including ID/digest/intent/offer/predecessor and
+original receipt/stage/request/powers deadlines, plus effects. Full context is
+validated privately; never display native conversation IDs or parent project
+flow/review/session plumbing. Public project/agent labels stay quoted in the pane
+and never enter chat. Preparation grants
 nothing. **Approve machine consent** requires the same complete displayed review
 and a fresh pure lookup, exact project/host/request and all live windows. Approval
 authorizes ordinary owner signing/publication and bounded B/D/F after requester
