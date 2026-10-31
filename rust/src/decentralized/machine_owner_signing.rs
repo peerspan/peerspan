@@ -81,6 +81,7 @@ struct Slots {
 // verifies all existing signatures, including later history; none is inferred
 // from a receipt flag, nor does this plan include later B/D/F slots.
 fn slots(store: &Store, p: &Pending, r: &consent::Receipt) -> Result<Slots> {
+    let identity = store.identity();
     let d = ceremony::descriptor(p)?;
     let i = &r.owner;
     let objects = i.objects(&d)?;
@@ -117,7 +118,7 @@ fn slots(store: &Store, p: &Pending, r: &consent::Receipt) -> Result<Slots> {
                     && s.object_type == t.object_type
                     && s.public_key
                         == if host {
-                            store.identity().public_key.as_str()
+                            identity.public_key.as_str()
                         } else {
                             i.record.provider.signer_public_key.as_str()
                         }
