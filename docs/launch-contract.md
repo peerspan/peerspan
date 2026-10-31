@@ -96,7 +96,7 @@ No schema change is needed: these are fields of the JSON records.
 - **`agents`:** sorted by name, then ID. `sessions`, sorted by ID, lists only attached sessions and sessions with an unrevoked, unexpired credential. `connection` uses the values of `adapter connection`: `registered`, `ready`, `offline`, `detached`, `revoked`, or `expired`. A session without a credential shows null `adapter_id`, `connection`, and `expires_at`, and `renewable: false`.
 - **`version`:** the implementation's version string. Its wording is not shared.
 
-**Attention items**, in this order, each with its subject. Old coordinator networks no longer raise items 1 to 4; they are kept here for the record:
+**Attention items**, in this order, each with its subject. Items 1, 3 and 4 came from old coordinator networks and are no longer raised; the numbers are kept because other contracts cite them:
 1. `coordination_error`: a network with a non-null `last_sync_error`. Subject: the network ID; command: `peerspan network sync ID`.
 2. `policy_expired`: this person's policy has passed `valid_until`. Command: `peerspan access renew --network ID`.
 3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `peerspan access renew --network ID`.
