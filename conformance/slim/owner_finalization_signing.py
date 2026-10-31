@@ -1070,6 +1070,63 @@ def settle_F(f):
     f['a'].stop(); f['a'].relay.mode = f['h'].relay.mode = 'drop'; quiet(f)
 
 
+def prepare_history_own_contact(f):
+    """One real unused short handoff establishes this adopted host's current hint."""
+    h = f['h']; view = get(h, '/v2/networks/' + f['network']['id'])
+    key = ssh_key(suite.work, 'history-own-contact-recipient')
+    status, issued = h.api('POST', '/v2/networks/' + f['network']['id'] + '/invitations', {
+        'member': 'Unused history contact', 'expected_person_public_key': ssh_public_base64(key),
+        'expires_at': rfc3339(h.now() + timedelta(seconds=65))})
+    check(status == 201 and issued['invitation'].startswith('psi2-'), 'genuine own-contact handoff failed')
+    encoded = issued['invitation'][5:]
+    envelope = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+    invitation = json.loads(base64.b64decode(envelope['payload_base64'], validate=True))
+    contacts = [contact for contact in invitation['contacts']
+                if contact['host_public_key'] == h.public_key and contact['context_id'] == view['context_id']]
+    check(contacts, 'short handoff lacks an exact bound current own contact')
+    contact = max(contacts, key=lambda value: value['sequence']); cleanup = parse_time(issued['expires_at']) + timedelta(seconds=1)
+    check(parse_time(contact['issued_at']) > parse_time(f['view']['expires_at'])
+          and parse_time(contact['expires_at']) >= cleanup + timedelta(seconds=60)
+          and view['authority']['state'] == 'usable' and cleanup < parse_time(view['authority']['not_after']),
+          'own hint or public authority does not cover actual invitation cleanup and remaining validity')
+    f['history_own_contact'] = dict(contact=contact, invitation_id=issued['invitation_id'],
+                                    context_id=view['context_id'], cleanup_at=cleanup)
+    check_history_own_contact(f)
+    advance_to(h, cleanup)
+
+
+def check_history_own_contact(f, *, cleanup=False):
+    """Verify actual signed/retained own hints; never refresh or rewrite a row."""
+    h = f['h']; retained = f['history_own_contact']; expected = retained['contact']
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+        row = db.execute('SELECT sequence,record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?',
+                         (f['network']['id'], retained['context_id'], h.public_key)).fetchone()
+        if cleanup:
+            pending_row = db.execute('SELECT secret,terminal_read_cap FROM dec_pending WHERE request_id=?',
+                                     (retained['invitation_id'],)).fetchone()
+            frames = db.execute('SELECT count(*) FROM dec_frames WHERE request_id=?',
+                                (retained['invitation_id'],)).fetchone()[0]
+            check((pending_row is None or pending_row == (None, None)) and frames == 0,
+                  'original unsigned maintenance did not retire the actual unused short invitation')
+    check(row is not None, 'current own hint was not retained')
+    record = json.loads(row[1]); sequence = int.from_bytes(row[0], 'big') if type(row[0]) is bytes else row[0]
+    check(record['format'] == 1 and record['conflicted'] is False and record['contacts_base64'], 'retained own contact is unavailable/conflicted')
+    for encoded in record['contacts_base64']:
+        contact = json.loads(base64.b64decode(encoded, validate=True))
+        payload_bytes = base64.b64decode(contact['payload_base64'], validate=True)
+        check(contact['host_public_key'] == h.public_key and contact['context_id'] == retained['context_id']
+              and contact['sequence'] == sequence and contact['payload_base64'] == expected['payload_base64']
+              and json.loads(payload_bytes) == {'quic_addresses': [], 'bootstrap_addresses': [h.relay.address], 'relays': []}
+              and parse_time(contact['issued_at']) > parse_time(f['view']['expires_at'])
+              and parse_time(contact['issued_at']) <= h.now()
+              and max(h.now(), retained['cleanup_at']) + timedelta(seconds=60) <= parse_time(contact['expires_at']),
+              'current own hint changed transport or lacks genuine remaining validity')
+        message = '\n'.join(('peerspan-decentralized-contact-v1', contact['context_id'], contact['host_public_key'],
+            str(contact['sequence']), contact['issued_at'], contact['expires_at'], hashlib.sha256(payload_bytes).hexdigest())).encode()
+        check(hashlib.sha256(message).hexdigest() in record['message_hashes'], 'retained own contact does not match its signing-message guard')
+        ed25519(h.public_key, contact['signature'], message, 'history-own-contact')
+
+
 def alter_packets(view, change):
     for slot in view['signing_requests']:
         if slot['object_type'] != 'owner_finalization_packet': continue
@@ -1319,17 +1376,20 @@ def _():
     a.relay.mode = h.relay.mode = 'pass'; a.start()
     commit(h, view); wait_linked(h, a, rid, timeout=25); a.stop()
     advance_to(h, parse_time(view['expires_at']) + timedelta(seconds=1))
+    prepare_history_own_contact(f)
     spare_key = ssh_key(suite.work, 'history-spare')
     status, spare = h.api('POST', '/v2/link/requests', {'mode': 'new', 'network_id': '-', 'person_public_key': ssh_public_base64(spare_key),
         'migration_proposal_id': '-', 'contact_invitation': '-', 'helpers': []})
     check(status == 201 and spare['selection_approved'] is False and spare['commit_approved'] is False, 'ordinary unapproved expiry-maintenance fixture')
     check(h.api('POST', '/v2/link/requests/' + spare['request_id'] + '/cancel', {})[0] == 200, 'maintenance fixture cancellation')
+    check_history_own_contact(f, cleanup=True)
     a.relay.mode = h.relay.mode = 'drop'
     with AgentProxy('z', [f['key']]) as agent, HostProxy(h, 'zp') as proxy:
         keyless_refusal(f, proxy, agent)
         state = snapshot(h); historical = owner(f, 'lookup')
         check(historical['request']['state'] == 'linked' and historical['owner'] == before_owner and snapshot(h) == state, 'application/expiry changed immutable owner history')
         h.restart(kill=True); quiet(f)
+        check_history_own_contact(f)
         keyless_refusal(f, proxy, agent, data=compact({**decision(f), 'finalization_review_id': 'review_' + 'a' * 64}))
         check(owner(f, 'lookup')['owner'] == before_owner and not agent.messages and not proxy.submissions, 'restarted recorded F read recreated authority/key work')
 
