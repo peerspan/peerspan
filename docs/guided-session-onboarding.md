@@ -724,3 +724,13 @@ returns to ordinary inspection. No implicit status reads, permission evaluation,
 peer/model probe or authorized-runtime changes are introduced. Independent new
 native cases and final exact-head CI/review follow; actual peer/model and
 full-feature acceptance remain open.
+
+The [native status verification record](results/guided-native-readiness-verification.json)
+retains first361/365 and corrected363/365 local outcomes. All16 new cases pass
+after one public-details encoding correction and independent per-session-start
+tool-registration bookkeeping correction; all16 case bodies remain unchanged.
+Both runs retain two unchanged old default5s timeouts, whose cause remains
+unclassified. No known compiler overlaps were observed, no timeouts were raised,
+and no unchanged local retry follows. All57 prior native-test/conformance files
+are byte-identical. Strict pinned303 validation passes; final exact-head all29 CI,
+four PR checks and fresh bot/root review follow on the slice/tracking PR.

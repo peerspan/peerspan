@@ -6999,12 +6999,14 @@ cases on pinned303, no product/Rust/hook imports/reads, real host/process/networ
 execution or model inference. Derive public section36 fixtures from the specs
 and existing independent fixtures. Commit before root executes. Preserve every
 old349 native/29 host/helper case/action/assertion/delay/timeout byte-for-byte;
-keep individual new corpora compact under the unchanged default5s limit. Cover:
+keep individual new corpora compact under the unchanged default5s limit.
 
 Lifecycle fixtures count each actual session.start and require exactly one
 ordinary delivery_acknowledge registration per start, in order, with no other
 tools. Ending and explicitly starting another native session legitimately
 registers that same tool again; status itself never registers a tool.
+
+Cover:
 
 1. Inert existing entry/review/approval/Finish/Check; explicit configured Check
    only, exact literal argv/private input/5s bounds, no hidden mutations/probes.
