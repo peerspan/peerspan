@@ -68,6 +68,22 @@ pub enum OnboardingCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum MachineCommand {
+    /// Recover exact project machine-owner consent
+    Lookup {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Prepare the exact unsigned ordinary machine-owner intent
+    Prepare {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+    /// Approve the exact reviewed owner intent and its ordinary continuation
+    Approve {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
+
     /// Read current public owner terms without consent, signing or publication
     Inspect {
         #[arg(long, required = true)]
@@ -351,6 +367,20 @@ fn input() -> Result<Value> {
     serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid project review input"))
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
+    if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Machine { command }),
+    }) = command
+    {
+        let op = match command {
+            MachineCommand::Lookup { .. } => Some("lookup"),
+            MachineCommand::Prepare { .. } => Some("prepare"),
+            MachineCommand::Approve { .. } => Some("approve"),
+            _ => None,
+        };
+        if let Some(op) = op {
+            return machine_consent(socket, op).await.map(Some);
+        }
+    }
     if let Command::Onboarding(OnboardingArgs {
         command:
             Some(OnboardingCommand::Machine {
@@ -1043,6 +1073,29 @@ async fn machine_inspection(socket: &Path) -> Result<Value> {
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
         Local(socket).post("/v1/onboarding/machine-owner-inspection".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
+
+async fn machine_consent(socket: &Path, operation: &str) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid machine owner consent input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let payload = peerspan_host::onboarding_machine_consent::decode_input(&bytes, operation)
+        .map_err(|_| invalid())?;
+    let unavailable = || anyhow::anyhow!("machine owner consent unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Local(socket).post(
+            format!("/v1/onboarding/machine-owner-consent/{operation}"),
+            payload,
+        ),
     )
     .await
     .map_err(|_| unavailable())?

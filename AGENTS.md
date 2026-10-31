@@ -108,3 +108,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `machine_owner`: pure current existing-computer owner authority and incoming
   machine-request review, selected public provider, finite powers, privacy and
   owner-router isolation (guided session contract section41).
+
+- `machine_owner_consent`: exact project-bound ordinary owner intent and unsigned
+  receipt, atomic dual approval, replacement/history and router/privacy boundaries
+  (guided session contract section42).
