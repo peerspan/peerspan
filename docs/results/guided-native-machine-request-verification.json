@@ -446,5 +446,77 @@
     "cause_or_fix_established": false,
     "requester_duration_note": "137.39s exceeds2-minute suite target; retained unchanged timing/delays; no attribution or wait increase.",
     "conclusion": "Both independent diagnostic revisions pass one retained local run. Original CI causes remain unclassified; final exact-head full matrix/native393/Rust/freshreview required."
+  },
+  "second_final_head_ci": {
+    "head": "78668d13dccbc95849d6e1962608fee7fc0effe6",
+    "checks": "https://github.com/peerspan/peerspan/actions/runs/41225926524",
+    "checks_result": "All4pass; strict303, native393/393in93.86s, Rust155passed/2ignored/fmt/Clippy/build",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41225926466",
+    "conformance_result": "31jobs paginated:30success includingbuild,1failure;29/30suitespass. Prior owner6/6in62s and requester6/6in104s pass without observers triggering.",
+    "failure": {
+      "suite": "access_signing",
+      "job_id": 124610245513,
+      "result": "4/6in83s; cases5and6 fail current genuine peer startup query has not completed prerequisite before signing-history purity measurement; returned state unobserved, cause unclassified.",
+      "log_sha256": "640bf6423f5f65523aa8d858e04b46bbbfbdc8cd71f99c11531926c0d833139d"
+    },
+    "fresh_bot_review": "completed clean on78668d1; comment6546712657",
+    "no_workflow_reruns": true
+  },
+  "startup_diagnostic_revision": {
+    "contract_commit": "7f9673bc09647f3f45e7eb114031b0b675fb2008",
+    "separate_author_commit": "fb81bf845f16cebd94a9c5f1ff706aaad9cca606",
+    "root_copy_commit": "0c1b7fd088d56a6077c8d8e15de9302cfbed3997",
+    "scope": "One compact failure-only observer of an already-returned directory response; no new IO/clocks/waits/retry/setup or changed assertion.",
+    "restoration_audit": {
+      "source_sha256": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "original_sha256": "2e169b0f8ed5d0c23c6b583e6292aa44e066382cd995efa8899bf347a94c897c",
+      "bytes_restored": true,
+      "ast_restored": true
+    },
+    "preflight_block": {
+      "gate": "access-signing-diagnostic-first",
+      "head": "0c1b7fd088d56a6077c8d8e15de9302cfbed3997",
+      "status": "not_started",
+      "reason": "known compiler processes before execution",
+      "preflight_active": [
+        [
+          "487886",
+          "cargo"
+        ],
+        [
+          "487977",
+          "rustc"
+        ]
+      ],
+      "suite_started": false,
+      "source_or_deadline_changed": false
+    },
+    "local_run": {
+      "gate": "access-signing-diagnostic-first",
+      "head": "0c1b7fd088d56a6077c8d8e15de9302cfbed3997",
+      "command": [
+        "python3",
+        "conformance/slim/access_signing.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 109.99,
+      "log": "/dev/shm/gu40/access-signing-diagnostic-first.log",
+      "sha256": "a2e8c941a5777620a648c47c9b3797af418070a0266868c804f72f010d1e604c",
+      "preflight_active": [],
+      "postflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+      "artifact": null,
+      "conformance_sha256": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+    },
+    "observer_triggered": false,
+    "cause_or_runtime_fix_established": false,
+    "other_prior_files_byte_identical": 57,
+    "original_native_cases_unchanged": 381,
+    "final_frontend_rust_unchanged": true,
+    "conclusion": "6/6in109.99s on first actual execution after compiler cleared; earlier blocked preflight never started the suite. Preserve original CI startup failure unclassified; no relaxed prerequisite, bound change or unchanged local retry."
   }
 }

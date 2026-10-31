@@ -829,3 +829,14 @@ and AST. Their retained local diagnostic runs pass6/6in79.45s and6/6in137.39s
 respectively, without triggering either observer; the latter exceeds the suite
 duration target. No cause or runtime fix is established. Frontend/Rust and
 all381 old native cases remain exact; combined-head full CI/review follows.
+
+Combined78668d1 CI passes four PR checks (native393in93.86s) and29/30 host
+suites, including both previous diagnostic suites. Existing access-signing
+cases5/6 instead fail an unobserved startup-query prerequisite. GU.impl40b adds
+only a captured-response failure observer; its first actual local run passes
+6/6in109.99s without triggering it. Compiler preflight initially prevented test
+execution; that was not a suite failure or rerun. Original CI cause stays
+unclassified. Removing these additions restores original bytes/AST, with no
+setup/assertion/deadline/counter changes. Other57 old test/helper files,
+all381 old native cases and frontend/Rust remain exact. Final full CI/review
+receipts follow on the slice/tracking PR; full-feature acceptance remains open.

@@ -3563,3 +3563,11 @@ prerequisite fails without returning its state in the log. Choose compact
 captured-response-only diagnostics by the separate author, preserving the exact
 successful-peer assertion and all setup/actions/bounds. No cause inferred,
 new network attempt, relaxed state, larger wait or unchanged rerun.
+
+GU.impl40b verification: the first actual retained access-signing diagnostic
+run passes6/6in109.99s without observer output; the earlier CI prerequisite cause
+remains unclassified. Initial preflight saw an unrelated compiler and started
+no suite; actual execution began only after it cleared. Root verifies exact
+byte/AST restoration after removing helper/call. All original actions/assertions/
+bounds/counters and frontend/Rust stay unchanged. Required final combined CI
+and fresh review follow; no runtime fix or weaker success criterion is claimed.
