@@ -386,3 +386,13 @@ durable observation is added.
 [Native section39](guided-session-contract.md#39-native-selected-machine-outbound-connection-check)
 composes it through explicit machine choice and Check outbound connection,
 with bounded volatile evidence and separate incoming/model readiness.
+
+### Existing-computer machine-owner inspection
+
+[Guided section41](guided-session-contract.md#41-existing-computer-machine-owner-inspection)
+adds owner-local `POST /v1/onboarding/machine-owner-inspection` and stdin-only
+`onboarding machine inspect --stdin`. A held read binds the attached project to
+the actual incoming same-person host/device keys and current selected public
+owner authority. Fixed proposed powers7 are capped at that authority's deadline.
+The inspection reads no private signer material, creates no consent or grant,
+and makes no readiness claim. Exact consent/signing and native controls follow.
