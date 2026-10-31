@@ -6426,7 +6426,9 @@ statement payload binds root, issuer person/provider kind, required issuer-perso
 optional-device parents, predecessor baseline, sequence/body version, issued_at/
 not_before and finite not_after/body valid_until; created_at equals issued_at,
 review expiry=min(created_at+300s,not_after), end no later than24h/provider/
-participant ceiling. Complete proposed body and provider/public references are
+participant ceiling. The frozen inspection must also be live at proposal creation,
+including baseline issued_at<=created_at; historical short-window fixtures must
+use a baseline already issued before the historical proposal. Complete proposed body and provider/public references are
 shown without signature material. Prepared first review names replacement '-';
 existing history retains its typed immutable replacement lineage.
 
