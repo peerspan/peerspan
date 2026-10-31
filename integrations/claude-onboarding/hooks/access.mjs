@@ -52,10 +52,16 @@ function member(v) {
     (v.device_lease_id === '-' || id(v.device_lease_id, 'ds')) && time(v.not_after) &&
     (v.person_public_key === '-' ? v.binding_lease_id === '-' && v.device_lease_id === '-' : id(v.binding_lease_id, 'ds'));
 }
-export function inventory(raw, host) { decode(raw, 2 << 20); return freeze([...networks(raw, host)].sort((a, b) => a.id < b.id ? -1 : 1)); }
-export function people(raw, now) {
+export function inventory(raw, host) {
   const v = decode(raw, 2 << 20);
-  if (!exact(v, 'context_id members') || !id(v.context_id, 'ctx') || !list(v.members, member) ||
+  networks(raw, host);
+  const selected = v.networks.filter(n => n.mode === 'decentralized');
+  if (selected.some(n => !id(n.context_id, 'ctx'))) throw new Error('Unavailable network context');
+  return freeze(selected.map(({ id, name, context_id }) => ({ id, name, context_id })).sort((a, b) => a.id < b.id ? -1 : 1));
+}
+export function people(raw, now, network) {
+  const v = decode(raw, 2 << 20);
+  if (!exact(v, 'context_id members') || v.context_id !== network.context_id || !id(v.context_id, 'ctx') || !list(v.members, member) ||
       v.members.length > 4096 || !ordered(v.members, x => x.host_public_key) || !Number.isFinite(now) ||
       v.members.some(m => Date.parse(m.not_after) <= now)) throw new Error('Unavailable current people');
   const groups = new Map();
@@ -181,13 +187,14 @@ export function approvable(v, now) {
 }
 export function inspectionLines(v) {
   const r = v.review;
+  const machine = h => `${quoted(h.member)} ${quoted(h.host_public_key)}; host lease: ${h.host_lease_id}; binding: ${h.binding_lease_id}; device: ${h.device_lease_id}; ends: ${h.not_after}`;
   return [`Project: ${quoted(r.context.project_root)}`, 'Conversation: current conversation',
     `Agent: ${quoted(r.agent.name)} (${r.agent.id})`, `Owner label: ${quoted(r.agent.owner)}`,
     `Network: ${quoted(r.network.name)} (${r.network.id})`, `Context ID: ${r.network.context_id}`, `Current root: ${r.root_state_id}`,
     `Owner person: ${quoted(r.owner.member)} ${quoted(r.owner.person_public_key)}`, `Person lease: ${r.owner.person_lease_id}`,
-    `Owner machine: ${quoted(canonical(r.owner.host))}`, `Selected person: ${quoted(r.participant.member)} ${quoted(r.participant.person_public_key)}`,
+    `Owner machine: ${machine(r.owner.host)}`, `Selected person: ${quoted(r.participant.member)} ${quoted(r.participant.person_public_key)}`,
     `Selected person lease: ${r.participant.person_lease_id}; ends: ${r.participant.not_after}`,
-    `Selected machines: ${quoted(canonical(r.participant.hosts))}`,
+    `Selected machines: ${r.participant.hosts.length ? r.participant.hosts.map(machine).join('; ') : 'none'}`,
     `Signed baseline policy: ${r.policy ? quoted(canonical(r.policy.body)) : 'none retained'}`,
     `Enforced content: ${r.policy ? quoted(canonical(r.policy.enforced_content)) : 'none retained'}`,
     ...(r.policy ? [`Policy statement: ${r.policy.statement_id}; proof: ${r.policy.proof_id}; effective end: ${r.policy.valid_until}`] : []),
