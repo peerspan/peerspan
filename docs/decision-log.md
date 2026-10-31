@@ -3324,3 +3324,16 @@ source bytes/AST. Discard guessed global directory fences, delaying/disabling
 workers, hidden traffic, larger waits or changing any old assertion/verdict.
 No runtime fix or retrospective caller attribution is claimed. Commit before
 one retained frozen-source run and fresh final combined CI/review.
+
+### GU.impl34 — Native access inspection and exact nonsigning approval
+
+After merged80, select a small human-only native slice composing sections30/31.
+Choose explicit network/person inventory, complete verified public inspection,
+lookup-first proposed-grant recovery and a separate exact approval. Show the
+ordinary owner/name scope and full baseline/proposal; keep signing/application
+for subsequent controls. Discard pasted keys, label identity, automatic actions,
+replacement, provider fallback, new persistence and readiness inference. Pin
+contract before implementation and use a separate contract-only native author.
+Preserve all312 existing native cases/all28 host suites; re-use unchanged Rust
+local gates and require full final-head CI/review. Hostless people and unsafe
+JS-u64 presentation remain explicit native limits; no second evaluator added.

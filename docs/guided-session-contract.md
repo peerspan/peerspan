@@ -6336,7 +6336,165 @@ Keep the initial62s failure and source/manual duration limits. This setup change
 establishes a valid standalone input fixture; it claims no runtime fix or proof
 of the original caller.
 
-## 34. Remaining flow contract
+## 34. Native project agent-access review and approval
+
+This slice composes sections30/31 through human-only native controls. No Rust,
+API, schema, signing/application, adapter/model/tool/prompt or protocol change.
+Preserve all312 existing native tests and all28 host suites unchanged.
+Signing and local application get separate controls in subsequent slices.
+
+### Entry and explicit selection
+
+An attached project's main pane offers **Review agent access**. Entry is inert
+until pressed. Opening it clears other volatile setup panes, preserves any
+already connected authorized runtime, and verifies terminal/root/conversation,
+current host and the exact authoritative attached project before each stage.
+Use configured executable plus literal --state,5s process bounds, no shell.
+Read existing `onboarding` for explicit ID-sorted network choices (ten/page),
+then `network members NETWORK_ID` for the exact closed runtime section2 member
+view. Group current bound members by exact person public key; ignore unbound
+rows, never merge different keys by label, refuse inconsistent labels/duplicate
+hosts/malformed fields. Show public keys alongside quoted labels and network
+names; ten choices/page sorted by person key. The network ID is public argv;
+no private context/payload/code enters argv. This slice lists only people with
+at least one current bound host, including self. Hostless-person selection is
+not added, and a label or list entry never establishes current access.
+
+Selecting a person explicitly calls only `onboarding access inspect --stdin`
+with section30's exact `{context,network_id,person_public_key}`. Validate its
+closed wrapper/review/effects, typed IDs, canonical base64 public keys, canonical
+UTC-second dates, exact project/host/agent/network/selected person, owner current
+bound host, current root/P/H/B/D references and host-key sorted participant
+machines. Check the domain-separated canonical section30 digest. Native current
+and observed time must be finite, observation <=native+30s, and both before
+owner/participant/current machine/policy effective bounds. The daemon performs
+cryptographic/ancestry/evaluator checks; frontend does not fetch or evaluate
+permissions. Display the complete signed baseline body and enforced content
+separately, including all unrelated rules/capabilities/trust and explicit zeros.
+Policy null means no retained policy, never denied/allowed delivery inference.
+Show exact owner/participant public keys/labels, current public references and
+lifetimes, project/agent ID/name, and inspect-only effects. No grant yet.
+
+All public responses are bounded to the backend's2MiB inspection/1MiB consent
+limits. Refuse unknown/null/extra/incorrect wrapper/review/known nested schema,
+unsafe private-prefix/control strings (including object keys), nonfinite/unsafe
+JS integers and malformed dates/IDs/keys. Preserve complete body JSON fields;
+validate ordinary public policy structure and displayed grant/payload bindings,
+without normalizing or dropping optional fields. Ordinary u64 values beyond
+safe JS integers are an explicit unavailable native presentation, not rounded
+terms. No template/signature/base64 payload/private record is displayable.
+Crypto remains daemon-side: digest the public review, never reconstruct omitted
+encoded payload bytes to pretend to verify payload_sha256 or statement signature.
+
+### Separate preparation, recovery and approval
+
+The inspected pane offers **Review proposed grant**, separately from inspection.
+First perform section31 pure lookup for the exact selection. Recover an existing
+review/history unchanged and never refresh or replace it automatically. Only an
+explicit Review, null lookup and a fresh section30 inspection permit one prepare
+with its exact inspection_review_id. Recheck authoritative host/parent/native
+context and native time after asynchronous preflight, immediately before dispatch.
+No implicit preparation on open, Check, Refresh/reload, page selection or approval.
+No replacement/decline/revocation control in this slice; stale history directs
+explicit advanced review rather than silently preparing another action.
+
+Validate section31's full closed result/access/review, canonical consent digest
+and embedded canonical inspection digest. Bind access IDs, all context/agent/
+network/owner/participant/inspection references, fixed grant, provider, statement
+and times. Review grant is exactly owner_agent_name scope, attached agent ID/name,
+selected person's ordinary `person:person_SHA256(decoded_public_key)` principal,
+message.append/task.submit only,65536 message bytes,0 artifacts, disconnected
+false. Disclose that the name applies across the owner's machines and unrelated
+broader policy remains. Provider is original_person or device, never network_root;
+exact owner host/person/root/lease references, scope1 and finite bounds. Public
+statement payload binds root, issuer person/provider kind, required issuer-person/
+optional-device parents, predecessor baseline, sequence/body version, issued_at/
+not_before and finite not_after/body valid_until; created_at equals issued_at,
+review expiry=min(created_at+300s,not_after), end no later than24h/provider/
+participant ceiling. Complete proposed body and provider/public references are
+shown without signature material. Prepared first review names replacement '-';
+existing history retains its typed immutable replacement lineage.
+
+Only a current exact state=review offers **Approve agent access**. Synchronously
+mark busy to invalidate old presses. Repeat authoritative parent/host/native
+checks and pure lookup. Require exact displayed immutable review/digest/IDs.
+An already matching approved result is read-only recovery, zero mutation.
+Otherwise get fresh section30 inspection and require the captured digest and
+complete review; recheck all context/host/parent and native/observed time after
+preflight. No approval before creation or at/after review/proposed policy/owner/
+participant/current-policy bounds. One5s command sends section31 exact private
+stdin with access_id/access_review_id. It must return exact unchanged approved
+review. Recheck authoritative display guards after IO; elapsed review time may
+show durable historical approval, without current grant claims. Do not sign,
+apply, call broad ordinary action APIs, choose a provider, access a key, retry,
+poll or run any model action. The daemon remains the authority at dispatch.
+
+Show **Agent-access consent: recorded** only for validated approved history.
+State approval authorizes later policy signing/publication; signing/application/
+peer delivery/connection readiness remain unverified here. It grants no membership,
+delegation/files/conversation/capability/offline permission by itself. A timer
+removes Approve at the earliest displayed live bound without IO or mutation;
+approved history remains readable after its old review deadline.
+
+**Check agent access** does fresh current inspection only in inspection mode,
+and pure lookup only in consent/recovery mode (never prepare/approve/sign/apply).
+Failed or malformed IO clears actionable terms and shows a fixed unavailable or
+outcome-unknown notice with explicit Check; no raw output/errors/paths/codes in
+UI/logs/model events. No automatic retry. Missing history does not prove no
+prior signatures or publication; an ordinary worker may act after approval.
+
+**Leave agent access** stays available during IO, clears only volatile pane/
+callbacks/timer and returns to the attached project. It does not cancel/revoke
+consent or retract dispatched work. Back/Close/Refresh/root/conversation/host/
+parent/surface/session changes likewise invalidate pending reads/results/timers.
+Late work cannot reopen a departed pane or disable a newer one. No new frontend
+persistence, transport, credentials or changes to existing runtime delivery.
+
+### Verification
+
+A separate contract-only author adds one independent compact native suite from
+this section and sections30/31/runtime member projections, never reading hooks/
+Rust/importing product helpers or running real processes/transport. Keep original
+312 cases/files/stimuli/assertions/delays/timeouts and all28 host suites exact.
+Use pinned303 public native effects; barriers signal actual command dispatch
+before navigation/time changes. Cover:
+
+1. Inert entry/Refresh/reload; explicit network/person grouping/paging/keys/quoted
+   labels, no ambiguous automatic selection, hostless/unbound limit. Exact5s
+   configured commands, public network argv and private-stdin inspection.
+2. Exact complete inspection/baseline/enforced terms and null policy, fixed
+   digest/effects/parent/agent/owner/participant/context bindings; closed nested
+   shapes/date/key/private-prefix/safe-number corpus refuses without mutation.
+3. Explicit lookup-before-prepare only on null; existing live/approved/expired/
+   invalidated history unchanged; Check never prepares/replaces/signs/applies.
+4. Complete narrow proposed grant/name-wide scope/provider/unsigned body/digests/
+   references/expiry; separate one-shot approval, double-press protection and
+   matching already-approved preflight read-only recovery.
+5. Changed preflight parent/host/native terms/digest/provider/inspection/state,
+   expiry after async preflight and future/early time send zero mutation. Timer
+   removes approval, old timers cannot alter new panes. Post-dispatch expiry
+   permits exact historical approved result without current-access claims.
+6. Nonzero/timeout/raw/malformed/changed approval yields unknown with no retry;
+   pure Check/reentry recovery. Leave/Back/Close/Refresh/root/conversation/host/
+   parent/surface/end during IO discard late results without revocation claims.
+
+Run strict validation/full native suite once per committed source correction;
+required Rust gates and all28 CI suites/PR checks/fresh bot+root review on one
+final head. Reuse merged80 unchanged Rust and its required local gates; native
+only changes do not require rebuilding/rerunning unchanged host binaries locally.
+CI still runs every gate. Serialize root-owned native/runtime/build work; retain
+every first failure/correction/duration/hash and source/manual limits. Current
+kit's obsolete-callback and microscopic final-check/dispatch boundaries plus
+installed/terminal/physical/model/schema23-to27/full-state/final readiness gates
+remain manual/open; do not repeat unchanged quota-refused model probes.
+
+Selected: compose existing verified inspection and exact nonsigning consent
+through separate explicit native decisions with pure lookup-first recovery.
+Discarded: pasted identity keys, labels as identity, a second evaluator, automatic
+replacement/signing/application, one combined large control PR, new persistence,
+provider fallback and approval as permission/delivery/readiness evidence.
+
+## 35. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
