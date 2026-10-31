@@ -3593,3 +3593,11 @@ Use a narrowly scoped public snapshot load that bypasses that fingerprint and
 reads only its existing public/marker columns; preserve other callers/cache.
 The first Rust compilation also exposed an inaccessible field helper; use the
 existing typed codec object/text accessors. Retain the failed compile receipt.
+
+GU.impl41 contract-only author found stale runtime-contract section3 creator
+wording contradicting accepted decentralized-spec section6/DEC-Q21/Q21a/Q27/Q30
+and independent creator-device fixtures. Reconcile it to creation-selected
+device15 and the existing narrowly bounded creator renewal exception; preserve
+older exact original-provider historical results. No runtime creation change
+or new owner choice is introduced. Discard encoding the stale no-device claim
+as a new conformance prerequisite or fabricating a creator-device fixture.
