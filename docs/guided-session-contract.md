@@ -6818,7 +6818,8 @@ native helper/assertion/action/delay/timeout. Cover:
 2. Ordinary current grant then withdrawal/block changes receiver-advertised
    entries; preserve exact message/task bounds and requester-agent restrictions.
    Compare with the ordinary authenticated receiver directory projection where
-   feasible. The fixture's ordinary policy uses explicit --valid-days1, keeping
+   feasible, using its documented array response (not a dict-only contacts
+   helper). The fixture's ordinary policy uses explicit --valid-days1, keeping
    its signed end within genuine seven-day parents so an exact-effective-end
    assertion does not silently rely on the CLI's longer default lifetime.
    No historical consent/application receipt stands in for current
@@ -6829,7 +6830,9 @@ native helper/assertion/action/delay/timeout. Cover:
    peer/model/overall flag stays not_verified despite a verified local channel.
 4. Repeated CLI/API reads in a bounded genuinely quiescent fixture preserve
    complete logical DB/clock/consent/authority plus private-file hashes and BOTH
-   TCP+UDP carrier counters. Restart loses attachment by its existing rules;
+   TCP+UDP carrier counters. Each unsigned retirement-maintenance pass uses a
+   distinct scratch-key filename and fresh ordinary cancelled request; never
+   overwrite an earlier fixture private key. Restart loses attachment by its existing rules;
    no read restores it or starts a daemon/worker/connection.
 5. Changed project/root/native/review/agent, detached/replaced parent, unknown
    network/person and unavailable/expired current authority fail closed without
