@@ -7054,7 +7054,138 @@ status reads after approval, a ready badge from a lease/applied policy, frontend
 permission merging/evaluation, borrowed agent-wide channels, automatic peer/model
 probes, new durable state and changes to the old349 tests' allowed effects.
 
-## 38. Remaining flow contract
+## 38. Explicit selected-machine peer reachability
+
+After merged87 (`c112cdd`), add an owner-local backend check, with native controls
+in the following slice. Preserve all365 native cases and all29 old host suites
+and helpers byte-for-byte. This is a bounded authenticated transport observation;
+it is not incoming agent delivery, permission acceptance or model receipt.
+
+### Exact private request and result
+
+```
+POST /v1/onboarding/reachability
+peerspan [--state DIR] onboarding reachability --stdin
+{context,network_id,person_public_key,peer_host_id}
+```
+
+The closed64KiB input extends section30's exact AdapterContext/network/person
+with one typed `host_` plus64hex target. No default, address, URL, hostname,
+public-key override, provider or target inference. Require the current attached
+project and current section30 inspection, and that exact host derived from a
+current selected-person remote machine key, excluding this host. Unknown network
+uses existing404; unavailable membership/project/person uses existing fail-closed
+errors. Wrong selected host returns409 reachability_unavailable before peer IO.
+Malformed/duplicate/unknown/null/trailing/oversized input is400 without echo.
+Owner administration socket only; no peer/bootstrap/scoped-adapter exposure.
+
+Return exactly:
+
+```
+{version:1,host_id,context,observed_at,
+ inspection:{review_id,review},
+ reachability:{direction:"project_host_to_participant_host",
+   peer_host_id,peer_host_public_key,
+   result:"authenticated_response"|"not_verified",http_status:NUMBER|null,
+   incoming_delivery:"not_verified",model_receipt:"not_verified",
+   connection_readiness:"not_verified"}}
+```
+
+Inspection is the complete current section30 review/digest; its digest does not
+sign the mutable reachability result. The direction is deliberately opposite
+the status pane's advertised incoming work. A complete bounded final HTTP
+response (status200..599) over the exact pinned mutually authenticated ordinary
+peer transport gives authenticated_response and that numeric status, including
+403/404/500. It proves only that this host exchanged an authenticated response
+with that machine. Even200 with an empty body/agent list grants no access and
+proves no network agreement or incoming path. No remote body, metadata, header,
+endpoint or diagnostic is returned, parsed as permissions or retained. Invalid,
+partial/oversized response, timeout, absent route, refused authentication or
+transport failure gives not_verified/null, never authenticated success. No
+HTTP status alone bypasses the post-IO authority/project guards.
+
+### One explicit bounded exchange
+
+Capture the exact complete inspection and project/network/person/host public-key
+pins in a short read transaction and release it before IO. Resolve only the
+existing ordinary pinned dial target and require the same target ID/key.
+Issue one logical GET `/peer/v1/networks/{network_id}/agents` with no body and
+an8s total exchange bound; the owner API is bounded12s and CLI15s. Reuse ordinary
+QUIC identity/ALPN, current direct/optional replaceable helper routes, cached
+connections and its one fresh-connection retry when a reused connection failed
+before response bytes. No additional application retry, fanout, endpoint/key
+fallback, contact-learning sync, directory refresh, catalog/repair, preparation,
+signing/provider call, message/task/artifact/capability action or model turn.
+An absent usable current route is an honest negative observation. Existing
+ordinary callers retain their contact-learning and transport behavior unchanged.
+
+Recheck the exact authoritative project and complete inspection in a fresh read
+transaction after IO, including after failure. Changed or expired project,
+membership/root/policy or selected host/key discards the result with409
+reachability_unavailable (or the existing project error), never rebinds it to
+new terms or falls back to a successful empty view. An expired overall request
+returns a fixed unavailable error. DB reads run on blocking workers; no SQLite
+transaction or thread-local DEC read guard survives an await. No DEC guard,
+consent, authority, event, directory cache or durable observation write. Existing
+normal transport connection/path caches, packet exchanges and certificate
+construction are allowed; unrelated background workers retain their own effects.
+No new state/schema/protocol/remote route or durable lifetime is introduced.
+
+The whole <=2MiB public result passes the existing recursive privacy guard.
+Private input paths/native references stay on the same owner-local boundary as
+section30. CLI uses the configured state literally, never creates/starts a
+missing daemon and emits fixed invalid/unavailable input/argument/response errors,
+not raw remote output. This backend slice has no native status change and does
+not overwrite section36/37's not_verified flags or invent a combined ready state.
+
+### Verification
+
+A separate contract-only author adds a compact six-case `peer_reachability`
+slim suite, using genuine ordinary two-person/two-host coordinator-free setup
+and public project/peer/grant/lifecycle operations. Commit before root executes;
+no product/Rust reads or fabricated authority/protocol rows, no real-model probe.
+Copy only independently authored public helpers; preserve all old files. Cover:
+
+1. Exact owner API/CLI closed shape, section30 digest/binding and selected remote
+   key, real pinned200 response without an adapter or advertised agent. Direction
+   and all incoming/model/overall flags remain distinct and not_verified.
+2. Real current receiver entries can change/withdraw without turning this check
+   into permission/model proof. Failed route/wrong pinned endpoint returns
+   not_verified/null without raw diagnostics, fallback key or automatic retry.
+3. Exact project/network/person/remote host guards reject unknown/mismatched/self
+   targets, detached/replaced project and expired authority before IO. No endpoint
+   override or successful empty substitute; counted non-target carriers stay idle.
+4. Delay an actual dispatched exchange using a counted transport barrier, change
+   the authoritative project through ordinary lifecycle, then release the reply.
+   Reject the old result, with no later rebind, mutation or duplicate exchange.
+5. Repeated successful/failed checks in genuinely quiescent fixtures preserve
+   complete logical DB/authority/consent and private-file hashes on both hosts.
+   Account for BOTH TCP/UDP paths; expected peer traffic is explicit and only the
+   selected pinned route is exercised. No directory-refresh/cache state change or
+   hidden contact-learning sync when no route is currently usable. Genuine public
+   maintenance/restart prerequisites precede captures, no worker suppression,
+   excluded tables or relaxed counters; document public-fixture coverage limits.
+6. Closed malformed/duplicate/unknown/null/trailing/oversized/private stdin/argv,
+   missing-daemon noncreation, wrong methods and owner-only isolation through
+   ordinary peer/bootstrap/adapter interfaces. All fixed errors omit raw input.
+
+Root serializes Rust fmt/test/Clippy/all shipped binaries and new slim suite plus
+old readiness locally, retaining first outcomes and exact source/binary/test/log
+hashes. Reuse merged87's unchanged native tree/strict validation/local history;
+final exact-head all30 suites/four PR checks (native365)/fresh bot/root review run
+again. No unchanged local retry-to-green, old-file edits or deadline increases.
+Actual native controls, terminal/reload/installed/physical/model/other-computer/
+schema23-to27/full-state/final combined/full-feature acceptance remain open;
+prior local native timeouts/host transport callers remain unclassified.
+
+Selected: explicit one-machine pinned outbound transport evidence using the
+existing peer read, with exact before/after current-authority pins. Discarded:
+unbounded all-machine fanout, ordinary directory refresh/contact-learning sync,
+new public ping/admin route, mandatory hosted helper, remote body as permission
+proof, interpreting reverse reachability as incoming delivery, messages/model
+turns as an implicit probe and a combined overall-ready flag.
+
+## 39. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
