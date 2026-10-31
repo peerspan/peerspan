@@ -7595,6 +7595,56 @@ substitute person creation, local inventory as a device prerequisite, arbitrary
 unpinned input, pin as ownership/approval, new journal/schema and new-original
 owner controls for this requester. No new owner choice is attributed.
 
+### GU.impl40a: preserve first CI failures and identify purity prerequisites
+
+First final-head CI8183a22 passes all four PR checks (native393/393in75.27s,
+Rust155/2ignored/fmt/Clippy/build), while the full host matrix passes28/30
+suites. Unchanged section24 owner_finalization case6 observes one existing
+known-context contact row changing sequence/message hashes/contact bytes;
+counts/conflict/files/relays remain unchanged, not the other participant key.
+Its existing observer does not identify requester key or which of three
+inspections failed. Unchanged section28 requester_completion case6, detached/API,
+observes issuer UDP+2 datagrams/+2400 bytes with zero returns, after its entire
+DB/state/home comparison passes. Existing timing metadata identifies no caller.
+Both causes remain unclassified; do not infer them from earlier other suites.
+
+Separate contract-only authors may add ONLY the following failure diagnostics,
+before one retained serialized local run of each affected suite on unchanged
+Rust binaries. No setup/action/clock/wait/deadline/worker/route/counter/record or
+assertion changes, and no unchanged retry-to-green. Removing diagnostic additions
+must restore every original source byte/AST, including all case bodies, original
+captures and verdicts. Preserve the CI logs and exact source/test/binary hashes.
+
+Section24: use captured before/after snapshots only, zero new IO/time reads.
+Add fixed inspection phase before_F/after_F/after_expiry/unknown by explicitly
+tagging the original three case6 calls. Classify each changed key as requester/
+issuer/other/unknown against already known canonical participant keys. Add
+sequence-increased and canonical singleton contact issued/expiry/payload-changed
+booleans, and whether each before/after issued/expiry time lies after the known
+original request deadline. Support canonical SQLite full-u64 sequence encoding;
+invalid/duplicate/oversized/malformed input produces fixed unknown. No raw IDs,
+keys, sequence values, hashes, bodies, payloads, timestamps, addresses, locators,
+paths, labels, private material or diagnostic exception text. Never alter the
+existing snapshot assertion or classify an unknown caller from this metadata.
+An observed local renewal may later justify a separate contracted genuine
+current-own-contact prerequisite like GU.impl33e; this is no approval to add it.
+
+Section28: only after the original captured carrier mismatch, perform at most
+one pure owner-local GET /v1/directory?network=EXACT_KNOWN_NETWORK with2s bound.
+No directory refresh, peer/probe/resume request, retry or waiting. Print only
+HTTP status (or unknown), network_matches boolean, known issuer row count,
+whitelisted host state ok/error/unsupported/pending/unknown, refreshed_at-present
+and refreshed_at-at-or-before-current-time booleans. Unknown/unsafe/ambiguous
+data stays unknown; no raw directory error/agent/key/ID/time/body or exception.
+All diagnostic failures are swallowed, returning the original captured carrier
+tuple so the original failing assertion/verdict is identical. A pending cache
+row identifies incomplete observed directory state, never proves a traffic
+caller or a global IO fence. Other results do not classify the earlier failure.
+
+Selected: narrow failure-only public metadata, preserving every measurement
+and verdict. Discard guessed contact/refresh fixes, artificial queue/authority
+edits, disabling workers/paths, counter filtering, larger waits and blind reruns.
+
 ## 41. Remaining flow contract
 
 Teammate/device admission, remaining
