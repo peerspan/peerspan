@@ -38,7 +38,7 @@ fn unavailable() -> Error {
     coded("machine_owner_inspection_unavailable")
 }
 impl Inspect {
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         self.context.validate().map_err(|_| invalid())?;
         if !crate::peer_store::valid_id(&self.request_id, "link", 32) {
             return Err(invalid());
@@ -67,33 +67,53 @@ impl Store {
                 unavailable()
             }
         })?;
-        // Verify the exact attached parent before projecting network authority.
-        let raw = crate::decentralized::local_decision_time().map_err(|_| unavailable())?;
-        let time = |s: &str| {
-            chrono::DateTime::parse_from_rfc3339(s)
-                .map(|t| t.with_timezone(&chrono::Utc))
-                .map_err(|_| unavailable())
-        };
-        if !input
-            .context
-            .project(&tx, time(&raw)?)
-            .map_err(|_| coded("review_changed"))?
-            .1
-        {
-            return Err(coded("review_changed"));
-        }
-        let e = inspect_machine_owner(&tx, self, &p).map_err(|_| unavailable())?;
-        let observed = e["observed_at"].as_str().ok_or_else(unavailable)?;
-        let (parent, attached) = input
-            .context
-            .project(&tx, time(observed)?)
-            .map_err(|_| coded("review_changed"))?;
-        if !attached {
-            return Err(coded("review_changed"));
-        }
-        let r = &e["request"];
-        let review = json!({"version":1,"kind":"inspect_existing_person_machine",
-            "host_id":self.identity().id,"context":input.context,"agent":parent["agent"],
+        inspect_in(&tx, self, &input, &p, None)
+        // Drop the held read. No clock save, intent, key probe, cleanup or IO.
+    }
+}
+pub(crate) fn inspect_in(
+    c: &rusqlite::Connection,
+    store: &Store,
+    input: &Inspect,
+    p: &requests::Pending,
+    now: Option<&str>,
+) -> Result<Value, Error> {
+    // Verify the exact attached parent before projecting network authority.
+    let raw = now
+        .map(str::to_owned)
+        .map(Ok)
+        .unwrap_or_else(crate::decentralized::local_decision_time)
+        .map_err(|_| unavailable())?;
+    let time = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.with_timezone(&chrono::Utc))
+            .map_err(|_| unavailable())
+    };
+    if !input
+        .context
+        .project(c, time(&raw)?)
+        .map_err(|_| coded("review_changed"))?
+        .1
+    {
+        return Err(coded("review_changed"));
+    }
+    let e = if now.is_some() {
+        crate::decentralized::inspect_machine_owner_prepared(c, store, p, &raw)
+    } else {
+        inspect_machine_owner(c, store, p)
+    }
+    .map_err(|_| unavailable())?;
+    let observed = e["observed_at"].as_str().ok_or_else(unavailable)?;
+    let (parent, attached) = input
+        .context
+        .project(c, time(observed)?)
+        .map_err(|_| coded("review_changed"))?;
+    if !attached {
+        return Err(coded("review_changed"));
+    }
+    let r = &e["request"];
+    let review = json!({"version":1,"kind":"inspect_existing_person_machine",
+            "host_id":store.identity().id,"context":input.context,"agent":parent["agent"],
             "network":e["network"],"root_state_id":e["root_state_id"],
             "request_id":input.request_id,"request_packet_id":r["request_packet_id"],
             "person_public_key":r["person_public_key"],"host_public_key":r["host_public_key"],
@@ -107,27 +127,25 @@ impl Store {
                 "publish_owner_offer":false,"grant_membership":false,"grant_machine_powers":false,
                 "grant_agent_access":false,"commit_request":false,"share_files":false,
                 "share_conversation":false,"capability_calls":false}});
-        let digest = format!(
-            "review_{}",
-            hex::encode(Sha256::digest(format!(
-                "peerspan-machine-owner-inspection-v1\n{}",
-                crate::canonical::value_text(&review)
-            )))
-        );
-        let result = json!({"version":1,"host_id":self.identity().id,"context":input.context,
+    let digest = format!(
+        "review_{}",
+        hex::encode(Sha256::digest(format!(
+            "peerspan-machine-owner-inspection-v1\n{}",
+            crate::canonical::value_text(&review)
+        )))
+    );
+    let result = json!({"version":1,"host_id":store.identity().id,"context":input.context,
             "observed_at":observed,"request":r,"review_id":digest,"review":review,
             "next_action":"review_machine_owner_consent"});
-        if !crate::onboarding_admission::safe(&result)
-            || serde_json::to_vec(&result)
-                .map_err(|_| unavailable())?
-                .len()
-                > 2 << 20
-        {
-            return Err(unavailable());
-        }
-        // Drop the held read. No clock save, intent, key probe, cleanup or IO.
-        Ok(result)
+    if !crate::onboarding_admission::safe(&result)
+        || serde_json::to_vec(&result)
+            .map_err(|_| unavailable())?
+            .len()
+            > 2 << 20
+    {
+        return Err(unavailable());
     }
+    Ok(result)
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new().route("/v1/onboarding/machine-owner-inspection", post(inspect))

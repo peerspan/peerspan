@@ -19,6 +19,7 @@ pub(crate) mod history;
 mod intents;
 mod invite_return;
 mod machine_owner;
+mod machine_owner_consent;
 pub mod mailbox;
 mod memo;
 mod migration;
@@ -52,6 +53,8 @@ pub(crate) use ceremony_finalization::inspect_original as inspect_original_final
 pub use codec::{Error, Result, decision_clock};
 pub use controls::local_decision_time;
 pub(crate) use machine_owner::inspect as inspect_machine_owner;
+pub(crate) use machine_owner::inspect_prepared as inspect_machine_owner_prepared;
+pub(crate) use machine_owner_consent::run as machine_owner_consent_in;
 pub use migration::{migration_inherited_bans, migration_person_labels};
 pub(crate) use observer::incoming_prefix;
 pub use peer::state_worker;

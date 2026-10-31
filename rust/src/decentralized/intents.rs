@@ -185,6 +185,7 @@ impl Intent {
                         | "selection"
                         | "requester_commit"
                         | "access_review"
+                        | "machine_owner_review"
                 ),
         )?;
         let r = &self.record;
@@ -287,10 +288,16 @@ impl Intent {
         if r.review_base64 != "-" {
             parse(&b64(&r.review_base64, 1 << 20)?, 1 << 20)?;
         }
-        if self.kind == "access_review" {
+        if matches!(self.kind.as_str(), "access_review" | "machine_owner_review") {
             check(
-                ident(&r.operation_id, "arev_")
-                    && r.completed
+                ident(
+                    &r.operation_id,
+                    if self.kind == "access_review" {
+                        "arev_"
+                    } else {
+                        "mrev_"
+                    },
+                ) && r.completed
                     && r.terminal == "-"
                     && r.result_base64 == "-"
                     && r.review_base64 != "-"

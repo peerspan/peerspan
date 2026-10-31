@@ -5,7 +5,25 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    inspect_mode(c, store, p, false, &controls::local_decision_time()?)
+}
+pub(crate) fn inspect_prepared(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+    raw: &str,
+) -> Result<Value> {
+    inspect_mode(c, store, p, true, raw)
+}
+fn inspect_mode(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+    prepared: bool,
+    raw: &str,
+) -> Result<Value> {
     let r = &p.record;
+    require(prepared || r.owner_intent_id == "-", "state_conflict")?;
     require(
         !r.roles.iter().any(|r| r == "requester")
             && r.mode == "new"
@@ -21,7 +39,6 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
     )?;
     require(
         [
-            &r.owner_intent_id,
             &r.administrator_intent_id,
             &r.selection_intent_id,
             &r.commit_intent_id,
@@ -45,8 +62,7 @@ pub(crate) fn inspect(c: &Connection, store: &Store, p: &Pending) -> Result<Valu
     // Pending::load verifies the actual signed request and every retained pin.
     let packet = p.packet()?;
     let created = text(&packet.payload, "created_at")?;
-    let raw =
-        controls::guarded_decision(c, &r.expected_network_id, &controls::local_decision_time()?)?;
+    let raw = controls::guarded_decision(c, &r.expected_network_id, raw)?;
     let s = Snapshot::load_public(c, &r.expected_network_id, &store.identity().public_key)?;
     require(
         s.descriptor.context_id() == r.expected_context_id

@@ -743,6 +743,14 @@ fn revalidate(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<
     )?;
     Ok(terms)
 }
+pub(super) fn validate_owner_live(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+    i: &Intent,
+) -> Result<()> {
+    revalidate(c, store, p, i).map(|_| ())
+}
 pub(crate) fn owner(store: &Store, input: &Obj) -> Result<Vec<u8>> {
     let (request_id, new, approval) = {
         let mut c = store.connection().map_err(|_| Error::new("internal"))?;
