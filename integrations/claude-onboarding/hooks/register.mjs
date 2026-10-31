@@ -1116,8 +1116,8 @@ function accessControls($, { Text, Button }, epoch) {
       ...values.slice(page * 10, page * 10 + 10).map(v => network
         ? button('access-network-' + v.id, `Choose access network ${quoted(v.name)} (${v.id})`, () => chooseAccessNetwork($, previous, epoch, v))
         : button('access-person-' + v.person_public_key, `Review person ${v.person_public_key} (machines: ${v.labels.map(quoted).join(', ')})`, () => readAccess($, previous, epoch, v))),
-      ...(page > 0 ? [button('access-prev', 'Previous access choices', () => accessPage($, previous, epoch, page - 1))] : []),
-      ...(values.length > (page + 1) * 10 ? [button('access-next', 'More access choices', () => accessPage($, previous, epoch, page + 1))] : []), leave];
+      ...(page > 0 ? [button('access-prev', network ? 'Previous networks' : 'Previous people', () => accessPage($, previous, epoch, page - 1))] : []),
+      ...(values.length > (page + 1) * 10 ? [button('access-next', network ? 'More networks' : 'More people', () => accessPage($, previous, epoch, page + 1))] : []), leave];
   }
   return [
     ...(previous.inspected ? [Text({ children: [accessInspectionLines(previous.inspected)] }),
