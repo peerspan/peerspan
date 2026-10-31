@@ -239,11 +239,12 @@ the task.
 
 ### Peer events
 
-`GET /peer/v1/tasks/{task_id}/events` accepts `wait=S`, 0 (the default) to 25: when no event
+`GET /peer/v1/tasks/{task_id}/events` accepts `wait=S`, 0 (the default) to 10: when no event
 after `after` exists, the receiver holds the request up to `S` seconds until one does. It
-applies to every task.
+applies to every task. The bound is that of a held call status request, within the peer
+transport's 15-second serve bound.
 
-The submitter polls a runtime task that is `running` with `wait=25`, immediately again after
+The submitter polls a runtime task that is `running` with `wait=10`, immediately again after
 each response, using one of its 4 polling slots. Other states keep the task contract's
 schedule.
 

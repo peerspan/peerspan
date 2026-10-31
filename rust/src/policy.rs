@@ -41,7 +41,7 @@ pub const DELEGATE_ACTION: &str = "task.delegate";
 /// The actions grants and policy rules may name.
 pub const ACTIONS: [&str; 3] = [ACTION, TASK_ACTION, DELEGATE_ACTION];
 /// The actions adapter routes may name.
-pub const ROUTE_ACTIONS: [&str; 2] = [ACTION, TASK_ACTION];
+pub const ROUTE_ACTIONS: [&str; 3] = [ACTION, TASK_ACTION, RUNTIME_ACTION];
 /// Whether a granted action authorizes a requested one: `task.delegate`
 /// implies `task.submit`.
 pub(crate) fn allows(granted: &str, requested: &str) -> bool {

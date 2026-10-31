@@ -121,6 +121,8 @@ pub struct CreateOutboundRoute {
     pub adapter_id: String,
     pub name: String,
     pub peer_host_id: String,
+    /// The target agent; a `runtime.run` route names only the host.
+    #[serde(default)]
     pub target_agent_id: String,
     #[serde(default)]
     pub grant_id: Option<String>,
@@ -270,9 +272,20 @@ impl Store {
             .map(DateTime::parse_from_rfc3339)
             .transpose()
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
+        // A runtime.run route names a host, not an agent, and cites the
+        // host owner's policy (runtime task contract, Agents).
+        let runtime = r.action.as_deref() == Some(crate::policy::RUNTIME_ACTION);
+        if runtime
+            && (!r.target_agent_id.is_empty() || r.grant_id.is_some() || r.delegation_depth != 0)
+        {
+            return Err(Error::Invalid(
+                "a runtime.run route names a host, not an agent, and cites the host owner's policy"
+                    .into(),
+            ));
+        }
         if exp.is_some_and(|exp| exp <= crate::clock::now())
             || !valid_name(&r.name)
-            || !valid_id(&r.target_agent_id, "agent", 16)
+            || (!runtime && !valid_id(&r.target_agent_id, "agent", 16))
             || !r
                 .grant_id
                 .as_deref()
@@ -329,6 +342,8 @@ impl Store {
         }
         let authorization = if r.grant_id.is_some() {
             "grant"
+        } else if runtime {
+            "policy"
         } else if self.self_citation(tx, &r.peer_host_id)?.is_some() {
             "self"
         } else {

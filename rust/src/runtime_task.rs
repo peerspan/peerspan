@@ -159,7 +159,7 @@ pub(crate) fn check_fields(body: &Value) -> Result<(), Error> {
 }
 
 /// The request rules of a runtime task (Requests).
-fn validate(r: &TaskRequest) -> Result<(), Error> {
+pub(crate) fn validate(r: &TaskRequest) -> Result<(), Error> {
     if !crate::peer_store::valid_id(&r.task_id, "task", 16) {
         return Err(invalid("task_id"));
     }
@@ -749,6 +749,9 @@ async fn pass(
         Ok(out)
     })
     .await?;
+    // Free slots, from the runtime's own report; none while it is off or
+    // unreachable, so a queued task is started only into a free slot.
+    let mut free: Option<i64> = None;
     for (t, ready) in tasks {
         let key = (t.sender.clone(), t.status.task_id.clone());
         if t.internal.dispatched || t.status.state == "running" {
@@ -757,6 +760,23 @@ async fn pass(
         }
         if t.status.cancel_requested || !ready {
             continue;
+        }
+        if free.is_none() {
+            let switch = crate::api::blocking(store.clone(), |s| s.runtime_switch()).await?;
+            free = Some(match switch {
+                Some(switch) => match crate::runtime::report(&switch.socket).await {
+                    Ok(r) => {
+                        r["max_concurrent_runs"].as_i64().unwrap_or(0)
+                            - r["running"].as_i64().unwrap_or(0)
+                    }
+                    Err(_) => 0,
+                },
+                // The switch off rejects at the recheck below.
+                None => 1,
+            });
+        }
+        if free.is_some_and(|f| f <= 0) {
+            break;
         }
         // The rechecks before a start: a final failure rejects, and a
         // recoverable one leaves the task queued.
@@ -807,6 +827,7 @@ async fn pass(
         if socket.is_none() {
             continue;
         }
+        free = free.map(|f| f - 1);
         match start(store, &key.0, &key.1).await? {
             Started::Accepted => follow(store, following, shutdown, key, true),
             Started::Unknown => follow(store, following, shutdown, key, false),

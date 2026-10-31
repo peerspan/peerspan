@@ -1,9 +1,11 @@
 // Harness-independent credential, lease, scoped tool, and delivery behavior.
 import { constants } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
-import { open, unlink } from 'node:fs/promises';
+import { lstat, open, readdir, readlink, unlink } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import http from 'node:http';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const instructions =
@@ -210,6 +212,32 @@ export const tools = [
         artifacts: artifactPaths
       },
       required: ['input']
+    }
+  },
+  {
+    name: 'run_task',
+    description:
+      'Run a command in the runtime of the host named by an owner-authorized destination whose action is runtime.run, in a fresh microVM without network. argv is the command and its arguments. workspace_path, a directory you can read, is packed (inside a git working tree, only files git does not ignore) and becomes /workspace in the VM. results is output (the default: stdout.log and stderr.log), changes (also changes.tar and deleted.txt for files the command changed or removed in /workspace) or none. kind=task_update events with event_kind output carry the command\'s new output in meta.output; the final one carries the run result (exit_code, signal, timed_out, duration_ms, ...) as its content and the result files in meta.artifacts, which artifact_save saves. Follow it with task_status.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        destination: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' },
+        argv: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 256,
+          items: { type: 'string', minLength: 1, maxLength: 4096 }
+        },
+        workspace_path: { type: 'string', minLength: 1, maxLength: 4096 },
+        cwd: { type: 'string', minLength: 1, maxLength: 4096 },
+        env: { type: 'object' },
+        resources: { type: 'object' },
+        results: { type: 'string', pattern: '^(none|output|changes)$' },
+        input: { type: 'string', minLength: 1, maxLength: 65536 },
+        task_id: { type: 'string', pattern: taskIdPattern }
+      },
+      required: ['destination', 'argv']
     }
   },
   {
@@ -591,6 +619,113 @@ export function conversationRosterEvent(claim) {
 
 // validArguments checks tool arguments against a definition's string,
 // string array, and bounded integer schema.
+// packWorkspace packs a directory as an uncompressed pax tar (runtime task
+// contract, Packing) under this process's own permissions: directories,
+// regular files with their mode, and symbolic links. Inside a git working
+// tree the paths are git's tracked and unignored files. Returns the path of
+// a private temporary file.
+export async function packWorkspace(directory) {
+  const git = (args) => spawnSync('git', ['-C', directory, ...args], { maxBuffer: 1 << 28 });
+  let paths;
+  const inside = git(['rev-parse', '--is-inside-work-tree']);
+  if (inside.status === 0 && inside.stdout.toString().startsWith('true')) {
+    const listed = git(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
+    if (listed.status !== 0) throw new Error(`git ls-files failed in ${directory}`);
+    const all = new Set();
+    for (const file of listed.stdout.toString('utf8').split('\0').filter(Boolean)) {
+      const parts = file.split('/');
+      for (let i = 1; i < parts.length; i++) all.add(parts.slice(0, i).join('/'));
+      all.add(file);
+    }
+    paths = [...all];
+  } else {
+    paths = [];
+    const walk = async (relative) => {
+      for (const entry of await readdir(join(directory, relative), { withFileTypes: true })) {
+        const path = relative ? `${relative}/${entry.name}` : entry.name;
+        paths.push(path);
+        if (entry.isDirectory()) await walk(path);
+      }
+    };
+    await walk('');
+  }
+  paths.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  const target = join(tmpdir(), `peerspan-workspace-${process.pid}-${randomBytes(8).toString('hex')}.tar`);
+  const out = await open(target, 'wx', 0o600);
+  try {
+    const write = (buffer) => out.write(buffer);
+    for (const path of paths) {
+      if (path.split('/').some((part) => part === '' || part === '.' || part === '..')) continue;
+      let info;
+      try {
+        info = await lstat(join(directory, path));
+      } catch {
+        continue;
+      }
+      if (info.isDirectory()) await writeEntry(write, `${path}/`, '5', info.mode & 0o7777, 0, '');
+      else if (info.isSymbolicLink()) await writeEntry(write, path, '2', 0o777, 0, await readlink(join(directory, path)));
+      else if (info.isFile()) {
+        await writeEntry(write, path, '0', info.mode & 0o7777, info.size, '');
+        const source = await open(join(directory, path), 'r');
+        let copied = 0;
+        try {
+          const chunk = Buffer.alloc(1 << 16);
+          for (;;) {
+            const { bytesRead } = await source.read(chunk, 0, chunk.length, null);
+            if (!bytesRead) break;
+            await write(chunk.subarray(0, bytesRead));
+            copied += bytesRead;
+          }
+        } finally {
+          await source.close();
+        }
+        if (copied !== info.size) throw new Error(`${path} changed while it was packed`);
+        await write(Buffer.alloc((512 - (copied % 512)) % 512));
+      }
+    }
+    await write(Buffer.alloc(1024));
+  } catch (error) {
+    await out.close();
+    await unlink(target).catch(() => {});
+    throw error;
+  }
+  await out.close();
+  return target;
+}
+function paxRecord(key, value) {
+  const body = ` ${key}=${value}\n`;
+  let length = Buffer.byteLength(body) + 1;
+  while (Buffer.byteLength(`${length}${body}`) !== length) length += 1;
+  return Buffer.from(`${length}${body}`);
+}
+async function writeEntry(write, path, kind, mode, size, link) {
+  const records = Buffer.concat([paxRecord('path', path), ...(link ? [paxRecord('linkpath', link)] : [])]);
+  await write(tarHeader('PaxHeader', 'x', 0o644, records.length, ''));
+  await write(records);
+  await write(Buffer.alloc((512 - (records.length % 512)) % 512));
+  await write(tarHeader(path, kind, mode, size, link));
+}
+function tarHeader(name, kind, mode, size, link) {
+  const header = Buffer.alloc(512);
+  const put = (at, length, text) => Buffer.from(text).copy(header, at, 0, Math.min(length, Buffer.byteLength(text)));
+  const octal = (at, length, value) => put(at, length - 1, value.toString(8).padStart(length - 1, '0').slice(-(length - 1)));
+  put(0, 100, name);
+  octal(100, 8, mode);
+  octal(108, 8, 0);
+  octal(116, 8, 0);
+  octal(124, 12, size);
+  octal(136, 12, 0);
+  header.write(kind, 156);
+  put(157, 100, link);
+  put(257, 6, 'ustar\0');
+  put(263, 2, '00');
+  header.fill(0x20, 148, 156);
+  let sum = 0;
+  for (const byte of header) sum += byte;
+  put(148, 8, `${sum.toString(8).padStart(6, '0')}\0 `);
+  return header;
+}
+
 function validArguments(name, args) {
   const definition = tools.find((tool) => tool.name === name);
   if (!definition || !args || typeof args !== 'object' || Array.isArray(args)) return false;
@@ -1427,6 +1562,56 @@ export function createAdapter({
         });
       }
     }
+    if (name === 'run_task') {
+      if (!validArguments(name, args)) return errorResult('Invalid run_task arguments.');
+      if (args.workspace_path !== undefined && !transfer) return errorResult('artifact transfer is not available');
+      const taskId = args.task_id ?? `task_${randomBytes(16).toString('hex')}`;
+      let workspaceArchive;
+      if (args.workspace_path !== undefined) {
+        let packed;
+        try {
+          packed = await packWorkspace(resolve(args.workspace_path));
+          await ensureConnection();
+          workspaceArchive = (await transfer.upload('/adapter/v1/artifacts', packed)).sha256;
+        } catch (error) {
+          if (error.status && (error.status >= 500 || error.status === 403)) connected = false;
+          return errorResult({ task_id: taskId, destination: args.destination, error: uploadHint(error) });
+        } finally {
+          if (packed) await unlink(packed).catch(() => {});
+        }
+      }
+      const run = { argv: args.argv };
+      for (const key of ['cwd', 'env', 'resources', 'results']) if (args[key] !== undefined) run[key] = args[key];
+      try {
+        const out = await scopedCall('POST', '/adapter/v1/runs', {
+          destination: args.destination,
+          task_id: taskId,
+          run,
+          ...(args.input !== undefined && { input: args.input }),
+          ...(workspaceArchive && { workspace_archive: workspaceArchive })
+        });
+        return textResult({
+          task_id: taskId,
+          destination: args.destination,
+          peer_host_id: out.peer_host_id,
+          submit_state: out.submit_state,
+          state: out.status?.state ?? null,
+          attempts: out.attempts,
+          next_attempt_at: out.next_attempt_at,
+          error: out.error
+        });
+      } catch (error) {
+        const refused = refusal(error);
+        if (refused) return errorResult({ task_id: taskId, destination: args.destination, ...refused });
+        return errorResult({
+          task_id: taskId,
+          destination: args.destination,
+          error: error.message,
+          recovery:
+            'If the Peerspan host recorded this task, it retries automatically with this task_id; check task_status.'
+        });
+      }
+    }
     if (name === 'artifact_save') {
       if (!validArguments(name, args)) return errorResult('Invalid artifact_save arguments.');
       if (!transfer) return errorResult('artifact transfer is not available');
@@ -1694,9 +1879,10 @@ export function createAdapter({
               throw new AttachmentChanged('invalid task update session');
             if (stop.signal.aborted) return;
             await notify({
-              content: update.event.message ?? update.event.output ?? update.event.state,
+              content: update.output ?? update.event.message ?? update.event.output ?? update.event.state,
               meta: {
                 kind: 'task_update',
+                output: update.output ?? null,
                 task_id: update.delivery.task_id,
                 peer_host_id: update.delivery.peer_host_id,
                 notification_id: update.delivery.id,

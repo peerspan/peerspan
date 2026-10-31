@@ -1203,7 +1203,7 @@ struct CompleteBody {
 pub(crate) struct EventPage {
     pub after: Option<i64>,
     pub limit: Option<i64>,
-    /// Seconds to hold the request, 0 to 25, until an event after `after`
+    /// Seconds to hold the request, 0 to 10, until an event after `after`
     /// exists.
     pub wait: Option<u64>,
 }
@@ -1248,8 +1248,8 @@ async fn events(
 ) -> Result<Json<Vec<TaskEvent>>, Error> {
     let Query(page) = query.map_err(|_| Error::Invalid("invalid event page".into()))?;
     let wait = page.wait.unwrap_or(0);
-    if wait > 25 {
-        return Err(Error::Invalid("wait is 0 to 25 seconds".into()));
+    if wait > crate::task_outbound::EVENT_WAIT_MAX {
+        return Err(Error::Invalid("wait is 0 to 10 seconds".into()));
     }
     let until = std::time::Instant::now() + std::time::Duration::from_secs(wait);
     loop {

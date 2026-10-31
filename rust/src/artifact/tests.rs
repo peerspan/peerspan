@@ -516,6 +516,8 @@ fn submitters_attach_uploads_and_fetch_results() {
     let peer = add_test_peer(&store).id;
     let data = b"design doc".to_vec();
     let submit = |artifacts: Option<Vec<ArtifactEntry>>| SubmitTask {
+        executor: None,
+        run: None,
         peer_host_id: peer.clone(),
         task_id: format!("task_{}", "a".repeat(32)),
         grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -891,6 +893,8 @@ async fn receivers_fetch_inputs_over_quic_and_reject_corruption() {
     let small = upload(&submitter, "small.txt", b"corrupt me").unwrap();
     let out = submitter
         .prepare_task(SubmitTask {
+            executor: None,
+            run: None,
             peer_host_id: receiver.identity().id,
             task_id: String::new(),
             grant_id: Some(grant.id.clone()),

@@ -1552,6 +1552,40 @@ pub enum TaskCommand {
         #[arg(long, value_name = "ID", requires = "parent_sender")]
         parent_task: Option<String>,
     },
+    /// Run a command in a peer host's runtime: task run --peer HOST -- COMMAND...
+    Run {
+        #[arg(long, value_name = "HOST")]
+        peer: String,
+        /// Directory packed as the run's /workspace
+        #[arg(long, value_name = "DIR")]
+        workspace: Option<PathBuf>,
+        /// none, output (the default), or changes
+        #[arg(long, value_name = "WHAT")]
+        results: Option<String>,
+        #[arg(long, value_name = "N")]
+        cpus: Option<i64>,
+        #[arg(long, value_name = "N")]
+        memory_mib: Option<i64>,
+        /// The run's time limit, such as 90s, 10m or 2h
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+        /// An environment variable; repeat for each
+        #[arg(long = "env", value_name = "NAME=VALUE")]
+        env: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        cwd: Option<String>,
+        /// The purpose shown to the host's owner; default the command line
+        #[arg(long, value_name = "TEXT")]
+        input: Option<String>,
+        /// RFC3339 time by which the run must start; default one hour
+        #[arg(long, value_name = "TIME")]
+        deadline: Option<String>,
+        /// Print the local record instead of following the run
+        #[arg(long)]
+        detach: bool,
+        #[arg(value_name = "COMMAND", last = true, required = true)]
+        command: Vec<String>,
+    },
     /// Save an input or fetched result of a submitted task to a new file
     Artifact {
         #[arg(long)]
@@ -1664,8 +1698,9 @@ pub enum RouteCommand {
         name: String,
         #[arg(long)]
         peer: String,
+        /// The target agent; a runtime.run route names none
         #[arg(long)]
-        agent: String,
+        agent: Option<String>,
         /// Grant ID; otherwise cite the target owner's policy
         #[arg(long)]
         grant: Option<String>,
@@ -1679,8 +1714,8 @@ pub enum RouteCommand {
         max_message_bytes: i64,
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
         max_messages: i64,
-        /// What the route sends: messages or tasks
-        #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
+        /// What the route sends: messages, tasks, or runs in the host's runtime
+        #[arg(long, value_parser = ["message.append", "task.submit", "runtime.run"], default_value = "message.append")]
         action: String,
         /// Let receivers of tasks sent through it pass them on this many
         /// further hops (0 to 2; task.submit only)
@@ -2050,7 +2085,9 @@ impl Command {
             | Self::Call { .. }
             | Self::Trust { .. }
             | Self::Untrust { .. }
-            | Self::Task(TaskCommand::Artifact { .. } | TaskCommand::To(_))
+            | Self::Task(
+                TaskCommand::Artifact { .. } | TaskCommand::To(_) | TaskCommand::Run { .. },
+            )
             | Self::Attach { .. }
             | Self::Agents { .. }
             | Self::Access(
@@ -2487,7 +2524,7 @@ impl Command {
                 "/v1/adapter-routes".into(),
                 Some(with_expiry(
                     with_grant(
-                        json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action,"delegation_depth":delegation_depth}),
+                        json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent.unwrap_or_default(),"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action,"delegation_depth":delegation_depth}),
                         grant,
                     ),
                     expires_at,
