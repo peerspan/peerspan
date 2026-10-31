@@ -3476,3 +3476,9 @@ state, overall-ready badges and broader native runtime scope. Contract-first
 independent16 native cases preserve365 old cases/all30 host files; root serial
 gates and final all30/four checks/fresh review precede owner merge. Main PR35 and
 full-feature acceptance remain open.
+
+GU.impl39 source-review clarification before first runtime: roster expiry and
+result display expiry are separate authorities. Clearing a result for another
+choice or explicit check cancels only that result's timer; the original roster
+bound keeps guarding pending work. Discard retaining an earlier result deadline
+as authority over a new target, or extending the roster to the latest response.

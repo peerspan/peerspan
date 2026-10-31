@@ -7365,7 +7365,11 @@ is displayed, so old adapter-lease/grant facts are not extended or reused.
 Selection/dispatch require the captured roster still live. Keep that same
 fixed timer authoritative during preflight, request and async validation; its
 expiry clears roster/selection/result/details and invalidates pending work.
-A result never extends that captured roster window. Its own display deadline
+A result never extends that captured roster window. Starting another explicit
+check or choosing another machine clears the previous result and its separate
+display-expiry authority; that old result's earlier deadline cannot clear the
+new choice or in-flight observation. The original roster deadline stays fixed
+and authoritative throughout. A result's own display deadline
 is additionally bounded by returned observed_at+30s and every current section30
 membership/policy end. Recheck time after every awaited preflight/validation
 before dispatch/display. Reject future evidence beyond30s or already30s old.
