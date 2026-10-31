@@ -8479,6 +8479,18 @@ over-target local duration. A silent passing diagnostic run would not classify
 this CI failure. Final exact-head full34-job/four-check/fresh bot/root review
 remains required; no unchanged CI retry or exclusion of an old failing suite.
 
+The independent observer8ef1b77 / rootd3a50cb (source SHA256
+894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5)
+passes its single local diagnostic6/6in143s (runner144.66s), log SHA256
+569a037ebc8bd3b3ab48a1a88ebc60af092683ed238a7362a5da09e417a6e66f.
+It emits no failure metadata, so the original CI phase/caller remains unknown;
+this passing sample is no transport fix. Keep the over2min target duration and
+the initial runner-label no-start (no suite launched). Root verified exact
+restoration to cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524
+and full AST SHA256dbae7adf1609a9c64b45f16cbc70702092b4d1a4f65a1e220a15c86820f3830f.
+Rust105e8c54, signing source0cd90eeb, all other84 prior files and native393 stay
+exact. The next final combined head still needs every CI/review gate.
+
 Root serializes its language/runtime gates, logs/hashes fresh binaries and every
 first result. Reuse section42's explicit separate-target compilation scheduling
 for language gates only; host suites require compiler idle, regular-disk TMPDIR.

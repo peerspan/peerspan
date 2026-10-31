@@ -3740,3 +3740,10 @@ independent failure metadata at the untagged generic refusal assertion; removal
 restores the old source bytes/AST and all other84 old files stay exact. No
 runtime policy/counter/wait change or guessed transport fix. One diagnostic
 execution and a new final combined head must retain the original unknown cause.
+
+Independent8ef1b77/rootd3a50cb restores old requester source cb852ae2 and its
+full AST exactly when removed. Its only local diagnostic passes6/6in143s with
+no observer output, so the original CI cause remains unknown; retain over2min
+duration and runner-label no-start. Rust105e8c54, signing0cd90eeb, other84 old
+files and native393 stay exact. No additional local retry or transport change;
+new final-head full CI/fresh review remains required.

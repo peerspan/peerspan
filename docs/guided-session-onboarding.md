@@ -908,10 +908,17 @@ retains first compile/runtime/CI failures, independent fixture corrections and
 the bot's pre-commit wall-time fix. The corrected new suite passes6/6in68s,
 including actual GUIDED device15 signatures, catalog/proof publication and
 requester retention after ordinary release. No selection/commit is supplied by
-Sign; ordinary single-offer selection follows unchanged spec8.4. All85 prior
-conformance/native files and native393 remain exact. The unchanged consent
+Sign; ordinary single-offer selection follows unchanged spec8.4. Native393 and
+84 prior files remain exact; section43b permits only one removable independent
+failure observer in requester_completion, restoring its original bytes/AST.
+The unchanged consent
 suite first passes6/6in38s; its later final-binary sample5/6in49s has an
 unclassified TCP-only crossing under externally approved worker activity, with
 DB/files unchanged. No old-case edit or unchanged local retry hides it. Final
 exact-head full33-suite+build/four checks/native393 and fresh review receipts go
-on PR96; full guided/installed/model/combined acceptance remains open.
+on PR96. First combined CI passes all other32 host suites+build/four checks,
+but requester_completion5/6in86s captures issuer UDP during a wrong-review pure
+refusal, with requester DB/files unchanged. Its one diagnostic local run passes
+6/6in143s without triggering the observer; preserve the over-target duration and
+original unclassified cause. No runtime transport fix or weaker assertion is
+claimed. Full guided/installed/model/combined acceptance remains open.

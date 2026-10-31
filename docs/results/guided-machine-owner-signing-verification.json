@@ -2,7 +2,7 @@
   "slice": "GU.impl43 / guided contract section43",
   "base_merged_pr": 94,
   "base_merge": "405f879748389c8d8f78f02da69d7a7c0d2635f3",
-  "frozen_product_test_head": "1e615adad812a2236eae333f985b6f82e383643a",
+  "frozen_product_test_head": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
   "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
   "scope": "Owner-local initial machine-owner signature status/action over the exact section42 dual-approved receipt and recorded project. Derive at most3 actual typed host/authority/fold-issuer roles, use only configured original or selected owned device, revalidate before each key dispatch and before atomic storage, retain current public catalog and guarded clock. Pure status/completed history; no new approval, schema, attribution journal or explicit publication/F/commit driver.",
   "independent_author": {
@@ -24,7 +24,7 @@
   "preservation": {
     "base": "405f879748389c8d8f78f02da69d7a7c0d2635f3",
     "files": 85,
-    "all_byte_identical": true,
+    "all_byte_identical": false,
     "sha256": {
       "conformance/agent_adapter.py": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
       "conformance/claude_setup.py": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
@@ -122,7 +122,22 @@
       "fresh_fixed_expiry_and_keyless_signed_history_after_cancel_provider_detach_restart",
       "strict_private_json_decision_id_bounds_no_startup_and_owner_router_isolation"
     ],
-    "protected_signing_guard_asts_exact": true
+    "protected_signing_guard_asts_exact": true,
+    "byte_identical_files": 84,
+    "diagnostic_only_exceptions": [
+      {
+        "file": "conformance/slim/requester_completion.py",
+        "author_commit": "8ef1b77d294c24d67be5f23594a8979872588126",
+        "root_pick": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
+        "sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+        "baseline_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+        "restored_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+        "restored_ast_sha256": "dbae7adf1609a9c64b45f16cbc70702092b4d1a4f65a1e220a15c86820f3830f",
+        "byte_and_full_ast_restoration": true,
+        "assertions_actions_waits_counters_unchanged": true,
+        "scope": "Only failure phase/carrier/directory observer, optional argument and one existing wrong-review phase keyword; returns exact original captured tuple."
+      }
+    ]
   },
   "local_gates": [
     {
@@ -1093,6 +1108,78 @@
       ],
       "postflight_active": [],
       "test_sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f"
+    },
+    {
+      "gate": "requester-completion-diagnostic-first-no-start",
+      "head": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "command": [
+        "python3",
+        "/tmp/gu43-run.py",
+        "requester-completion-diagnostic-first",
+        "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1"
+      ],
+      "exit": 1,
+      "executed_suite": false,
+      "reason": "Runner gate label parser did not strip diagnostic suffix; ValueError before command selection/log/process launch. Compiler preflight idle. Use accepted requester-completion-first label; no test outcome existed to retry."
+    },
+    {
+      "gate": "requester-completion-first",
+      "head": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "command": [
+        "python3",
+        "conformance/slim/requester_completion.py",
+        "--bin",
+        "/tmp/gu43-runtime/final-bin-rust-build-final-deadline-first"
+      ],
+      "exit": 0,
+      "seconds": 144.66,
+      "log": "/tmp/gu43-runtime/requester-completion-first.log",
+      "sha256": "569a037ebc8bd3b3ab48a1a88ebc60af092683ed238a7362a5da09e417a6e66f",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.19,
+          "active": []
+        },
+        {
+          "seconds": 75.31,
+          "active": []
+        },
+        {
+          "seconds": 90.38,
+          "active": []
+        },
+        {
+          "seconds": 105.45,
+          "active": []
+        },
+        {
+          "seconds": 120.52,
+          "active": []
+        },
+        {
+          "seconds": 135.58,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5"
     }
   ],
   "binaries": {
@@ -1468,6 +1555,374 @@
       "sha256": "3cdb808a8dd0ea358a465cd2c59af2c6d88b1121de65a15322aef361ef8d9430"
     }
   },
+  "first_combined_head_ci": {
+    "head": "3e026ab254bb54f6e8273cd14991ba02fc9ea647",
+    "conformance_run": {
+      "id": 41246210795,
+      "head_sha": "3e026ab254bb54f6e8273cd14991ba02fc9ea647",
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41246210795"
+    },
+    "conformance_jobs": [
+      {
+        "id": 124670077351,
+        "name": "Build host, peer probe and helper",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:00:53Z",
+        "completed_at": "2026-10-31T22:02:16Z"
+      },
+      {
+        "id": 124670410129,
+        "name": "join",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:17Z"
+      },
+      {
+        "id": 124670410138,
+        "name": "live",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:52Z"
+      },
+      {
+        "id": 124670410147,
+        "name": "capabilities",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:03Z"
+      },
+      {
+        "id": 124670410180,
+        "name": "owner_finalization",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:29Z"
+      },
+      {
+        "id": 124670410197,
+        "name": "work",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:11Z"
+      },
+      {
+        "id": 124670410208,
+        "name": "adapter_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:32Z"
+      },
+      {
+        "id": 124670410209,
+        "name": "root",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:15Z"
+      },
+      {
+        "id": 124670410211,
+        "name": "join_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:04Z"
+      },
+      {
+        "id": 124670410214,
+        "name": "onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:45Z"
+      },
+      {
+        "id": 124670410230,
+        "name": "delivery",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:30Z"
+      },
+      {
+        "id": 124670410235,
+        "name": "renewal",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:35Z",
+        "completed_at": "2026-10-31T22:04:52Z"
+      },
+      {
+        "id": 124670410237,
+        "name": "basics",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:48Z"
+      },
+      {
+        "id": 124670410242,
+        "name": "policy",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:34Z",
+        "completed_at": "2026-10-31T22:02:50Z"
+      },
+      {
+        "id": 124670410243,
+        "name": "owner_finalization_signing",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:47Z",
+        "completed_at": "2026-10-31T22:04:45Z"
+      },
+      {
+        "id": 124670410246,
+        "name": "admission_consent",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:05Z"
+      },
+      {
+        "id": 124670410247,
+        "name": "machine_owner",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:28Z",
+        "completed_at": "2026-10-31T22:03:10Z"
+      },
+      {
+        "id": 124670410248,
+        "name": "sync",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:05Z",
+        "completed_at": "2026-10-31T22:04:11Z"
+      },
+      {
+        "id": 124670410257,
+        "name": "access_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:19Z"
+      },
+      {
+        "id": 124670410260,
+        "name": "project_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:34Z"
+      },
+      {
+        "id": 124670410262,
+        "name": "owner_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:04Z",
+        "completed_at": "2026-10-31T22:03:30Z"
+      },
+      {
+        "id": 124670410282,
+        "name": "incoming_progress",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:50Z",
+        "completed_at": "2026-10-31T22:04:11Z"
+      },
+      {
+        "id": 124670410284,
+        "name": "requester_commit",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:55Z"
+      },
+      {
+        "id": 124670410285,
+        "name": "owner_signing",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:19Z",
+        "completed_at": "2026-10-31T22:04:06Z"
+      },
+      {
+        "id": 124670410296,
+        "name": "access_consent",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:34Z"
+      },
+      {
+        "id": 124670410314,
+        "name": "requester_completion",
+        "status": "completed",
+        "conclusion": "failure",
+        "started_at": "2026-10-31T22:03:06Z",
+        "completed_at": "2026-10-31T22:04:49Z"
+      },
+      {
+        "id": 124670410315,
+        "name": "access_signing",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:03:46Z"
+      },
+      {
+        "id": 124670410324,
+        "name": "readiness",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:52Z",
+        "completed_at": "2026-10-31T22:03:21Z"
+      },
+      {
+        "id": 124670410332,
+        "name": "peer_reachability",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:01Z",
+        "completed_at": "2026-10-31T22:03:42Z"
+      },
+      {
+        "id": 124670410356,
+        "name": "machine_owner_consent",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:18Z",
+        "completed_at": "2026-10-31T22:02:59Z"
+      },
+      {
+        "id": 124670410393,
+        "name": "admission_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:12Z",
+        "completed_at": "2026-10-31T22:03:57Z"
+      },
+      {
+        "id": 124670410412,
+        "name": "invitation_onboarding",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:17Z",
+        "completed_at": "2026-10-31T22:03:35Z"
+      },
+      {
+        "id": 124670410423,
+        "name": "machine_owner_signing",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:03:11Z",
+        "completed_at": "2026-10-31T22:04:17Z"
+      },
+      {
+        "id": 124670410426,
+        "name": "access_application",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:02:53Z",
+        "completed_at": "2026-10-31T22:04:20Z"
+      }
+    ],
+    "checks_run": {
+      "id": 41246210747,
+      "head_sha": "3e026ab254bb54f6e8273cd14991ba02fc9ea647",
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41246210747"
+    },
+    "checks_jobs": [
+      {
+        "id": 124670076872,
+        "name": "Rust format",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:00:53Z",
+        "completed_at": "2026-10-31T22:00:59Z"
+      },
+      {
+        "id": 124670076976,
+        "name": "Claude onboarding runtime",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:00:53Z",
+        "completed_at": "2026-10-31T22:02:16Z"
+      },
+      {
+        "id": 124670076996,
+        "name": "Rust Clippy",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:00:53Z",
+        "completed_at": "2026-10-31T22:01:34Z"
+      },
+      {
+        "id": 124670077011,
+        "name": "Rust tests and build",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-31T22:00:53Z",
+        "completed_at": "2026-10-31T22:03:57Z"
+      }
+    ],
+    "logs": {
+      "signing": "364c102752b2b626bbfd7d4144214187fe622b5f2653baa1361aa75f02fd1117",
+      "consent": "2899037579ec6cae41f493c133b2115885c3ca58e7c986543e0c26ec7bef85b0",
+      "native393": "faac05ffb837c05f6f5ecd711e9058bce37f092212f051779b73af88955ace1b",
+      "rust": "b979bbd9c69410e59ad9d29e68688f68e1c270733b7f0a57c9da9e357b596649",
+      "requester_completion_failure": "b6400c81ae96aa1996604621220893f45001f7d64733995b432a752ff049ac31"
+    },
+    "counts": {
+      "successful_jobs": 33,
+      "failed_jobs": 1,
+      "new_signing_passed": 6,
+      "new_signing_seconds": 57,
+      "unchanged_consent_passed": 6,
+      "unchanged_consent_seconds": 33,
+      "native_passed": 393,
+      "native_seconds": 71.63,
+      "requester_completion_passed": 5,
+      "requester_completion_failed": 1,
+      "requester_completion_seconds": 86
+    },
+    "requester_failure": "Generic wrong-review pure refusal has issuer UDP receive+2/+2400 bytes, zero returns; requester DB/state/home unchanged. Phase/caller unavailable; cause remains unclassified. Contract43b adds only a removable independent failure observer; no counter/wait/runtime behavior change.",
+    "fresh_bot": {
+      "summary_comment": 6549544698,
+      "commit_sha": "3e026ab254bb54f6e8273cd14991ba02fc9ea647",
+      "status": "completed",
+      "findings": false,
+      "unresolved": false,
+      "completed_at": "2026-10-31T22:02:47Z"
+    }
+  },
+  "requester_refusal_diagnostic": {
+    "file": "conformance/slim/requester_completion.py",
+    "author_commit": "8ef1b77d294c24d67be5f23594a8979872588126",
+    "root_pick": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
+    "sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+    "baseline_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+    "restored_sha256": "cb852ae2fe033079c63fb31d7abcd68b71507de116f4ac76684f9bbb996e5524",
+    "restored_ast_sha256": "dbae7adf1609a9c64b45f16cbc70702092b4d1a4f65a1e220a15c86820f3830f",
+    "byte_and_full_ast_restoration": true,
+    "assertions_actions_waits_counters_unchanged": true,
+    "scope": "Only failure phase/carrier/directory observer, optional argument and one existing wrong-review phase keyword; returns exact original captured tuple."
+  },
   "corrections": [
     {
       "commit": "06fad5288daa8e122fdd1290569777d893f1f672",
@@ -1502,6 +1957,8 @@
   },
   "unclassified_observations": [
     "First root4/6in69s and first CI4/6in64s historical pure-signing snapshot changed only embedded helper frames/mailboxes, with no DB-set/schema/files/carrier change. Later retained state has expired zero-ciphertext mailboxes. Consistent with independent expiry collection, but exact original crossing lacks captured row transition attribution and remains unclassified. Corrected prerequisite is not a retroactive cause claim.",
+    "Final local unchanged-consent5/6in49s has only existing-side TCP connection/received counter changes during outside-approval-held; all DB/files/schema and other carriers unchanged. Cause remains unclassified; unchanged suite is preserved and not locally retried.",
+    "First combined3e026ab CI requester_completion5/6in86s: wrong-review pure refusal, issuer UDP receive+2 packets/+2400 bytes, zero returns, requester DB/state/home unchanged. Untagged phase and caller unclassified. An additive independent failure observer preserves original source through exact byte/fullAST restoration; a passing diagnostic does not classify the earlier crossing.",
     "Inherited PR94 first unknown history-table and requester UDP observations remain as recorded in guided-machine-owner-consent-verification.json; passing later heads do not classify them."
   ],
   "final_local_summary": {
@@ -1577,6 +2034,65 @@
       "postflight_active": [],
       "test_sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f"
     },
+    "requester_refusal_diagnostic": {
+      "gate": "requester-completion-first",
+      "head": "d3a50cb8ba1b5d2f659737cc3dc153bf74cd19d1",
+      "rust_tree": "105e8c545c0637ed71f5bd49b64d58286cccb14a",
+      "command": [
+        "python3",
+        "conformance/slim/requester_completion.py",
+        "--bin",
+        "/tmp/gu43-runtime/final-bin-rust-build-final-deadline-first"
+      ],
+      "exit": 0,
+      "seconds": 144.66,
+      "log": "/tmp/gu43-runtime/requester-completion-first.log",
+      "sha256": "569a037ebc8bd3b3ab48a1a88ebc60af092683ed238a7362a5da09e417a6e66f",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.19,
+          "active": []
+        },
+        {
+          "seconds": 75.31,
+          "active": []
+        },
+        {
+          "seconds": 90.38,
+          "active": []
+        },
+        {
+          "seconds": 105.45,
+          "active": []
+        },
+        {
+          "seconds": 120.52,
+          "active": []
+        },
+        {
+          "seconds": 135.58,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5"
+    },
+    "requester_diagnostic_limit": "One local diagnostic6/6in143s, runner144.66s, observer silent; over2min target retained, original CI cause still unclassified. Initial runner gate label was rejected before launch and recorded as a no-start, not a test failure or retry.",
     "unchanged_machine_owner_consent_first": {
       "gate": "machine-owner-consent-first",
       "head": "c116d41278c6529ff0726546c7c1e214049fd000",
@@ -1607,7 +2123,7 @@
       "postflight_active": [],
       "test_sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f"
     },
-    "unchanged_consent_final_local_limitation": "Later final-binary sample5/6in49s: outside-approval-held existing-side TCP connection/received counters changed; all DB/files/schema and other carriers unchanged. Earlier local6/6in38s and first CI6/6 pass; no cause inferred and no unchanged local retry. All old suite bytes remain exact. Final isolated full CI still required.",
+    "unchanged_consent_final_local_limitation": "Later final-binary sample5/6in49s: outside-approval-held existing-side TCP connection/received counters changed; all DB/files/schema and other carriers unchanged. Earlier local6/6in38s and first CI6/6 pass; no cause inferred and no unchanged local retry. Consent source remains exact; requester43b has only a removable diagnostic, with all other84 prior files exact. Final isolated full CI still required.",
     "rust": "Final equivalent Rust source fmt/test/Clippy/build pass,155existing tests passed and2ignored.",
     "guided_device15": "Actual GUIDED dual approval, held explicit3-role Ed25519 batch and public owner catalog; after release ordinary same-packet/proof publication and requester retention, with no commit/application. Held route remote state/carriers unchanged; ordinary automatic selection is separate.",
     "no_unchanged_retry_to_green": true
