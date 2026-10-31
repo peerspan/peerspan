@@ -15,7 +15,7 @@ import { identities as parseJoinIdentities, createdIdentity as parseCreatedIdent
   reviewLines as joinReviewLines, provenance as joinProvenance } from './join.mjs';
 import { progress as parseJoinProgress, progressLines as joinProgressLines } from './join-progress.mjs';
 import { pinned as machinePinned, publicReply as machinePublic, identityLines as machineIdentityLines,
-  outcomeLines as machineOutcomeLines, limits as machineLimits } from './machine-request.mjs';
+  outcomeLines as machineOutcomeLines, reviewLines as machineReviewLines } from './machine-request.mjs';
 import { owner as parseOwner, reviewLines as ownerReviewLines, signature as parseOriginalSignature,
   sameOriginal, signable, signatureDeadline as ownerSignatureDeadline } from './owner.mjs';
 import { inspection as parseFinalization, result as parseFinalizationResult, eligible as finalizationEligible,
@@ -2540,7 +2540,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   const status = previous.stage === 'requested' ? `${kind}: publication recorded`
     : previous.stage === 'review' ? `${kind}: review publication` : `${kind}: ${previous.stage}`;
   return [Text({ children: [status, flow && ['review', 'requested', 'declined'].includes(previous.stage) ? '\n' + joinReviewLines(flow, previous.selected) : '',
-      machine && flow && ['review', 'requested', 'declined'].includes(previous.stage) ? '\n' + machineLimits : '',
+      machine && flow && ['review', 'requested', 'declined'].includes(previous.stage) ? '\n' + machineReviewLines(flow) : '',
       machine && previous.stage === 'requested' ? '\n' + machineOutcomeLines(flow) : '',
       machine && previous.stage === 'expired' ? '\nMachine request review expired. Refresh to inspect the recorded outcome; dispatched publication may already have completed. No automatic retry.' : '',
       previous.stage === 'requested' ? '\nThis records publication only. Participant approvals and current link state, access, reachability and model receipt are not verified.' : ''] }),
