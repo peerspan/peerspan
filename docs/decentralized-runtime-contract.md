@@ -334,15 +334,21 @@ without any coordinator/helper/peer operation. Existing name/label defaulting
 and original-key selection/generation rules remain: explicit key, configured
 owner key or an explicitly approved new protected owner-local key. A mismatched
 existing identity is not replaced. Root state is a new raw owned root; the
-initial provider is ORIGINAL PERSON, with no device selection or device lease.
+initial provider is the creator DEVICE with scopes15, as specified by
+[DEC-Q21 in specification section6](decentralized-spec.md#6-creating-a-network).
+The original person remains the genesis signer, not the default selected provider.
 
 Prepare ordinary genesis root_state, root-issued admin/person/host leases,
-owner+host binding, and the existing creator policy under their finite bounds.
-Root never signs another person's policy/binding; the original person signs
-those exact typed objects. Host consent signs its ordinary host/binding grants.
-The root/admin/P/H/B proofs authorize only their specified subjects. Every later
-new/renewed device, including on the creator, requires the complete bootstrap
-ceremony. Creating an original provider is not a device-consent shortcut.
+owner+host binding, creator policy and the creator device grant under their finite
+bounds. The daemon owns the new device key; its original-person-signed grant has
+scopes15, sequence1, operation_id dash and genesis P/H/B parents. Creation approval
+is its device consent, with no join exchange (DEC-Q21/Q21a). Root never signs
+another person's policy/binding/device grant. Host consent signs its ordinary
+host/binding grants. The root/admin/P/H/B/D proofs authorize only their specified
+subjects. Adding other machines requires the complete bootstrap ceremony.
+Creator-device self/binding renewal follows DEC-Q27/Q30; this grants no general
+self-renewal exception. Exact historical creations predating DEC-Q21 retain their
+original-provider result and do not mint a retroactive creator device.
 
 `POST /v2/networks` is exactly `{name,member,person_public_key,approve}`. It
 returns200 exactly `{creation_id,review,signing_requests,network,committed}`.
@@ -360,7 +366,7 @@ only dependency-ready typed signatures. External original-person signatures
 use section 4 slots; daemon imports no original key. A root held locally can
 sign only the approved current creation objects. When the last required valid
 signature is supplied, revalidate time/templates/identity and atomically commit
-network/context/root, complete ordinary proofs, original provider, policy/maxima,
+network/context/root, complete ordinary proofs, creator device provider, policy/maxima,
 outboxes and one `network.created` event. `committed` becomes true; return the
 same stored result on exact retry without replacing keys or resetting time.
 
@@ -1528,8 +1534,9 @@ The independent author derives runtime cases after this contract is pinned:
   display uses only the v2 route for DEC and works with an unavailable local
   signing key, without v1/SSH fallback. Other current domains remain independent.
 - All four creator/requester/CLI pairings without a coordinator process, key,
-  config or successful sync; local original-provider creation with no device
-  lease; later creator-device creation still requires complete consent.
+  config or successful sync; local creator-device15 creation with original
+  genesis signatures and explicit creation consent; other machines require the
+  complete ceremony. Preserve older original-provider creation history.
 - Exact seven stages and typed slots, same-review/separate-admin paths, target
   versus actual admin identity, two default-no requester reviews, original-key
   absence on linked B/C, B approving C while A is offline and all deadlines.

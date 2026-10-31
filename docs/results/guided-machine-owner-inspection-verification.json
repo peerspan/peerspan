@@ -1,0 +1,947 @@
+{
+  "slice": "GU.impl41 / guided contract section41",
+  "base_merged_pr": 91,
+  "base_merge": "a034e78dc1adc54036c80e374eee03b868c7f2e9",
+  "contract_commit": "936534e",
+  "frozen_head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+  "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+  "native_plugin_tree": "463da75250869d489fe487d7ed716ccfdf09d92f",
+  "scope": "Pure owner-local existing-computer machine-owner inspection. Actual incoming signed pins, exact attached project, current selected public original/device authority, finite proposed7 capped at provider deadline. No key probe, consent, signing, publication or schema change.",
+  "independent_author": {
+    "branch": "codex/gu-machine-owner-review-tests",
+    "commit": "3a76ed088105f918b56f68d21fc811bdcce3a5ef",
+    "file": "conformance/slim/machine_owner.py",
+    "sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+    "cases": 6,
+    "basis": "Committed public section41 + referenced public contracts and independently authored fixtures/harness only; no implementation/Rust/hooks reads/imports or author runtime/process/host/network/model execution."
+  },
+  "preservation": {
+    "old_conformance_and_native_files": 74,
+    "byte_identical": true,
+    "native_cases": 393,
+    "old_host_suites": 30,
+    "no_old_assertion_action_deadline_changes": true
+  },
+  "local_gates": [
+    {
+      "gate": "rust-fmt-first",
+      "head": "e55ceac16b91ab97e6e51dddb9c0911f33080dce",
+      "rust_tree": "7cc9df9507ff4b4475e32047b039b7a0835070b5",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/dev/shm/gu41/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "e55ceac16b91ab97e6e51dddb9c0911f33080dce",
+      "rust_tree": "7cc9df9507ff4b4475e32047b039b7a0835070b5",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 101,
+      "seconds": 31.15,
+      "log": "/dev/shm/gu41/rust-test-first.log",
+      "sha256": "76cf5a6407ab980ee5d0858598e7fc143e742324dbfa42cd74a7e88a18038285",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "665771",
+              "cargo"
+            ],
+            [
+              "665803",
+              "rustc"
+            ],
+            [
+              "665812",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "665771",
+              "cargo"
+            ],
+            [
+              "665803",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-corrected-first",
+      "head": "2502e06b1a6aa318c8d6f36e28faf0a9ae716f9d",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 108.66,
+      "log": "/dev/shm/gu41/rust-test-corrected-first.log",
+      "sha256": "8295c39fc501f2cef5957d2cfd513cacf78e7c98522af3a6af8ab3bb4b4a1ea2",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "674270",
+              "rustc"
+            ],
+            [
+              "674271",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.1,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "674270",
+              "rustc"
+            ],
+            [
+              "674271",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.19,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "674270",
+              "rustc"
+            ],
+            [
+              "674271",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.26,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "674270",
+              "rustc"
+            ],
+            [
+              "674271",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.35,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "674270",
+              "rustc"
+            ],
+            [
+              "674271",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.5,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ],
+            [
+              "684015",
+              "rustc"
+            ],
+            [
+              "684553",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 105.59,
+          "active": [
+            [
+              "674233",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 36.17,
+      "log": "/dev/shm/gu41/rust-clippy-first.log",
+      "sha256": "050003f0beee2675f06f2d4e848ae8bcac2407b417086eea5218c4b113e38613",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "689872",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.09,
+          "active": [
+            [
+              "689872",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 88.58,
+      "log": "/dev/shm/gu41/rust-build-first.log",
+      "sha256": "2ef5b844ada3cf0e7f2eb4cd5b25ec529e928acc74a19b3eb39560408a5d1d72",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "694504",
+              "cargo"
+            ],
+            [
+              "694536",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "694504",
+              "cargo"
+            ],
+            [
+              "694536",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.15,
+          "active": [
+            [
+              "694504",
+              "cargo"
+            ],
+            [
+              "694536",
+              "rustc"
+            ],
+            [
+              "698862",
+              "cargo"
+            ],
+            [
+              "699118",
+              "rustc"
+            ],
+            [
+              "699304",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.24,
+          "active": [
+            [
+              "694504",
+              "cargo"
+            ],
+            [
+              "694536",
+              "rustc"
+            ],
+            [
+              "698862",
+              "cargo"
+            ],
+            [
+              "699118",
+              "rustc"
+            ],
+            [
+              "699304",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.48,
+          "active": [
+            [
+              "694504",
+              "cargo"
+            ],
+            [
+              "698862",
+              "cargo"
+            ],
+            [
+              "699118",
+              "rustc"
+            ],
+            [
+              "699304",
+              "rustc"
+            ],
+            [
+              "704040",
+              "rustc"
+            ],
+            [
+              "704041",
+              "rustc"
+            ],
+            [
+              "704042",
+              "rustc"
+            ],
+            [
+              "704043",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": [
+        [
+          "698862",
+          "cargo"
+        ],
+        [
+          "699118",
+          "rustc"
+        ],
+        [
+          "699304",
+          "rustc"
+        ]
+      ]
+    },
+    {
+      "gate": "rust-fmt-disk-first",
+      "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu41-runtime/rust-fmt-disk-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "join-onboarding-first",
+      "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "python3",
+        "conformance/slim/join_onboarding.py",
+        "--bin",
+        "/dev/shm/gu41/final-bin"
+      ],
+      "exit": 120,
+      "seconds": 2.01,
+      "log": "/dev/shm/gu41/join-onboarding-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "compiler_samples": [],
+      "postflight_active": [],
+      "test_sha256": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b"
+    },
+    {
+      "gate": "join-onboarding-disk-first",
+      "head": "5ed5e7ed8f709913b5cb95a60d4fc33c97395d33",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "python3",
+        "conformance/slim/join_onboarding.py",
+        "--bin",
+        "/dev/shm/gu41/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 75.64,
+      "log": "/tmp/gu41-runtime/join-onboarding-disk-first.log",
+      "sha256": "5749e9316a0e9fe03f4e9be54e33c5edfd9cc9c35ca9244eb9dca101534752db",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.01,
+          "active": []
+        },
+        {
+          "seconds": 30.12,
+          "active": []
+        },
+        {
+          "seconds": 45.27,
+          "active": []
+        },
+        {
+          "seconds": 60.4,
+          "active": []
+        },
+        {
+          "seconds": 75.55,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b"
+    },
+    {
+      "gate": "join-first",
+      "head": "5ed5e7ed8f709913b5cb95a60d4fc33c97395d33",
+      "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+      "command": [
+        "python3",
+        "conformance/slim/join.py",
+        "--bin",
+        "/dev/shm/gu41/final-bin"
+      ],
+      "exit": 130,
+      "seconds": 28.18,
+      "log": "/tmp/gu41-runtime/join-first.log",
+      "sha256": "e73fa293c507a430713b69ad0180d22572821d52552b6f9cff3dd7eb00315ea4",
+      "preflight_active": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.02,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd"
+    },
+    {
+      "gate": "rust-fmt-memberfix-first",
+      "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+      "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu41-runtime/rust-fmt-memberfix-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-memberfix-first",
+      "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+      "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 104.65,
+      "log": "/tmp/gu41-runtime/rust-test-memberfix-first.log",
+      "sha256": "dc031538df4638e09a6bd2b8e12a8eb2590548daab53963ddabef6640ddaac67",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ],
+            [
+              "899343",
+              "rustc"
+            ],
+            [
+              "899346",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ],
+            [
+              "899343",
+              "rustc"
+            ],
+            [
+              "899346",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ],
+            [
+              "899343",
+              "rustc"
+            ],
+            [
+              "899346",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ],
+            [
+              "899343",
+              "rustc"
+            ],
+            [
+              "899346",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.36,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ],
+            [
+              "899343",
+              "rustc"
+            ],
+            [
+              "907766",
+              "rustc"
+            ],
+            [
+              "907767",
+              "rustc"
+            ],
+            [
+              "907906",
+              "rustc"
+            ],
+            [
+              "907910",
+              "rustc"
+            ],
+            [
+              "907921",
+              "rustc"
+            ],
+            [
+              "908031",
+              "rustc"
+            ],
+            [
+              "908060",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.57,
+          "active": [
+            [
+              "899330",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-memberfix-first",
+      "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+      "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 37.19,
+      "log": "/tmp/gu41-runtime/rust-clippy-memberfix-first.log",
+      "sha256": "d0b439f546ff987d1a5d61adde89aa0ca2741618bffcac00b706a105b4c04cd1",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.01,
+          "active": [
+            [
+              "915824",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.1,
+          "active": [
+            [
+              "915824",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-memberfix-first",
+      "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+      "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 75.44,
+      "log": "/tmp/gu41-runtime/rust-build-memberfix-first.log",
+      "sha256": "7775721f6b2157769da67b6f675eb896626786a318aaaa1da54ea014cfe77764",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "921727",
+              "cargo"
+            ],
+            [
+              "921800",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "921727",
+              "cargo"
+            ],
+            [
+              "921800",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.15,
+          "active": [
+            [
+              "921727",
+              "cargo"
+            ],
+            [
+              "921800",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.22,
+          "active": [
+            [
+              "921727",
+              "cargo"
+            ],
+            [
+              "921800",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.38,
+          "active": [
+            [
+              "921727",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "machine-owner-first",
+      "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+      "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner.py",
+        "--bin",
+        "/tmp/gu41-runtime/final-bin-rust-build-memberfix-first"
+      ],
+      "exit": 0,
+      "seconds": 36.19,
+      "log": "/tmp/gu41-runtime/machine-owner-first.log",
+      "sha256": "d8d91d9c8047cee308360f17ff820e06af5770994e8ad120e6ea6cbb33e134e6",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.08,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1"
+    }
+  ],
+  "binaries": {
+    "head": "22c7f4308d9dac226905c1f50ad67bd61d64fe4f",
+    "rust_tree": "4f9ac21c11c104764342f726b90eb94e5880ceb0",
+    "directory": "/tmp/gu41-runtime/final-bin-rust-build-memberfix-first",
+    "sha256": {
+      "peerspan-host": "ae1800d2fcbb43a98bbaeaae28c34b4aa3458852cd06de7c39de1602267bea08",
+      "peerspan-peer-probe": "e30f850b3ffdfd0388155c77cbfd88d6298496089ad58b484ac42cc0853f5411",
+      "peerspan-helper": "59f10eb4cf51098995a9dfdcba2c5a64e0f10509212b13646cf219726b308bbc"
+    }
+  },
+  "first_compile_failure": "Inaccessible field helper at e55ceac. Corrected using codec object/text; no tests changed. Source review also bypassed snapshot memo fingerprint that hashes root_seed; public load reads existing columns without seeds.",
+  "resource_failure": {
+    "gate": "rust-fmt-corrected-first",
+    "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+    "runner_exit": 1,
+    "child_exit": "not retained",
+    "log_empty": true,
+    "receipt_empty": true,
+    "failure": "OSError errno28 no space left on device during receipt write",
+    "trace": "record.write_text(json.dumps(result,indent=2)) raised OSError errno28",
+    "resource_change": "Relocate task-owned artifacts and TMPDIR from shared /dev/shm/gu41 to /tmp/gu41-runtime; retain first attempt unchanged; no tests/assertions/deadlines/product change."
+  },
+  "corrected_environment": "Task-owned TMPDIR/logs relocated from shared /dev/shm/gu41 to regular disk /tmp/gu41-runtime, preserving exact binary/test/source hashes and bounds. The original join_onboarding exit120 emptylog has unknown case progress. No underlying product fix inferred.",
+  "local_orchestration_limit": "Ordinary join was started before join_onboarding exited. The newer join was interrupted with SIGINT: exit130,28.18s,three completed cases passed. No full local ordinary join claim. join_onboarding14/14in75.64s receipt includes overlap limit. Task-owned exclusive nonblocking runner gate lock added; neither unchanged suite retried locally. Required final isolated CI runs both.",
+  "compiler_overlap": "Fresh build began idle; unrelated mmfix cargo/rustc appeared during build, uses /dev/shm/mmfix-target versus own /dev/shm/peerspan-gu-target. Both retained in samples; no shared build cache/binary race. Subsequent runtime gates held until compiler clear; future gates refuse active known compilers.",
+  "coverage_limits": [
+    "Insufficient selected-device bits and separate-administrator path lack bounded genuine fixtures",
+    "Complex root/proof forks, restrictions, bans and migration are source-only in this suite",
+    "Foreign-person admitted requester target, unavailable owned seed, malformed proof and incoming dash/context-inconsistent signed evidence lack bounded fixtures",
+    "Read snapshots do not prove private-key read/signing syscall absence or actual stalled-client5s cutoff; the CLI outer guard is8s",
+    "Later packet-stage purity is combined with public cancellation after genuine approved owner work, not standalone live-packet purity"
+  ],
+  "preflight_not_started": {
+    "gate": "machine-owner-first",
+    "head": "ef72ff9",
+    "started": false,
+    "reason": "known compilers active before launch",
+    "active_pids": [
+      827174,
+      828923,
+      830281,
+      830532,
+      830539,
+      832056,
+      832271,
+      832287,
+      832295
+    ],
+    "additional_preflight": {
+      "head": "2c8a51e46bf9149940bee43b1ac813d28c3409d9",
+      "active_pids": [
+        827174
+      ],
+      "started": false
+    }
+  },
+  "diagnostic_restoration": {
+    "diagnostic_only": true,
+    "exact_bytes_restored": true,
+    "full_ast_restored": true,
+    "prior_sha256": "c05b5cf6758d67e1e4cdda9820a7e2fe44b27b3ddaec5e84786a9e637a5b9aec",
+    "current_sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1"
+  },
+  "first_ci": {
+    "head": "2c8a51e46bf9149940bee43b1ac813d28c3409d9",
+    "conformance_run": 41230550919,
+    "machine_owner_job": 124624035296,
+    "machine_owner_passed": 0,
+    "machine_owner_failed": 6,
+    "machine_owner_seconds": 22,
+    "log": "/tmp/gu41-ci-machine-owner-first.log",
+    "log_sha256": "06f14af63213c486225c05eb208a7ca06b423c62df2b908bc0e7dddf762d48a7",
+    "all_jobs": 32,
+    "success_jobs": 31,
+    "other_host_suites_passed": 30,
+    "pr_checks_run": 41230550964,
+    "four_pr_checks": "success",
+    "native_passed": 393,
+    "native_seconds": 72.43,
+    "member_failure": "Four exact local-member failures. Inspection used member_for, whose device summary is dash; current members includes the active device. Product corrected to use current members, with selected provider and authority checks preserved.",
+    "later_setup_failures": "First ordinary owner preparation status/code unobserved; its cancelled state not established for final case. Cause remains unclassified. Captured-response-only diagnostic added without fixture/assertion/action/bound changes."
+  },
+  "initial_binaries": {
+    "head": "43b12073e689bfec7c3d8b8388616fe0a4dcc121",
+    "rust_tree": "54a13fb8acd4f87c38bef52c52a5b48d97ff3484",
+    "directory": "/dev/shm/gu41/final-bin",
+    "sha256": {
+      "peerspan-host": "3a8d38d4db8817e4a87a38a9bd8c9cd0c88901adc5be1c55bb3f2487b0b0200c",
+      "peerspan-peer-probe": "1f0cfe209fce645e9cab16ebb946820d07aa39bf07b76ef17eac7757ed25266c",
+      "peerspan-helper": "af7e8af7526430408ab58a4ef33b20ba37a78b7a1f53f2eb494243d35098e9f5"
+    }
+  },
+  "independent_static_correction": {
+    "initial_author_commit": "4c0615662f4aa2893748e78ed63220c0c0b6307f",
+    "initial_sha256": "fb48948d93046a423efa74a8007f2af3d6f57c5d2185ddcaa3927e5b8be828c8",
+    "corrected_commit": "7776522919b61f78eade5105e358ae3dc7685c75",
+    "corrected_sha256": "c05b5cf6758d67e1e4cdda9820a7e2fe44b27b3ddaec5e84786a9e637a5b9aec",
+    "reason": "Public exact-envelope dp_ identity differs from semantic ds_ identity. Independently derive both and actual signed request dpk_ before first execution; no old source/case/bound change."
+  },
+  "prior_outcomes": "Merged91 evidence retains earlier unclassified native, transport, history and startup failures. No new claim of causes or underlying fixes.",
+  "final_gates": "All31 host suites+build (32jobs, pagination), four PR checks including native393, fresh bot/root review on final combined PR head. Receipts appended to PR/tracking body after evidence commit to avoid changing checked head.",
+  "open_acceptance": [
+    "Durable existing-person machine-owner consent and bounded signing",
+    "Native existing-computer approval controls",
+    "Requester selection/final commit/completion for same-person lane",
+    "Actual terminal/reload/installed/physical/model acceptance",
+    "Schema23-to27/full-state upgrade/recovery and final combined/full-feature acceptance"
+  ]
+}

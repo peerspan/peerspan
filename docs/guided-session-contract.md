@@ -7672,7 +7672,223 @@ Selected: identify the exact returned prerequisite state without guessing or
 changing the test's success criterion. Discard blind rerun, state-ok relaxation,
 counter filtering, new network attempts and increased existing waits.
 
-## 41. Remaining flow contract
+## 41. Existing-computer machine-owner inspection
+
+GU.impl41 adds the read-only backend prerequisite for approving the section40
+machine request on an existing computer. It creates no consent. Later slices
+add exact durable owner consent, bounded signing, native controls and requester
+selection/completion. Existing advanced link operations remain available.
+
+### Private operation and eligibility
+
+Owner-local `POST /v1/onboarding/machine-owner-inspection` and advanced
+`peerspan onboarding machine inspect --stdin` accept exactly
+`{"context":AdapterContext,"request_id":LINK_ID}`. Context is section5's exact
+five-field attached-project context. Decode at most65536 bytes, reject unknown,
+duplicate, missing, null, wrong-type and malformed fields at every level before
+work. CLI reads only stdin, never IDs/private payloads in argv, uses the configured
+owner socket and a5s local request bound. Failures use fixed redacted text, even
+Clap argument errors. No peer/bootstrap/adapter route or model tool is added.
+
+Use one held read transaction. Missing request is404 `not_found`; malformed
+input is400 `invalid`; stale/detached/replaced project is409 `review_changed`.
+Other unavailable evidence is409 `machine_owner_inspection_unavailable`, without
+raw diagnostics. Verify the retained ordinary request signature and exact pins.
+Only a live incoming approver `new` nonmigration request on a different host,
+with explicit non-dash network/context/person pins, qualifies. Request state must
+be pending; no owner/selection/administrator/finalization/commit intent, packet,
+manifest, activation, outcome, selection approval or commit approval may exist.
+Check guarded decision time is at/after request creation and latest stage, and
+strictly before both ordinary request and stage deadlines. Cancelled, expired,
+blocked, later-stage, requester-local, unpinned and new-original requests refuse.
+Unpinned here means a dash in the signed request's network/context/person pins;
+an invitation's earlier pin is not an additional authority prerequisite for this
+existing-computer inspection. Section40's requester UI still requires its pin.
+No fetching/resume/import or automatic invitation redemption occurs.
+
+Load the current admitted DEC network/context and project its actual verified
+root, P/H/B/D membership, proof completeness, restrictions, maxima, bans,
+conflicts and migration fence. Local host must currently belong to exactly the
+requested person, and the network's remembered own person and selected public
+provider must agree. No root-as-owner fallback or original-key substitute.
+Use ONLY the persisted public selection: original or an owned local device.
+Resolve current public authority without reading device/root seeds, original
+key files or SSH agent, testing key availability or executing a signer. Thus
+public authority may be reviewable even if its private signer is unavailable.
+A device's selected lease/key must match its current active public path and must
+not equal the requester's device key. Require all proposed owner bits7 to fit
+within the provider's effective scopes; no silent powers downgrade. Reject an
+already admitted requester host owned by a different person. This read grants
+neither requester host admission nor new machine ownership.
+
+The fixed first proposed profile is7: policy editing1, host binding2, eligible
+own-device approval/renewal/revocation4. It excludes administrator8. Proposed
+not_after is the earlier of signed request creation+7days and the provider's
+current effective deadline; it must be strictly after observed time. This finite
+cap is explicit in the review. An existing selected provider with effective8 may
+fold host admission under later exact ordinary owner consent; otherwise a
+separate administrator is required. This is potential, never consent or a
+promise of successful signing/admission. No network_root fold is selected here.
+
+### Closed public result and purity
+
+Return exactly `{version:1,host_id,context,observed_at,request,review_id,review,
+next_action:"review_machine_owner_consent"}`. `request` is the ordinary complete
+public LINK_VIEW at this same observed time. `review` is exactly:
+
+- `version:1`, `kind:"inspect_existing_person_machine"`, `host_id`, exact
+  `context`, exact attached project `agent`;
+- `network:{id,name,context_id,genesis_root_public_key}`, `root_state_id`;
+- `request_id`, `request_packet_id`, `person_public_key`, actual requester
+  `host_public_key`, actual requester `device_public_key`, current person `member`;
+- `person_lease_id`; `local_host` is exactly the current member response
+  `{host_public_key,member,person_public_key,host_lease_id,binding_lease_id,
+  device_lease_id,not_after}`;
+- `provider` is the ordinary public authority object exactly `{kind,
+  person_public_key,host_public_key,device_public_key,lease_id,root_state_id,
+  scopes,not_after}` (original_person or device); `provider_id` is the concrete
+  original person key or selected device lease, `signature_format` is respectively
+  sshsig or ed25519. These identify public authority, not signer availability;
+- `scopes:7`, fixed `not_after`, `host_admission` is `owner_may_fold` iff current
+  provider has effective8, otherwise `separate_administrator_required`;
+- signed request `created_at`, ordinary request `expires_at`;
+- `effects:{verify_request_signature:true,inspect_current_owner_authority:true,
+  prepare_owner_intent:false,approve_owner_intent:false,sign_owner_offer:false,
+  publish_owner_offer:false,grant_membership:false,grant_machine_powers:false,
+  grant_agent_access:false,commit_request:false,share_files:false,
+  share_conversation:false,capability_calls:false}`.
+
+`review_id` is `review_` plus SHA256 of UTF8
+`peerspan-machine-owner-inspection-v1\n` followed by recursively key-sorted,
+compact canonical JSON of the entire review. Observation time is outside the
+digest; unchanged reviewed facts retain the digest while the exact attached
+parent remains valid. Restart detaches sessions under the existing contract:
+old-context reads then refuse review_changed; explicit fresh attachment changes
+project/digest even if authority/request terms stay equal. A new
+root, selected provider, membership, cap or project produces changed terms or
+refusal, never repairs the prior snapshot. It is not a consent token. No new
+journal/schema/intent/clock save/event/key/queue/contact/cache refresh or network
+IO. Existing unrelated workers may act independently; tests settle genuine
+transport prerequisites before measuring the read. Public result must be <=2MiB,
+reject unsafe control/private-prefixed label or aggregate rather than copying
+private material into output. Never return invitations, request codes/secrets,
+credentials, seeds, signatures, packet bodies, routes or signer diagnostics.
+Readiness, incoming delivery and model receipt remain unverified.
+
+### Verification
+
+A separate contract-only author creates compact `machine_owner` slim conformance
+from public sections5/9/11/12/40/41 and ordinary DEC specs, independent existing
+harness/fixture source only. No implementation/Rust/hooks reads/imports or
+runtime/process/host/network/model execution by author. Commit before root's
+first execution. Six cases, under2minutes total, preserve all existing suites,
+helpers, assertions and bounds. Use genuine public network creation/attached
+project/pinned invitation/automatic incoming return; no authority/pending/clock/
+queue row fabrication. Read-only SQL may snapshot/count rows.
+
+1. Existing selected device owner and actual pending new computer: complete
+   closed shape, actual signed pins, current authority/dependencies, exact digest,
+   finite7/bit8 exclusion, public fold potential and no original key on requester.
+2. Exact stdin CLI/API equivalence, stable digest across live reads, restart
+   detachment refusal and fresh-project changed digest, no argv/
+   private output; strict nested/duplicate/null/unknown/oversize/wrong-type inputs
+   and redacted argument failures. Same socket and5s client bound.
+3. Missing/local/new-original/unpinned/wrong-person/wrong-network-context and
+   detached/replaced project refuse, without changing ordinary pending/authority.
+4. Current selected original public authority is reviewable without private-key
+   availability; selected device with insufficient bits refuses without fallback.
+   Use public signer selection/authority operations, no seed deletion or DB edit.
+5. Genuine cancelled/expired/later-stage and changed current authority refuse or
+   show changed digest/current fixed cap. Include effective provider deadline cap
+   and appropriate separate-admin potential through genuine public fixtures.
+6. Settled whole-DB/private-files/traffic purity for repeat successful/failed
+   API/CLI inspections; unchanged request/intent/key/consent counts. Peer mTLS,
+   bootstrap and scoped adapter routes cannot invoke this owner administration.
+
+Where no bounded genuine public fixture exists, record the exact source-only
+limit rather than fabricate success or mark a requirement verified. Root owns
+serialized Rust fmt/test/Clippy/build and local new-suite + unchanged join suites,
+records first outcomes/head/test/binary/log hashes and known compiler samples.
+No unchanged retries-to-green, old test/bound edits, guessed background fixes or
+quota-refused model probes. Required final-head full matrix (31suites plus build),
+four PR checks and fresh bot/root review follow. Native393 stays unchanged;
+required final CI runs it. Full other-computer/native/terminal/reload/installed/
+physical/model/schema23-to27/full-state/final combined acceptance stays open.
+
+Pre-execution independent-test audit corrects semantic statement ds_ references
+versus catalog dp_ proof IDs using the public exact-byte identity formulas, and
+adds actual signed request dpk_ identity verification after both host/device
+signatures. Initial author4c0615 and corrected7776522 sources are retained; no
+new suite was executed before this correction. Six cases retain their bounds.
+The bounded suite leaves insufficient-device/separate-administrator, complex
+fork/restriction/ban/migration paths, foreign-person admitted requester, unavailable
+owned seed, malformed proofs, incoming dash/context-inconsistent signed pins,
+private-key/sign-call syscall attribution and an actual stalled-client5s cutoff
+as source-only limits. Later packet-stage purity is combined with genuine
+cancellation to retire approved work; it is not standalone live-packet purity.
+
+The first corrected-format receipt write fails with errno28 in shared /dev/shm;
+its child result is unretained. The following unchanged join_onboarding exits120
+in2.01s with empty log (case progress unknown). Preserve these resource-failed
+attempts. Relocate only this task's temporary data/logs to regular disk with
+independently observed free capacity; keep exact binaries, sources and deadlines.
+One affected-gate execution in this corrected environment is allowed, with no
+product fix or old unrelated-failure classification inferred.
+
+The corrected-environment local join_onboarding finishes14/14in75.64s, but root
+erroneously starts ordinary join before it exits. Preserve that overlap limit
+and interrupt the newer join (exit130/28.18s; three cases passed). No complete
+local ordinary join claim. Correct the local runner with a task-owned exclusive
+nonblocking gate lock. Do not rerun unchanged local suites for a cleaner receipt;
+final exact-head CI independently runs both unchanged suites in isolated jobs.
+
+### GU.impl41a: first CI and ordinary-setup observation
+
+First draft CI at2c8a51e (run41230550919, machine_owner job124624035296)
+records0/6in22s. Four cases fail exact current local P/H/B/D member comparison:
+product inspection used a member-for-authority helper that deliberately leaves
+its device-lease summary dash, while the ordinary members view includes the
+actual single active device. Use the current members projection for that exact
+local member, preserving all selected-provider and current authority checks.
+This is a product correction, not a weaker test.
+
+Case5 fails the ordinary unapproved owner-approval prerequisite; its status/code
+were not retained, so cause is unknown. Case6 then expects the cancelled result
+that case5 did not establish. A separate author may add ONLY failure-time
+metadata for the already-returned case5 approval HTTP status and whitelisted
+code (invalid/expired/forbidden/state_conflict/operation_conflict/proof_required/
+clock_rollback/signer_unavailable/authority_expired/not_yet_valid/internal/unknown),
+and boolean whether an owner_intent_id is retained. No new IO/time reads beyond
+the original already required pending snapshot, no raw response/error/IDs/keys/
+codes/labels/paths or exceptions, and no setup/action/assertion/wait/bound change.
+Preserve the first log/hash. Do not guess a stale-code/contact fixture fix before
+observing the response. Native/Rust checks pass in this first draft workflow;
+full matrix outcomes are retained separately, including all32 jobs.
+
+### GU.impl41b: distinguish compilation from an external test wrapper
+
+The repeated local no-start fence eventually observes cargo test still alive
+with an actual test-binary child but no rustc for several minutes. Its independent
+mmfix target is separate from this task's target/binaries. Do not kill other
+work or wait indefinitely by calling every cargo wrapper a compiler. Preserve
+all no-start observations. The local runner still blocks actual rustc/native
+plugin execution and any cargo command other than a test wrapper with no rustc.
+Record those external noncompiling test PIDs and every before/during/after
+compiler sample as a receipt limitation; don't call the machine wholly idle.
+A task-owned exclusive gate lock continues to serialize this stream's runtime,
+build and host gates. Test sources/assertions/bounds and resource counters stay
+unchanged. Corrected product Rust requires fresh format/test/Clippy/build before
+the first local diagnostic suite. Discard killing external tests, hiding their
+activity, weaker deadlines and another unbounded compiler-name-only hold.
+
+Selected: pure current existing-owner review, persisted public signer selection,
+explicit finite profile7 capped by current authority, concrete public dependencies.
+Discarded: seed/key/agent probes, root fallback, original-key copying, label/pin
+as ownership, weakening bits, implicit approval, another schema/journal, protocol
+progress while reading, and treating the new-original requester owner UI as an
+existing-computer review. Choices are recommendations under GU-OWN1.
+
+## 42. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

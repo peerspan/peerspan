@@ -3571,3 +3571,91 @@ no suite; actual execution began only after it cleared. Root verifies exact
 byte/AST restoration after removing helper/call. All original actions/assertions/
 bounds/counters and frontend/Rust stay unchanged. Required final combined CI
 and fresh review follow; no runtime fix or weaker success criterion is claimed.
+
+### GU.impl41: current existing-computer machine-owner review
+
+Select a pure project-bound backend inspection before adding exact existing-
+person owner consent/signing and native controls. Use the persisted public
+original/device selection and verified current membership/authority, actual
+incoming keys and finite profile7 capped by the provider deadline. Read no
+signer seeds/files/agents; public authority and private availability are separate.
+Discard root fallback, key copying, implicit approval, silent scope downgrade,
+new schema and reusing the requester-local new-original review. Section41 fixes
+the external shape and six independent cases before implementation. Keep all
+existing suites/native393 and full-feature acceptance limits.
+
+GU.impl41 pre-conformance review: unpinned means signed request pins, not an
+extra invitation-as-authority rule. Digest stability requires the same live
+attached parent; ordinary restart detachment refuses old contexts and a fresh
+attachment changes the review. Source inspection found the ordinary snapshot
+memo fingerprint hashes root_seed despite not using it for public authority.
+Use a narrowly scoped public snapshot load that bypasses that fingerprint and
+reads only its existing public/marker columns; preserve other callers/cache.
+The first Rust compilation also exposed an inaccessible field helper; use the
+existing typed codec object/text accessors. Retain the failed compile receipt.
+
+GU.impl41 contract-only author found stale runtime-contract section3 creator
+wording contradicting accepted decentralized-spec section6/DEC-Q21/Q21a/Q27/Q30
+and independent creator-device fixtures. Reconcile it to creation-selected
+device15 and the existing narrowly bounded creator renewal exception; preserve
+older exact original-provider historical results. No runtime creation change
+or new owner choice is introduced. Discard encoding the stale no-device claim
+as a new conformance prerequisite or fabricating a creator-device fixture.
+
+GU.impl41 local verification resource boundary: corrected Rust tests/Clippy/build
+pass. A later corrected-format gate cannot save its receipt: errno28 no space
+left on device in shared /dev/shm; child outcome was not retained. Immediately
+following unchanged join_onboarding exits120 in2.01s with an empty log, so its
+case progress/outcomes are unknown. Preserve both attempts. Known disk capacity
+then recovers, but choose a concrete fixture-environment correction: relocate
+only this task's artifacts/TMPDIR to regular disk /tmp/gu41-runtime (125GiB free),
+keep frozen binary hashes, test source/actions/bounds and product unchanged.
+Run the affected gates once in that corrected environment; this is not evidence
+of a product fix or classification of earlier unrelated suite failures.
+
+GU.impl41 root orchestration error: the corrected-environment join_onboarding
+run was still active when root started ordinary join. Stop the newer join with
+SIGINT (exit130,28.18s; three completed cases pass), retain its partial first log,
+and make no complete local join claim. Join_onboarding finishes14/14in75.64s;
+the overlap is a limitation of that receipt. Add a task-owned nonblocking gate
+lock to the local runner before further runtime execution. Do not retry these
+unchanged suites locally for a cleaner receipt; the required final exact-head
+CI must independently run both in its existing isolated matrix jobs. No tests,
+product, assertion or bound changes.
+
+GU.impl41 pre-execution independent-test audit distinguishes dp_ exact-envelope
+proof IDs from ds_ semantic statement IDs, derives both using public specification
+messages and verifies actual request dpk_ after genuine host/device signatures.
+Separate author commits4c0615/7776522 precede the first suite execution; all old
+tests/bounds remain exact. Record the author's bounded fixture and syscall/5s
+client-cutoff limits in section41 rather than infer those from snapshots.
+
+GU.impl41a first draft CI: new suite0/6in22s. Four exact-member failures reveal
+product inspection used member_for, whose device summary is dash; ordinary
+members includes the active creator device. Use current members projection
+without relaxing the test. Ordinary approval setup in case5 separately fails
+with unobserved status/code; case6 cancellation expectation is consequently
+unestablished. Contract bounded captured-response diagnostics by separate author
+before guessing or changing that fixture. Retain CI log06f14af6 and all first
+outcomes; native/Rust checks pass, full matrix still being observed.
+
+GU.impl41b: distinguish actual compilation from an unrelated long-lived cargo
+test wrapper, observed with test child but no rustc and a separate mmfix target.
+Keep the task gate lock and block actual rustc/native or other cargo work; allow
+that noncompiling test wrapper while explicitly retaining its PID/activity in
+all local receipts. Discard killing others, pretending global idle or waiting
+indefinitely on the cargo process name. No tests/deadlines/counters change.
+Re-run Rust gates on the actual local-member product correction before suite.
+
+GU.impl41 corrected verification: fresh format, existing Rust155/2ignored, Clippy
+and build pass for tree4f9ac21c. First local six-case diagnostic suite passes6/6
+in36.19s on hashed fresh binaries, with no known compiler at before/during/after
+samples and no observer output. This does not recover the first CI case5
+status/code; preserve that unknown cause. All74 old conformance/native files and
+native393 stay exact; independent diagnostic removal restores prior bytes/AST.
+The verification record retains first CI0/6, all30 existing host suites/four
+checks passing, compile/resource/orchestration limits and every source/test/
+binary/log hash. No unchanged local suites are rerun for cleaner receipts.
+Final combined-head all31+build/four checks/fresh bot/root review follow. Exact
+existing-owner consent/signing/native controls/requester completion and all
+full-feature acceptance remain open.

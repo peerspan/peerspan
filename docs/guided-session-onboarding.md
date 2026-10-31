@@ -840,3 +840,22 @@ unclassified. Removing these additions restores original bytes/AST, with no
 setup/assertion/deadline/counter changes. Other57 old test/helper files,
 all381 old native cases and frontend/Rust remain exact. Final full CI/review
 receipts follow on the slice/tracking PR; full-feature acceptance remains open.
+
+### Existing computer: current machine-owner review backend
+
+Section41/GU.impl41 follows merged91 (`a034e78`). The owner-local inspection
+checks an actual incoming same-person request, current attached project, selected
+public original/device authority and P/H/B/D dependencies. It returns exact
+requester keys and finite proposed powers7 without key access, approval, signing
+or publication. Later slices supply durable consent, bounded signing and native
+controls, then requester selection/completion. The complete other-computer flow
+and final feature acceptance remain open.
+
+The [machine-owner verification record](results/guided-machine-owner-inspection-verification.json)
+retains the first CI0/6, observed missing-device member correction and corrected
+local6/6in36.19s. Fresh Rust gates pass; all74 prior conformance/native files and
+native393 stay exact. First CI already passes all30 existing host suites/four
+checks; final combined-head31-suite matrix/four checks/fresh review follow. The
+record preserves earlier resource/orchestration outcomes, source-only coverage
+limits and all hashes. It verifies the review backend, not completed machine
+admission, native approval, installed/model delivery or full-feature acceptance.

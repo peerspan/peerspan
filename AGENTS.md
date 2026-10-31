@@ -104,3 +104,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `peer_reachability`: explicit one-machine pinned outbound peer observation,
   current project/authority guards around IO, no contact-learning sync or
   durable observation, privacy and owner-router isolation (section38).
+
+- `machine_owner`: pure current existing-computer owner authority and incoming
+  machine-request review, selected public provider, finite powers, privacy and
+  owner-router isolation (guided session contract section41).
