@@ -456,8 +456,12 @@ def world(name='main'):
     creation_time = max(a.now(), b.now()) + timedelta(seconds=2)
     for h in (a, b):
         advance_to(h, creation_time)
+    people = get(a, '/v2/networks/' + net['id'] + '/persons')['persons']
+    matching = [person for person in people if person['person_public_key'] == f['person']]
+    check(len(matching) == 1 and isinstance(matching[0]['member'], str) and matching[0]['member'],
+          'genuine invitation requires exact current verified person member')
     status, issued = a.api('POST', '/v2/networks/' + net['id'] + '/invitations', {
-        'member': 'Existing person next computer', 'expected_person_public_key': f['person'],
+        'member': matching[0]['member'], 'expected_person_public_key': f['person'],
         'expires_at': rfc3339(a.now() + timedelta(seconds=65))})
     check(status == 201 and issued.get('invitation'), f'genuine pinned invitation HTTP {status}')
     status, requested = b.api('POST', '/v2/link/requests', {'mode': 'new', 'network_id': net['id'],
@@ -1127,7 +1131,61 @@ def signing_op(f, action, *, status=200, code=None, override=None, cli=False):
     return value
 
 
-def pure_signing(f, action='signing', *, guard=None, allow_agent=False, **kwargs):
+def helper_summary(databases):
+    """Public format1 categories from already captured rows, never row values."""
+    summary = {'states': dict.fromkeys(('active', 'deleted', 'expired', 'unknown'), 0),
+               'frame_count': 0, 'boxes_with_ciphertext': 0, 'schema_known': True}
+    found = False
+    for database in databases.values():
+        if not ({'mailboxes', 'frames'} & set(database)):
+            continue
+        found = True
+        if not {'mailboxes', 'frames'} <= set(database):
+            summary['schema_known'] = False
+        summary['frame_count'] += len(database.get('frames', ()))
+        for row in database.get('mailboxes', ()):
+            if len(row) != 12:
+                summary['schema_known'] = False; summary['states']['unknown'] += 1
+                continue
+            summary['states'][row[10] if row[10] in {'active', 'deleted', 'expired'} else 'unknown'] += 1
+            if type(row[11]) is int and row[11] > 0:
+                summary['boxes_with_ciphertext'] += 1
+    summary['schema_known'] &= found
+    return summary
+
+
+def retired_expired_helper(h):
+    """Observe real collection on the live original; do not start its peer."""
+    last = {}
+    def retired():
+        now = int(h.now().timestamp()); data = records(h); last['captured'] = data
+        found = False
+        for database in data.values():
+            if not ({'mailboxes', 'frames'} & set(database)):
+                continue
+            found = True
+            check({'mailboxes', 'frames'} <= set(database), 'public embedded helper format1 tables missing')
+            frames = database['frames']
+            check(all(len(row) == 6 for row in frames), 'public helper frame column layout mismatch')
+            for row in database['mailboxes']:
+                check(len(row) == 12 and type(row[5]) is int and type(row[11]) is int,
+                      'public helper mailbox column layout mismatch')
+                if row[5] <= now and (row[10] not in ('deleted', 'expired') or row[11] != 0
+                                     or any(frame[0] == row[0] for frame in frames)):
+                    return False
+        check(found, 'public embedded helper schema prerequisite absent')
+        return True
+    try:
+        wait_for(retired, timeout=5, interval=.1, message='actual expired helper ciphertext retirement')
+    except Exception:
+        try:
+            print('machine_signing_retirement_failure_public=' + json.dumps(helper_summary(last.get('captured', {})), sort_keys=True), flush=True)
+        except Exception:
+            pass
+        raise
+
+
+def pure_signing(f, action='signing', *, guard=None, allow_agent=False, phase=None, **kwargs):
     quiet(f)
     if guard:
         guard()
@@ -1135,7 +1193,16 @@ def pure_signing(f, action='signing', *, guard=None, allow_agent=False, **kwargs
     agent_before = f['agent'].counts() if 'agent' in f else None
     key_before = files(configured_file(f))
     value = signing_op(f, action, **kwargs)
-    strict(whole(f), before, traffic(f), counters, 'pure-' + action)
+    after, current = whole(f), traffic(f)
+    if after != before or current != counters:
+        try:
+            print('machine_signing_helper_failure_public=' + json.dumps({
+                'phase': phase if phase in {'fresh-expiry', 'retained-history'} else 'other',
+                'sides': [{'side': side, 'before': helper_summary(old[0]), 'after': helper_summary(new[0])}
+                    for side, old, new in zip(('existing', 'requester'), before, after)]}, sort_keys=True), flush=True)
+        except Exception:
+            pass  # A diagnostic cannot replace the original strict verdict.
+    strict(after, before, current, counters, phase or 'pure-' + action)
     check(files(configured_file(f)) == key_before, 'pure signing operation wrote configured source')
     if agent_before is not None and not allow_agent:
         check(f['agent'].counts() == agent_before, 'pure signing lookup/replay/refusal contacted agent')
@@ -1349,9 +1416,12 @@ def _():
     remote = wait_for(received, timeout=10, interval=.1, message='actual requester retained published owner and public proofs')
     check(remote['owner_offer_id'] == packet_ref and json.loads(base64.b64decode(remote['catalog_base64'], validate=True))['objects'],
           'receiver did not retain the same owner and actual published proof catalog')
-    request = link_view(f['a'], f['rid'])
-    check(request['selection_id'] == request['owner_finalization_id'] == request['manifest_id'] == '-'
-          and not request['selection_approved'] and not request['commit_approved'], 'guided device offer performed later requester/F/commit work')
+    # Existing ordinary requester work may select its one matching offer after
+    # release; no such work is attributed to Sign. Commit remains independent.
+    for local in (f['a'], f['b']):
+        request = link_view(local, f['rid'])
+        check(not request['commit_approved'] and request['manifest_id'] == request['activation_id'] == request['outcome_id'] == '-',
+              'ordinary released work supplied independent requester commit/application')
     f['b'].stop(); cancel(f)
 
 
@@ -1361,9 +1431,10 @@ def _():
     target = parse_time(expired['prepared']['consent']['review']['expires_at']) + timedelta(seconds=1)
     check(target < parse_time(expired['prepared']['request']['expires_at']), 'fixed expiry stimulus exhausted signed request instead')
     advance_to(expired['a'], target)
-    expired_view = pure_signing(expired, guard=guard)
+    retired_expired_helper(expired['a'])
+    expired_view = pure_signing(expired, guard=guard, phase='fresh-expiry')
     check(expired_view['signing']['can_sign'] is False and expired_view['signing']['state'] != 'signed', 'expired fresh action remained enabled')
-    pure_signing(expired, 'sign', guard=guard, status=409, code='review_expired')
+    pure_signing(expired, 'sign', guard=guard, phase='fresh-expiry', status=409, code='review_expired')
     cancel(expired); release_worker(expired)
     f = prepared_fixture('file'); h = f['a']; exact = f['signed']; old_parent = f['parent']
     # A deliberately unusable configured copy makes any unexpected new key
@@ -1375,10 +1446,11 @@ def _():
     check(get(h, PROJECT + '/' + old_parent['flow_id'])['state'] == 'invalidated', 'ordinary restart did not detach old parent')
     for local in (h, f['b']):
         advance_to(local, parse_time(f['prepared']['request']['expires_at']) + timedelta(seconds=1))
+    retired_expired_helper(h)
     quiet(f); receipt = intent(h, f['prepared']['consent']['consent_id']); owner = intent(h, f['prepared']['consent']['review']['intent_id'])
     for action in ('signing', 'sign'):
         for cli in (False, True):
-            view = pure_signing(f, action, cli=cli)
+            view = pure_signing(f, action, cli=cli, phase='retained-history')
             check(view['signing'] == exact['signing'] and core(view['consent']) == core(exact['consent']), 'signed historical API/CLI replay lost exact initial evidence')
     check(intent(h, f['prepared']['consent']['consent_id']) == receipt and intent(h, f['prepared']['consent']['review']['intent_id']) == owner,
           'history rewrote exact signatures/templates/approvals/window')
