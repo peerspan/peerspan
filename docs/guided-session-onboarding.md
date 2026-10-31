@@ -880,3 +880,14 @@ creation time and powers deadline. Chosen under GU-OWN1; discarded alternatives
 and independent verification are recorded in the section42 contract and decision
 log. Bounded signer continuation, native controls, requester completion and full
 installed/model/combined acceptance remain open.
+
+
+The [machine-owner consent verification record](results/guided-machine-owner-consent-verification.json)
+retains the first failures, independent diagnostic restoration audits and product
+corrections. The corrected backend passes local6/6in49.26s, unchanged inspection
+6/6in35.26s and Rust gates; all84 old conformance/native files remain exact.
+Owner-guard CI passes all32 host suites+build/four checks/native393 and fresh
+bot/root review. Final evidence-only-head receipts follow on PR94. Earlier
+standalone history-table and requester-completion UDP causes remain unclassified;
+a passing sample does not erase them. Full guided/native/installed/model/combined
+acceptance stays open.

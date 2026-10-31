@@ -1,0 +1,2931 @@
+{
+  "slice": "GU.impl42 / guided contract section42",
+  "base_merged_pr": 93,
+  "base_merge": "737c43b69e05e4ec786c37d2c83d40feaf204e65",
+  "frozen_product_test_head": "d03d480931458f02f8e58a2fde83721a9e8847f9",
+  "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+  "scope": "Owner-only exact machine owner consent over the actual ordinary owner intent, unsigned project attribution receipt, fixed original windows, atomic dual approval, explicit current-parent replacement and historical recovery. Approval authorizes ordinary background owner work; requester selection and commit remain separate. No native controls or completed machine-flow claim.",
+  "independent_author": {
+    "branch": "codex/gu-machine-owner-consent-tests",
+    "initial_commit": "679d3fb2a13b3605322fd19e2165ad289ec86c99",
+    "captured_pending_code_observer": "35aa31ce501884754ee947c83cd30d46dda447d5",
+    "captured_purity_observer": "35ed5fee6a2a702614f88d9f4f0fa09c2bcc7023",
+    "file": "conformance/slim/machine_owner_consent.py",
+    "sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+    "cases": 6,
+    "basis": "Public committed contract and independently authored fixture source only; no product/Rust/hooks reads/imports or author runtime/process/host/network/model execution.",
+    "observer_removal": {
+      "author_commit": "35aa31ce501884754ee947c83cd30d46dda447d5",
+      "root_pick": "890bd744eb9c2017f3d47cce2971b774bfee3eef",
+      "removal_restores_exact_bytes": true,
+      "removal_restores_full_ast_with_attributes": true,
+      "original_sha256": "f2f9dda34b67392d89e0f45b2064267c010258727451508753411816d4741f94",
+      "diagnostic_sha256": "8a391b7417f6deb69f69d87d71449f95344731f1ec3b82b05ed28341f95efb3e",
+      "added_lines": 32,
+      "no_additional_io_or_changed_assertions": true
+    },
+    "purity_observer_removal": {
+      "author_commit": "35ed5fee6a2a702614f88d9f4f0fa09c2bcc7023",
+      "root_pick": "89a753124c75ae3ae9f2ee48d66689d35d9fd5db",
+      "removal_restores_exact_bytes": true,
+      "removal_restores_full_ast_with_attributes": true,
+      "prior_sha256": "8a391b7417f6deb69f69d87d71449f95344731f1ec3b82b05ed28341f95efb3e",
+      "diagnostic_sha256": "dd5cab405645c5574ec63fd24f37c740bdf0407df417781a77fd89b20d95dace",
+      "added_lines": 44,
+      "no_additional_io_or_changed_assertions": true
+    },
+    "table_allowlist_observer": "22a9b1332ba7daaaf44c2e639757032ee3b00c7a",
+    "table_observer_removal": {
+      "author_commit": "22a9b1332ba7daaaf44c2e639757032ee3b00c7a",
+      "root_pick": "d03d480931458f02f8e58a2fde83721a9e8847f9",
+      "removal_restores_exact_bytes": true,
+      "removal_restores_full_ast_with_attributes": true,
+      "prior_sha256": "dd5cab405645c5574ec63fd24f37c740bdf0407df417781a77fd89b20d95dace",
+      "diagnostic_sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+      "only_static_table_literal_changed": true
+    }
+  },
+  "preservation": {
+    "base": "737c43b69e05e4ec786c37d2c83d40feaf204e65",
+    "files": 84,
+    "all_byte_identical": true,
+    "sha256": "b38f4a417e0c13986bc1af7467a915aa813d5614b721afd3c7af60b32f5c470b",
+    "paths": [
+      "conformance/agent_adapter.py",
+      "conformance/claude_setup.py",
+      "conformance/fixtures/gh/gh.py",
+      "conformance/fixtures/mcp/server.py",
+      "conformance/fixtures/remote/remote.py",
+      "conformance/host_service.py",
+      "conformance/installed_bundle.py",
+      "conformance/peer_messaging.py",
+      "conformance/slim/access_application.py",
+      "conformance/slim/access_consent.py",
+      "conformance/slim/access_onboarding.py",
+      "conformance/slim/access_signing.py",
+      "conformance/slim/adapter_onboarding.py",
+      "conformance/slim/admission_consent.py",
+      "conformance/slim/admission_onboarding.py",
+      "conformance/slim/basics.py",
+      "conformance/slim/capabilities.py",
+      "conformance/slim/counted_peer.py",
+      "conformance/slim/delivery.py",
+      "conformance/slim/harness.py",
+      "conformance/slim/incoming_progress.py",
+      "conformance/slim/invitation_onboarding.py",
+      "conformance/slim/join.py",
+      "conformance/slim/join_onboarding.py",
+      "conformance/slim/live.py",
+      "conformance/slim/machine_owner.py",
+      "conformance/slim/onboarding.py",
+      "conformance/slim/owner_finalization.py",
+      "conformance/slim/owner_finalization_signing.py",
+      "conformance/slim/owner_onboarding.py",
+      "conformance/slim/owner_signing.py",
+      "conformance/slim/peer_reachability.py",
+      "conformance/slim/policy.py",
+      "conformance/slim/project_onboarding.py",
+      "conformance/slim/readiness.py",
+      "conformance/slim/renewal.py",
+      "conformance/slim/requester_commit.py",
+      "conformance/slim/requester_completion.py",
+      "conformance/slim/root.py",
+      "conformance/slim/sync.py",
+      "conformance/slim/work.py",
+      "conformance/test_package_release.py",
+      "integrations/claude-onboarding/.claude-plugin/plugin.json",
+      "integrations/claude-onboarding/README.md",
+      "integrations/claude-onboarding/hooks/access-completion.mjs",
+      "integrations/claude-onboarding/hooks/access.mjs",
+      "integrations/claude-onboarding/hooks/adapter.mjs",
+      "integrations/claude-onboarding/hooks/admission.mjs",
+      "integrations/claude-onboarding/hooks/finalization.mjs",
+      "integrations/claude-onboarding/hooks/hooks.json",
+      "integrations/claude-onboarding/hooks/invitation.mjs",
+      "integrations/claude-onboarding/hooks/join-progress.mjs",
+      "integrations/claude-onboarding/hooks/join.mjs",
+      "integrations/claude-onboarding/hooks/machine-request.mjs",
+      "integrations/claude-onboarding/hooks/messages.mjs",
+      "integrations/claude-onboarding/hooks/observation.mjs",
+      "integrations/claude-onboarding/hooks/owner.mjs",
+      "integrations/claude-onboarding/hooks/project.mjs",
+      "integrations/claude-onboarding/hooks/reachability.mjs",
+      "integrations/claude-onboarding/hooks/readiness.mjs",
+      "integrations/claude-onboarding/hooks/recipient.mjs",
+      "integrations/claude-onboarding/hooks/register.mjs",
+      "integrations/claude-onboarding/hooks/requester-commit.mjs",
+      "integrations/claude-onboarding/hooks/tasks.mjs",
+      "integrations/claude-onboarding/tests/access-completion.test.ts",
+      "integrations/claude-onboarding/tests/access-review.test.ts",
+      "integrations/claude-onboarding/tests/adapter-review.test.ts",
+      "integrations/claude-onboarding/tests/admission-review.test.ts",
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts",
+      "integrations/claude-onboarding/tests/invitation-review.test.ts",
+      "integrations/claude-onboarding/tests/join-progress.test.ts",
+      "integrations/claude-onboarding/tests/join-review.test.ts",
+      "integrations/claude-onboarding/tests/machine-request.test.ts",
+      "integrations/claude-onboarding/tests/native-entry.test.ts",
+      "integrations/claude-onboarding/tests/native-message.test.ts",
+      "integrations/claude-onboarding/tests/native-task.test.ts",
+      "integrations/claude-onboarding/tests/new-identity.test.ts",
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts",
+      "integrations/claude-onboarding/tests/owner-review.test.ts",
+      "integrations/claude-onboarding/tests/owner-signing.test.ts",
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts",
+      "integrations/claude-onboarding/tests/project-review.test.ts",
+      "integrations/claude-onboarding/tests/readiness.test.ts",
+      "integrations/claude-onboarding/tests/requester-commit.test.ts"
+    ],
+    "native_tree": "463da75250869d489fe487d7ed716ccfdf09d92f"
+  },
+  "local_gates": [
+    {
+      "gate": "machine-owner-consent-final-ownerfix-first",
+      "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner_consent.py",
+        "--bin",
+        "/tmp/gu42-runtime/final-bin-rust-build-final-ownerfix-first"
+      ],
+      "exit": 1,
+      "seconds": 30.22,
+      "log": "/tmp/gu42-runtime/machine-owner-consent-final-ownerfix-first.log",
+      "sha256": "c580a002a68649f0a58adec0d3a782a7defa4cc20af317333d8c76ccae025e9a",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.1,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "dd5cab405645c5574ec63fd24f37c740bdf0407df417781a77fd89b20d95dace"
+    },
+    {
+      "gate": "machine-owner-consent-final-tables-first",
+      "head": "d03d480931458f02f8e58a2fde83721a9e8847f9",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner_consent.py",
+        "--bin",
+        "/tmp/gu42-runtime/final-bin-rust-build-final-ownerfix-first"
+      ],
+      "exit": 0,
+      "seconds": 49.26,
+      "log": "/tmp/gu42-runtime/machine-owner-consent-final-tables-first.log",
+      "sha256": "7bc973a509988b15f478ccdd2479d3d5e34e121eb5df4bd4cd254119c693c88d",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.12,
+          "active": []
+        },
+        {
+          "seconds": 45.19,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f"
+    },
+    {
+      "gate": "machine-owner-consent-first",
+      "head": "890bd744eb9c2017f3d47cce2971b774bfee3eef",
+      "outcome": "not_started",
+      "reason": "Actual external compiler active; no runtime child spawned",
+      "preflight_active": [
+        [
+          "1590595",
+          "cargo"
+        ],
+        [
+          "1590608",
+          "rustc"
+        ]
+      ],
+      "runtime_tests_executed": false
+    },
+    {
+      "gate": "machine-owner-consent-first",
+      "head": "890bd744eb9c2017f3d47cce2971b774bfee3eef",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner_consent.py",
+        "--bin",
+        "/tmp/gu42-runtime/final-bin-rust-build-first"
+      ],
+      "exit": 1,
+      "seconds": 21.08,
+      "log": "/tmp/gu42-runtime/machine-owner-consent-first.log",
+      "sha256": "df90279b59f3f1b8f16c97c82eb29df1ff0bfba83423cd0e0d222ba5dc0ad3cb",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8a391b7417f6deb69f69d87d71449f95344731f1ec3b82b05ed28341f95efb3e"
+    },
+    {
+      "gate": "machine-owner-final-ownerfix-first",
+      "head": "6c94164b6cff7d146936277fb1cc3d0889c52d03",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner.py",
+        "--bin",
+        "/tmp/gu42-runtime/final-bin-rust-build-final-ownerfix-first"
+      ],
+      "exit": 0,
+      "seconds": 35.26,
+      "log": "/tmp/gu42-runtime/machine-owner-final-ownerfix-first.log",
+      "sha256": "d28f25ae8eadfdae8f630da15b149f6b5f138c2b34fcf25548dfd16fb63cae30",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.14,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1"
+    },
+    {
+      "gate": "machine-owner-first",
+      "head": "1689809a7948dba3c6aee1c9a7d5f3baee2f6ff6",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "python3",
+        "conformance/slim/machine_owner.py",
+        "--bin",
+        "/tmp/gu42-runtime/final-bin-rust-build-first"
+      ],
+      "exit": 0,
+      "seconds": 36.2,
+      "log": "/tmp/gu42-runtime/machine-owner-first.log",
+      "sha256": "1c001b88aead2269a13c63d9a6cff7800fe9b483ec6dab4a57d6bdd58bc42c51",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.06,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1"
+    },
+    {
+      "gate": "rust-build-final-corrected-first",
+      "head": "89a753124c75ae3ae9f2ee48d66689d35d9fd5db",
+      "rust_tree": "8ac01057a996cc1b8de87c3e8468f73ca6fae8ef",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 72.29,
+      "log": "/tmp/gu42-runtime/rust-build-final-corrected-first.log",
+      "sha256": "febe5f758252459517e20f23e74b8125dbc624421684b1c9d6a87507175c5da9",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1671321",
+              "cargo"
+            ],
+            [
+              "1671447",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "1671321",
+              "cargo"
+            ],
+            [
+              "1671447",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.16,
+          "active": [
+            [
+              "1671321",
+              "cargo"
+            ],
+            [
+              "1671447",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.22,
+          "active": [
+            [
+              "1671321",
+              "cargo"
+            ],
+            [
+              "1671447",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-final-ownerfix-first",
+      "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 71.29,
+      "log": "/tmp/gu42-runtime/rust-build-final-ownerfix-first.log",
+      "sha256": "8f331b3c09878ab0fd8a8c1bbd2e049fdad52480cdd3ced5d7ae3f44f3815ac6",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1712166",
+              "cargo"
+            ],
+            [
+              "1712205",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.06,
+          "active": [
+            [
+              "1712166",
+              "cargo"
+            ],
+            [
+              "1712205",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.13,
+          "active": [
+            [
+              "1712166",
+              "cargo"
+            ],
+            [
+              "1712205",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "1712166",
+              "cargo"
+            ],
+            [
+              "1712205",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 75.47,
+      "log": "/tmp/gu42-runtime/rust-build-first.log",
+      "sha256": "04ba895422a305038fae6768100be7953d6e14328f81d80712454a902b2c97f2",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1571078",
+              "cargo"
+            ],
+            [
+              "1571144",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "1571078",
+              "cargo"
+            ],
+            [
+              "1571144",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.15,
+          "active": [
+            [
+              "1571078",
+              "cargo"
+            ],
+            [
+              "1571144",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.24,
+          "active": [
+            [
+              "1571078",
+              "cargo"
+            ],
+            [
+              "1571144",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.4,
+          "active": [
+            [
+              "1571078",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-final-corrected-first",
+      "head": "89a753124c75ae3ae9f2ee48d66689d35d9fd5db",
+      "rust_tree": "8ac01057a996cc1b8de87c3e8468f73ca6fae8ef",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 37.16,
+      "log": "/tmp/gu42-runtime/rust-clippy-final-corrected-first.log",
+      "sha256": "7c25a0c5e4a0b808321c0f3b6e4d6e2451d9b006aa3033d780a83b5cdcc64e32",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1661778",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "1661778",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-final-ownerfix-first",
+      "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 35.14,
+      "log": "/tmp/gu42-runtime/rust-clippy-final-ownerfix-first.log",
+      "sha256": "78f449da6ae99c63dadbac3e38038a1695df918ba2b2a82bd3bc6c3bdf860e9f",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1706970",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "1706970",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 37.19,
+      "log": "/tmp/gu42-runtime/rust-clippy-first.log",
+      "sha256": "66f0b6deb36abbac3cc6538991cd66481e164b42234b0d4ea7d72392d13350e3",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1547624",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "1547624",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-corrected-first",
+      "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu42-runtime/rust-fmt-corrected-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-final-closed-first",
+      "head": "d03d480931458f02f8e58a2fde83721a9e8847f9",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu42-runtime/rust-fmt-final-closed-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-final-corrected-first",
+      "head": "0fa6982ddba5e0e1f5684b409d275fca394578b2",
+      "outcome": "not_started",
+      "reason": "Actual external compiler active under original strict scheduling; no runtime child spawned",
+      "preflight_active": [
+        [
+          "1635141",
+          "cargo"
+        ],
+        [
+          "1635154",
+          "rustc"
+        ]
+      ],
+      "runtime_tests_executed": false
+    },
+    {
+      "gate": "rust-fmt-final-corrected-first",
+      "head": "1cc6d6fad0b13d3f798140d58c8b78844caa0580",
+      "rust_tree": "8ac01057a996cc1b8de87c3e8468f73ca6fae8ef",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu42-runtime/rust-fmt-final-corrected-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [
+        [
+          "1635141",
+          "cargo"
+        ],
+        [
+          "1635154",
+          "rustc"
+        ]
+      ],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [
+        {
+          "pid": "1635141",
+          "comm": "cargo",
+          "separate_target_verified": true
+        },
+        {
+          "pid": "1635154",
+          "comm": "rustc",
+          "separate_target_verified": true
+        }
+      ],
+      "compiler_samples": [],
+      "postflight_active": [
+        [
+          "1635141",
+          "cargo"
+        ],
+        [
+          "1635154",
+          "rustc"
+        ]
+      ]
+    },
+    {
+      "gate": "rust-fmt-final-ownerfix-first",
+      "head": "5197cb9809284028092476ebba0d4eda8808cade",
+      "rust_tree": "1ec7a9890a301644cbce6983355c0c983fcb269d",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 3.0,
+      "log": "/tmp/gu42-runtime/rust-fmt-final-ownerfix-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-first",
+      "head": "5226298aefbad2403e75983ac052d8b88d5a3920",
+      "rust_tree": "b415e73396c286b057e80463058778ae03ec6b50",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu42-runtime/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-corrected-first",
+      "head": "038097b5155d4a01f5479f4fd8664469c8dbc8d2",
+      "outcome": "not_started",
+      "reason": "Actual external compiler active; serialized gate runner refused before opening test log or spawning child",
+      "preflight_active": [
+        [
+          "1511269",
+          "cargo"
+        ],
+        [
+          "1511305",
+          "rustc"
+        ]
+      ],
+      "runtime_tests_executed": false
+    },
+    {
+      "gate": "rust-test-corrected-first",
+      "head": "eb2e8f5afcd504746afff59a6e4ef7e048df267a",
+      "rust_tree": "17a85704fbceb144d3406d00e4d2f7965f4f1e1b",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 101.61,
+      "log": "/tmp/gu42-runtime/rust-test-corrected-first.log",
+      "sha256": "c7f4d6e49f93cb01c20c8090a1d78f2cff89d0c8164eaba0e72924ceb7c00782",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ],
+            [
+              "1530419",
+              "rustc"
+            ],
+            [
+              "1530420",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ],
+            [
+              "1530419",
+              "rustc"
+            ],
+            [
+              "1530420",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ],
+            [
+              "1530419",
+              "rustc"
+            ],
+            [
+              "1530420",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.23,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ],
+            [
+              "1530419",
+              "rustc"
+            ],
+            [
+              "1530420",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.42,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ],
+            [
+              "1530420",
+              "rustc"
+            ],
+            [
+              "1539583",
+              "rustc"
+            ],
+            [
+              "1539646",
+              "rustc"
+            ],
+            [
+              "1540072",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.54,
+          "active": [
+            [
+              "1530374",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-corrected-first",
+      "head": "89a753124c75ae3ae9f2ee48d66689d35d9fd5db",
+      "rust_tree": "8ac01057a996cc1b8de87c3e8468f73ca6fae8ef",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 110.99,
+      "log": "/tmp/gu42-runtime/rust-test-final-corrected-first.log",
+      "sha256": "5fead27e4d032a4c1bc4a74796598f1d5ce86c9d9ad4fc63b931fdd158e74941",
+      "preflight_active": [
+        [
+          "1635141",
+          "cargo"
+        ],
+        [
+          "1635154",
+          "rustc"
+        ]
+      ],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [
+        {
+          "pid": "1635141",
+          "comm": "cargo",
+          "separate_target_verified": true
+        },
+        {
+          "pid": "1635154",
+          "comm": "rustc",
+          "separate_target_verified": true
+        }
+      ],
+      "compiler_samples": [
+        {
+          "seconds": 15.02,
+          "active": [
+            [
+              "1635141",
+              "cargo"
+            ],
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1645836",
+              "rustc"
+            ],
+            [
+              "1645845",
+              "rustc"
+            ],
+            [
+              "1647182",
+              "rustc"
+            ],
+            [
+              "1647186",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.24,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1645836",
+              "rustc"
+            ],
+            [
+              "1645845",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.32,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1645836",
+              "rustc"
+            ],
+            [
+              "1645845",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.39,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1645836",
+              "rustc"
+            ],
+            [
+              "1645845",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.53,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1645836",
+              "rustc"
+            ],
+            [
+              "1645845",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.75,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ],
+            [
+              "1656134",
+              "rustc"
+            ],
+            [
+              "1656908",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 105.91,
+          "active": [
+            [
+              "1645780",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-first",
+      "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+      "outcome": "not_started",
+      "reason": "Task runner did not recognize new final gate suffix; fixed parser before child execution",
+      "runtime_tests_executed": false,
+      "preflight_active": []
+    },
+    {
+      "gate": "rust-test-final-first",
+      "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+      "rust_tree": "b5567ac45fe6fe7c4cc36d5a8002cae35438fef5",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 102.73,
+      "log": "/tmp/gu42-runtime/rust-test-final-first.log",
+      "sha256": "b7bcc70fd0901ad3234b4783a4dbb57996cbfd18e217e81e908e3343e0e21b7c",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ],
+            [
+              "1556074",
+              "rustc"
+            ],
+            [
+              "1556083",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ],
+            [
+              "1556074",
+              "rustc"
+            ],
+            [
+              "1556083",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ],
+            [
+              "1556074",
+              "rustc"
+            ],
+            [
+              "1556083",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.22,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ],
+            [
+              "1556074",
+              "rustc"
+            ],
+            [
+              "1556083",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.41,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ],
+            [
+              "1556074",
+              "rustc"
+            ],
+            [
+              "1565973",
+              "rustc"
+            ],
+            [
+              "1565974",
+              "rustc"
+            ],
+            [
+              "1566057",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.64,
+          "active": [
+            [
+              "1556032",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-ownerfix-first",
+      "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+      "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 101.54,
+      "log": "/tmp/gu42-runtime/rust-test-final-ownerfix-first.log",
+      "sha256": "81f24b274ab469867c0746209cffdce0541182f378417390eef793de374d81d6",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ],
+            [
+              "1693727",
+              "rustc"
+            ],
+            [
+              "1693762",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ],
+            [
+              "1693727",
+              "rustc"
+            ],
+            [
+              "1693762",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.13,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ],
+            [
+              "1693727",
+              "rustc"
+            ],
+            [
+              "1693762",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ],
+            [
+              "1693727",
+              "rustc"
+            ],
+            [
+              "1693762",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.39,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ],
+            [
+              "1693727",
+              "rustc"
+            ],
+            [
+              "1701777",
+              "rustc"
+            ],
+            [
+              "1702480",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.46,
+          "active": [
+            [
+              "1693656",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "5226298aefbad2403e75983ac052d8b88d5a3920",
+      "rust_tree": "b415e73396c286b057e80463058778ae03ec6b50",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 101,
+      "seconds": 28.09,
+      "log": "/tmp/gu42-runtime/rust-test-first.log",
+      "sha256": "7480e945f3610561a87dda3075e0aa5bfe2e36db5ba0b5b519f909c816190952",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1507369",
+              "cargo"
+            ],
+            [
+              "1507382",
+              "rustc"
+            ],
+            [
+              "1507385",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    }
+  ],
+  "binaries": {
+    "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+    "rust_tree": "ff15f3fec63a01e77e4728c09bd5545a401fecb4",
+    "directory": "/tmp/gu42-runtime/final-bin-rust-build-final-ownerfix-first",
+    "sha256": {
+      "peerspan-host": "8d978696de33b44ee556c963f80b4fe24d4b1d1e6056a45e4e7cfe84bd888fe1",
+      "peerspan-peer-probe": "d23ff99b7a7cd8605438de2026c4915af8d071a2e38b0b1c288e6ebfff341821",
+      "peerspan-helper": "fc84b5bda25b976fef381f2849efe1467cd661948ce7d24c32647fdf36797a0c"
+    }
+  },
+  "first_ci": {
+    "head": "fec1a09eb78b4fa04c177809c680e56f4b7042d7",
+    "conformance_run": 41237964718,
+    "conformance_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:15:57Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645627858",
+          "id": 124645627858,
+          "name": "Build host, peer probe and helper",
+          "started_at": "2026-10-31T20:14:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:06Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991837",
+          "id": 124645991837,
+          "name": "delivery",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:25Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991844",
+          "id": 124645991844,
+          "name": "onboarding",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:29Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991858",
+          "id": 124645991858,
+          "name": "project_onboarding",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991859",
+          "id": 124645991859,
+          "name": "live",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:53Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991871",
+          "id": 124645991871,
+          "name": "work",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:00Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991879",
+          "id": 124645991879,
+          "name": "admission_consent",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:36Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991882",
+          "id": 124645991882,
+          "name": "owner_signing",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:51Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991886",
+          "id": 124645991886,
+          "name": "capabilities",
+          "started_at": "2026-10-31T20:16:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:58Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991890",
+          "id": 124645991890,
+          "name": "join",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:29Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991906",
+          "id": 124645991906,
+          "name": "policy",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:19:53Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991910",
+          "id": 124645991910,
+          "name": "renewal",
+          "started_at": "2026-10-31T20:17:30Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991918",
+          "id": 124645991918,
+          "name": "sync",
+          "started_at": "2026-10-31T20:16:37Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:29Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991919",
+          "id": 124645991919,
+          "name": "root",
+          "started_at": "2026-10-31T20:16:25Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:30Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991936",
+          "id": 124645991936,
+          "name": "invitation_onboarding",
+          "started_at": "2026-10-31T20:17:09Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:18:28Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991939",
+          "id": 124645991939,
+          "name": "owner_finalization",
+          "started_at": "2026-10-31T20:17:18Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991942",
+          "id": 124645991942,
+          "name": "admission_onboarding",
+          "started_at": "2026-10-31T20:16:46Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:18:04Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991946",
+          "id": 124645991946,
+          "name": "incoming_progress",
+          "started_at": "2026-10-31T20:16:40Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:49Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991948",
+          "id": 124645991948,
+          "name": "basics",
+          "started_at": "2026-10-31T20:16:21Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:12Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991964",
+          "id": 124645991964,
+          "name": "adapter_onboarding",
+          "started_at": "2026-10-31T20:16:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991971",
+          "id": 124645991971,
+          "name": "join_onboarding",
+          "started_at": "2026-10-31T20:16:00Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:18:16Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645991987",
+          "id": 124645991987,
+          "name": "owner_onboarding",
+          "started_at": "2026-10-31T20:17:42Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:28Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992006",
+          "id": 124645992006,
+          "name": "access_application",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:58Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992015",
+          "id": 124645992015,
+          "name": "requester_completion",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:38Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992029",
+          "id": 124645992029,
+          "name": "machine_owner",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:18:06Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992035",
+          "id": 124645992035,
+          "name": "requester_commit",
+          "started_at": "2026-10-31T20:16:27Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:42Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992062",
+          "id": 124645992062,
+          "name": "access_signing",
+          "started_at": "2026-10-31T20:16:32Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:04Z",
+          "conclusion": "failure",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992068",
+          "id": 124645992068,
+          "name": "machine_owner_consent",
+          "started_at": "2026-10-31T20:16:31Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:58Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992071",
+          "id": 124645992071,
+          "name": "owner_finalization_signing",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:16:20Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992106",
+          "id": 124645992106,
+          "name": "readiness",
+          "started_at": "2026-10-31T20:15:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:32Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992159",
+          "id": 124645992159,
+          "name": "access_consent",
+          "started_at": "2026-10-31T20:16:31Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:18:38Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992168",
+          "id": 124645992168,
+          "name": "access_onboarding",
+          "started_at": "2026-10-31T20:17:33Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:42Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964718/job/124645992179",
+          "id": 124645992179,
+          "name": "peer_reachability",
+          "started_at": "2026-10-31T20:16:55Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 33
+    },
+    "checks_run": 41237964628,
+    "checks_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:16:23Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964628/job/124645627666",
+          "id": 124645627666,
+          "name": "Claude onboarding runtime",
+          "started_at": "2026-10-31T20:14:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:14:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964628/job/124645627783",
+          "id": 124645627783,
+          "name": "Rust format",
+          "started_at": "2026-10-31T20:14:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:17:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964628/job/124645627825",
+          "id": 124645627825,
+          "name": "Rust tests and build",
+          "started_at": "2026-10-31T20:14:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:15:15Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41237964628/job/124645627826",
+          "id": 124645627826,
+          "name": "Rust Clippy",
+          "started_at": "2026-10-31T20:14:26Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 4
+    },
+    "new_suite": {
+      "job": 124645992068,
+      "passed": 4,
+      "failed": 2,
+      "seconds": 27,
+      "log_sha256": "3024b647301d32aa35ecf8395af47e7655a79db8960155e4742eb0a557cf0a09",
+      "observations": [
+        "Pending material beyond roles/owner intent changed; fields unclassified in this first log.",
+        "Unexpected controlled refusal code; actual code unobserved in this first log."
+      ]
+    },
+    "native": {
+      "job": 124645627666,
+      "passed": 393,
+      "failed": 0,
+      "seconds": 103.87,
+      "log_sha256": "51a9c334a666b8a0400fb197c21d25635b21b4f55391809717f285173ea341af"
+    },
+    "rust": {
+      "job": 124645627825,
+      "passed": 155,
+      "ignored": 2,
+      "log_sha256": "5a4e60431c371fca698f004911173ed1e815fb288cc1471692973cd82b95ef65"
+    }
+  },
+  "diagnostic_ci": {
+    "head": "890bd744eb9c2017f3d47cce2971b774bfee3eef",
+    "conformance_run": 41238437617,
+    "conformance_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:21:46Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647023374",
+          "id": 124647023374,
+          "name": "Build host, peer probe and helper",
+          "started_at": "2026-10-31T20:20:33Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:11Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347144",
+          "id": 124647347144,
+          "name": "adapter_onboarding",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:16Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347145",
+          "id": 124647347145,
+          "name": "policy",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:07Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347152",
+          "id": 124647347152,
+          "name": "incoming_progress",
+          "started_at": "2026-10-31T20:21:49Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:39Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347157",
+          "id": 124647347157,
+          "name": "join_onboarding",
+          "started_at": "2026-10-31T20:21:49Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:13Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347158",
+          "id": 124647347158,
+          "name": "owner_onboarding",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:45Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347168",
+          "id": 124647347168,
+          "name": "work",
+          "started_at": "2026-10-31T20:21:53Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:43Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347175",
+          "id": 124647347175,
+          "name": "owner_finalization_signing",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:24Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347184",
+          "id": 124647347184,
+          "name": "owner_signing",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:17Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347186",
+          "id": 124647347186,
+          "name": "live",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:59Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347187",
+          "id": 124647347187,
+          "name": "owner_finalization",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:17Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347188",
+          "id": 124647347188,
+          "name": "project_onboarding",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:49Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347194",
+          "id": 124647347194,
+          "name": "admission_consent",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:09Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347197",
+          "id": 124647347197,
+          "name": "join",
+          "started_at": "2026-10-31T20:22:19Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:06Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347207",
+          "id": 124647347207,
+          "name": "onboarding",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347215",
+          "id": 124647347215,
+          "name": "invitation_onboarding",
+          "started_at": "2026-10-31T20:22:18Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:03Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347217",
+          "id": 124647347217,
+          "name": "admission_onboarding",
+          "started_at": "2026-10-31T20:22:21Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:28Z",
+          "conclusion": "failure",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347230",
+          "id": 124647347230,
+          "name": "machine_owner_consent",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347231",
+          "id": 124647347231,
+          "name": "delivery",
+          "started_at": "2026-10-31T20:22:25Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347239",
+          "id": 124647347239,
+          "name": "machine_owner",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:40Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347248",
+          "id": 124647347248,
+          "name": "access_onboarding",
+          "started_at": "2026-10-31T20:22:08Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:18Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347265",
+          "id": 124647347265,
+          "name": "access_application",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:18Z",
+          "conclusion": "failure",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347271",
+          "id": 124647347271,
+          "name": "requester_completion",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347276",
+          "id": 124647347276,
+          "name": "requester_commit",
+          "started_at": "2026-10-31T20:22:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:49Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347302",
+          "id": 124647347302,
+          "name": "access_consent",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:25Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347316",
+          "id": 124647347316,
+          "name": "capabilities",
+          "started_at": "2026-10-31T20:21:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:24:38Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347320",
+          "id": 124647347320,
+          "name": "renewal",
+          "started_at": "2026-10-31T20:22:42Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:22:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347326",
+          "id": 124647347326,
+          "name": "peer_reachability",
+          "started_at": "2026-10-31T20:22:13Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:40Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347327",
+          "id": 124647347327,
+          "name": "access_signing",
+          "started_at": "2026-10-31T20:22:15Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:08Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347335",
+          "id": 124647347335,
+          "name": "readiness",
+          "started_at": "2026-10-31T20:22:29Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347336",
+          "id": 124647347336,
+          "name": "sync",
+          "started_at": "2026-10-31T20:22:32Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:11Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347338",
+          "id": 124647347338,
+          "name": "basics",
+          "started_at": "2026-10-31T20:22:41Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437617/job/124647347402",
+          "id": 124647347402,
+          "name": "root",
+          "started_at": "2026-10-31T20:22:42Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 33
+    },
+    "checks_run": 41238437612,
+    "checks_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:20:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437612/job/124647023442",
+          "id": 124647023442,
+          "name": "Rust format",
+          "started_at": "2026-10-31T20:20:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:23:38Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437612/job/124647023627",
+          "id": 124647023627,
+          "name": "Rust tests and build",
+          "started_at": "2026-10-31T20:20:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:21:29Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437612/job/124647023647",
+          "id": 124647023647,
+          "name": "Claude onboarding runtime",
+          "started_at": "2026-10-31T20:20:26Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:21:04Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238437612/job/124647023648",
+          "id": 124647023648,
+          "name": "Rust Clippy",
+          "started_at": "2026-10-31T20:20:26Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 4
+    },
+    "new_suite": {
+      "job": 124647347230,
+      "passed": 4,
+      "failed": 2,
+      "seconds": 29,
+      "log_sha256": "c72163deed2c4cefe2ec86eead3747045adea8fe2665d47f99b7129d489b426d",
+      "observations": [
+        "Only catalog_base64, owner_intent_id and roles changed; pairing secret unchanged.",
+        "Approve after provider change returned 409 machine_owner_consent_unavailable rather than review_changed."
+      ]
+    },
+    "existing_requester_completion": {
+      "job": 124647347271,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 83,
+      "log_sha256": "30da14830cb315f70ac41761c76a7bd11a026e5bd05ef4cc397906a9810b20b6",
+      "observation": "Expired completed API replay observed one received issuer UDP datagram /1200 bytes, no returned bytes; captured directory current/matching, issuer timing unobserved. Cause remains unclassified. Existing source/actions/assertions/deadlines unchanged; no unchanged local retry."
+    }
+  },
+  "corrections": [
+    "Compiler-reported replacement-state Result propagation.",
+    "Exact signed pins, closed local membership and rejection of advanced root-fold templates before project consent.",
+    "Read guarded time again after ordinary preparation saves its own decision across a whole-second boundary.",
+    "Guided unsigned preparation preserves the incoming public catalog; shared approved first-offer completion retains its currently revalidated owner proof snapshot before proof/offer frame publication. Advanced preparation remains unchanged.",
+    "Current provider/ordinary mismatch maps to review_changed; corrupt retained receipt evidence still refuses.",
+    "Ordinary automatic approver polling/resume/publication now requires the validated ordinary owner intent approved and nonterminal. Prepared unsigned intents authorize no automatic owner transport work. Independent requester-side polling stays unchanged."
+  ],
+  "remaining_unclassified_first_root_observations": [
+    "First diagnostic local case2 prepare API: both TCP counters changed while DB/files stayed identical.",
+    "First diagnostic local case4 reuse fixture incomplete after case2; its refusal cause was not established by that local run.",
+    "First diagnostic local case5 lookup CLI: DB/files changed with all carrier counters unchanged.",
+    "Later passing reads cannot classify or erase these first observations.",
+    "First local owner-guard history lookup CLI changed one unrecognized existing-side logical table with no files/schema/version/database-set/carrier changes; other five cases pass. Third author allowlist diagnostic is separately recorded; no inference from later success."
+  ],
+  "scheduling": {
+    "task_gates_serialized": true,
+    "regular_disk_tmp_logs": true,
+    "host_runtime_requires_compiler_idle": true,
+    "language_only_separate_target_overlap_recorded": true,
+    "initial_prefix_label_note": "First parallel format preflight printed an overbroad noncompiling-cargo label; final JSON correctly distinguishes the actual compiler overlap. Subsequent preflight labels corrected.",
+    "isolated_final_ci_required": true
+  },
+  "source_only_limits": [
+    "Corrupt retained metadata/quota exhaustion and complex authority/fork/restriction/migration fixtures.",
+    "Unavailable owned device seed and original signer syscall-level attribution.",
+    "Exact five-second stalled-client cutoff without a bounded independent fixture.",
+    "No physical second computer, installed-bundle/native machine approval, real model or completed machine admission demonstrated."
+  ],
+  "remaining_feature_work": [
+    "Bounded explicit machine owner signing continuation and native existing-computer controls.",
+    "Requester selection/completion and complete other-computer guided flow.",
+    "Installed, terminal/reload/model and final combined feature acceptance; tracking PR35 stays unmerged."
+  ],
+  "inherited_evidence": "docs/results/guided-machine-owner-inspection-verification.json",
+  "final_head_ci_and_review_receipts": "https://github.com/peerspan/peerspan/pull/94; append final exact-head full32-suite+build(33 jobs), four PR checks, native393 and fresh bot/root receipts there after this evidence-only commit.",
+  "corrected_ci_before_worker_guard": {
+    "head": "89a753124c75ae3ae9f2ee48d66689d35d9fd5db",
+    "conformance_run": 41238950061,
+    "conformance_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:28:41Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648579749",
+          "id": 124648579749,
+          "name": "Build host, peer probe and helper",
+          "started_at": "2026-10-31T20:26:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967581",
+          "id": 124648967581,
+          "name": "live",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:07Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967583",
+          "id": 124648967583,
+          "name": "onboarding",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:39Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967588",
+          "id": 124648967588,
+          "name": "join",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:12Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967590",
+          "id": 124648967590,
+          "name": "policy",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:11Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967602",
+          "id": 124648967602,
+          "name": "project_onboarding",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:32Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967603",
+          "id": 124648967603,
+          "name": "capabilities",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:07Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967614",
+          "id": 124648967614,
+          "name": "incoming_progress",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967615",
+          "id": 124648967615,
+          "name": "renewal",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:22Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967618",
+          "id": 124648967618,
+          "name": "adapter_onboarding",
+          "started_at": "2026-10-31T20:29:08Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:45Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967620",
+          "id": 124648967620,
+          "name": "work",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:26Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967631",
+          "id": 124648967631,
+          "name": "admission_onboarding",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:13Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967638",
+          "id": 124648967638,
+          "name": "owner_onboarding",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:07Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967642",
+          "id": 124648967642,
+          "name": "access_application",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967644",
+          "id": 124648967644,
+          "name": "peer_reachability",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:13Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967648",
+          "id": 124648967648,
+          "name": "root",
+          "started_at": "2026-10-31T20:29:11Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:27Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967654",
+          "id": 124648967654,
+          "name": "requester_commit",
+          "started_at": "2026-10-31T20:28:48Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:00Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967656",
+          "id": 124648967656,
+          "name": "access_consent",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:17Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967672",
+          "id": 124648967672,
+          "name": "join_onboarding",
+          "started_at": "2026-10-31T20:29:32Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:14Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967674",
+          "id": 124648967674,
+          "name": "access_signing",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:59Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967681",
+          "id": 124648967681,
+          "name": "readiness",
+          "started_at": "2026-10-31T20:29:27Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:44Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967683",
+          "id": 124648967683,
+          "name": "admission_consent",
+          "started_at": "2026-10-31T20:28:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:09Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967693",
+          "id": 124648967693,
+          "name": "invitation_onboarding",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:54Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967700",
+          "id": 124648967700,
+          "name": "owner_signing",
+          "started_at": "2026-10-31T20:29:13Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:37Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967711",
+          "id": 124648967711,
+          "name": "requester_completion",
+          "started_at": "2026-10-31T20:28:44Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:53Z",
+          "conclusion": "failure",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967716",
+          "id": 124648967716,
+          "name": "machine_owner_consent",
+          "started_at": "2026-10-31T20:29:15Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:40Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967737",
+          "id": 124648967737,
+          "name": "delivery",
+          "started_at": "2026-10-31T20:29:33Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:31:27Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967739",
+          "id": 124648967739,
+          "name": "owner_finalization_signing",
+          "started_at": "2026-10-31T20:29:34Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:02Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967747",
+          "id": 124648967747,
+          "name": "machine_owner",
+          "started_at": "2026-10-31T20:29:24Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:20Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967750",
+          "id": 124648967750,
+          "name": "basics",
+          "started_at": "2026-10-31T20:29:52Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:21Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967753",
+          "id": 124648967753,
+          "name": "access_onboarding",
+          "started_at": "2026-10-31T20:29:13Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:42Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967800",
+          "id": 124648967800,
+          "name": "owner_finalization",
+          "started_at": "2026-10-31T20:29:41Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:30:47Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950061/job/124648967826",
+          "id": 124648967826,
+          "name": "sync",
+          "started_at": "2026-10-31T20:29:47Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 33
+    },
+    "checks_run": 41238950075,
+    "checks_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:27:40Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950075/job/124648580048",
+          "id": 124648580048,
+          "name": "Rust Clippy",
+          "started_at": "2026-10-31T20:26:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:27:07Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950075/job/124648580142",
+          "id": 124648580142,
+          "name": "Rust format",
+          "started_at": "2026-10-31T20:26:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:29:48Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950075/job/124648580149",
+          "id": 124648580149,
+          "name": "Rust tests and build",
+          "started_at": "2026-10-31T20:26:59Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:28:14Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41238950075/job/124648580194",
+          "id": 124648580194,
+          "name": "Claude onboarding runtime",
+          "started_at": "2026-10-31T20:26:59Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 4
+    },
+    "new_suite": {
+      "job": 124648967716,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 31,
+      "log_sha256": "62e77ae8d3860ed925045066f22ec01dce6991128a9fb3ad912e940a148f26d6",
+      "observation": "Pure unapproved prepare replay sees new requester TCP connection only; no TLS bytes/UDP/DB/files/schema/version changes."
+    }
+  },
+  "owner_guard_ci": {
+    "head": "e9f73192c41291228e804a63e943e513dfd0cc54",
+    "conformance_run": 41239386285,
+    "conformance_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:34:04Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124649878686",
+          "id": 124649878686,
+          "name": "Build host, peer probe and helper",
+          "started_at": "2026-10-31T20:32:38Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:36:25Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232259",
+          "id": 124650232259,
+          "name": "renewal",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232267",
+          "id": 124650232267,
+          "name": "capabilities",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:36Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232272",
+          "id": 124650232272,
+          "name": "basics",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:49Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232278",
+          "id": 124650232278,
+          "name": "join",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:41Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232283",
+          "id": 124650232283,
+          "name": "live",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232285",
+          "id": 124650232285,
+          "name": "sync",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:20Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232309",
+          "id": 124650232309,
+          "name": "adapter_onboarding",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:26Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232323",
+          "id": 124650232323,
+          "name": "work",
+          "started_at": "2026-10-31T20:34:31Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232329",
+          "id": 124650232329,
+          "name": "onboarding",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:42Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232338",
+          "id": 124650232338,
+          "name": "delivery",
+          "started_at": "2026-10-31T20:34:35Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:29Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232345",
+          "id": 124650232345,
+          "name": "project_onboarding",
+          "started_at": "2026-10-31T20:34:09Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232346",
+          "id": 124650232346,
+          "name": "root",
+          "started_at": "2026-10-31T20:34:33Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232372",
+          "id": 124650232372,
+          "name": "access_application",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232383",
+          "id": 124650232383,
+          "name": "owner_onboarding",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:26Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232387",
+          "id": 124650232387,
+          "name": "access_signing",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:44Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232388",
+          "id": 124650232388,
+          "name": "readiness",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:23Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232392",
+          "id": 124650232392,
+          "name": "access_onboarding",
+          "started_at": "2026-10-31T20:34:21Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:26Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232396",
+          "id": 124650232396,
+          "name": "incoming_progress",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:50Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232404",
+          "id": 124650232404,
+          "name": "machine_owner_consent",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:48Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232410",
+          "id": 124650232410,
+          "name": "admission_onboarding",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:35Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232412",
+          "id": 124650232412,
+          "name": "access_consent",
+          "started_at": "2026-10-31T20:34:22Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:48Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232421",
+          "id": 124650232421,
+          "name": "machine_owner",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:27Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232432",
+          "id": 124650232432,
+          "name": "join_onboarding",
+          "started_at": "2026-10-31T20:34:46Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:41Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232434",
+          "id": 124650232434,
+          "name": "owner_signing",
+          "started_at": "2026-10-31T20:34:06Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:36:43Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232436",
+          "id": 124650232436,
+          "name": "requester_completion",
+          "started_at": "2026-10-31T20:34:50Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:01Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232443",
+          "id": 124650232443,
+          "name": "invitation_onboarding",
+          "started_at": "2026-10-31T20:34:43Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:36:46Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232444",
+          "id": 124650232444,
+          "name": "owner_finalization_signing",
+          "started_at": "2026-10-31T20:34:51Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:36:17Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232445",
+          "id": 124650232445,
+          "name": "requester_commit",
+          "started_at": "2026-10-31T20:34:42Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:37Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232475",
+          "id": 124650232475,
+          "name": "admission_consent",
+          "started_at": "2026-10-31T20:34:37Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:56Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232490",
+          "id": 124650232490,
+          "name": "owner_finalization",
+          "started_at": "2026-10-31T20:34:50Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:31Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232500",
+          "id": 124650232500,
+          "name": "policy",
+          "started_at": "2026-10-31T20:34:58Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:33Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386285/job/124650232572",
+          "id": 124650232572,
+          "name": "peer_reachability",
+          "started_at": "2026-10-31T20:34:51Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 33
+    },
+    "checks_run": 41239386270,
+    "checks_jobs": {
+      "jobs": [
+        {
+          "completed_at": "2026-10-31T20:32:46Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386270/job/124649878535",
+          "id": 124649878535,
+          "name": "Rust format",
+          "started_at": "2026-10-31T20:32:38Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:34:20Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386270/job/124649878659",
+          "id": 124649878659,
+          "name": "Claude onboarding runtime",
+          "started_at": "2026-10-31T20:32:38Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:33:16Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386270/job/124649878761",
+          "id": 124649878761,
+          "name": "Rust Clippy",
+          "started_at": "2026-10-31T20:32:38Z",
+          "status": "completed"
+        },
+        {
+          "completed_at": "2026-10-31T20:35:48Z",
+          "conclusion": "success",
+          "html_url": "https://github.com/peerspan/peerspan/actions/runs/41239386270/job/124649878788",
+          "id": 124649878788,
+          "name": "Rust tests and build",
+          "started_at": "2026-10-31T20:32:38Z",
+          "status": "completed"
+        }
+      ],
+      "total_count": 4
+    },
+    "new_suite": {
+      "job": 124650232404,
+      "passed": 6,
+      "failed": 0,
+      "seconds": 33,
+      "log_sha256": "47c37bd037396b9cad644bf364ef6875bd107543042d7abbc9c4e338dd88eb5c"
+    },
+    "fresh_bot_review": "https://github.com/peerspan/peerspan/pull/94#issuecomment-6548800198",
+    "root_review": "No open findings; evidence-only final head still requires isolated full CI and fresh bot review."
+  },
+  "final_local_summary": {
+    "new_suite": "6/6 in49.26s with table-allowlist observer silent; prior changed-table cause remains unclassified.",
+    "unchanged_machine_owner": "6/6 in35.26s on final Rust tree.",
+    "rust": "155 passed /2ignored, Clippy/build pass; final format gate recorded.",
+    "no_unchanged_retry_to_green": "Table observer was contracted to classify a remaining unknown table; it did not reproduce that change and is not evidence of its cause or correction. No assertions/actions/bounds changed.",
+    "guided_owned_device_limit": "The suite observes real authorized device work after outside ordinary approval; it does not separately demonstrate the guided-approval-only device proof-retention path. Ordinary verified worker code is shared; bounded signer/native integration gates remain open."
+  }
+}
