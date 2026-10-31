@@ -448,7 +448,7 @@ pub(crate) fn expire(
     request: &TaskRequest,
     status: &mut TaskStatus,
 ) -> Result<bool, Error> {
-    if status.state != "queued" || time(&request.deadline)? > Utc::now() {
+    if status.state != "queued" || time(&request.deadline)? > crate::clock::now() {
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
@@ -652,7 +652,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         if let Some(handoff) = self.claim_returned_task(&tx, &a, &ss)? {
             tx.commit()?;
             return Ok(Some(handoff));
@@ -1055,7 +1055,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         let pending: Option<(String, String)> = tx
             .query_row(
                 "SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ?1 AND d.returned_at IS NULL AND json_extract(d.record, '$.adapter_id') = ?2 AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1",
@@ -1290,7 +1290,7 @@ pub(crate) mod tests {
             .create_grant(CreateGrant {
                 requester_host_id: peer.into(),
                 target_agent_id: agent.into(),
-                expires_at: rfc3339(Utc::now() + chrono::Duration::hours(2)),
+                expires_at: rfc3339(crate::clock::now() + chrono::Duration::hours(2)),
                 max_message_bytes: 1000,
                 max_artifact_bytes: 0,
                 allow_disconnected: true,
@@ -1306,7 +1306,7 @@ pub(crate) mod tests {
             policy: None,
             self_access: None,
             target_agent_id: agent.into(),
-            deadline: rfc3339(Utc::now() + chrono::Duration::minutes(30)),
+            deadline: rfc3339(crate::clock::now() + chrono::Duration::minutes(30)),
             input: "summarize the report".into(),
             origin: None,
             artifacts: None,
@@ -1638,7 +1638,7 @@ pub(crate) mod tests {
         f.store.accept_task(&f.peer, unclaimed.clone()).unwrap();
         for r in [&late, &unclaimed] {
             let mut past = r.clone();
-            past.deadline = rfc3339(Utc::now() - chrono::Duration::seconds(1));
+            past.deadline = rfc3339(crate::clock::now() - chrono::Duration::seconds(1));
             f.store
                 .connection()
                 .unwrap()

@@ -15,9 +15,14 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
+  - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
+  - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN9: shape of the slim conformance suites](#dec-own9-shape-of-the-slim-conformance-suites-2026-10-28) (2026-10-28)
+  - [DEC-OWN10: delete the old conformance suites](#dec-own10-delete-the-old-conformance-suites-2026-10-28) (2026-10-28)
   - [DEC-OWN8: move the Go implementation to its own repository](#dec-own8-move-the-go-implementation-to-its-own-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN7: publish the repository](#dec-own7-publish-the-repository-2026-10-28) (2026-10-28)
   - [DEC-OWN5: keep Rust, remove the Go implementation](#dec-own5-keep-rust-remove-the-go-implementation-2026-10-28) (2026-10-28)
@@ -28,6 +33,7 @@ Contents:
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
   - [DEC-D1: replace the coordinator before launch](#dec-d1-replace-the-coordinator-before-launch-2026-10-26) (2026-10-26)
   - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
+  - [CONV-22 to CONV-27: conversations after the coordinator-free work](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
   - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
   - [LAUNCH-34: the `attach --no-start` sign-in check](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) (2026-10-24)
@@ -35,6 +41,31 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### DEC-OWN13: v1 status returns the v2 object (2026-10-31)
+
+- **Authority:** owner approved fixing the mismatch, 2026-10-31, and left the choice of route or docs to the implementer.
+- **Question:** `GET /v1/status` returned no coordinator-free networks, while the launch and conversations contracts described it as listing them and as the same object as `GET /v2/status`. `attach` read it and never saw the person, which caused the default name bug of [DEC-OWN12](#dec-own12-no-host-name-in-default-agent-names-2026-10-31). What should change?
+- **Options:** (a) serve the v2 object on both routes; (b) keep the routes and correct the contracts to say v1 omits these networks; (c) remove the v1 route.
+- **Chosen:** (a). `peerspan status` already reads v2, so API callers now see what the CLI shows, and the mistake can't recur. (c) would break anything still calling v1.
+- **Consequence:** on a retained old network, `/v1/status` now returns the `legacy_history` entry and `network_migration_pending` instead of the old coordinator fields and attention items. The owner then asked to remove the old code too: `Store::status`, its old-network branch and the `coordination_error`, `policy_expiring` and `policy_delivery_failing` items are gone. `policy_expired` stays, because coordinator-free networks raise it.
+
+### DEC-OWN12: no host name in default agent names (2026-10-31)
+
+- **Authority:** owner decision, 2026-10-31.
+- **Question:** the conversations live run (`docs/results/conversations-live.json`) found that a default agent name such as `claude-HOSTNAME` carries the machine's host name, which every host in the network can see, while `attach --help` says the default is `claude`. Should the default change?
+- **Options:** (a) drop the host name: `BASE`, then `BASE-PROJECT` if used on this host, or `BASE-HHHH` if used only on another host; (b) keep it and correct the help text.
+- **Chosen:** (a). The owner asked to fix the host name in the default name; the suffix rules were the implementer's choice, keeping the existing project and host ID rules.
+- **Consequence:** existing agents keep their names. `-PROJECT` still puts the workspace's base name in a name the network can see; this decision does not change that.
+
+### DEC-OWN11: next feature after the coordinator-free work (2026-10-30)
+
+- **Authority:** owner decision, 2026-10-30.
+- **Question:** with the coordinator-free work on `main`, which feature comes next?
+- **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
+- **Chosen:** conversations.
+- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
+- **Recorded in:** [PR #65](https://github.com/peerspan/peerspan/pull/65), the conversations refresh.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
@@ -58,6 +89,26 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+- **Implemented in:** PR #26 (removal of the migration commands, routes and code; DEC.impl29).
+
+### DEC-OWN9: shape of the slim conformance suites (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question 1:** what shape should the slim conformance suites of DEC-OWN6 take?
+- **Options:** the plan below; change it.
+- **Plan:** about 10 small black-box suites, one per area (1 join, 2 renewal, 3 policy, 4 sync, 5 delivery, 6 root, 7 work, 8 capabilities, 9 live delivery, 10 basics), written from the spec by a spec-only author, each driving 2–3 real Rust hosts through the public CLI/API with fixture agents, each under 2 minutes; CI builds the binaries once and runs the suites as parallel jobs; edge cases go to Rust tests that drive the binaries; old suites are deleted as each area is covered; PR #1 (wave 1 port) is closed.
+- **Chosen:** the plan.
+- **Question 2:** how to test long timers (7-day leases, 1-hour invites, 10-minute stages, idle stop)?
+- **Options:** (A) a test clock in debug builds only (an environment variable the release build ignores), so suites jump hours or days in seconds; (B) real time only.
+- **Chosen:** (A).
+- **Implemented in:** [PR #7](https://github.com/peerspan/peerspan/pull/7), the test clock of question 2 (DEC.impl16); this decision's PR, the first three suites (`conformance/slim/join.py`, `policy.py`, `work.py`) and the parallel CI workflow `.github/workflows/conformance.yml`.
+
+### DEC-OWN10: delete the old conformance suites (2026-10-28)
+
+- **Authority:** owner decision, 2026-10-28.
+- **Question:** once the slim suites (DEC-OWN9) cover every area, should the old suites be kept, deleted area by area, or deleted completely?
+- **Options:** keep them; delete each area's old suites as its slim suite lands; delete them completely now.
+- **Chosen:** delete them completely now. `conformance/` keeps only `slim/`, the fixtures the slim suites use (`mcp`, `remote`, `gh`), and the packaging checks `installed_bundle.py` and `test_package_release.py` with the modules they import (`agent_adapter.py`, `claude_setup.py`, `host_service.py`, `peer_messaging.py`). The Rust connectivity benchmark drivers move from `conformance/connectivity/` into `rust/src/quic/`. Recorded results under `docs/results/` and the verification sections of older contracts stay as history.
 
 ### DEC-OWN8: move the Go implementation to its own repository (2026-10-28)
 
@@ -137,6 +188,179 @@ Contents:
 - **DEC.impl8. Probe integers.** `peerspan-peer-probe sign-link` takes `--index` and `--depth` as unsigned integers, and `link-hash` reads them as such; the Go probe also signed negative values. No suite uses them. Everything else (flags, defaults, output, request framing) matches the Go probe.
 - **Implemented in:** [PR #148](https://github.com/peerspan/peerspan-internal/pull/148).
 
+### DEC-impl: settled by the implementer in the port wave 1 fixes (not owner decisions)
+
+The Rust product bugs found by porting the first wave of conformance suites to coordinator-free networks (suites: peerspan/peerspan#1).
+
+- **DEC.impl9. Policy output.** On a coordinator-free network, every command that prints "the policy" (`access allow`, `deny`, `renew`, top-level `allow`/`deny`, `share`, `unshare`, `trust`, `untrust`) prints the exact signed `peerspan-policy-v2` body of the DEC policy statement, i.e. the policy's fields, and `access show` adds a top-level `expires_soon` (less than a quarter of the validity left), as the coordination and capabilities contracts give them. Discarded: printing the statement envelope or the action result.
+- **DEC.impl10. Original-key provider.** When a network's selected provider is the person's original key and the CLI holds that key (the configured owner key file, or the identity in ssh-agent), the CLI signs the original-key slots itself with it, whether or not the daemon also holds the key. A selected device provider still never falls back to the original key.
+- **DEC.impl11. Debug build profile.** Debug builds, which CI and the conformance suites run, optimize dependencies fully and the host crate at `opt-level = 1`. Unoptimized, every coordinator-free read rebuilt its verified projection 50 to 100 times slower than a release build, and multi-host link and policy steps outran their bounded windows. *Revised 2026-10-28:* the host crate is back at `opt-level = 0` (dependencies stay at 3), because building it at 1 took about 7 minutes per CI compile; CI also builds without debug info.
+- **DEC.impl12. Members and persons of a coordinator-free network on `/v1`.** `GET /v1/networks/{id}/members` and `GET /v1/networks/{id}/persons` list a coordinator-free network's verified current members and persons in the existing shapes, so `network persons`, `attach` and other existing commands keep working. Discarded: 426 on these two reads.
+- **DEC.impl13. Reload on a stale edit.** A policy edit whose starting policy changed before it applied (the CLI's own version check, or the daemon's `state_conflict`) reloads and starts again, at most three more times (spec 12.1).
+- **DEC.impl14. Host request and invite windows (DEC-S4, DEC-Q1, DEC-Q2).** A join request's window is `created_at` + 3600 seconds; an invite lasts 1 hour by default, and `POST /v2/networks/{id}/invitations` takes an optional `expires_at` 60 to 86400 seconds ahead (`invite --expires-in/--expires-at`). A host's own first-contact mailbox now applies the helper's rule of DEC.impl6 (a `link_` or `di_` ID, 60 to 86400 seconds), replacing its 300-second rule. Contacts keep their 300-second limit.
+- **DEC.impl15. `--approve` on administration commands.** `network revoke`, `remove-person`, `unbind`, `delegate-admin`, `remove-admin` and `network group set` take `--approve`, which approves the displayed typed action without a prompt (spec 11 "Approval first"); without it the action is approved only at a terminal, as before.
+
+### DEC-impl: settled by the implementer in the debug-build test clock (not owner decisions)
+
+The test clock that DEC-OWN9 asks for, so fast suites can test long timers.
+
+- **DEC.impl16. Debug-build test clock.** Debug builds (`debug_assertions`) shift the host's notion of "now" by `PEERSPAN_TEST_CLOCK_OFFSET` (a signed duration fixed for the process) plus the contents of the file named by `PEERSPAN_TEST_CLOCK_OFFSET_FILE` (a signed duration re-read on every clock read; a missing file counts as zero). A duration is an optional sign and one or more `<digits><unit>` groups, unit `s`, `m`, `h` or `d` (`+3d`, `-2h`, `1d12h`). An invalid value panics. Release builds compile the offset out and ignore both variables. Every wall-clock read in the host, its CLI and `peerspan-helper` goes through `peerspan_host::clock::now()`, and capability idle stop measures its 10 minutes with `clock::instant()`, so timers checked by periodic workers (lease renewal every 10 seconds, the call worker every 250 ms) fire on their next pass after a suite advances the file; a running capability call waits for its deadline with `clock::sleep_until`, which rechecks the clock every 250 ms in debug builds. Not shifted: TLS certificate validity (rustls checks peer certificates against the real time), discovery ping freshness, and `Instant`-based transport, retry and backoff timing. The existing absolute clock files (`PEERSPAN_DEC_TEST_CLOCK_FILE`, `PEERSPAN_LINK_TEST_CLOCK_FILE`) still take precedence where they apply. Discarded: an owner-local `POST /v1/debug/clock` route (it advances one daemon only, while the CLI computes expiry times and several hosts and the helper must agree on the time); a time scale factor (slows nothing usefully and makes every sleep inexact).
+
+### DEC-impl: settled by the implementer for the trust flags at `network create` and `join` (not owner decisions)
+
+- **DEC.impl17. Trust answer at `network create` and `join`.** Both accept `--trusted` and `--untrusted` on coordinator-free networks. `network create` signs a yes at once with the creation key and always outputs `trusted`. A `join` is asynchronous (spec 8.1): it only creates a request, so nothing can be signed into the person's policy when it returns. An interactive join waits until its request is applied and then asks and signs. A non-interactive join that returns a pending request gives `trusted: false` with `trusted_error` naming `peerspan trust --network ID` when `--trusted` was given (the contract's failure branch), and `trusted: false` with `--untrusted`. Without a flag and without the question, `join` prints the exact LINK_VIEW unchanged. Discarded: refusing the flags; recording the answer for a later automatic signing.
+
+### DEC-impl: settled by the implementer in the spec-gap fixes (not owner decisions)
+
+Fixes for the places where the Rust host did not yet follow the simplified [spec](decentralized-spec.md), found by the slim conformance suites (DEC-OWN9).
+
+- **DEC.impl18. Creator device key (DEC-Q21).** `network create` generates the creator's device key when it prepares the creation (the preview), and stores it with the host's other device keys, so the reviewed and signed templates name it. The original key signs the device grant as the seventh creation template, after the binding it depends on. A creation prepared before this change keeps its six templates and selects the original key; it gets no device grant. A verifier accepts a device grant with `operation_id` `-` only in the exact creator shape: sequence 1, no predecessors, scopes 15, issued by the original key at the genesis root's time, with that network's genesis person, host and binding grants as its parents. Self-renewal of the creator device and binding (DEC-Q27, DEC-Q30) is not part of this change. Discarded: deriving the device key from the root seed (it would tie the device to the root key).
+- **Implemented in:** [PR #11](https://github.com/peerspan/peerspan/pull/11).
+- **DEC.impl22. Renewal warnings and the policy threshold (spec 7.1, 7.3, 16).** Status adds `network_root_unreachable` ("root unreachable: network stops in N days") when N, the whole days rounded up until the latest deadline among current admin grants and root-signed person and host grants, is 3 or less, on every host. `person_device_signer_unavailable` appears when this host's own device grant has 2 days or less left and the person has no other current device with scope 4, unless it is the creator device and the person's only current device (DEC-Q27, DEC-Q30); "reachable" is approximated by "known as current", since hosts keep no reachability record of other devices. A policy renews with 8 hours left, or with a third of its lifetime left when it lasts less than 24 hours. Status no longer fails with `state_conflict` when a policy has expired: an expired policy reads as no policy and shows `policy_expired`.
+- **Implemented in:** [PR #19](https://github.com/peerspan/peerspan/pull/19).
+- **DEC.impl23. Folding the admin stage (spec 8.2, DEC-S7, DEC-Q4).** The fold is decided at `link approve`: when an existing person's owner path has the admin bit (its provider's scopes include 8 and the person's admin grant is current) and the request is not a renewal, the approving host drafts a new host grant for the target host with the request ID as `operation_id`, issued through the owner's path plus the admin grant (`issuer_person`, `issuer_admin`, and `issuer_device` for a device provider), and signs it with the owner offer under the same approval. The fold always mints a new host grant generation (the person grant is the current one); it never reuses an existing host grant without an admin stage. Owner finalization then names it with `administrator_offer_id` `-`, and its body travels in the finalization frame's catalog; verifiers accept a host grant minted by the request without an admin packet only with exactly those issuer grants, the owner's signer, and the admin bit on the owner's path. An administrator offer for a folded request is not used. A requester shows `needs_owner_finalization` instead of `needs_administrator` while waiting for a folded finalization (an existing person with an admin grant in the catalog). An approving host now advances its approved, unfinished requests every 2 seconds without `link resume` (reads their mailboxes, signs what its approval covers, publishes), so the fold and preapproved finalization need no command on that host. Not done here: folding with the root seed for an owner who has no admin grant (DEC-Q4's `network_root` case); that owner still uses `link admit`. Discarded: signing the host grant at finalization time (its body must be in the catalog before the binding and device drafts that name it are checked).
+- **Implemented in:** [PR #17](https://github.com/peerspan/peerspan/pull/17).
+- **DEC.impl26. Bootstrap receive budget and quota details (spec 16.1).** A host bounds the bootstrap response bytes it buffers at once to 64 MiB across all its outbound bootstrap reads (mailbox reads and activations). The bound is charged for the bytes a response actually needs: its declared `Content-Length`, or, without one, its buffer as the body arrives; a single response stays limited to its own maximum (48 MiB for a mailbox read, 1 MiB for other mailbox requests, 20 MiB for an activation). Overlapping reads (a background request poll and `link resume`, or one inviter handling several joins) therefore no longer fail with `quota_exceeded` while little is buffered. A `quota_exceeded` error from a bound that names itself carries the bound in its `error` text, for example `quota exceeded: bootstrap receive buffer full`, `quota exceeded: response larger than its limit` or `quota exceeded: more than 8 carrier endpoints`; `code` is unchanged. Discarded: waiting for budget instead of failing (a full 64 MiB is real pressure, and a wait would hold the CLI), and reserving each read's maximum (the previous behaviour, which let two reads exhaust the budget).
+- **Implemented in:** [PR #22](https://github.com/peerspan/peerspan/pull/22).
+
+- **DEC.impl19. When the single owner offer is selected (DEC-S5, DEC-Q5).** The requester signs the selection without a prompt at its first observation of offers that finds exactly one valid offer, and, for a new person, as soon as `link approve` on the new machine has signed its own possession-only offer. If the selection cannot be signed then (for example, the stage has expired), the request stays `needs_selection` and the error does not fail the observation or the approval; `link resume` retries. Two or more offers still need an explicit choice.
+- **Implemented in:** [PR #13](https://github.com/peerspan/peerspan/pull/13).
+- **DEC.impl21. Stage inactivity (spec 8.5).** Each join request record keeps `stage_at`, the time this host recorded the request's latest stage: the request's signed `created_at` on the requester, the time the request was first stored on any other participant, and then the time each later stage packet (owner offer, selection, administrator offer, owner finalization, commit) was stored. Storing a new stage more than 600 seconds after `stage_at` fails with `expired`, whether this host signed it or received it, so the stage is neither signed nor accepted. Until a commit is stored, a request idle for more than 600 seconds shows `expired` and is ended like a request past its window (secret and frames erased). Times are whole seconds, so "more than 600 seconds" means at least 601 seconds between the two stamps. Records written before this change have no `stage_at` and count from the request's `created_at`.
+- **Implemented in:** [PR #16](https://github.com/peerspan/peerspan/pull/16).
+
+### DEC-impl: settled by the implementer for policy edits without reservations (not owner decisions)
+
+- **DEC.impl28. Planning an edit (spec 12.1, 12.2; DEC-S16, DEC-Q18).** `POST /v2/networks/{id}/policy-edits` (the reservation) is gone. The CLI plans an edit with the read-only `POST /v2/networks/{id}/policy-edits/plan` `{provider_id}`, which returns the current policy reference, its version and this host's next local edit number (`{context_id, person_public_key, policy, version, seq, created_at}`) and writes nothing. When the edit or a capability claim is checked, an edit number with no record must be the next one (the largest recorded number plus 1) and no edit may be unsettled. The edit must also follow the current head (version plus 1). Otherwise the check fails with `state_conflict`, and the CLI reloads and starts again (DEC.impl13). The edit record is written as `settled` when the edit is applied; `reserved` is no longer written, and older `reserved` records keep their old rules. A valid capability claim therefore needs no reservation and is no longer refused with `edit_conflict`.
+- **Implemented in:** [PR #25](https://github.com/peerspan/peerspan/pull/25).
+
+### DEC-impl: settled by the implementer for the invite's return path (not owner decisions)
+
+- **DEC.impl33. Automatic return of a join request (spec 8.1 step 4; DEC-Q3, DEC-Q26, DEC-Q32).** `POST /v2/networks/{id}/invitations` adds a random 16-byte `return_secret_base64` to the invite payload and stores it in a `dec_pending` row keyed by the `di_` invitation ID until the invite expires; request listings, counts and the 8-request limit read only `link_` rows. After `join` creates its request, the daemon seals the request code as one `request` frame for the invitation ID and posts it, within one 30-second attempt, to the invite's first-contact addresses and helpers (creating the mailbox, or appending when another joiner already created it). Every 2 seconds the inviter reads the return mailbox of its most recently made live invite, and on every other pass one of the older ones in turn (one read per endpoint), not touching an endpoint for 10 seconds after it rate-limits, and records each request found there as waiting for administrator approval, as if its code had been entered (`link admit REQUEST_ID` and `link approve REQUEST_ID` continue it without the code; the inviter reads the request's own mailbox as soon as it records it, so the code is available there). Invitation rows count toward the 4096 pending rows, not toward the 8 active requests. The LINK_VIEW from `join` still carries `display_code`, so scripts keep a fallback; the human message no longer asks for the code when the return worked. Invites made before this change carry no return secret and keep the hand-carried code.
+- **Implemented in:** [PR #24](https://github.com/peerspan/peerspan/pull/24).
+
+### DEC-impl: settled by the implementer for requester progress (not owner decisions)
+
+- **DEC.impl32. Requests advance without `link resume` (spec 8.4, 9.5).** The 2-second request worker that advances an approving host's approved work now also takes every unfinished request of this machine as requester (no commit yet, inside its window). It reads the request's mailboxes, observes the stages there (so the single owner offer is selected as spec 8.4 says), advances approved work and publishes, exactly as `POST /v2/link/requests/{id}/resume` does. Nothing is approved or signed anew. `link resume` stays for an immediate pass.
+
+### DEC-impl: settled by the implementer for root splits, reinvite and transport files (not owner decisions)
+
+- **DEC.impl31. Root split, reinvite, transport file (spec 9.8, 13.2, 14.2; DEC-Q16, DEC-Q20).** In a root split, a grant already admitted is usable when the head of at least one root branch covers it (it was issued or kept under that branch), so existing grants keep working until they expire. Admitting a new grant or renewal, locally or from a peer's catalog, still needs the single current root, so they stay frozen; bans are still admitted under branch coverage. The planning read (`GET /v2/networks/{id}/planning`) also lists `restriction_ids` and `admitted_ids`, the bans and statements this host admitted; reinvite uses only admitted host grants, bindings and bans. Status always shows `network_state_conflict` with `root split: changes are frozen; create a new network and run network reinvite` while the root is split, even when this host's own grants still work. `network reinvite OLD NEW [--expires-in D | --expires-at T]` reads OLD's stored members: for a root-split network, every host a host grant in its catalog names (latest label, person of its latest binding, minus hosts and persons with an admitted `host_revoke` or `person_remove`), even when the live member view is empty; for a legacy network, `/v1/networks/{id}/members` with person keys from `/v1/networks/{id}/persons`. It skips this host and refuses an OLD that is a current coordinator-free network. It then makes one invite per member through the ordinary invitation route, with the old label and person key, lasting 24 hours by default (a minute under, so the daemon's later decision time stays within the maximum). A transport file with `publish_contacts:true` is refused when the daemon starts. A `rotate-root` whose earlier unapproved preview no longer matches (a renewal or sync landed during its review) replaces that preview instead of failing with `operation_conflict`.
+
+### DEC-impl: settled by the implementer for removing in-place migration (not owner decisions)
+
+- **DEC.impl34. What the migration removal keeps (DEC-OWN3, DEC-S12, DEC-Q13, DEC-Q19).** Removed: `network migrate …`, every `/v2/networks/{id}/migration…` route (now 404), the peer `migration` resource, and the modules that prepared, acknowledged, committed, adopted, linked and repaired migrations (about 6,900 lines). A join or link request with a `migration_proposal_id` other than `-` is refused with `not_found`. Kept as read-only history: the `migration_*` statement kinds, a catalog's migration records and the verifier's checks for them, so a network created by an earlier migration still loads and verifies. Also removed here, since they shared the root CLI: `network resolve-root` (DEC-Q19; a forked root now says to reinvite) and `rotate-root --retain`/`--retain-none` (DEC-Q13; the full eligible set is always kept). A `rotate-root` preview replaces an earlier unapproved preview that no longer matches (a renewal or sync landed during its review) instead of failing with `operation_conflict`; an approval never replaces what was reviewed.
+
+### DEC-impl: settled by the implementer for automatic renewal (not owner decisions)
+
+- **DEC.impl35. Automatic grant renewal (spec 7.1, 7.2; DEC-S10, DEC-S11, DEC-Q6 to DEC-Q12, DEC-Q22, DEC-Q27 to DEC-Q31).** Every 10 seconds, with the policy renewal, each host lists the grants it can renew now. The host holding the root seed renews every current admin, person and host grant with 4 days or less left, including person and host grants an admin signed (the renewal names the root as issuer). The host's selected device renews, with 2 days or less left, its person's bindings (scope 2 or 4) and that person's other device grants (scope 4), and its own device grant only when it is the creator device (first generation with `operation_id` `-`) and the person's only current device. A device-signed renewal is drafted only when the person, host (and, for a device grant, binding) grants allow a later deadline than the current one, so it follows the root's renewals. Hosts take turns as DEC-Q11 says, ranked by host key among the person's current devices with the needed scope; the original key, which a daemon does not hold, is not ranked. When something is due, the host syncs with known peers (30-second bound) first, at most once per 30 seconds. Each renewal is a deadline-only statement (`operation_id` `-`, the stream's heads as predecessors and, for a fork of same-subject renewals, as `resolves`, issued now, lasting 7 days capped by its parents) signed with the root seed or the device key and applied as a fresh statement without an intent; the outbox delivers it. Its `retained_statement_ids` lists the replaced heads and, for every live stream head, each statement on its authority path (including older non-head generations it still names) that names a generation of the renewed stream, together with those generations. Verifiers accept a host grant or binding with `operation_id` `-` and predecessors carrying only the issuer signature when the subject is unchanged; a device grant with `operation_id` `-` and predecessors (same keys, same or fewer scopes, same `issuer_device` parent, if any); and, for a device-signed binding or device renewal, a signer found as the current head of `device/PERSON/SIGNING_KEY` with scope 4 (2 or 4 for a binding) whose renewed grant was current at `issued_at`. The issuer device does not cap such a renewal; while it is used, the renewal needs the issuer device's stream to have a head that is admitted, inside its own window and not banned (DEC-Q29), without following that head's own chain, so a device and the binding it renewed do not depend on each other in a cycle. A policy's ceiling (the CLI's and the daemon's) skips the issuer device of such a renewal too. After a renewal of this host's selected device grant, the selection moves to the new head. Two identical renewals that fork a stream are resolved by the next renewal at once (its predecessors and `resolves` name both heads), and the renewer's scopes are its effective scopes along its whole chain. Not done here: renewal by an admin that does not hold the root seed, and renewal with the original key through `ssh-agent`. A renewal is admitted only through current authority (spec 4.2 first admission): its device signer, and for a device or binding renewal the renewed grant, must have been admitted here before the batch that carries the renewal (records in one batch cannot authorize each other), and the signer must be usable now. Using a renewed device also checks that no device ancestor's binding is unbound. Each replaced device-ancestor generation must have been listed by every retaining generation after it, and the scopes of those generations narrow the child (spec 7.2). The person's devices counted for the creator-only rule exclude those with a banned ancestor or unbound binding. On a receiver that never admitted the expired grants a renewal depends on, the renewal stays inert evidence. Discarded: a typed action intent per renewal (a renewal is recomputed on the next pass, so it needs no durable intent); a historical-authority path that reconstructed expired signers, activations and predecessors for such cold receivers (spec 4.2 keeps those statements inert instead).
+- **DEC.impl36. Expired member contacts as address hints.** A sync or delivery to a member that has no valid contact dials the addresses of that member's latest expired contacts, as invite and code contacts are used after expiry (DEC-Q25, DEC-Q33). The peer's key is still checked on connect. Without this, two hosts that were both away for more than 300 seconds (a sleeping laptop, or the test clock moving days ahead) never reached each other again, and renewals did not travel.
+- **Implemented in:** [PR #21](https://github.com/peerspan/peerspan/pull/21).
+
+### DEC-impl: settled by the implementer for preview authority closeout (not owner decisions)
+
+- **DEC.impl37. Complete the renewal and root-fold paths (spec 5, 7.1–7.3, 8.2).** This completes the paths excluded from DEC.impl23 and DEC.impl35. A selected, current administrator original key or scope-8 device can automatically renew person and host grants and group definitions without a root seed. Administrator signatures name the current person/admin ancestry, plus the signing device when applicable, and cannot outlast it. Group content is preserved while its version and dates advance. The selected original-person key can renew that person's bindings and existing devices through the daemon's configured SSH agent or matching generated key file; an external root key can renew network grants through the configured agent. A deadline-only original-person device renewal keeps any existing `issuer_device` ancestry and its ordinary caps; it cannot create an unapproved device. The original-person provider's ceiling follows its declared person/admin ancestry rather than unrelated local host or binding deadlines, while current local membership is still required. A locally selected original key takes the first signer turn when usable. Device hosts retain the established ordering among eligible current devices by host key: remote original-key availability is not advertised, so an unavailable original key reserves no phantom turn. Concurrent original/device renewals use the existing identical-renewal fork resolver. Device selection never silently falls back to an original key. External signing runs outside the Store lock; publication rechecks the exact plan, template and current authority before admitting the signature. An owner with a local raw root seed explicitly requests a folded admission using `link approve --signer network_root` (API `provider_id: "network_root"`). The selected owner provider signs its owner/binding/device stages and remains selected; the additional root signature covers the exact host-grant template pinned in the reviewed offer, whose warning names this use. Root authority and the approved template are rechecked before continuation. Discarded: advertising private-key availability, reserving turns for unavailable original keys, silently switching signing providers, resetting device ancestry, or deferring an unreviewed root host grant until finalization.
+
+- **Implemented in:** [PR #34](https://github.com/peerspan/peerspan/pull/34).
+
+### DEC-impl: settled by the implementer for renewal-fork retention (not owner decisions)
+
+- **DEC.impl38. Retention across compatible renewal forks (spec 4.2, 7.1, 7.2).** While a stream holds a fork of identical plain renewals (the kind spec 7.1 resolves automatically), a child that depends on it fails `active` only because its parent lookup needs one head. An automatic renewal's retention list therefore judges each candidate child under every combination of the branches of the forks of this kind on that child's own authority path (itself and the parents it names, transitively), as they stood before resolution, and lists it only if it is live in every combination; unrelated forks elsewhere do not affect it. This applies whether the fork is in the renewed stream (the resolver) or in another stream the child depends on (for example the root renewing a person grant while one of that person's bindings is forked), so the device grant under the forked binding is not dropped and stays renewable after resolution. A child dropped by any branch stays dropped, so listing cannot revive it, and forks other than identical plain renewals are not collapsed: they wait for the owner. If one child's path holds more than 64 combinations, the renewal is deferred to a later pass rather than published with that child dropped. Discarded: checking only the renewed stream's own fork (a parent renewed during another stream's fork still dropped the child); accepting a child live in any one branch (it would revive a child one branch dropped); one global product over all forks (unrelated forks could push it over the bound and drop children).
+- **Implemented in:** [PR #63](https://github.com/peerspan/peerspan/pull/63).
+
+### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
+
+- **DEC.impl20. Learning a member's contact on send.** A peer request to a current member of a coordinator-free network for which this host holds no valid signed contact (typically both just joined, before the next background sync) first syncs each coordinator-free network it shares with that member, as `network sync` does (spec 10), which exchanges contacts with every member it can reach, and then resolves the address again. The request uses the learned address only for the same host key. The sync runs as its own task, so a send that gives up at its own time bound does not cancel it, and it keeps going to later members (4 at a time, up to sync's 30 seconds) when the first ones are offline; concurrent sends and automatic retries to that network wait for the running sync instead of starting another. A new sync for this reason starts no sooner than 5 seconds after the previous one finished, so a member that advertises no address does not turn every send into a sync. Discarded: waiting for the 60-second background sync (the first send and the retries within the task schedule fail); pushing every new member's contact to all members when it is admitted (more traffic for members that never talk, and still racy with the first send).
+
+### DEC-impl: settled by the implementer in the CLI latency fixes (not owner decisions)
+
+- **DEC.impl29. `call` waits on a held local request.** `GET /v1/calls/{peer}/{id}` takes an optional `wait=N` (seconds, at most 30): the daemon answers once the record is final, or a refused submission, or after N seconds. `call` sends it for the rest of its `--wait`, so a result reaches it when it is stored rather than on its fixed 250 ms poll; an answer that is quick and not final, as from a daemon that predates `wait`, is followed no sooner than 250 ms later. Discarded: a new route or a streaming response (more API for the same effect).
+- **DEC.impl30. Verified DEC results are reused for identical inputs.** Reading a catalog, loading a network's snapshot and building a projection are pure functions of their exact inputs, and one owner command repeated each of them dozens of times. The daemon keeps the latest results in memory, keyed by a hash of every input: the descriptor and exact catalog bytes; every row `Snapshot::load` reads for the network, with the network and own host key; and the descriptor, prior state, candidate bytes, decision time and operation of a projection. Only successes are kept, at most 32 per kind and about 32 MiB of catalog bytes, and a full memo starts over; nothing is persisted, so any changed row, byte or second misses and is verified in full. Discarded: invalidating on writes (every writer of the DEC tables would have to take part) and the host crate at `opt-level = 1` again (DEC.impl11 revision).
+- **Implemented in:** [PR #27](https://github.com/peerspan/peerspan/pull/27).
+
+### DEC-impl: settled by the implementer in conversations C1, [PR #68](https://github.com/peerspan/peerspan/pull/68) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C1 contract section](conversations-contract.md#c1-two-hosts-one-message-each-way). The owner may revisit any of them.
+
+- **DEC.impl39. One agent target in C1.** `conversation start` and `POST /v1/conversations` take exactly one participant, an agent address. Person forms (`person:…`, or a value without `/`) are 400 `invalid` until C3, and more than one participant is 400 until C2. Discarded: several agent targets now, which would need the roster pushes that C2 adds.
+- **DEC.impl40. `not_bound`.** A host with no bound person answers person starts, sends and reads with 409 `{code: "not_bound"}` and the proposal's text. Discarded: 403 (nothing is forbidden; the host lacks a binding).
+- **DEC.impl41. The invite carries the roster home will commit.** The invite's `roster` is the next version with the target `joined`, and the name in the answer is the authoritative one. A final refusal commits the next version without the target. Discarded: sending the `inviting` roster, which would leave the target's host without a roster in which its agent is joined.
+- **DEC.impl42. The first message from `start` goes only to joined targets.** `start` waits at most 15 seconds for the invite. A target still `inviting` then gets no target record for the first message, as for any message. Discarded: holding the first message until the invite settles.
+- **DEC.impl43. No citation for person targets.** A request to a person target carries none of `policy`, `grant_id` and `self`; persons are authorized by joining, not by policy. Discarded: citing a policy the receiver would ignore.
+- **DEC.impl44. Cite something, and let the receiver decide.** When nothing the author's host holds allows a target, it still cites the target owner's newest policy, so the receiver gives the final answer. With no policy at all, the target is `refused` with `not_authorized` locally, without a request. Discarded: refusing locally whenever the directory shows no allowing rule, because the directory can be stale.
+- **DEC.impl45. 403 `forbidden` on the wire, `not_authorized` in views.** The receiver answers authorization failures as one-to-one messages do (403 `forbidden`), and the sender records them as `refused` with code `not_authorized`. Content over every allowing rule's `max_message_bytes` is such a 403. Discarded: a new peer error code.
+- **DEC.impl46. `prev_seq` is omitted for the first message.** Peer bodies are strict JSON in which null is 400, so the first message to a target has no `prev_seq` key. Discarded: allowing null for this one field.
+- **DEC.impl47. `unseen` counts unforwarded notifications until C5.** Before seen tracking exists, `unseen` in the claim counts the agent's message notifications in the conversation that have not been forwarded yet, the claimed one included. Discarded: a constant 1.
+- **DEC.impl48. No directory access, nothing to claim.** A session without directory access gets `null` from the conversation claim route, so its adapter keeps polling quietly, while the sending route refuses with 403 `no_directory`. Discarded: 403 from the claim route, which the adapter's loop would treat as an authorization failure.
+- **DEC.impl49. The daemon cuts the window.** Window entries arrive already cut to 2,048 bytes, with `truncated` and `content_bytes`. The claim adds `window_total`, the N in the header's "last K of N", which is 0 whenever the window is empty. Discarded: sending full contents for the adapter to cut, which can pass the claim's size bound.
+- **DEC.impl50. `addressed_to` on the wire only.** The peer route accepts, checks and stores `addressed_to`, and `meta.addressed` follows it. No C1 local route or tool sets it; C6 adds that. Discarded: refusing it on the wire until C6, which would break hosts that run C6 against C1 hosts.
+- **Implemented in:** [PR #68](https://github.com/peerspan/peerspan/pull/68).
+
+### DEC-impl: settled by the implementer in conversations C2, [PR #70](https://github.com/peerspan/peerspan/pull/70) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C2 contract section](conversations-contract.md#c2-membership). The owner may revisit any of them.
+
+- **DEC.impl51. A host admits its own participants.** Each host records which of its local participants it admitted (by creating the conversation, committing a local agent at home, or accepting an invite), and "joined" for a local participant means admitted and not left. A roster listing an admitted participant as `inviting` does not end the admission. A pushed or fetched roster that lists an unadmitted local participant as `joined` is 400 `invalid`, except an agent that left here and whose leave home has not confirmed yet. Discarded: storing such a roster and ignoring the entry, which would leave views and checks disagreeing about one version.
+- **DEC.impl52. Invites carry home's roster plus one version.** Each invite carries home's current roster with its target `joined`, one version higher. Home remembers the highest version each invite offered. Only that invite's own join, while home's roster has not moved on, may take the offered version. Every other commit is numbered past all offered versions, so a host holding an invite roster home did not commit always receives a higher version. A late `joined` answer to a stopped invite pushes home's roster to that host again. Discarded: sending invites one at a time; letting the receiver replace a held roster with an equal version.
+- **DEC.impl53. `unanswered` is a departure reason.** An invite unanswered for 10 minutes moves its target to `departed` with reason `unanswered`, so a host that admitted the agent but whose answer was lost learns of it from the push. A refused invite is still dropped without a `departed` entry. Discarded: dropping unanswered targets silently.
+- **DEC.impl54. A closed roster is final.** After close, home commits no further version. Pending invites stop, and their targets stay `inviting` in the closed roster. The closing version is the closed roster's version. Discarded: dropping pending invites at close, which would add a version after the close.
+- **DEC.impl55. Lenient `add` and `remove`.** Adding a participant already `inviting` or `joined` answers 200 with its current outcome. `remove` takes a participant ID or a label that matches exactly one participant. Removing the creator is 400; the creator leaves instead. Discarded: 409 for a repeated add.
+- **DEC.impl56. Reachability from what home holds.** `reachable_from` and `reaches` count self access, same-host pairs, and the target owner's current policy statements that home holds. Manual grants count only when home is one of the two hosts. Discarded: asking each participant host, which would need a new peer route.
+- **DEC.impl57. No roster, no fetch.** A message for a conversation the receiver holds no roster for stays 503 without a fetch, since the receiver does not know home. A `roster_version` above the one held fetches the roster from home, at most one fetch per conversation at a time. Discarded: carrying `home_host_id` in every message.
+- **DEC.impl58. Roster notifications.** `added`, `removed` and `closed` are `roster` notifications with a `change` object, claimed through the same route as messages. Leaving creates none, and the participant that made a change gets none for it. Leaving or removal withdraws the agent's unclaimed message notifications in that conversation. Discarded: a separate claim route for roster changes.
+- **DEC.impl59. New refusal codes.** 409 `full`, 403 `not_creator`, 409 `closed`, and 429 `limit` (200 open conversations), each with fixed text. Target views gain `closed` and `limit`. Discarded: reusing `conflict` and `forbidden`.
+- **DEC.impl60. A lost `conversation_start` answer.** The tool's lost-response error carries the generated `message_id` and the recovery text `Check list_conversations before starting again; the conversation may exist.` Discarded: retrying the start automatically, which could create two conversations.
+- **DEC.impl61. No new schema version.** Admission, local departures and remembered participant names live in the conversation's `record`. Leaves go in `conversation_roster_outbound` with `kind` `leave:PARTICIPANT`, and pushes with `kind` `roster`. Discarded: new columns, which would need a migration that C1 meant to avoid.
+- **Implemented in:** [PR #70](https://github.com/peerspan/peerspan/pull/70).
+
+### DEC-impl: settled by the implementer in conversations C3, [PR #71](https://github.com/peerspan/peerspan/pull/71) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C3 contract section](conversations-contract.md#c3-people). The owner may revisit any of them.
+
+- **DEC.impl62. No departure record for a person who never joined.** A person dropped before joining (declined, removed, expired, unanswered after 10 minutes, or refused by every bound host) leaves `participants` without a `departed` entry, as C2 drops a refused invite. An invited person has `id` null in the roster and is named `person:PERSON_ID` in outcomes and in `remove`. Discarded: `departed` entries without an ID, which would change the entry's shape.
+- **DEC.impl63. `inviting`, then `invited`.** A person entry is `inviting` until the first bound host answers `invited`, then `invited`. Person invites reuse C2's offered-version rule. Discarded: `invited` at once, which would show an invite no host holds.
+- **DEC.impl64. One outcome per person, with `hosts`.** The outcome lists each bound host's answer. The overall state is `joined`, else `invited`, else `inviting`, else `unsupported` when every host answered 404, else `refused` with the first refusing host's code. Discarded: one outcome per host.
+- **DEC.impl65. Home bound to the invited person.** When home itself is bound to the invited person (for example, an agent creator inviting its owner), home holds the pending invite itself, with no peer request. Discarded: refusing such targets.
+- **DEC.impl66. One expiry.** An invite expires at the person entry's `added_at` plus 7 days on both sides; home drops the entry within 15 seconds after that. Discarded: each host counting from when it received the invite.
+- **DEC.impl67. `join` waits for home and does not retry by itself.** The join route waits up to 15 seconds and answers 503 `unavailable` without a final answer; running `join` again is safe, since home answers a repeat as a success. While a join has no final answer, a roster from home listing the person `joined` is home's confirmation. Discarded: a background join retry, which could join the person long after they gave up.
+- **DEC.impl68. `decline` drops the local copy first.** The pending invite ends here at once; the decline goes to home with retries, as a C2 leave does. Discarded: waiting for home.
+- **DEC.impl69. A pending invite is not a held conversation.** Reads and message routes treat a conversation known only through a pending invite as unknown; only `--invites`, `join`, `decline`, and the roster push and fetch use it. Discarded: showing invited conversations in `conversation show`.
+- **DEC.impl70. Status without `unread`.** Status gains `conversations: {open, invites}` and the `conversation_invites` attention item (subject the count, detail `pending conversation invites: N`), sorted after every existing kind. `unread` waits for the read cursor in C6. Discarded: an `unread` field that would always be 0.
+- **DEC.impl71. Route and texts.** Pending invites are listed at `GET /v1/conversations/invites`. New texts: `No pending invite to that conversation on this host.`, `That person already takes part from another host.`, `This host holds 20 pending conversation invites from that host.`, `The home host refused the join.`, and `The home host did not answer; run conversation join again.` Discarded: a separate `/v1/conversation-invites` resource.
+- **DEC.impl72. The adapter marks people not yet joined.** The events' `Participants:` line shows such a person as `LABEL (person, invited)` or `LABEL (person, inviting)`, and the `conversation_start` description mentions people. Discarded: leaving them out of the line.
+- **Implemented in:** [PR #71](https://github.com/peerspan/peerspan/pull/71).
+
+### DEC-impl: settled by the implementer in conversations C4, [PR #72](https://github.com/peerspan/peerspan/pull/72) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C4 contract section](conversations-contract.md#c4-catch-up). The owner may revisit any of them.
+
+- **DEC.impl73. A sync on request.** `POST /v1/conversations/{id}/sync` and `conversation sync ID` (not listed in the root help, CONV-24) run one sync now and report each host as `synced`, `failed`, `complete` or `unsynced`. Tests use it instead of waiting 10 minutes. Discarded: a debug-only trigger, which the owner could not use.
+- **DEC.impl74. Acks report refusals.** Each `acks` entry carries `refused: [{seq, code}]`, so the author's host learns that a fetched message was refused, and its target becomes `refused` with that code. Every other `sending` or `stopped` record up to `through_seq` becomes `delivered`. Discarded: acks that only mark `delivered`, which would leave refused targets `stopped` forever.
+- **DEC.impl75. Acks ride on syncs.** A recipient sends acks after each gap fetch and in each sync; a failed ack is sent again at the next sync, not kept in its own retry queue. Discarded: a separate durable ack queue.
+- **DEC.impl76. The fetch answer.** `GET .../messages` answers `{messages: [ENTRY], more}`, each entry carrying `prev_seq` so the recipient can check the chain. A message already `refused` for the target is named without its content (`{message_id, seq, prev_seq, refused}`): a final refusal stays final, and a sender allowed again never gets its refused messages delivered. Discarded: serving refused messages for a fresh check at the fetch, which delivered messages the owner had refused; bare messages, which would hide `prev_seq`.
+- **DEC.impl77. Serving after close.** After a close, `GET .../messages` serves a target only while one of its outbound records is neither `delivered` nor `refused`, and for at most 30 days. `heads` stays served, so the requester can confirm it is complete. Discarded: serving closed conversations forever.
+- **DEC.impl78. No current policy waits.** A fetched message for an agent whose owner has no current policy statement here (and no self access or grant) is not refused; it waits for the next sync. A pushed message in the same position gets 503 `unavailable` as before. Discarded: refusing it, which a lapsed policy would turn into lost messages.
+- **DEC.impl79. Roster pushes stop after 24 hours too.** As for messages; the host gets the roster at its next sync, which always fetches the roster first. Leaves and declines are still retried until home answers. Discarded: pushing rosters without a time limit.
+- **DEC.impl80. The handoff recheck has three outcomes.** It is C4's fetched-message step 6: pass, fail, or wait (no current policy here). Only a claim records `blocked`, and that is final. A read hides a failing message and records nothing, so an owner who allows the author again before any claim loses nothing. Discarded: blocking at any read, because an owner's GET would change state.
+- **DEC.impl81. What an agent may see.** A message the agent authored, or one with a non-blocked notification that is seen, held by a live session, or passing the recheck now. A withdrawn message stays hidden after a re-add. The rule also covers the owner's `agent:` reads and `GET /v1/sessions/{id}/pending`, whose answer reaches the session through the `--hook` text.
+- **DEC.impl82. Catch-up.** Only returned message notifications coalesce; late arrivals stay separate events with `redelivered` false. The window is the first-event window, so it may hold earlier context beside the coalesced messages. `forwarded`, or `mark_seen` with the new message's ID, covers everything coalesced, since the session sees only that ID.
+- **DEC.impl83. `mark_seen` with conversation IDs.** A `conv_` or `cmsg_` ID counts as held only when this session holds at least one matching notification; otherwise 404, as for other kinds.
+- **DEC.impl84. What `pending_work` and `unseen` count.** Message notifications only. Roster and `undelivered` notifications still return and redeliver, but are not listed.
+- **DEC.impl85. Past the redelivery limit.** As the proposal says, a notification stays unseen and is no longer offered or counted; history still shows it while the recheck passes. One-to-one messages become `blocked` at that point instead.
+- **DEC.impl86. One `conversation_undelivered` per (message, target).** `stopped` then `refused` makes no second event, and `stopped` then `delivered` makes no correction. Only for local agent authors still joined.
+- **DEC.impl87. `conversation_history` limits.** A departed agent gets 403 `not_participant`; a closed conversation it was in at the close stays readable. A `before` that is unknown or hidden is the same 400, so it reveals nothing. An agent's own messages carry `targets`.
+- **DEC.impl88. The `--hook` lead names conversations always,** not only when some are pending, to keep one fixed sentence.
+- **DEC.impl89. A Rust unit test for the `--hook` output.** The slim suite cannot create an `attach` profile, so the C5 contract asks for this one test.
+- **DEC.impl90. The rate limit counts by a message's own time.** A message's time is the lesser of its `sent_at` and when the host stored it, not its arrival time, because counting by arrival would permanently refuse an honest author's backlog after an outage. Weakness, stated plainly: a dishonest host can spread messages across claimed past hours and so get around the limit. The recipient's owner can still deny or block it. A future `sent_at` gains nothing.
+- **DEC.impl91. The limit's codes.** The daemon answers 429 `limit` on both sides; only the `conversation_send` tool maps it to `rate_limited`, with the proposal's text. A limit at a fetch is final as well, and `acks` gains the `limit` code.
+- **DEC.impl92. `addressed_to` on local routes.** It resolves against participants with an ID that are `joined` or `inviting`, with `remove`'s `not_found` and `ambiguous`. An empty array is the same as none. The repeat check runs before resolution and compares `addressed_to` as well as content, so a different one is 409 `conflict`, and a repeat still succeeds after a named participant departed.
+- **DEC.impl93. `about`.** It lives in the roster and home never changes it. The CLI form is `--about HOST_ID/TASK_ID`, and `conversation_start` takes `about`. Events carry `meta.about_*` and an `About task` line. No host checks that the task exists.
+- **DEC.impl94. The read cursor's route.** `POST .../read` takes optional `message_ids` because views do not expose `local_seq`. No `GET` moves the cursor, and neither does `--as AGENT`. Moving it can mark older unshown messages as read, as the proposal's "newest message shown" implies.
+- **DEC.impl95. Two local API additions.** `GET /v1/conversations/{id}/messages/{message_id}` lets `watch` fetch a late-arriving message; the events route gains `latest`, `next_after` and a `conversation` filter. The proposal's `?after=MESSAGE_ID` paging is left for a later UI.
+- **DEC.impl96. Hidden event entries are passed over for good.** An entry whose message fails or waits on the recheck is skipped permanently for that reader of the stream; `show` and the claim still follow C5. The safe direction: nothing hidden leaks, and history stays the source of truth.
+- **DEC.impl97. `forget`.** It is 409 `in_use` while a local participant is joined in an open conversation or a pending invite is held here. An unconfirmed leave is still sent. On home, event entries go too, local routes answer 404, and peer routes keep working. Not at a terminal without `--yes`, it exits 1 with `confirm`.
+- **DEC.impl98. Escaping.** The rule covers all readable output and `error:` lines, plus every JSON the conversation commands print (U+007F to U+009F as `\u00XX`, which parses to the same text). A peer-supplied agent `name` is escaped rather than refused, including in adapter event labels, so it cannot forge a line. Unicode bidi characters are not covered.
+- **DEC.impl99. `home_unavailable`.** A view flag per CONV-23: true while home is not a current member of a network shared with this host, never on home. Its test uses a fresh host, since it is revoked.
+
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -166,11 +390,13 @@ Contents:
 
 - **Options:** (a) owner finalization names them, their bodies travel in the commit catalog, and there is no admin packet; (b) keep the admin packet, signed automatically under the owner's single approval. Also asked: does "same person" include the root seed on the owner's host?
 - **Chosen:** (a), and yes, the root seed counts when the same reviewer approves with `network_root`. Both are the recommendation.
+- **Implemented in:** [PR #17](https://github.com/peerspan/peerspan/pull/17) (DEC.impl23), except the root-seed case.
 
 #### DEC-Q5. When offers compete
 
 - **Options:** (a) two or more valid offers are held when the daemon first processes offers, and later ones are ignored; (b) wait a fixed time to collect offers.
 - **Chosen:** (a), the recommendation.
+- **Implemented in:** [PR #13](https://github.com/peerspan/peerspan/pull/13) (DEC.impl19).
 
 #### DEC-Q6. Whether an automatic device renewal is a join request
 
@@ -251,6 +477,7 @@ Contents:
 
 - **Options:** (a) the daemon on the original key's machine signs through `ssh-agent` or a CLI-generated key file (the draft's recommendation); (b) `network create` also gives the creator's host a scope-15 device grant, so device renewal covers the creator's binding and policy.
 - **Chosen:** **(b), against the draft's recommendation.** The device grant is held by the daemon, so no SSH key has to stay unlocked.
+- **Implemented in:** [PR #11](https://github.com/peerspan/peerspan/pull/11) (DEC.impl18).
 
 #### DEC-Q22. Approval of automatic renewals
 
@@ -1075,8 +1302,10 @@ These points were left open by the proposal and were settled by the implementer 
 - **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
-- **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
-- **Implementing PRs:** none yet.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership), [C3](conversations-contract.md#c3-people). Not yet a roadmap milestone.
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72), C4 [PR #72](https://github.com/peerspan/peerspan/pull/72) (DEC.impl73 to DEC.impl79), C5 [PR #74](https://github.com/peerspan/peerspan/pull/74) (DEC.impl80 to DEC.impl89).
+- **Implemented in:** PRs C1 to C6: [#68](https://github.com/peerspan/peerspan/pull/68), [#70](https://github.com/peerspan/peerspan/pull/70), [#71](https://github.com/peerspan/peerspan/pull/71), [#72](https://github.com/peerspan/peerspan/pull/72), [#74](https://github.com/peerspan/peerspan/pull/74), [#76](https://github.com/peerspan/peerspan/pull/76). C6 settled DEC.impl90 to DEC.impl99. The live run of CONV-25 and CONV-27 is in [docs/results/conversations-live.json](results/conversations-live.json).
+- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
@@ -1258,6 +1487,72 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
   - (b) Agents only first; people from the CLI in the next slice.
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** The CLI is the only human surface today, and people in the conversation are the multiplayer case worth proving first.
+
+### CONV-22 to CONV-27: conversations after the coordinator-free work (2026-10-30)
+
+- **Date:** 2026-10-30.
+- **Area:** conversations, after the coordinator-free work (DEC-OWN11).
+- **Source:** [conversations-proposal.md, Questions resolved after the coordinator-free work](conversations-proposal.md#questions-resolved-after-the-coordinator-free-work), questions CQ-1 to CQ-4 of the refresh PR ([PR #65](https://github.com/peerspan/peerspan/pull/65)), and the owner's rename of "post".
+- **Recorded in:** this log and the proposal ([PR #67](https://github.com/peerspan/peerspan/pull/67)).
+- **Contract section:** none yet; `docs/conversations-contract.md` is written by the implementing PRs C1 to C6.
+- **Implementing PRs:** none yet.
+
+CONV-22 to CONV-25 were decided by accepting the question's recommendation. They change CONV-17, CONV-3 and CONV-21 only as stated; those entries stay.
+
+#### CONV-22. How long the author's host pushes, now that policies last at most 24 hours (CQ-1; refines CONV-17)
+
+- **Options:**
+  - (a) Keep the message rule. Pushes stop at the capped deadline; sync covers the rest. No design change.
+  - (b) Re-cite on each retry: the author's host cites its newest copy of the recipient owner's policy on every attempt, with a new deadline capped by it, up to 24 hours after `sent_at`. The repeat check (acceptance step 3) ignores `deadline` and the citation fields.
+  - (c) Posts carry no `deadline`. The author's host pushes until 24 hours after `sent_at`, and the receiver checks a pushed post as it checks a fetched one: under its own current policy, grants and block list, with no deadline bounds. The cited `policy` version is still sent, so a receiver behind it answers 503.
+- **Chosen:** (c). Conversation messages carry no deadline. The sender's host pushes for 24 hours, and the receiving host checks a pushed message against its own current policy, exactly as it checks a fetched one.
+- **Reason given:** It gives CONV-17's 24 hours as written, and makes a pushed and a fetched post pass the same checks, which removes a field and a rule instead of adding one.
+
+#### CONV-23. A home host that stops being a member (CQ-2; CONV-3)
+
+- **Options:**
+  - (a) As accepted: posting continues among participants whose hosts are members; membership changes wait for home. Each host shows `home_unavailable` in the conversation view while home is not a current member of any network they share, and any participant can still leave locally.
+  - (b) Bring CONV-3(c) forward: the creator may hand home to another participant host while home is still a member.
+  - (c) Automatic handover to a host of the same person, when home has been a non-member for 7 days.
+- **Chosen:** (a), as accepted. Handover stays in a later slice.
+- **Reason given:** Lapsed grants are renewed when the host returns, revocation is rare, and handover needs its own design for roster authority.
+
+#### CONV-24. What "first slice" means when it is built as six PRs (CQ-3; CONV-21)
+
+- **Options:**
+  - (a) C1 to C6 together are CONV-21's first slice. Each PR is complete for what it covers. The root help, README, and quick start mention conversations only from C6.
+  - (b) Agents first: list the commands from C2, and add people in C3 as a second user-visible step (CONV-21(b)).
+  - (c) Keep everything behind a build or runtime flag until C6.
+- **Chosen:** (a). C1 to C6 together are the first slice; the commands are listed in help, the README and the quick start only from C6.
+- **Reason given:** It keeps CONV-21's scope as the first thing users see, needs no flag, and each PR still runs in CI.
+
+#### CONV-25. The live run with real agents (CQ-4)
+
+- **Options:**
+  - (a) Keep it as a one-time manual run before C6 merges, recorded in `docs/results/` and linked from C6's PR. It does not gate CI.
+  - (b) Drop it; the slim suite with fixture adapters and the shared adapter's own tests are enough.
+  - (c) Make it a scripted CI job with real agents.
+- **Chosen:** (a). One manual live run, recorded in `docs/results/` before C6 merges; not a CI gate.
+- **Reason given:** The window, labels, and "you need not answer every post" guidance only show their value with real models, and a single recorded run is cheap. Real agents in CI need accounts and keys the project does not have.
+
+#### CONV-26. What to call one contribution to a conversation
+
+- **Options:**
+  - (a) "post", as in the accepted proposal (`post_id`, `post_…` IDs, `conversation_post`, `/posts` routes).
+  - (b) "message", or "conversation message" where it could be confused with the existing one-to-one messages.
+- **Chosen:** (b), the owner's decision of 2026-10-30, not a recommendation of the proposal.
+- **Names chosen in the proposal** (none collides with an existing name in `rust/src`, `integrations/shared` or the contracts): field `message_id` with IDs `cmsg_` plus 32 hex digits; routes `/peer/v1/conversations/{id}/messages`, `/adapter/v1/conversations/{id}/messages` and `/v1/conversations/{id}/messages`; agent tool `conversation_send` (was `conversation_post`), `before_message_id`; table `conversation_messages` and index `conversation_messages_order`; activity kinds `conversation.message_sent`, `conversation.message_received`, `conversation.message_refused`; local event kinds `message_received`, `message_sent`; CLI `conversation say --message-id`. Event kinds (`conversation`, `conversation_roster`, `conversation_undelivered`), the `conv_` conversation ID, and the one-to-one message names (`send`, `reply`, `/peer/v1/messages`, `request_id`, the `message.*` activity kinds) are unchanged.
+- **Effect on earlier entries:** CONV-1 to CONV-25 keep their wording; a "post" there is a conversation message.
+
+#### CONV-27. Where the live run happens (refines CONV-25)
+
+- **Options:**
+  - (a) One machine with two separate hosts, each with its own state directory.
+  - (b) Restore access to the earlier second machine.
+  - (c) Provide a different second machine.
+- **Chosen:** (a), by the owner on 2026-10-30.
+- **Reason given:** None beyond accepting it; the earlier second machine refused SSH.
+- **Effect:** Changes only CONV-25's "across two machines"; CONV-25 keeps its wording. The one-machine run satisfies CONV-25 for C6. The owner added "we should also test multi machine": a multi-machine run is still wanted as a separate follow-up.
 
 ### LIVE-5: protocol_version from every adapter (2026-10-25)
 

@@ -650,9 +650,8 @@ with one network.root_rotated event. External SSH new root leaves owned seed
 NULL. Local success needs no coordinator acknowledgment. Retry preserves this
 exact result/key/retention, never regenerates a competing state/seed at the same
 epoch. `network rotate-root ID` and --to-ssh --root-key PATH use this preparation
-and fixed slots; root resolution uses `network resolve-root ID --new-root-key
-PATH`, every required existing-branch key supplied via repeated --root-key PATH.
-A missing branch key yields exact needed slots/repair, never a highest-root win.
+and fixed slots. `network resolve-root` is removed (DEC-Q19): a root split
+freezes the network, and recovery is `network reinvite` (spec 13.2, 14.2).
 
 The native rotate-root/resolve-root default obtains this preview and explicitly
 reviews the full union of eligible candidates' required_retained_ids, exact
@@ -660,11 +659,8 @@ root heads, preserved powers/deadlines and excluded entries before approval.
 Rotation preserves those roles until their existing bounds/restrictions; it
 does not revoke them merely by changing the root key. A proof_required entry
 blocks this full-set default until repaired, because its possible eligibility
-is unknown. Repeated --retain DS instead selects exactly those listed finite
-IDs (no inferred missing closure); --retain-none explicitly selects the empty
-set. These options are mutually exclusive. An explicit subset/empty selection
-may resolve a root despite unrelated finite-proof gaps when the normal
-domain-local verifier permits it; the review must disclose what it drops.
+is unknown. `--retain` and `--retain-none` are removed (DEC-Q13): the full
+eligible set is always kept.
 Never silently erase, truncate or change a rejected selection, choose a branch,
 or automatically approve a new set after a concurrent state change. The daemon
 root-transitions API continues to require the caller's exact explicit set.
@@ -1365,17 +1361,10 @@ operation_conflict. It allows an approved offline participant to obtain the
 already complete transition, not to bypass current DEC action/repair gates.
 The ordinary local adoption checks/retained restrictions still apply afterward.
 
-Commands are `network migrate identity|prepare|review|host-lease|device-bans|link|ack|commit|resume|status
-NETWORK_ID`, with --proposal, --prepared-catalog, exact --roster-file and
---approve mapping to these fields. File/stdin evidence uses the same strict
-route shape. Host-lease uses --host-lease-file for the exact partial statement,
-prints the typed host-membership review and defaults to no approval. Device-bans
-requires --person, shows each inherited stable target and exact source proof,
-and defaults to no approval; --person-key selects only the exact original key
-for those SSHSIG slots, never imports it into the daemon. Missing original key/host/proof displays exact next action and
-preserves identities/fence; coordinated abort is unavailable, not an invented
-force/reset/delete flag. This command family is migration-only, not a second
-new-network lifecycle.
+The `network migrate` commands and the `/v2/networks/{id}/migration` routes are
+removed (DEC-OWN3, DEC-S12): in-place migration of a coordinator network is no
+longer offered. Legacy networks stay read-only history (spec 14.1) and move with
+`network reinvite` (spec 14.2).
 
 ## 8. Authenticated peer replication and narrow proof repair
 

@@ -72,6 +72,12 @@ fn context(c: &Connection, store: &Store, p: &Pending) -> Result<Context> {
         .catalog
         .as_ref()
         .ok_or_else(|| Error::new("proof_required"))?;
+    let folded = crate::decentralized::state::folded_host(
+        catalog,
+        &request,
+        administrator.as_ref(),
+        &finalization,
+    )?;
     let prepared = Projection::prepare_finalization(
         CeremonyPrefix {
             descriptor: &offer.descriptor,
@@ -83,6 +89,7 @@ fn context(c: &Connection, store: &Store, p: &Pending) -> Result<Context> {
             administrator: administrator.as_ref(),
             now: &now,
             staging: offer.staging.as_ref(),
+            folded_host: folded.as_ref(),
         },
         &finalization,
     )?;
@@ -316,7 +323,7 @@ fn new_intent(c: &Connection, p: &Pending, stage: &Context) -> Result<Intent> {
         },
     })
 }
-fn budget(c: &Connection, store: &Store, p: &Pending, stage: &Context) -> Result<()> {
+fn budget(c: &Connection, _store: &Store, p: &Pending, stage: &Context) -> Result<()> {
     let frames = requests::frames(c, p)?;
     // Placeholder signature bytes are size accounting only, never proofs.
     let mut proofs = stage.prepared.admissions.catalog.proofs.clone();
@@ -362,27 +369,7 @@ fn budget(c: &Connection, store: &Store, p: &Pending, stage: &Context) -> Result
         &json!({"format":1,"context_id":stage.offer.descriptor.context_id(),"objects":rows}),
     )?;
     require(whole.len() <= MAX_CATALOG, "quota_exceeded")?;
-    if stage.offer.staging.is_some() {
-        let m = manifest(p, stage, &binding_proof, proofs.keys().cloned().collect())?;
-        let signature = encode(&[0u8; 64]);
-        let payload = bytes(
-            &json!({"manifest_base64":encode(&m),"binding_host_signature":if stage.prepared.reused_binding {"-"}else{signature.as_str()},"committed_at":stage.now}),
-        )?;
-        let packet = bytes(
-            &json!({"format":1,"context_id":stage.offer.descriptor.context_id(),"request_id":p.id,"role":"commit","writer_host_public_key":p.record.host_public_key,"signer_public_key":p.record.device_public_key,"person_public_key":text(&stage.offer.owner.object,"person_public_key")?,"issuer_id":"-","payload_base64":encode(&payload),"host_signature":signature,"device_signature":signature,"authority_signature_format":"-","authority_signature":"-"}),
-        )?;
-        let activation = activation_bytes(p, &packet)?;
-        let proof = crate::decentralized::statement::proof_id("activation", &activation);
-        let mut prepared_rows = rows.clone();
-        prepared_rows
-            .push(json!({"id":proof,"kind":"activation","body_base64":encode(&activation)}));
-        prepared_rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-        require(prepared_rows.len() <= 4096, "quota_exceeded")?;
-        let prepared = bytes(
-            &json!({"format":1,"context_id":stage.offer.descriptor.context_id(),"objects":prepared_rows}),
-        )?;
-        crate::decentralized::migration_link::pending_budget(store, c, p, &prepared, &stage.now)?;
-    }
+    require(stage.offer.staging.is_none(), "not_found")?;
     require(
         manifest(p, stage, &binding_proof, proofs.keys().cloned().collect())?.len() <= 16 << 10,
         "quota_exceeded",
@@ -458,6 +445,9 @@ pub(super) fn approve(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
         .map_err(db)?;
     let changed = approve && !p.record.commit_approved;
     if changed {
+        // The commit stage is signed only within 600 seconds of the latest
+        // stage (spec 8.5).
+        require(!p.stage_expired(&stage.now)?, "expired")?;
         observer::owned_device(store, &tx, &p)?;
         budget(&tx, store, &p, &stage)?;
         i.record.approved = true;
@@ -639,6 +629,9 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
             return Ok(());
         }
         let stage = context(&tx, store, &p)?;
+        // No new commit signature after 600 idle seconds (spec 8.5); a commit
+        // already signed is past the timeout and is still published.
+        require(!p.stage_expired(&stage.now)?, "expired")?;
         let d = &stage.offer.descriptor;
         let mut i = Intent::load(&tx, &p.record.commit_intent_id)?;
         check_current(&p, &i, &stage)?;
@@ -726,10 +719,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
             p.record.activation_id = a.id;
             check_current(&p, &i, &stage)?;
             i.save(&tx)?;
-            if p.record.migration_proposal_id != "-" {
-                p.record.catalog_base64 = encode(&full.bytes);
-                crate::decentralized::migration_link::retain_prepared(store, &tx, &mut p)?;
-            }
+            let _ = full;
             requests::save(&tx, &p)?;
             "dec.signature.after_commit"
         } else {

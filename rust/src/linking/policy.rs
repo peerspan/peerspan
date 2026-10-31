@@ -293,15 +293,6 @@ pub(super) fn verify_access_state_budget(
 ) -> Result<AccessState> {
     verify_access_inner(ctx, catalog, stored, false)
 }
-/// Source inspection may read an actual pre-feature network, without creating
-/// a feature, device activation or ordinary writer authority.
-pub(crate) fn verify_stored_migration_access(
-    ctx: AccessContext<'_>,
-    catalog: &[u8],
-) -> Result<AccessState> {
-    let pre_feature = ctx.known_feature_id == "-";
-    verify_access_inner(ctx, catalog, true, pre_feature)
-}
 fn verify_access_inner(
     ctx: AccessContext<'_>,
     catalog: &[u8],

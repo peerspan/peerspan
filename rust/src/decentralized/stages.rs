@@ -14,6 +14,29 @@ pub(crate) struct CeremonyPrefix<'a> {
     pub administrator: Option<&'a Packet>,
     pub now: &'a str,
     pub staging: Option<&'a Projection>,
+    /// The folded admin stage (spec 8.2, DEC-S7, DEC-Q4): the owner's own
+    /// admin path or explicitly approved local root seed signed this new host
+    /// grant, with the request ID as its `operation_id`, and no admin packet.
+    pub folded_host: Option<&'a Statement>,
+}
+
+/// The host grant of a folded admin stage named by an owner finalization:
+/// a request with no administrator packet that is not a renewal.
+pub(crate) fn folded_host(
+    catalog: &Catalog,
+    request: &Packet,
+    administrator: Option<&Packet>,
+    finalization: &Packet,
+) -> Result<Option<Statement>> {
+    if administrator.is_some() || text(&request.payload, "mode")? == "renew" {
+        return Ok(None);
+    }
+    let host = catalog.get(text(&finalization.payload, "host_lease_id")?)?;
+    check(
+        host.kind == "host_lease"
+            && text(&host.payload, "operation_id")? == text(&request.object, "request_id")?,
+    )?;
+    Ok(Some(host.clone()))
 }
 
 pub(crate) struct PreparedAdmissions {
@@ -213,10 +236,12 @@ impl Projection {
             administrator,
             now,
             staging: _,
+            folded_host,
         } = prefix;
         packet_agrees(request, owner, selection, descriptor)?;
         let request_id = text(&request.object, "request_id")?;
         let mut pending = Vec::new();
+        check(administrator.is_none() || folded_host.is_none())?;
         if let Some(admin) = administrator {
             check(
                 text(&admin.object, "role")? == "administrator"
@@ -235,6 +260,16 @@ impl Projection {
                     pending.push(statement)
                 }
             }
+        } else if let Some(host) = folded_host {
+            // A fold mints only the host grant; the owner's person grant is
+            // the current one (a new person cannot hold an admin grant).
+            check(
+                text(&request.payload, "mode")? != "renew"
+                    && text(&owner.payload, "person_lease_id")? != "-"
+                    && host.kind == "host_lease"
+                    && text(&host.payload, "operation_id")? == request_id,
+            )?;
+            pending.push(host.clone());
         } else {
             check(text(&request.payload, "mode")? == "renew")?
         }
@@ -299,6 +334,13 @@ impl Projection {
                     request_id,
                 )?,
             )
+        } else if let Some(host) = folded_host {
+            (
+                projection
+                    .head(&["person".into(), person_key.into()])?
+                    .clone(),
+                host.clone(),
+            )
         } else {
             (
                 projection
@@ -314,7 +356,10 @@ impl Projection {
                 && text(host.subject()?, "member")? == text(&owner.payload, "member")?,
         )?;
         for statement in [&person, &host] {
-            if text(&statement.payload, "operation_id")? == request_id {
+            if text(&statement.payload, "operation_id")? == request_id && administrator.is_none() {
+                check(statement.kind == "host_lease" && folded_host.is_some())?;
+                projection.folded_authority(owner, statement)?;
+            } else if text(&statement.payload, "operation_id")? == request_id {
                 let admin = administrator.ok_or_else(|| Error::new("invalid"))?;
                 projection.grant_packet_issuer(statement, admin)?;
                 let issuer_ids: Vec<_> = statement
@@ -396,6 +441,7 @@ impl Projection {
             administrator,
             now,
             staging: _,
+            folded_host: _,
         } = prefix;
         let request_id = text(&request.object, "request_id")?;
         let person = text(&owner.object, "person_public_key")?;
@@ -541,6 +587,44 @@ impl Projection {
             reused_binding,
             ancestor_statement_ids: ancestors.into_iter().collect(),
         })
+    }
+    /// Authority of a folded host grant (spec 8.2): issued through the
+    /// owner's own path (the owner offer's issuer grants) plus that person's
+    /// current admin grant, by the same signer as the owner packets; or by
+    /// the explicitly approved root seed independently of the owner signer.
+    pub(crate) fn folded_authority(&self, owner: &Packet, host: &Statement) -> Result<()> {
+        if text(host.issuer()?, "kind")? == "root" {
+            check(
+                host.parents()?.is_empty()
+                    && text(&host.payload, "root_state_id")?
+                        == text(&owner.payload, "root_state_id")?,
+            )?;
+            self.check_prepared_grant(host, &BTreeMap::new(), None)?;
+            return require(
+                text(&host.payload, "not_after")? <= text(&owner.payload, "not_after")?,
+                "forbidden",
+            );
+        }
+        self.grant_packet_issuer(host, owner)?;
+        let issuers: BTreeMap<String, String> = host
+            .parents()?
+            .into_iter()
+            .filter(|(role, _)| role.starts_with("issuer_"))
+            .collect();
+        let admin = issuers
+            .get("issuer_admin")
+            .ok_or_else(|| Error::new("forbidden"))?;
+        let mut expected: BTreeSet<String> = ids(&owner.payload, "issuer_lease_ids", "ds_")?
+            .into_iter()
+            .collect();
+        expected.insert(admin.clone());
+        check(issuers.values().cloned().collect::<BTreeSet<_>>() == expected)?;
+        self.check_prepared_grant(host, &BTreeMap::new(), None)?;
+        self.packet_authority_with(owner, 8, true, host, issuers.into_values().collect())?;
+        require(
+            text(&host.payload, "not_after")? <= text(&owner.payload, "not_after")?,
+            "forbidden",
+        )
     }
     fn check_prepared_grant(
         &self,

@@ -1,6 +1,6 @@
 use crate::integration::relative_expiry;
 use anyhow::bail;
-use chrono::{SecondsFormat, TimeDelta, Utc};
+use chrono::{SecondsFormat, TimeDelta};
 use clap::{Parser, Subcommand};
 use hyper::Method;
 use serde_json::{Value, json};
@@ -22,6 +22,138 @@ pub struct Cli {
     pub help_advanced: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConversationCommand {
+    /// Start a conversation with agents (PERSON/AGENT or HOST_ID/AGENT) and
+    /// people (person:LABEL, person:PERSON_ID, or a bare label)
+    Start {
+        #[arg(value_name = "TARGET", required = true, num_args = 1..)]
+        targets: Vec<String>,
+        #[arg(long, value_name = "TEXT")]
+        title: Option<String>,
+        /// Send this as the first message
+        #[arg(long, value_name = "TEXT")]
+        message: Option<String>,
+        /// The first message's ID (cmsg_ and 32 hex digits)
+        #[arg(long, value_name = "ID", requires = "message")]
+        message_id: Option<String>,
+        /// A note the new participants see with their invite
+        #[arg(long, value_name = "TEXT")]
+        note: Option<String>,
+        /// Start as this local agent (name or ID) instead of this host's person
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// The task this conversation is about; shown only, it grants nothing
+        #[arg(long, value_name = "HOST_ID/TASK_ID")]
+        about: Option<String>,
+    },
+    /// Add an agent or a person to a conversation you created
+    Add {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TARGET")]
+        target: String,
+        /// Act as this local agent (name or ID), the conversation's creator
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Remove a participant from a conversation you created
+    Remove {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// A participant ID or label
+        #[arg(value_name = "PARTICIPANT")]
+        participant: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Close a conversation you created; it stays readable
+    Close {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Leave a conversation, or take a local agent out of it
+    Leave {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// The local agent (name or ID) to take out
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+    },
+    /// Send a message as this host's person
+    Say {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Reuse an ID to retry a send without sending twice
+        #[arg(long, value_name = "ID")]
+        message_id: Option<String>,
+        /// Who this is mainly for, by participant ID or label; everyone
+        /// still receives it
+        #[arg(long = "to", value_name = "PARTICIPANT")]
+        to: Vec<String>,
+    },
+    /// Print new messages and changes as they arrive, until interrupted
+    Watch {
+        /// Only this conversation
+        #[arg(value_name = "ID")]
+        id: Option<String>,
+        /// Watch as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Mark everything in a conversation as read
+    Read {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Delete this host's copy of a conversation no one here is still in
+    Forget {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Do not ask first
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Join a conversation you were invited to, on this host
+    Join {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Decline a conversation invite
+    Decline {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Catch up a conversation now: fetch its roster from home, then
+    /// what other participants' hosts sent here that this host lacks
+    Sync {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show a conversation and its latest messages
+    Show {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long, value_name = "N", default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+        #[arg(long, value_name = "MESSAGE_ID")]
+        before: Option<String>,
+        /// Read as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -88,17 +220,19 @@ pub enum Command {
         #[arg(long)]
         untrusted: bool,
     },
-    /// Produce a private five-minute contact introduction; grants no membership
+    /// Print a private invite code (psi2-) for a new member; it lasts 1 hour
+    /// by default and grants no membership by itself
     Invite {
+        /// The new member's label
         #[arg(value_name = "LABEL")]
         label: String,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
-        /// Unsupported expiration override; introductions last five minutes
-        #[arg(long, value_name = "TIME", hide = true)]
+        /// When the invite expires (RFC 3339), 60 seconds to 24 hours ahead
+        #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
         expires_at: Option<String>,
-        /// Unsupported lifetime override; introductions last five minutes
-        #[arg(long, value_name = "DURATION", hide = true)]
+        /// How long the invite lasts, 60 seconds to 24 hours (for example 2h); default 1h
+        #[arg(long, value_name = "DURATION")]
         expires_in: Option<String>,
         /// Unsupported introduction signer override; use explicit machine approval
         #[arg(long, value_name = "PATH", hide = true)]
@@ -207,6 +341,21 @@ pub enum Command {
         #[arg(last = true, allow_hyphen_values = true, value_name = "HARNESS_ARGS")]
         harness_args: Vec<String>,
     },
+    /// List conversations of this host's person and agents
+    Conversations {
+        /// Include closed conversations
+        #[arg(long, conflicts_with = "invites")]
+        all: bool,
+        /// List pending invites to conversations
+        #[arg(long)]
+        invites: bool,
+        /// Print the daemon's answer as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start, send in, and show conversations
+    #[command(subcommand)]
+    Conversation(ConversationCommand),
     /// Show the agents you can reach, your own, and who can reach yours
     Agents {
         #[arg(long, value_name = "ID")]
@@ -785,10 +934,23 @@ pub enum PersonCommand {
     },
 }
 
+/// `network reinvite OLD NEW` (spec 14.2).
+#[derive(Debug, clap::Args)]
+pub struct ReinviteArgs {
+    /// The legacy or root-split network
+    pub old: String,
+    /// A coordinator-free network this host is a current member of
+    pub new: String,
+    /// When the invites expire (RFC 3339), 60 seconds to 24 hours ahead
+    #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
+    pub expires_at: Option<String>,
+    /// How long the invites last, 60 seconds to 24 hours; default 24h
+    #[arg(long, value_name = "DURATION")]
+    pub expires_in: Option<String>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
-    /// Review and complete an explicit all-host migration without a coordinator.
-    Migrate(crate::decentralized_migration_cli::MigrationArgs),
     /// Review an exact current-root feature recovery snapshot and target
     Repair(crate::link_cli::RepairArgs),
     /// Review and enable approved machine linking with the current root
@@ -833,17 +995,19 @@ pub enum NetworkCommand {
         #[arg(long)]
         untrusted: bool,
     },
-    /// Produce a private five-minute contact introduction; grants no membership
+    /// Print a private invite code (psi2-) for a new member; it lasts 1 hour
+    /// by default and grants no membership by itself
     Invite {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
+        /// The new member's label
         #[arg(long)]
         member: String,
-        /// Unsupported expiration override; introductions last five minutes
-        #[arg(long, value_name = "TIME", hide = true)]
+        /// When the invite expires (RFC 3339), 60 seconds to 24 hours ahead
+        #[arg(long, value_name = "TIME", conflicts_with = "expires_in")]
         expires_at: Option<String>,
-        /// Unsupported lifetime override; introductions last five minutes
-        #[arg(long, value_name = "DURATION", hide = true)]
+        /// How long the invite lasts, 60 seconds to 24 hours (for example 2h); default 1h
+        #[arg(long, value_name = "DURATION")]
         expires_in: Option<String>,
         /// Unsupported host-only introduction
         #[arg(long, hide = true)]
@@ -938,6 +1102,9 @@ pub enum NetworkCommand {
         /// Exact owner provider; auto uses only this host's selected provider
         #[arg(long, default_value = "auto")]
         signer: String,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Remove a person and end its bindings (administrator only)
     RemovePerson {
@@ -955,6 +1122,9 @@ pub enum NetworkCommand {
         /// The external root key, used only when explicitly selected
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// List a network's persons and the hosts bound to them
     Persons { id: Option<String> },
@@ -980,6 +1150,9 @@ pub enum NetworkCommand {
         /// The external root key, used only when explicitly selected
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Revoke an invite, and any host that joined with it (administrator only)
     RevokeInvite {
@@ -994,6 +1167,9 @@ pub enum NetworkCommand {
     },
     /// Leave a network; takes effect locally even if coordination is down
     Leave { id: String },
+    /// Print an invite into NEW for each member machine of OLD, a legacy
+    /// network or one frozen by a root split; invites last 24 hours by default
+    Reinvite(ReinviteArgs),
     /// Rotate the root after reviewing the exact finite authority to retain
     RotateRoot {
         id: String,
@@ -1004,25 +1180,6 @@ pub enum NetworkCommand {
         /// identity) or unencrypted private key file
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
-        /// Retain exactly these statement IDs; repeat for every needed contribution
-        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
-        retain: Vec<String>,
-        /// Explicitly retain no finite authority
-        #[arg(long, conflicts_with = "retain")]
-        retain_none: bool,
-    },
-    /// Resolve every known root fork using each branch's exact signing key
-    ResolveRoot {
-        id: String,
-        #[arg(long, value_name = "PATH")]
-        new_root_key: PathBuf,
-        /// Existing branch key; repeat for every externally owned branch
-        #[arg(long, value_name = "PATH")]
-        root_key: Vec<PathBuf>,
-        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
-        retain: Vec<String>,
-        #[arg(long, conflicts_with = "retain")]
-        retain_none: bool,
     },
     /// Make a person an administrator (root only)
     DelegateAdmin {
@@ -1043,6 +1200,9 @@ pub enum NetworkCommand {
         /// Resolve exactly these remembered authority barriers or fork heads
         #[arg(long, value_name = "DS")]
         resolve: Vec<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Remove an administrator, permanently (root only)
     RemoveAdmin {
@@ -1066,6 +1226,9 @@ pub enum NetworkCommand {
         /// Exact administrator statement to withdraw when more than one is known
         #[arg(long, value_name = "DS")]
         statement: Option<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
     /// Define groups of persons (administrator or root)
     #[command(subcommand)]
@@ -1112,6 +1275,9 @@ pub enum GroupCommand {
         /// Exact finite authority deadline
         #[arg(long, value_name = "TIME")]
         not_after: Option<String>,
+        /// Approve the exact displayed typed action without a prompt
+        #[arg(long)]
+        approve: bool,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -1561,7 +1727,7 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 20] = [
+pub const MAIN_COMMANDS: [&str; 22] = [
     "status",
     "up",
     "install",
@@ -1573,6 +1739,8 @@ pub const MAIN_COMMANDS: [&str; 20] = [
     "agents",
     "send",
     "task",
+    "conversations",
+    "conversation",
     "allow",
     "deny",
     "block",
@@ -1645,7 +1813,10 @@ fn about(command: &clap::Command, path: &str) -> String {
         .unwrap_or_default()
 }
 fn leaves(command: &clap::Command, prefix: &str, entries: &mut Vec<(String, String)>) {
-    for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
+    for sub in command
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+    {
         let path = format!("{prefix}{}", sub.get_name());
         if sub.has_subcommands() {
             // A group that also runs by itself, like `task TARGET TEXT`.
@@ -1784,13 +1955,12 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)
+            | Self::Conversations { .. }
+            | Self::Conversation(_)
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))
-            | Self::Network(NetworkCommand::Migrate(_))
-            | Self::Network(
-                NetworkCommand::RotateRoot { .. } | NetworkCommand::ResolveRoot { .. },
-            )
+            | Self::Network(NetworkCommand::RotateRoot { .. })
             | Self::Run { .. }
             | Self::Status { .. }
             | Self::Install { .. }
@@ -1805,6 +1975,7 @@ impl Command {
             | Self::Person(_)
             | Self::Join { .. }
             | Self::Invite { .. }
+            | Self::Network(NetworkCommand::Reinvite(_))
             | Self::Allow { .. }
             | Self::Deny { .. }
             | Self::Sources(_)
@@ -2359,7 +2530,7 @@ fn with_expiry(mut body: Value, expires_at: Option<String>) -> Value {
     body
 }
 fn after(duration: TimeDelta) -> String {
-    (Utc::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true)
+    (peerspan_host::clock::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 /// A network ID the CLI filled in before the request; see `network_mut`.
 pub fn resolved(network: &Option<String>) -> &str {
@@ -2476,7 +2647,7 @@ mod tests {
         };
         let within = |value: &Value, key: &str, expected: TimeDelta| {
             let at = chrono::DateTime::parse_from_rfc3339(value[key].as_str().unwrap()).unwrap();
-            let off = at.with_timezone(&Utc) - (Utc::now() + expected);
+            let off = at.with_timezone(&chrono::Utc) - (peerspan_host::clock::now() + expected);
             assert!(off.abs() < TimeDelta::seconds(5), "{key}: {value}");
         };
         let grant = ["grant", "create", "--peer", "host_x", "--agent", "agent_y"];
@@ -2571,7 +2742,13 @@ mod tests {
                 .iter()
                 .chain(&["grant create", "network group set", "activity", "info"])
         {
-            assert!(advanced.iter().any(|p| p == path), "{path}");
+            // A group the root help names by itself lists its leaves here.
+            assert!(
+                advanced
+                    .iter()
+                    .any(|p| p == path || p.starts_with(&format!("{path} "))),
+                "{path}"
+            );
         }
     }
 

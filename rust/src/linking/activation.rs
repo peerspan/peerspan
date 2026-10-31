@@ -21,7 +21,6 @@ mod records;
 pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 #[path = "policy.rs"]
 mod policy;
-pub(crate) use policy::verify_stored_migration_access;
 pub use policy::{
     AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
     PolicyAccess, PolicyHighWater, verify_access_state,

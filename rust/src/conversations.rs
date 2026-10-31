@@ -1,0 +1,6095 @@
+//! Conversations, PRs C1 to C4 (docs/conversations-contract.md): people
+//! and agents start conversations, send, change membership, invite
+//! people, who join on one of their hosts, and catch up (`sync`).
+//!
+//! Each host keeps the messages it authored and those it accepted. The home
+//! host orders roster versions; messages go directly from the author's host
+//! to each target's host, with one durable target record per recipient.
+use crate::{
+    adapter_connection::authority,
+    api::{blocking, decode},
+    directory::coded,
+    model::Error,
+    peer_store::{Authz, Origin, json, one_authorization, valid_id},
+    policy::{PolicyRef, RequestAuthorization, SelfRef},
+    retry::{Dispatcher, backoff, due_at, jitter},
+    store::{Store, new_id, now, rfc3339},
+};
+use axum::{
+    Extension, Json, Router,
+    body::Bytes,
+    extract::{
+        Path, Query, State,
+        rejection::{BytesRejection, QueryRejection},
+    },
+    http::{HeaderMap, StatusCode},
+    routing::{get, post},
+};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Mutex, OnceLock},
+    time::Duration,
+};
+use tokio::sync::watch;
+
+mod context;
+mod sync;
+mod tools;
+pub(crate) use context::{mark_seen_id, return_notifications};
+
+/// Every table of feature slice 1 (proposal, Persistence), added at once.
+pub(crate) const SCHEMA: &str = r#"
+CREATE TABLE conversations (id TEXT PRIMARY KEY, home_host TEXT NOT NULL, roster_version INTEGER NOT NULL, state TEXT NOT NULL, record TEXT NOT NULL);
+CREATE TABLE conversation_messages (conversation_id TEXT NOT NULL REFERENCES conversations(id), message_id TEXT NOT NULL, author TEXT NOT NULL, seq INTEGER NOT NULL, clock INTEGER NOT NULL, local_seq INTEGER NOT NULL UNIQUE, record TEXT NOT NULL, PRIMARY KEY(conversation_id, message_id), UNIQUE(conversation_id, author, seq));
+CREATE INDEX conversation_messages_order ON conversation_messages(conversation_id, clock, author, seq);
+CREATE TABLE conversation_targets (conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target TEXT NOT NULL, direction TEXT NOT NULL, peer TEXT NOT NULL, prev_seq INTEGER, state TEXT NOT NULL, next_attempt_at TEXT, record TEXT NOT NULL, PRIMARY KEY(conversation_id, message_id, target, direction));
+CREATE TABLE conversation_invites (conversation_id TEXT NOT NULL, person_id TEXT NOT NULL, home_host TEXT NOT NULL, expires_at TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(conversation_id, person_id));
+CREATE TABLE conversation_roster_outbound (conversation_id TEXT NOT NULL, peer TEXT NOT NULL, kind TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(conversation_id, peer, kind));
+CREATE TABLE conversation_notifications (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, kind TEXT NOT NULL, message_id TEXT, agent_id TEXT NOT NULL REFERENCES agents(id), session_id TEXT REFERENCES sessions(id), record TEXT NOT NULL, seen_at TEXT, redeliveries INTEGER NOT NULL DEFAULT 0, returned_at TEXT);
+CREATE TABLE conversation_reads (conversation_id TEXT NOT NULL, participant TEXT NOT NULL, read_through INTEGER NOT NULL, PRIMARY KEY(conversation_id, participant));
+CREATE TABLE conversation_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, record TEXT NOT NULL);
+PRAGMA user_version = 24;
+"#;
+
+const MAX_CONTENT: usize = 65_536;
+const MAX_TITLE: usize = 200;
+const MAX_NOTE: usize = 4_096;
+const START_WAIT: Duration = Duration::from_secs(15);
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(8);
+const WINDOW_MESSAGES: usize = 10;
+const WINDOW_BYTES: usize = 16_384;
+const WINDOW_CUT: usize = 2_048;
+/// The largest `seq`, `clock` or `roster_version` accepted: 2^53 - 1, exact
+/// in every JSON reader.
+const MAX_COUNTER: i64 = (1 << 53) - 1;
+/// How far a received clock may run ahead of the highest one held.
+const MAX_CLOCK_JUMP: i64 = 1 << 20;
+/// Participants `inviting` or `joined` in one conversation, the creator included.
+const MAX_PARTICIPANTS: usize = 16;
+/// Open conversations one local participant may be joined in.
+const MAX_OPEN: usize = 200;
+/// How long an invite may stay unanswered before home drops it.
+const INVITE_LIMIT_SECONDS: i64 = 600;
+const CLOSED: &str = "This conversation is closed.";
+const NOT_CREATOR: &str = "Only the conversation's creator can add, remove, or close.";
+const FULL: &str = "A conversation has at most 16 participants.";
+const OPEN_LIMIT: &str = "A participant can be in at most 200 open conversations.";
+/// How long a person invite stays pending.
+const PERSON_INVITE_SECONDS: i64 = 7 * 24 * 3600;
+/// Pending person invites one sender host may have held on this host.
+const MAX_PENDING_FROM_HOST: i64 = 20;
+const NO_INVITE: &str = "No pending invite to that conversation on this host.";
+const OTHER_HOST: &str = "That person already takes part from another host.";
+
+// ---------------------------------------------------------------- shapes
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Participant {
+    pub id: Option<String>,
+    pub kind: String,
+    pub host_id: Option<String>,
+    pub person_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub name: Option<String>,
+    pub state: String,
+    pub added_by: Option<String>,
+    pub added_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Roster {
+    pub conversation_id: String,
+    pub home_host_id: String,
+    pub version: i64,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub title: Option<String>,
+    pub state: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub participants: Vec<Participant>,
+    pub departed: Vec<Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub about: Option<About>,
+}
+/// The task a conversation is about: shown only, grants nothing (C6).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct About {
+    pub peer_host_id: String,
+    pub task_id: String,
+}
+impl Roster {
+    fn joined(&self, id: &str) -> Option<&Participant> {
+        self.participants
+            .iter()
+            .find(|p| p.id.as_deref() == Some(id) && p.state == "joined")
+    }
+    fn ever(&self, id: &str) -> bool {
+        self.participants
+            .iter()
+            .any(|p| p.id.as_deref() == Some(id))
+            || self.departed.iter().any(|d| d["id"].as_str() == Some(id))
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Message {
+    pub message_id: String,
+    pub conversation_id: String,
+    pub author: String,
+    pub seq: i64,
+    pub clock: i64,
+    pub roster_version: i64,
+    pub sent_at: String,
+    pub content: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub addressed_to: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub origin: Option<Origin>,
+}
+
+/// A message as this host holds it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Stored {
+    message: Message,
+    received_at: String,
+    sender_host: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InviteTarget {
+    pub kind: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub agent_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub person_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InviteRequest {
+    pub conversation_id: String,
+    pub roster: Roster,
+    pub target: InviteTarget,
+    pub adder: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub note: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub origin: Option<Origin>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub grant_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub policy: Option<PolicyRef>,
+    #[serde(
+        rename = "self",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub self_access: Option<SelfRef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MessageRequest {
+    pub message: Message,
+    pub target: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub prev_seq: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub grant_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub policy: Option<PolicyRef>,
+    #[serde(
+        rename = "self",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub self_access: Option<SelfRef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Receipt {
+    pub message_id: String,
+    pub target: String,
+    pub receiver_host_id: String,
+    pub accepted_at: String,
+}
+
+/// An inbound target record: what was accepted, for deduplication.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Inbound {
+    message: Message,
+    target: String,
+    prev_seq: Option<i64>,
+    receipt: Receipt,
+}
+
+/// An outbound target record: one recipient's delivery state.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Outbound {
+    participant: String,
+    state: String,
+    code: Option<String>,
+    error: Option<String>,
+    attempts: u32,
+    next_attempt_at: Option<String>,
+}
+
+/// An invite the home host sends until it has a final answer.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Invite {
+    target: String,
+    participant: String,
+    agent_id: String,
+    adder: String,
+    state: String,
+    code: Option<String>,
+    error: Option<String>,
+    attempts: u32,
+    next_attempt_at: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    /// The highest roster version an attempt of this invite offered: the
+    /// target's host may hold that roster, so home never commits a
+    /// different roster at that version.
+    #[serde(default)]
+    offered: i64,
+    /// The target's `added_at`: which admission this invite is for, so a
+    /// late answer to a replaced invite is not applied to its successor.
+    #[serde(default)]
+    added_at: String,
+    /// For a person invite, the invited person; `agent_id` is then empty.
+    #[serde(default)]
+    person_id: Option<String>,
+}
+
+/// A person invite held on one of the person's hosts (contract C3,
+/// Pending invites), kept after it ends so repeats are recognised.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Pending {
+    roster: Roster,
+    adder: String,
+    note: Option<String>,
+    added_at: String,
+    expires_at: String,
+    /// `pending`, `joined`, `declined` or `dropped`.
+    state: String,
+    /// A join was sent to home and has had no final answer.
+    #[serde(default)]
+    joining: bool,
+}
+impl Pending {
+    fn current(&self) -> bool {
+        self.state == "pending"
+            && crate::membership::time(&self.expires_at).is_ok_and(|t| t > crate::clock::now())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Notification {
+    id: String,
+    kind: String,
+    conversation_id: String,
+    message_id: Option<String>,
+    session_id: Option<String>,
+    created_at: String,
+    claimed_at: Option<String>,
+    forwarded_at: Option<String>,
+    /// For `roster` notifications: `{change, by, by_label, note, roster_version}`.
+    #[serde(default)]
+    change: Option<Value>,
+    /// For `undelivered` notifications: the target view and a preview.
+    #[serde(default)]
+    undelivered: Option<Value>,
+    /// The authorization holding it, since it was claimed.
+    #[serde(default)]
+    adapter_id: Option<String>,
+    #[serde(default)]
+    blocked_at: Option<String>,
+    #[serde(default)]
+    exhausted_at: Option<String>,
+    /// The notifications a catch-up claimed together with this one.
+    #[serde(default)]
+    coalesced: Vec<String>,
+}
+
+/// Which local participants this host admitted itself (contract C2,
+/// Admission). A peer's roster never makes a local participant joined.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct LocalState {
+    /// Admitted local participants, with the `added_at` of the admission.
+    #[serde(default)]
+    admitted: BTreeMap<String, String>,
+    /// Ended admissions (left, removed, or dropped), with their `added_at`.
+    #[serde(default)]
+    ended: BTreeMap<String, String>,
+    /// Local participants that left on this host, with when.
+    #[serde(default)]
+    left: BTreeMap<String, String>,
+    /// The last name each agent participant had in a roster, for labels
+    /// of departed participants.
+    #[serde(default)]
+    names: BTreeMap<String, String>,
+    /// When this host first stored the conversation as closed (contract C4,
+    /// After close).
+    #[serde(default)]
+    closed_at: Option<String>,
+    /// On home: the owner ran `conversation forget`; only the roster stays.
+    #[serde(default)]
+    forgotten: bool,
+}
+
+/// A conversation as this host holds it: home's roster and the local state.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Held {
+    roster: Roster,
+    #[serde(default)]
+    local: LocalState,
+}
+impl Held {
+    fn joined_here(&self, id: &str) -> bool {
+        self.local.admitted.contains_key(id) && !self.local.left.contains_key(id)
+    }
+    /// Joined: a local participant joined here, a remote one per the roster.
+    fn joined(&self, own: &str, id: &str) -> bool {
+        match participant_parts(id) {
+            Some((_, host, _)) if host == own => self.joined_here(id),
+            Some(_) => self.roster.joined(id).is_some(),
+            None => false,
+        }
+    }
+    fn admit(&mut self, id: &str, added_at: &str) {
+        self.local.admitted.insert(id.into(), added_at.into());
+        self.local.ended.remove(id);
+        self.local.left.remove(id);
+    }
+    fn end(&mut self, id: &str) {
+        if let Some(at) = self.local.admitted.remove(id) {
+            self.local.ended.insert(id.into(), at);
+        }
+    }
+    /// Participants `inviting` or `joined`.
+    fn count(&self) -> usize {
+        self.roster.participants.len()
+    }
+}
+
+/// A roster push home sends to one host until it holds that version.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Push {
+    version: i64,
+    state: String,
+    attempts: u32,
+    error: Option<String>,
+    next_attempt_at: Option<String>,
+    /// When this push began: it stops 24 hours later (contract C4).
+    #[serde(default)]
+    created_at: Option<String>,
+}
+
+/// A leave's peer body, with the declined invite's `added_at` it names.
+type LeaveRequestBody = (Vec<u8>, Option<String>);
+
+/// A leave a participant's host sends to home until home answers.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Leave {
+    participant: String,
+    state: String,
+    attempts: u32,
+    error: Option<String>,
+    next_attempt_at: Option<String>,
+    /// For a decline, the declined invite's `added_at`.
+    #[serde(default)]
+    added_at: Option<String>,
+}
+
+// ---------------------------------------------------------------- helpers
+
+fn coded_error(status: u16, code: &'static str, message: &str) -> Error {
+    coded(status, code, message.into(), json!({}))
+}
+fn not_participant() -> Error {
+    coded_error(
+        403,
+        "not_participant",
+        "This participant is not in that conversation.",
+    )
+}
+fn not_bound() -> Error {
+    coded_error(
+        409,
+        "not_bound",
+        "This host is not bound to a person; conversations need one (peerspan join).",
+    )
+}
+fn unavailable(message: &str) -> Error {
+    Error::Unavailable(message.into())
+}
+fn invalid(message: &str) -> Error {
+    Error::Invalid(message.into())
+}
+pub(crate) fn valid_conversation_id(id: &str) -> bool {
+    valid_id(id, "conv", 16)
+}
+pub(crate) fn valid_message_id(id: &str) -> bool {
+    valid_id(id, "cmsg", 16)
+}
+fn valid_title(title: &str) -> bool {
+    title.len() <= MAX_TITLE && !title.chars().any(char::is_control)
+}
+/// A participant ID's kind and host: `agent:HOST/AGENT` or `person:HOST/PERSON`.
+fn participant_parts(id: &str) -> Option<(&'static str, &str, &str)> {
+    let (kind, rest) = match id.strip_prefix("agent:") {
+        Some(rest) => ("agent", rest),
+        None => ("person", id.strip_prefix("person:")?),
+    };
+    let (host, local) = rest.split_once('/')?;
+    let local_ok = if kind == "agent" {
+        valid_id(local, "agent", 16)
+    } else {
+        crate::policy::person_id_shape(local)
+    };
+    (valid_id(host, "host", 32) && local_ok).then_some((kind, host, local))
+}
+/// Whether every participant's fields agree with its ID, IDs are unique
+/// across `participants` and `departed`, and the states are known.
+fn consistent(roster: &Roster) -> bool {
+    let mut seen = BTreeSet::new();
+    let departed_ok = roster.departed.iter().all(|d| {
+        let Some(object) = d.as_object() else {
+            return false;
+        };
+        let text = |k: &str| object.get(k).and_then(Value::as_str);
+        let (Some(id), Some(kind), Some(reason), Some(at)) =
+            (text("id"), text("kind"), text("reason"), text("at"))
+        else {
+            return false;
+        };
+        object.len() == 4
+            && participant_parts(id).is_some_and(|(k, _, _)| k == kind)
+            && matches!(reason, "left" | "removed" | "unanswered")
+            && chrono::DateTime::parse_from_rfc3339(at).is_ok()
+            && seen.insert(id.to_owned())
+    });
+    let mut persons = BTreeSet::new();
+    departed_ok
+        && roster.about.as_ref().is_none_or(tools::valid_about)
+        && matches!(&roster.state[..], "open" | "closed")
+        && participant_parts(&roster.created_by).is_some()
+        && roster.participants.iter().all(|p| {
+            if p.kind == "person"
+                && let Some(person) = &p.person_id
+                && !persons.insert(person.clone())
+            {
+                return false;
+            }
+            let Some(id) = p.id.as_deref() else {
+                // A person not yet joined (contract C3).
+                return p.kind == "person"
+                    && p.host_id.is_none()
+                    && p.agent_id.is_none()
+                    && p.name.is_none()
+                    && p.person_id
+                        .as_deref()
+                        .is_some_and(crate::policy::person_id_shape)
+                    && matches!(&p.state[..], "inviting" | "invited")
+                    && chrono::DateTime::parse_from_rfc3339(&p.added_at).is_ok();
+            };
+            let Some((kind, host, local)) = participant_parts(id) else {
+                return false;
+            };
+            let fields = if kind == "agent" {
+                p.agent_id.as_deref() == Some(local) && p.name.is_some()
+            } else {
+                p.agent_id.is_none() && p.person_id.as_deref() == Some(local)
+            };
+            let state_ok = if kind == "agent" {
+                matches!(&p.state[..], "inviting" | "joined")
+            } else {
+                p.state == "joined"
+            };
+            seen.insert(id.to_owned())
+                && p.kind == kind
+                && p.host_id.as_deref() == Some(host)
+                && fields
+                && state_ok
+        })
+}
+fn valid_content(content: &str) -> bool {
+    !content.is_empty() && content.len() <= MAX_CONTENT
+}
+/// A stored conversation record: `{roster, local}`, or a bare roster as C1
+/// stored it, whose joined local participants this host had admitted.
+fn parse_held(text: String, own: &str) -> Result<Held, Error> {
+    let value: Value = serde_json::from_str(&text)?;
+    if value.get("roster").is_some() {
+        return Ok(serde_json::from_value(value)?);
+    }
+    let roster: Roster = serde_json::from_value(value)?;
+    let mut local = LocalState::default();
+    for p in &roster.participants {
+        if let Some(id) = &p.id
+            && p.host_id.as_deref() == Some(own)
+            && p.state == "joined"
+        {
+            local.admitted.insert(id.clone(), p.added_at.clone());
+        }
+    }
+    Ok(Held { roster, local })
+}
+fn save_held(conn: &Connection, held: &Held) -> Result<(), Error> {
+    let mut held = held.clone();
+    for p in &held.roster.participants {
+        if let (Some(id), Some(name)) = (&p.id, &p.name) {
+            held.local.names.insert(id.clone(), name.clone());
+        }
+    }
+    if held.roster.state == "closed" && held.local.closed_at.is_none() {
+        held.local.closed_at = Some(now());
+    }
+    let held = &held;
+    let roster = &held.roster;
+    let before: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT roster_version, state FROM conversations WHERE id = ?1",
+            [&roster.conversation_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let id = &roster.conversation_id;
+    if before.as_ref().is_none_or(|b| roster.version > b.0) {
+        tools::log_event(conn, "roster_changed", id, None, None)?;
+        // Only home admits a conversation's creator before storing it.
+        let kind = if before.as_ref().is_none_or(|b| b.1 != "closed") && roster.state == "closed" {
+            "conversation.closed"
+        } else if before.is_none() && held.local.admitted.contains_key(&roster.created_by) {
+            "conversation.created"
+        } else {
+            "conversation.roster_changed"
+        };
+        tools::activity(conn, kind, id)?;
+    }
+    conn.execute(
+        "INSERT INTO conversations (id, home_host, roster_version, state, record) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET roster_version = excluded.roster_version, state = excluded.state, record = excluded.record",
+        params![
+            roster.conversation_id,
+            roster.home_host_id,
+            roster.version,
+            roster.state,
+            serde_json::to_string(held)?
+        ],
+    )?;
+    Ok(())
+}
+fn closed() -> Error {
+    coded_error(409, "closed", CLOSED)
+}
+fn not_creator() -> Error {
+    coded_error(403, "not_creator", NOT_CREATOR)
+}
+fn departed_entry(id: &str, reason: &str) -> Value {
+    let kind = participant_parts(id).map(|p| p.0).unwrap_or("agent");
+    json!({"id": id, "kind": kind, "reason": reason, "at": now()})
+}
+/// The person of an invited-person form `person:PERSON_ID` (no host).
+fn unjoined_person(id: &str) -> Option<&str> {
+    id.strip_prefix("person:")
+        .filter(|p| crate::policy::person_id_shape(p))
+}
+/// The entry of a person not yet joined, `inviting` or `invited`.
+fn unjoined_entry<'a>(roster: &'a Roster, person: &str) -> Option<&'a Participant> {
+    roster
+        .participants
+        .iter()
+        .find(|p| p.id.is_none() && p.kind == "person" && p.person_id.as_deref() == Some(person))
+}
+/// Whether `roster` lists `person` as not yet joined with this `added_at`.
+fn lists_invited(roster: &Roster, person: &str, added_at: &str) -> bool {
+    roster.state == "open" && unjoined_entry(roster, person).is_some_and(|p| p.added_at == added_at)
+}
+fn expires(added_at: &str) -> Result<String, Error> {
+    let at = crate::membership::time(added_at).map_err(|_| invalid("invalid added_at"))?;
+    Ok(rfc3339(
+        at + chrono::TimeDelta::seconds(PERSON_INVITE_SECONDS),
+    ))
+}
+fn no_invite() -> Error {
+    coded_error(404, "not_found", NO_INVITE)
+}
+fn cut(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+fn later(seconds: i64) -> String {
+    rfc3339(crate::clock::now() + chrono::TimeDelta::seconds(seconds))
+}
+
+/// One attempt's outcome, as the sender classifies a peer answer.
+enum Outcome {
+    /// A 200 answer, with its body.
+    Answer(Vec<u8>),
+    /// A final refusal: state, code and text.
+    Final(&'static str, &'static str, String),
+    /// Not final: retried.
+    Retry(String),
+}
+fn classify(status: u16, body: &[u8], peer: &str) -> Outcome {
+    let code = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|v| v["code"].as_str().map(str::to_owned))
+        .unwrap_or_default();
+    match status {
+        200 => Outcome::Answer(body.to_vec()),
+        400 => Outcome::Final(
+            "refused",
+            "invalid",
+            format!("{peer} refused it as invalid"),
+        ),
+        403 if code == "not_participant" => Outcome::Final(
+            "refused",
+            "not_participant",
+            format!("{peer} holds that participant as not in the conversation"),
+        ),
+        403 => Outcome::Final(
+            "refused",
+            "not_authorized",
+            format!("{peer} did not authorize it"),
+        ),
+        409 if code == "closed" => Outcome::Final(
+            "refused",
+            "closed",
+            format!("{peer} holds the conversation as closed"),
+        ),
+        429 => Outcome::Final(
+            "refused",
+            "limit",
+            format!("{peer} refused it over a limit"),
+        ),
+        409 => Outcome::Final(
+            "refused",
+            "conflict",
+            format!("{peer} holds a different message with that ID"),
+        ),
+        404 => Outcome::Final(
+            "unsupported",
+            "unsupported",
+            format!("{peer} is running a Peerspan without conversations"),
+        ),
+        other => Outcome::Retry(format!("peer returned HTTP {other}")),
+    }
+}
+
+// ---------------------------------------------------------------- store
+
+impl Store {
+    /// This host's bound person, from the first network that binds it.
+    fn conversation_person(&self, conn: &Connection) -> Result<Option<String>, Error> {
+        Ok(self
+            .own_members(conn)?
+            .into_iter()
+            .find_map(|(_, m)| m.person_id))
+    }
+    fn person_participant(&self, conn: &Connection) -> Result<String, Error> {
+        let person = self.conversation_person(conn)?.ok_or_else(not_bound)?;
+        Ok(format!("person:{}/{person}", self.identity().id))
+    }
+    /// A participant's label, derived from this host's verified records.
+    fn label(&self, conn: &Connection, p: &Participant) -> Result<String, Error> {
+        if p.id.is_none()
+            && p.kind == "person"
+            && let Some(person) = &p.person_id
+        {
+            return self.person_label(conn, person);
+        }
+        // The host comes from the participant ID, which messages are
+        // checked against, never from the roster's other fields.
+        let host = match p.id.as_deref().and_then(participant_parts) {
+            Some((_, host, _)) => host.to_owned(),
+            None => p.host_id.clone().unwrap_or_default(),
+        };
+        let person = crate::adapter::sender_person(self, conn, &host)?.1;
+        let base = person.unwrap_or(host);
+        Ok(match (&p.kind[..], &p.name) {
+            ("agent", Some(name)) => format!("{base}/{name}"),
+            ("agent", None) => format!("{base}/{}", p.agent_id.clone().unwrap_or_default()),
+            _ => base,
+        })
+    }
+    /// A person's member label in this host's verified records, or its ID.
+    fn person_label(&self, conn: &Connection, person: &str) -> Result<String, Error> {
+        for network in self.product_network_ids(conn)? {
+            if let Some(p) = self
+                .product_persons(conn, &network)?
+                .into_iter()
+                .find(|p| p.person_id == person)
+            {
+                return Ok(p.member);
+            }
+        }
+        Ok(person.to_owned())
+    }
+    fn label_of(&self, conn: &Connection, roster: &Roster, id: &str) -> Result<String, Error> {
+        if let Some(person) = unjoined_person(id) {
+            return self.person_label(conn, person);
+        }
+        if let Some(p) = roster
+            .participants
+            .iter()
+            .find(|p| p.id.as_deref() == Some(id))
+        {
+            return self.label(conn, p);
+        }
+        let Some((kind, host, local)) = participant_parts(id) else {
+            return Ok(id.to_owned());
+        };
+        let name = self
+            .held_opt(conn, &roster.conversation_id)?
+            .and_then(|h| h.local.names.get(id).cloned());
+        let p = Participant {
+            id: Some(id.into()),
+            kind: kind.into(),
+            host_id: Some(host.into()),
+            person_id: None,
+            agent_id: (kind == "agent").then(|| local.to_owned()),
+            name,
+            state: "joined".into(),
+            added_by: None,
+            added_at: String::new(),
+        };
+        self.label(conn, &p)
+    }
+    fn local_participant(&self, id: &str) -> bool {
+        participant_parts(id).is_some_and(|(_, host, _)| host == self.identity().id)
+    }
+    fn held_opt(&self, conn: &Connection, id: &str) -> Result<Option<Held>, Error> {
+        let record: Option<String> = conn
+            .query_row(
+                "SELECT record FROM conversations WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let own = self.identity().id;
+        record.map(|r| parse_held(r, &own)).transpose()
+    }
+    fn held(&self, conn: &Connection, id: &str) -> Result<Held, Error> {
+        self.held_opt(conn, id)?.ok_or(Error::NotFound)
+    }
+    fn roster(&self, conn: &Connection, id: &str) -> Result<Roster, Error> {
+        Ok(self.held(conn, id)?.roster)
+    }
+    /// Every conversation this host holds.
+    fn all_held(&self, conn: &Connection) -> Result<Vec<Held>, Error> {
+        let own = self.identity().id;
+        let mut statement = conn.prepare("SELECT record FROM conversations ORDER BY rowid")?;
+        let rows = statement
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(|r| parse_held(r, &own)).collect()
+    }
+    /// Open conversations a local participant is joined in here.
+    fn open_count(&self, conn: &Connection, participant: &str) -> Result<usize, Error> {
+        Ok(self
+            .all_held(conn)?
+            .iter()
+            .filter(|h| h.roster.state == "open" && h.joined_here(participant))
+            .count())
+    }
+    /// The participants and departures this host shows: home's roster, with
+    /// its own participants as it holds them (contract C2, Admission).
+    fn shown(&self, held: &Held) -> (Vec<Participant>, Vec<Value>) {
+        let mut participants = Vec::new();
+        let mut departed = held.roster.departed.clone();
+        for p in &held.roster.participants {
+            let id = p.id.clone().unwrap_or_default();
+            if !self.local_participant(&id) {
+                participants.push(p.clone());
+            } else if held.joined_here(&id) {
+                let mut p = p.clone();
+                p.state = "joined".into();
+                participants.push(p);
+            } else if let Some(at) = held.local.left.get(&id) {
+                let mut d = departed_entry(&id, "left");
+                d["at"] = json!(at);
+                departed.push(d);
+            } else if held.local.ended.contains_key(&id) {
+                departed.push(departed_entry(&id, "removed"));
+            } else {
+                participants.push(p.clone());
+            }
+        }
+        (participants, departed)
+    }
+    /// The participant a local read is for: the given one, which must be on
+    /// this host and in the roster, or this host's person.
+    fn reader(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        participant: Option<String>,
+    ) -> Result<String, Error> {
+        let reader = match participant {
+            Some(p) => {
+                if !self.local_participant(&p) {
+                    return Err(invalid("participant must be a local participant ID"));
+                }
+                p
+            }
+            None => self.person_participant(conn)?,
+        };
+        if !roster.ever(&reader) {
+            return Err(not_participant());
+        }
+        Ok(reader)
+    }
+
+    /// The messages `reader` may see, in display order.
+    fn visible(&self, conn: &Connection, id: &str, reader: &str) -> Result<Vec<Stored>, Error> {
+        let mut statement = conn.prepare(
+            "SELECT m.record FROM conversation_messages m WHERE m.conversation_id = ?1 AND (m.author = ?2 OR EXISTS (SELECT 1 FROM conversation_targets t WHERE t.conversation_id = m.conversation_id AND t.message_id = m.message_id AND t.direction = 'in' AND t.state = 'accepted' AND t.target = ?2)) ORDER BY m.clock, m.author, m.seq",
+        )?;
+        let rows = statement
+            .query_map(params![id, reader], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let messages: Vec<Stored> = rows.into_iter().map(json).collect::<Result<_, _>>()?;
+        match participant_parts(reader) {
+            Some(("agent", host, agent)) if host == self.identity().id => {
+                self.visible_to_agent(conn, id, reader, agent, messages)
+            }
+            _ => Ok(messages),
+        }
+    }
+    fn targets(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        message: &str,
+    ) -> Result<Vec<Value>, Error> {
+        let mut statement = conn.prepare(
+            "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND direction = 'out' ORDER BY rowid",
+        )?;
+        let rows = statement
+            .query_map(params![roster.conversation_id, message], |r| {
+                r.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|text| {
+                let o: Outbound = json(text)?;
+                Ok(json!({
+                    "participant": o.participant,
+                    "label": self.label_of(conn, roster, &o.participant)?,
+                    "state": o.state,
+                    "code": o.code,
+                    "error": o.error,
+                    "attempts": o.attempts,
+                }))
+            })
+            .collect()
+    }
+    fn author_kind(author: &str) -> &'static str {
+        if author.starts_with("agent:") {
+            "agent"
+        } else {
+            "person"
+        }
+    }
+    fn message_view(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        stored: &Stored,
+        reader: &str,
+    ) -> Result<Value, Error> {
+        let m = &stored.message;
+        let mine = m.author == reader;
+        let addressed_to = m.addressed_to.clone().unwrap_or_default();
+        Ok(json!({
+            "message_id": m.message_id,
+            "conversation_id": m.conversation_id,
+            "author": m.author,
+            "author_label": self.label_of(conn, roster, &m.author)?,
+            "author_kind": Self::author_kind(&m.author),
+            "seq": m.seq,
+            "clock": m.clock,
+            "roster_version": m.roster_version,
+            "sent_at": m.sent_at,
+            "received_at": stored.received_at,
+            "content": m.content,
+            "addressed_to": addressed_to,
+            "addressed_to_labels": self.addressed_labels(conn, roster, &addressed_to)?,
+            "addressed": addressed_to.is_empty() || addressed_to.iter().any(|a| a == reader),
+            "mine": mine,
+            "targets": if mine { Value::from(self.targets(conn, roster, &m.message_id)?) } else { Value::Null },
+        }))
+    }
+    fn participant_views(
+        &self,
+        conn: &Connection,
+        participants: &[Participant],
+    ) -> Result<Vec<Value>, Error> {
+        participants
+            .iter()
+            .map(|p| {
+                let mut v = serde_json::to_value(p)?;
+                v["label"] = json!(self.label(conn, p)?);
+                v["local"] = json!(p.host_id.as_deref() == Some(self.identity().id.as_str()));
+                Ok(v)
+            })
+            .collect()
+    }
+    fn departed_views(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        departed: &[Value],
+    ) -> Result<Vec<Value>, Error> {
+        departed
+            .iter()
+            .map(|d| {
+                let id = d["id"].as_str().unwrap_or_default();
+                Ok(json!({
+                    "id": id,
+                    "kind": d["kind"],
+                    "label": self.label_of(conn, roster, id)?,
+                    "reason": d["reason"],
+                    "at": d["at"],
+                }))
+            })
+            .collect()
+    }
+    fn last_message_at(messages: &[Stored]) -> Value {
+        messages
+            .iter()
+            .map(|s| s.message.sent_at.clone())
+            .max()
+            .map(Value::from)
+            .unwrap_or(Value::Null)
+    }
+    fn conversation_view(
+        &self,
+        conn: &Connection,
+        held: &Held,
+        reader: &str,
+    ) -> Result<Value, Error> {
+        let roster = &held.roster;
+        let messages = self.visible(conn, &roster.conversation_id, reader)?;
+        let (participants, departed) = self.shown(held);
+        Ok(json!({
+            "conversation_id": roster.conversation_id,
+            "title": roster.title,
+            "state": roster.state,
+            "home_host_id": roster.home_host_id,
+            "roster_version": roster.version,
+            "created_by": roster.created_by,
+            "created_at": roster.created_at,
+            "participants": self.participant_views(conn, &participants)?,
+            "departed": self.departed_views(conn, roster, &departed)?,
+            "last_message_at": Self::last_message_at(&messages),
+            "unsynced": self.unsynced(conn, &roster.conversation_id)?,
+            "about": roster.about,
+            "home_unavailable": self.home_unavailable(conn, roster)?,
+        }))
+    }
+
+    /// `GET /v1/conversations`.
+    pub fn conversations(&self, all: bool) -> Result<Value, Error> {
+        let conn = self.connection()?;
+        let own = self.identity().id;
+        let mut items = Vec::new();
+        for held in self.all_held(&conn)? {
+            let roster = &held.roster;
+            if held.local.forgotten {
+                continue;
+            }
+            let active =
+                roster.state == "open" && held.local.admitted.keys().any(|p| held.joined_here(p));
+            if !all && !active {
+                continue;
+            }
+            let last: Option<String> = conn.query_row(
+                "SELECT MAX(json_extract(record, '$.message.sent_at')) FROM conversation_messages WHERE conversation_id = ?1",
+                [&roster.conversation_id],
+                |r| r.get(0),
+            )?;
+            let participants = self
+                .shown(&held)
+                .0
+                .iter()
+                .map(|p| {
+                    Ok(json!({
+                        "id": p.id,
+                        "label": self.label(&conn, p)?,
+                        "kind": p.kind,
+                        "state": p.state,
+                        "local": p.host_id.as_deref() == Some(own.as_str()),
+                    }))
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            let activity = last.clone().unwrap_or_else(|| roster.created_at.clone());
+            items.push((
+                activity,
+                json!({
+                    "conversation_id": roster.conversation_id,
+                    "title": roster.title,
+                    "state": roster.state,
+                    "home_host_id": roster.home_host_id,
+                    "participants": participants,
+                    "created_at": roster.created_at,
+                    "last_message_at": last,
+                    "about": roster.about,
+                    "home_unavailable": self.home_unavailable(&conn, roster)?,
+                    "unread": self.own_unread(&conn, &roster.conversation_id)?,
+                }),
+            ));
+        }
+        items.sort_by(|a, b| {
+            crate::membership::time(&b.0)
+                .ok()
+                .cmp(&crate::membership::time(&a.0).ok())
+        });
+        Ok(json!({ "conversations": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }))
+    }
+    /// `GET /v1/conversations/{id}`.
+    pub fn conversation(&self, id: &str, participant: Option<String>) -> Result<Value, Error> {
+        self.not_forgotten(id)?;
+        let conn = self.connection()?;
+        let held = self.held(&conn, id)?;
+        let reader = self.reader(&conn, &held.roster, participant)?;
+        self.conversation_view(&conn, &held, &reader)
+    }
+    /// `GET /v1/conversations/{id}/messages`.
+    pub fn conversation_messages(
+        &self,
+        id: &str,
+        participant: Option<String>,
+        before: Option<String>,
+        limit: Option<i64>,
+    ) -> Result<Value, Error> {
+        let limit = limit.unwrap_or(20);
+        if !(1..=100).contains(&limit) {
+            return Err(invalid("limit must be 1 to 100"));
+        }
+        self.not_forgotten(id)?;
+        let conn = self.connection()?;
+        let roster = self.roster(&conn, id)?;
+        let reader = self.reader(&conn, &roster, participant)?;
+        let messages = self.visible(&conn, id, &reader)?;
+        let end = match &before {
+            None => messages.len(),
+            Some(before) => messages
+                .iter()
+                .position(|s| &s.message.message_id == before)
+                .ok_or_else(|| invalid("unknown before message"))?,
+        };
+        let start = end.saturating_sub(limit as usize);
+        let page = messages[start..end]
+            .iter()
+            .map(|s| self.message_view(&conn, &roster, s, &reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(json!({
+            "messages": page,
+            "next_before_message_id": if start > 0 { Value::from(messages[start].message.message_id.clone()) } else { Value::Null },
+        }))
+    }
+
+    /// Creates a conversation as `creator` (a local person or agent
+    /// participant): local agent targets are joined at once, remote ones are
+    /// `inviting` with an invite to send. Returns the ID and, per target,
+    /// `(given, participant, local outcome)`, the outcome `None` for remote.
+    #[allow(clippy::type_complexity)]
+    fn create_conversation(
+        &self,
+        creator: &str,
+        targets: &[(String, Target)],
+        title: Option<String>,
+        note: Option<String>,
+        about: Option<About>,
+    ) -> Result<(String, Vec<(String, String, Option<&'static str>)>), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        if self.open_count(&tx, creator)? >= MAX_OPEN {
+            return Err(coded_error(429, "limit", OPEN_LIMIT));
+        }
+        let own = self.identity().id;
+        let id = new_id("conv")?;
+        let at = now();
+        let person = self.conversation_person(&tx)?;
+        let (kind, _, local) =
+            participant_parts(creator).ok_or_else(|| invalid("invalid creator"))?;
+        let name: Option<String> = if kind == "agent" {
+            Some(
+                tx.query_row("SELECT name FROM agents WHERE id = ?1", [local], |r| {
+                    r.get(0)
+                })
+                .optional()?
+                .ok_or(Error::NotFound)?,
+            )
+        } else {
+            None
+        };
+        let mut held = Held {
+            roster: Roster {
+                conversation_id: id.clone(),
+                home_host_id: own.clone(),
+                version: 1,
+                title,
+                state: "open".into(),
+                created_by: creator.into(),
+                created_at: at.clone(),
+                participants: vec![Participant {
+                    id: Some(creator.into()),
+                    kind: kind.into(),
+                    host_id: Some(own.clone()),
+                    person_id: person.clone(),
+                    agent_id: (kind == "agent").then(|| local.to_owned()),
+                    name,
+                    state: "joined".into(),
+                    added_by: None,
+                    added_at: at.clone(),
+                }],
+                departed: vec![],
+                about,
+            },
+            local: LocalState::default(),
+        };
+        held.admit(creator, &at);
+        let mut outcomes = Vec::new();
+        let mut added = Vec::new();
+        let mut persons = Vec::new();
+        for (given, target) in targets {
+            let target = match target {
+                Target::Agent(candidate) => candidate,
+                Target::Person(person) => {
+                    self.person_entry(&mut held, person, creator, &at);
+                    persons.push((given.clone(), person.clone()));
+                    outcomes.push((given.clone(), format!("person:{}", person.person_id), None));
+                    continue;
+                }
+            };
+            let participant = format!("agent:{}/{}", target.host_id, target.agent_id);
+            if target.local {
+                if self.open_count(&tx, &participant)? >= MAX_OPEN {
+                    outcomes.push((given.clone(), participant, Some("limit")));
+                    continue;
+                }
+                held.roster.participants.push(Participant {
+                    id: Some(participant.clone()),
+                    kind: "agent".into(),
+                    host_id: Some(own.clone()),
+                    person_id: person.clone(),
+                    agent_id: Some(target.agent_id.clone()),
+                    name: Some(target.name.clone()),
+                    state: "joined".into(),
+                    added_by: Some(creator.into()),
+                    added_at: at.clone(),
+                });
+                held.admit(&participant, &at);
+                added.push(target.agent_id.clone());
+                outcomes.push((given.clone(), participant, Some("joined")));
+            } else {
+                let target_person = crate::adapter::sender_person(self, &tx, &target.host_id)?.0;
+                held.roster.participants.push(Participant {
+                    id: Some(participant.clone()),
+                    kind: "agent".into(),
+                    host_id: Some(target.host_id.clone()),
+                    person_id: target_person,
+                    agent_id: Some(target.agent_id.clone()),
+                    name: Some(target.name.clone()),
+                    state: "inviting".into(),
+                    added_by: Some(creator.into()),
+                    added_at: at.clone(),
+                });
+                self.save_invite(
+                    &tx,
+                    &id,
+                    &Invite {
+                        target: given.clone(),
+                        participant: participant.clone(),
+                        agent_id: target.agent_id.clone(),
+                        adder: creator.into(),
+                        state: "sending".into(),
+                        code: None,
+                        error: None,
+                        attempts: 0,
+                        next_attempt_at: Some(later(10)),
+                        note: note.clone(),
+                        offered: 0,
+                        added_at: at.clone(),
+                        person_id: None,
+                    },
+                )?;
+                outcomes.push((given.clone(), participant, None));
+            }
+        }
+        save_held(&tx, &held)?;
+        for (given, person) in &persons {
+            self.invite_person(&tx, &held, given, person, creator, note.clone(), &at)?;
+        }
+        for agent in added {
+            let change =
+                self.roster_change(&tx, &held.roster, "added", creator, note.as_deref())?;
+            self.notify(&tx, &id, &agent, "roster", None, Some(change))?;
+        }
+        tx.commit()?;
+        Ok((id, outcomes))
+    }
+    fn save_invite(&self, conn: &Connection, id: &str, invite: &Invite) -> Result<(), Error> {
+        let (_, host, agent) = participant_parts(&invite.participant).ok_or(Error::NotFound)?;
+        conn.execute(
+            "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+            params![id, host, format!("invite:{agent}"), serde_json::to_string(invite)?],
+        )?;
+        Ok(())
+    }
+    fn invite_opt(
+        &self,
+        conn: &Connection,
+        id: &str,
+        participant: &str,
+    ) -> Result<Option<Invite>, Error> {
+        let Some((_, host, agent)) = participant_parts(participant) else {
+            return Ok(None);
+        };
+        let text: Option<String> = conn
+            .query_row(
+                "SELECT record FROM conversation_roster_outbound WHERE conversation_id = ?1 AND peer = ?2 AND kind = ?3",
+                params![id, host, format!("invite:{agent}")],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.map(json).transpose()
+    }
+    /// Stops an invite that is still being sent, recording why.
+    fn stop_invite(
+        &self,
+        conn: &Connection,
+        id: &str,
+        participant: &str,
+        state: &str,
+    ) -> Result<(), Error> {
+        if let Some(mut invite) = self.invite_opt(conn, id, participant)?
+            && invite.state == "sending"
+        {
+            invite.state = state.into();
+            invite.next_attempt_at = None;
+            self.save_invite(conn, id, &invite)?;
+        }
+        Ok(())
+    }
+    fn roster_change(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        change: &str,
+        by: &str,
+        note: Option<&str>,
+    ) -> Result<Value, Error> {
+        Ok(json!({
+            "change": change,
+            "by": by,
+            "by_label": self.label_of(conn, roster, by)?,
+            "note": note,
+            "roster_version": roster.version,
+        }))
+    }
+    fn notify(
+        &self,
+        conn: &Connection,
+        conversation: &str,
+        agent: &str,
+        kind: &str,
+        message_id: Option<&str>,
+        change: Option<Value>,
+    ) -> Result<(), Error> {
+        let n = Notification {
+            id: new_id("cnot")?,
+            kind: kind.into(),
+            conversation_id: conversation.into(),
+            message_id: message_id.map(str::to_owned),
+            session_id: None,
+            created_at: now(),
+            claimed_at: None,
+            forwarded_at: None,
+            change,
+            undelivered: None,
+            adapter_id: None,
+            blocked_at: None,
+            exhausted_at: None,
+            coalesced: Vec::new(),
+        };
+        conn.execute(
+            "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+            params![n.id, conversation, kind, message_id, agent, serde_json::to_string(&n)?],
+        )?;
+        Ok(())
+    }
+    /// Withdraws a departed agent's unclaimed message notifications.
+    fn withdraw(&self, conn: &Connection, conversation: &str, agent: &str) -> Result<(), Error> {
+        conn.execute(
+            "DELETE FROM conversation_notifications WHERE conversation_id = ?1 AND agent_id = ?2 AND kind = 'message' AND seen_at IS NULL AND (session_id IS NULL OR returned_at IS NOT NULL)",
+            params![conversation, agent],
+        )?;
+        Ok(())
+    }
+    /// Takes `new` as the held roster: admitted local participants it lists
+    /// as departed or omits stop being joined here, and local agents get
+    /// `removed` and `closed` notifications (never the `actor`).
+    fn apply_roster(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        new: Roster,
+        actor: Option<&str>,
+    ) -> Result<(), Error> {
+        let id = new.conversation_id.clone();
+        let was_closed = held.roster.state == "closed";
+        let admitted: Vec<String> = held.local.admitted.keys().cloned().collect();
+        for p in &admitted {
+            if new.participants.iter().any(|x| x.id.as_deref() == Some(p)) {
+                continue;
+            }
+            let reason = new
+                .departed
+                .iter()
+                .find(|d| d["id"].as_str() == Some(p))
+                .and_then(|d| d["reason"].as_str())
+                .map(str::to_owned);
+            let was_joined = held.joined_here(p);
+            held.end(p);
+            if let Some(("agent", _, agent)) = participant_parts(p) {
+                self.withdraw(conn, &id, agent)?;
+                if was_joined && reason.as_deref() == Some("removed") && actor != Some(p.as_str()) {
+                    let change =
+                        self.roster_change(conn, &new, "removed", &new.created_by, None)?;
+                    self.notify(conn, &id, agent, "roster", None, Some(change))?;
+                }
+            }
+        }
+        if new.state == "closed" && !was_closed {
+            let joined: Vec<String> = held
+                .local
+                .admitted
+                .keys()
+                .filter(|p| held.joined_here(p))
+                .cloned()
+                .collect();
+            for p in joined {
+                if actor == Some(p.as_str()) {
+                    continue;
+                }
+                if let Some(("agent", _, agent)) = participant_parts(&p) {
+                    let change = self.roster_change(conn, &new, "closed", &new.created_by, None)?;
+                    self.notify(conn, &id, agent, "roster", None, Some(change))?;
+                }
+            }
+        }
+        self.sync_pending(conn, &new)?;
+        if new.version > held.roster.version {
+            sync::due_now(&new.conversation_id);
+        }
+        held.roster = new;
+        Ok(())
+    }
+    /// Home commits `new` as its next roster version and schedules pushes
+    /// to every other host with a participant in it, or one it just moved
+    /// to `departed`.
+    fn commit(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        new: Roster,
+        actor: Option<&str>,
+    ) -> Result<(), Error> {
+        self.commit_as(conn, held, new, actor, None)
+    }
+    /// `commit`, numbering the version past every version an invite of the
+    /// conversation offered, so a host holding an invite's roster always
+    /// receives a higher one. Only the join an invite offered may take the
+    /// version that invite offered (`join`), as its roster is then the
+    /// invite's own.
+    fn commit_as(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        mut new: Roster,
+        actor: Option<&str>,
+        join: Option<i64>,
+    ) -> Result<(), Error> {
+        let old = held.roster.clone();
+        let offered: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(json_extract(record, '$.offered')), 0) FROM conversation_roster_outbound WHERE conversation_id = ?1 AND (kind LIKE 'invite:%' OR kind LIKE 'pinvite:%')",
+            [&old.conversation_id],
+            |r| r.get(0),
+        )?;
+        new.version = match join {
+            Some(v) if v == old.version + 1 => v,
+            _ => old.version.max(offered) + 1,
+        };
+        self.apply_roster(conn, held, new, actor)?;
+        save_held(conn, held)?;
+        let own = self.identity().id;
+        let mut hosts = BTreeSet::new();
+        for p in &held.roster.participants {
+            if let Some(h) = &p.host_id {
+                hosts.insert(h.clone());
+            }
+        }
+        for d in &held.roster.departed {
+            if !old.departed.contains(d)
+                && let Some((_, h, _)) = d["id"].as_str().and_then(participant_parts)
+            {
+                hosts.insert(h.to_owned());
+            }
+        }
+        // Hosts holding a pending invite for a person the old roster listed
+        // as not yet joined get every newer roster (contract C3, Pushes).
+        for (peer, invite) in self.all_pinvites(conn, &old.conversation_id)? {
+            if invite.state == "invited"
+                && let Some(person) = &invite.person_id
+                && lists_invited(&old, person, &invite.added_at)
+            {
+                hosts.insert(peer);
+            }
+        }
+        hosts.remove(&own);
+        let push = Push {
+            version: held.roster.version,
+            state: "sending".into(),
+            attempts: 0,
+            error: None,
+            next_attempt_at: Some(now()),
+            created_at: Some(now()),
+        };
+        for host in hosts {
+            conn.execute(
+                "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                params![held.roster.conversation_id, host, serde_json::to_string(&push)?],
+            )?;
+        }
+        Ok(())
+    }
+    /// Whether participant `x` may send to `y`, as far as this host knows
+    /// (contract C2, Invite outcome).
+    fn reaches(&self, conn: &Connection, roster: &Roster, x: &str, y: &str) -> Result<bool, Error> {
+        let own = self.identity().id;
+        if unjoined_person(y).is_some() {
+            let Some((_, xh, _)) = participant_parts(x) else {
+                return Ok(false);
+            };
+            return Ok(xh == own || !self.blocked(conn, xh)?);
+        }
+        if let Some(person) = unjoined_person(x) {
+            return self.person_reaches(conn, roster, person, y);
+        }
+        let (Some((xk, xh, xl)), Some((yk, yh, yl))) = (participant_parts(x), participant_parts(y))
+        else {
+            return Ok(false);
+        };
+        if x == y {
+            return Ok(false);
+        }
+        if yk == "person" {
+            return Ok(yh != own || xh == own || !self.blocked(conn, xh)?);
+        }
+        if xh == yh {
+            return Ok(true);
+        }
+        let person = |host: &str| -> Result<Option<String>, Error> {
+            Ok(crate::adapter::sender_person(self, conn, host)?.0)
+        };
+        let (xp, yp) = (person(xh)?, person(yh)?);
+        if xp.is_some() && xp == yp {
+            return Ok(true);
+        }
+        let origin = (xk == "agent").then(|| Origin {
+            agent_id: xl.to_owned(),
+            session_id: None,
+        });
+        if yh == own {
+            return Ok(self
+                .conversation_authorize(conn, xh, (None, None, None), yl, 0, origin.as_ref())
+                .is_ok());
+        }
+        if xh == own {
+            return Ok(self
+                .cached_choice(
+                    yh,
+                    yl,
+                    crate::policy::ACTION,
+                    origin.as_ref().map(|o| o.agent_id.as_str()),
+                )?
+                .is_some());
+        }
+        let Some(yp) = yp else {
+            return Ok(false);
+        };
+        let name = roster
+            .participants
+            .iter()
+            .find(|p| p.id.as_deref() == Some(y))
+            .and_then(|p| p.name.clone())
+            .unwrap_or_default();
+        let at = crate::clock::now();
+        for network in self.product_network_ids(conn)? {
+            let members = self.product_members(conn, &network)?;
+            let (Some(xm), true, true) = (
+                members.iter().find(|m| m.host_id == xh),
+                members.iter().any(|m| m.host_id == yh),
+                members.iter().any(|m| m.host_id == own),
+            ) else {
+                continue;
+            };
+            let Some(key) = self.product_person_key(conn, &network, &yp)? else {
+                continue;
+            };
+            let Some(policy) = self.product_policy(conn, &network, &key)? else {
+                continue;
+            };
+            if !policy.in_window(at) {
+                continue;
+            }
+            let groups = self.product_groups(conn, &network)?;
+            let named = policy.rules.iter().any(|r| r.agent == name);
+            let allowed = policy.rules.iter().any(|rule| {
+                let applies = if named {
+                    rule.agent == name
+                } else {
+                    rule.agent == crate::policy::ALL_AGENTS
+                };
+                applies
+                    && rule
+                        .actions
+                        .iter()
+                        .any(|a| crate::policy::allows(a, crate::policy::ACTION))
+                    && rule.principals.iter().any(|p| {
+                        crate::decentralized::product::principal_matches(
+                            p,
+                            xm,
+                            &groups,
+                            origin.as_ref(),
+                        )
+                    })
+            });
+            if allowed {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    /// Whether a person not yet joined may send to `y` once joined, as far
+    /// as this host knows: the person stands in for the participant's host.
+    fn person_reaches(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        person: &str,
+        y: &str,
+    ) -> Result<bool, Error> {
+        let own = self.identity().id;
+        let Some((yk, yh, _)) = participant_parts(y) else {
+            return Ok(false);
+        };
+        if yk == "person" {
+            return Ok(true);
+        }
+        let yp = if yh == own {
+            self.conversation_person(conn)?
+        } else {
+            crate::adapter::sender_person(self, conn, yh)?.0
+        };
+        let Some(yp) = yp else {
+            return Ok(false);
+        };
+        if yp == person {
+            return Ok(true);
+        }
+        let name = roster
+            .participants
+            .iter()
+            .find(|p| p.id.as_deref() == Some(y))
+            .and_then(|p| p.name.clone())
+            .unwrap_or_default();
+        let at = crate::clock::now();
+        for network in self.product_network_ids(conn)? {
+            let members = self.product_members(conn, &network)?;
+            if !members.iter().any(|m| m.host_id == yh) || !members.iter().any(|m| m.host_id == own)
+            {
+                continue;
+            }
+            let Some(mut sender) = members.first().cloned() else {
+                continue;
+            };
+            sender.host_id = String::new();
+            sender.person_id = Some(person.to_owned());
+            let Some(key) = self.product_person_key(conn, &network, &yp)? else {
+                continue;
+            };
+            let Some(policy) = self.product_policy(conn, &network, &key)? else {
+                continue;
+            };
+            if !policy.in_window(at) {
+                continue;
+            }
+            let groups = self.product_groups(conn, &network)?;
+            let named = policy.rules.iter().any(|r| r.agent == name);
+            let allowed = policy.rules.iter().any(|rule| {
+                let applies = if named {
+                    rule.agent == name
+                } else {
+                    rule.agent == crate::policy::ALL_AGENTS
+                };
+                applies
+                    && rule
+                        .actions
+                        .iter()
+                        .any(|a| crate::policy::allows(a, crate::policy::ACTION))
+                    && rule.principals.iter().any(|p| {
+                        crate::decentralized::product::principal_matches(p, &sender, &groups, None)
+                    })
+            });
+            if allowed {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    /// An invite outcome for a person target (contract C3): one entry per
+    /// bound host in `hosts`, and the person's overall state.
+    fn person_outcome_view(
+        &self,
+        conn: &Connection,
+        held: &Held,
+        given: &str,
+        person: &str,
+    ) -> Result<Value, Error> {
+        let roster = &held.roster;
+        let own = self.identity().id;
+        let entry = roster
+            .participants
+            .iter()
+            .find(|p| p.kind == "person" && p.person_id.as_deref() == Some(person));
+        let invites = self.pinvites(conn, &roster.conversation_id, person)?;
+        let generation = entry
+            .map(|e| e.added_at.clone())
+            .or_else(|| invites.iter().map(|(_, i)| i.added_at.clone()).max());
+        let mut hosts: Vec<(String, String, Option<String>)> = invites
+            .iter()
+            .filter(|(_, i)| Some(&i.added_at) == generation.as_ref())
+            .map(|(host, i)| {
+                let state = match &i.state[..] {
+                    "invited" | "refused" | "unsupported" => i.state.clone(),
+                    _ => "inviting".to_owned(),
+                };
+                (host.clone(), state, i.code.clone())
+            })
+            .collect();
+        if let Some(local) = self.pending_opt(conn, &roster.conversation_id, person)?
+            && Some(&local.added_at) == generation.as_ref()
+            && local.roster.home_host_id == own
+        {
+            hosts.push((own.clone(), "invited".into(), None));
+        }
+        hosts.sort();
+        let joined = entry.and_then(|e| e.id.clone());
+        let (state, code) = if joined.is_some() {
+            ("joined".to_owned(), None)
+        } else if entry.is_some() && hosts.iter().any(|h| h.1 == "invited") {
+            ("invited".to_owned(), None)
+        } else if entry.is_some() && (hosts.is_empty() || hosts.iter().any(|h| h.1 == "inviting")) {
+            ("inviting".to_owned(), None)
+        } else if !hosts.is_empty() && hosts.iter().all(|h| h.1 == "unsupported") {
+            ("unsupported".to_owned(), Some("unsupported".to_owned()))
+        } else {
+            let code = hosts
+                .iter()
+                .find(|h| h.1 == "refused")
+                .and_then(|h| h.2.clone());
+            ("refused".to_owned(), code)
+        };
+        let error = invites
+            .iter()
+            .find(|(host, i)| {
+                Some(&i.added_at) == generation.as_ref()
+                    && hosts
+                        .iter()
+                        .any(|h| &h.0 == host && Some(&h.1) == Some(&state))
+            })
+            .and_then(|(_, i)| i.error.clone())
+            .filter(|_| matches!(&state[..], "refused" | "unsupported"));
+        let participant = joined.clone().unwrap_or_else(|| format!("person:{person}"));
+        let mut reachable_from = Vec::new();
+        let mut reaches = Vec::new();
+        if entry.is_some() && matches!(&state[..], "joined" | "inviting" | "invited") {
+            for p in &roster.participants {
+                let Some(other) = p.id.as_deref() else {
+                    continue;
+                };
+                if other == participant {
+                    continue;
+                }
+                if self.reaches(conn, roster, other, &participant)? {
+                    reachable_from.push(other.to_owned());
+                }
+                if self.reaches(conn, roster, &participant, other)? {
+                    reaches.push(other.to_owned());
+                }
+            }
+        }
+        let label = match entry {
+            Some(e) => self.label(conn, e)?,
+            None => self.person_label(conn, person)?,
+        };
+        Ok(json!({
+            "target": given,
+            "participant": participant,
+            "label": label,
+            "state": state,
+            "code": code,
+            "error": error,
+            "reachable_from": reachable_from,
+            "reaches": reaches,
+            "hosts": hosts.into_iter().map(|(host_id, state, code)| json!({"host_id": host_id, "state": state, "code": code})).collect::<Vec<_>>(),
+        }))
+    }
+    /// An invite outcome for `participant`, with reachability.
+    fn outcome_view(
+        &self,
+        conn: &Connection,
+        held: &Held,
+        given: &str,
+        participant: &str,
+        local: Option<&str>,
+    ) -> Result<Value, Error> {
+        if let Some(person) = unjoined_person(participant) {
+            return self.person_outcome_view(conn, held, given, person);
+        }
+        let id = &held.roster.conversation_id;
+        let (state, code, error): (String, Option<String>, Option<String>) = match local {
+            Some("joined") => ("joined".into(), None, None),
+            Some(_) => (
+                "refused".into(),
+                Some("limit".into()),
+                Some(OPEN_LIMIT.into()),
+            ),
+            None => match self.invite_opt(conn, id, participant)? {
+                Some(invite) => match &invite.state[..] {
+                    "joined" | "refused" | "unsupported" => {
+                        (invite.state.clone(), invite.code, invite.error)
+                    }
+                    _ => ("inviting".into(), None, invite.error),
+                },
+                None => ("joined".into(), None, None),
+            },
+        };
+        let listed = held
+            .roster
+            .participants
+            .iter()
+            .any(|p| p.id.as_deref() == Some(participant));
+        let mut reachable_from = Vec::new();
+        let mut reaches = Vec::new();
+        if listed && matches!(&state[..], "joined" | "inviting") {
+            for p in &held.roster.participants {
+                let Some(other) = p.id.as_deref() else {
+                    continue;
+                };
+                if other == participant {
+                    continue;
+                }
+                if self.reaches(conn, &held.roster, other, participant)? {
+                    reachable_from.push(other.to_owned());
+                }
+                if self.reaches(conn, &held.roster, participant, other)? {
+                    reaches.push(other.to_owned());
+                }
+            }
+        }
+        Ok(json!({
+            "target": given,
+            "participant": participant,
+            "label": self.label_of(conn, &held.roster, participant)?,
+            "state": state,
+            "code": code,
+            "error": error,
+            "reachable_from": reachable_from,
+            "reaches": reaches,
+            "hosts": [],
+        }))
+    }
+    fn invite_record(
+        &self,
+        conn: &Connection,
+        id: &str,
+        participant: &str,
+    ) -> Result<Invite, Error> {
+        let (_, host, agent) = participant_parts(participant).ok_or(Error::NotFound)?;
+        let text: String = conn.query_row(
+            "SELECT record FROM conversation_roster_outbound WHERE conversation_id = ?1 AND peer = ?2 AND kind = ?3",
+            params![id, host, format!("invite:{agent}")],
+            |r| r.get(0),
+        )?;
+        json(text)
+    }
+    /// The citation a request for `agent` on `peer` carries, chosen now:
+    /// the directory's choice, else self access or the owner's newest
+    /// policy; `None` when this host holds nothing to cite.
+    fn conversation_citation(
+        &self,
+        conn: &Connection,
+        peer: &str,
+        agent: &str,
+        origin: Option<&str>,
+    ) -> Result<Option<RequestAuthorization>, Error> {
+        if let Some(choice) = self.cached_choice(peer, agent, crate::policy::ACTION, origin)?
+            && let Ok(cited) = self.chosen_citation(conn, peer, &choice)
+        {
+            return Ok(Some(cited));
+        }
+        match self.citation(conn, peer) {
+            Ok(cited) => {
+                let (policy, self_access) = cited.fields();
+                Ok(Some((None, policy, self_access)))
+            }
+            Err(Error::Invalid(_) | Error::NotFound | Error::Forbidden) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The invite request for its next attempt, or `None` when it is no
+    /// longer due; a target this host cannot cite anything for is refused.
+    fn prepare_invite(
+        &self,
+        id: &str,
+        participant: &str,
+    ) -> Result<Option<(String, Vec<u8>, String)>, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let invite = self.invite_record(&tx, id, participant)?;
+        if invite.state != "sending" {
+            return Ok(None);
+        }
+        let roster = self.roster(&tx, id)?;
+        let inviting = roster
+            .participants
+            .iter()
+            .any(|p| p.id.as_deref() == Some(participant) && p.state == "inviting");
+        if roster.state != "open" || !inviting {
+            self.stop_invite(&tx, id, participant, "stopped")?;
+            tx.commit()?;
+            return Ok(None);
+        }
+        let (_, host, _) = participant_parts(participant).ok_or(Error::NotFound)?;
+        let host = host.to_owned();
+        let origin = participant_parts(&invite.adder)
+            .filter(|(kind, _, _)| *kind == "agent")
+            .map(|(_, _, agent)| agent.to_owned());
+        let Some((grant_id, policy, self_access)) =
+            self.conversation_citation(&tx, &host, &invite.agent_id, origin.as_deref())?
+        else {
+            self.settle_invite(
+                &tx,
+                id,
+                participant,
+                Err((
+                    "refused",
+                    "not_authorized",
+                    "no current authorization lets this host reach it".into(),
+                )),
+            )?;
+            tx.commit()?;
+            return Ok(None);
+        };
+        let mut next = roster.clone();
+        next.version += 1;
+        for p in &mut next.participants {
+            if p.id.as_deref() == Some(participant) {
+                p.state = "joined".into();
+            }
+        }
+        let mut invite = invite;
+        let generation = invite.added_at.clone();
+        invite.offered = invite.offered.max(next.version);
+        self.save_invite(&tx, id, &invite)?;
+        tx.commit()?;
+        let request = InviteRequest {
+            conversation_id: id.into(),
+            roster: next,
+            target: InviteTarget {
+                kind: "agent".into(),
+                agent_id: Some(invite.agent_id.clone()),
+                person_id: None,
+            },
+            adder: invite.adder.clone(),
+            note: invite.note.clone(),
+            origin: origin.map(|agent_id| Origin {
+                agent_id,
+                session_id: None,
+            }),
+            grant_id,
+            policy,
+            self_access,
+        };
+        Ok(Some((host, serde_json::to_vec(&request)?, generation)))
+    }
+    /// Records an invite's outcome: `Ok(name)` joins the target with that
+    /// name; a final refusal drops it; anything else schedules a retry. An
+    /// answer for a target no longer `inviting` (removed, dropped, closed)
+    /// changes nothing.
+    fn settle_invite(
+        &self,
+        tx: &Transaction<'_>,
+        id: &str,
+        participant: &str,
+        outcome: Result<String, (&'static str, &'static str, String)>,
+    ) -> Result<(), Error> {
+        let mut invite = self.invite_record(tx, id, participant)?;
+        if invite.state != "sending" {
+            return Ok(());
+        }
+        let mut held = self.held(tx, id)?;
+        let inviting = held.roster.state == "open"
+            && held
+                .roster
+                .participants
+                .iter()
+                .any(|p| p.id.as_deref() == Some(participant) && p.state == "inviting");
+        match outcome {
+            Ok(name) => {
+                invite.state = "joined".into();
+                invite.next_attempt_at = None;
+                invite.code = None;
+                invite.error = None;
+                if inviting {
+                    let mut next = held.roster.clone();
+                    for p in &mut next.participants {
+                        if p.id.as_deref() == Some(participant) {
+                            p.state = "joined".into();
+                            p.name = Some(name.clone());
+                        }
+                    }
+                    self.commit_as(tx, &mut held, next, None, Some(invite.offered))?;
+                }
+            }
+            Err((state @ ("refused" | "unsupported"), code, error)) => {
+                invite.state = state.into();
+                invite.code = Some(code.into());
+                invite.error = Some(error);
+                invite.next_attempt_at = None;
+                if inviting {
+                    let mut next = held.roster.clone();
+                    next.participants
+                        .retain(|p| p.id.as_deref() != Some(participant));
+                    self.commit(tx, &mut held, next, None)?;
+                }
+            }
+            Err((_, _, error)) => {
+                invite.error = Some(error);
+                invite.next_attempt_at = Some(rfc3339(
+                    crate::clock::now() + backoff(invite.attempts.max(1), jitter()),
+                ));
+            }
+        }
+        self.save_invite(tx, id, &invite)
+    }
+    fn finish_invite(
+        &self,
+        id: &str,
+        participant: &str,
+        generation: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let stopped = {
+            let mut invite = self.invite_record(&tx, id, participant)?;
+            // An answer for a replaced invite (the target was removed and
+            // added again) belongs to the old admission: it settles nothing.
+            let replaced = invite.added_at != generation;
+            if !replaced {
+                invite.attempts += 1;
+                self.save_invite(&tx, id, &invite)?;
+            }
+            replaced || !matches!(&invite.state[..], "sending" | "joined")
+        };
+        // An invite stopped (removed, closed, unanswered) while its attempt
+        // was in flight may still have been accepted: push home's current
+        // roster to that host, so it learns the participant is not in it.
+        if stopped
+            && let Outcome::Answer(_) = &outcome
+            && let Some((_, host, _)) = participant_parts(participant)
+        {
+            let held = self.held(&tx, id)?;
+            let push = Push {
+                version: held.roster.version,
+                state: "sending".into(),
+                attempts: 0,
+                error: None,
+                next_attempt_at: Some(now()),
+                created_at: Some(now()),
+            };
+            tx.execute(
+                "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                params![id, host, serde_json::to_string(&push)?],
+            )?;
+        }
+        let settled = match outcome {
+            Outcome::Answer(body) => match serde_json::from_slice::<Value>(&body) {
+                Ok(v) if v["state"] == "joined" && v["name"].is_string() => {
+                    Ok(v["name"].as_str().unwrap_or_default().to_owned())
+                }
+                _ => Err(("sending", "", "invalid invite answer".to_owned())),
+            },
+            Outcome::Final(state, code, error) => Err((state, code, error)),
+            Outcome::Retry(error) => Err(("sending", "", error)),
+        };
+        if !stopped {
+            self.settle_invite(&tx, id, participant, settled)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Authors a message as `author` (a joined local participant), or
+    /// returns the stored one for an identical repeat. Returns the message
+    /// view and its targets, and the keys of new target records.
+    fn author_message(
+        &self,
+        id: &str,
+        author: &str,
+        origin: Option<Origin>,
+        message_id: Option<String>,
+        content: String,
+        addressed_to: Option<Vec<String>>,
+    ) -> Result<(Value, Vec<String>), Error> {
+        let addressed_to = addressed_to.unwrap_or_default();
+        tools::check_addressed(&addressed_to)?;
+        if !valid_content(&content) {
+            return Err(invalid("content must be 1 to 65,536 bytes of UTF-8"));
+        }
+        let message_id = match message_id {
+            Some(m) if valid_message_id(&m) => m,
+            Some(_) => return Err(invalid("invalid message_id")),
+            None => new_id("cmsg")?,
+        };
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let held = self.held(&tx, id)?;
+        let roster = held.roster.clone();
+        let own = self.identity().id;
+        let existing: Option<(String, String)> = tx
+            .query_row(
+                "SELECT conversation_id, record FROM conversation_messages WHERE message_id = ?1",
+                [&message_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((conversation, record)) = existing {
+            let stored: Stored = json(record)?;
+            let same_addressed = conversation == id
+                && self.same_addressed(
+                    &tx,
+                    &roster,
+                    stored.message.addressed_to.as_deref().unwrap_or_default(),
+                    &addressed_to,
+                )?;
+            if conversation != id
+                || stored.message.author != author
+                || stored.message.content != content
+                || !same_addressed
+            {
+                return Err(coded_error(
+                    409,
+                    "conflict",
+                    "This message_id was already used with different content.",
+                ));
+            }
+            let view = self.message_view(&tx, &roster, &stored, author)?;
+            let targets = view["targets"].clone();
+            return Ok((json!({"message": view, "targets": targets}), vec![]));
+        }
+        if roster.state == "closed" {
+            return Err(closed());
+        }
+        if !held.joined(&own, author) {
+            return Err(not_participant());
+        }
+        let addressed_to = self.resolve_addressed(&tx, &held, &addressed_to)?;
+        if tools::rate_full(&tx, id, author, crate::clock::now())? {
+            return Err(tools::author_limit());
+        }
+        let (seq, clock, local_seq): (i64, i64, i64) = tx.query_row(
+            "SELECT (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages WHERE conversation_id = ?1 AND author = ?2), (SELECT COALESCE(MAX(clock), 0) + 1 FROM conversation_messages WHERE conversation_id = ?1), (SELECT COALESCE(MAX(local_seq), 0) + 1 FROM conversation_messages)",
+            params![id, author],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        let seq = seq.max(self.forgotten_seq(&tx, id, author)? + 1);
+        if seq > MAX_COUNTER || clock > MAX_COUNTER {
+            return Err(invalid("this conversation's counters are exhausted"));
+        }
+        let at = now();
+        let message = Message {
+            message_id: message_id.clone(),
+            conversation_id: id.into(),
+            author: author.into(),
+            seq,
+            clock,
+            roster_version: roster.version,
+            sent_at: at.clone(),
+            content,
+            addressed_to: (!addressed_to.is_empty()).then_some(addressed_to),
+            origin,
+        };
+        let stored = Stored {
+            message,
+            received_at: at,
+            sender_host: self.identity().id,
+        };
+        tx.execute(
+            "INSERT INTO conversation_messages (conversation_id, message_id, author, seq, clock, local_seq, record) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, message_id, author, seq, clock, local_seq, serde_json::to_string(&stored)?],
+        )?;
+        tools::log_event(&tx, "message_sent", id, Some(&message_id), Some(author))?;
+        tools::activity(
+            &tx,
+            "conversation.message_sent",
+            &format!("{id}/{message_id}"),
+        )?;
+        let mut keys = Vec::new();
+        for p in &roster.participants {
+            let Some(target) = p.id.as_deref() else {
+                continue;
+            };
+            if target == author || !held.joined(&own, target) {
+                continue;
+            }
+            let peer = p.host_id.clone().unwrap_or_default();
+            let prev: Option<i64> = tx.query_row(
+                "SELECT MAX(m.seq) FROM conversation_messages m JOIN conversation_targets t ON t.conversation_id = m.conversation_id AND t.message_id = m.message_id WHERE m.conversation_id = ?1 AND m.author = ?2 AND t.direction = 'out' AND t.target = ?3 AND m.seq < ?4",
+                params![id, author, target, seq],
+                |r| r.get(0),
+            )?;
+            if peer == own {
+                // Decision 18: a local target is delivered in this
+                // transaction, under self access, with no peer request.
+                let record = Outbound {
+                    participant: target.into(),
+                    state: "delivered".into(),
+                    code: None,
+                    error: None,
+                    attempts: 0,
+                    next_attempt_at: None,
+                };
+                tx.execute(
+                    "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'out', ?4, ?5, 'delivered', NULL, ?6)",
+                    params![id, message_id, target, peer, prev, serde_json::to_string(&record)?],
+                )?;
+                let receipt = Receipt {
+                    message_id: message_id.clone(),
+                    target: target.into(),
+                    receiver_host_id: own.clone(),
+                    accepted_at: stored.received_at.clone(),
+                };
+                let inbound = Inbound {
+                    message: stored.message.clone(),
+                    target: target.into(),
+                    prev_seq: prev,
+                    receipt,
+                };
+                tx.execute(
+                    "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
+                    params![id, message_id, target, own, prev, serde_json::to_string(&inbound)?],
+                )?;
+                tools::log_event(&tx, "message_received", id, Some(&message_id), Some(target))?;
+                if let Some(("agent", _, agent)) = participant_parts(target) {
+                    self.notify(&tx, id, agent, "message", Some(&message_id), None)?;
+                }
+                continue;
+            }
+            let record = Outbound {
+                participant: target.into(),
+                state: "sending".into(),
+                code: None,
+                error: None,
+                attempts: 0,
+                next_attempt_at: Some(later(10)),
+            };
+            tx.execute(
+                "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'out', ?4, ?5, 'sending', ?6, ?7)",
+                params![id, message_id, target, peer, prev, record.next_attempt_at, serde_json::to_string(&record)?],
+            )?;
+            keys.push(format!("{id} {message_id} {target}"));
+        }
+        let view = self.message_view(&tx, &roster, &stored, author)?;
+        tx.commit()?;
+        let targets = view["targets"].clone();
+        Ok((json!({"message": view, "targets": targets}), keys))
+    }
+    fn outbound_record(
+        &self,
+        conn: &Connection,
+        id: &str,
+        message: &str,
+        target: &str,
+    ) -> Result<(Outbound, Option<i64>), Error> {
+        let (record, prev): (String, Option<i64>) = conn.query_row(
+            "SELECT record, prev_seq FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'out'",
+            params![id, message, target],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((json(record)?, prev))
+    }
+    fn save_outbound(
+        &self,
+        conn: &Connection,
+        id: &str,
+        message: &str,
+        o: &Outbound,
+    ) -> Result<(), Error> {
+        let before: Option<String> = conn
+            .query_row(
+                "SELECT state FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'out'",
+                params![id, message, o.participant],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if before.as_deref() != Some(o.state.as_str()) {
+            let author: String = conn.query_row(
+                "SELECT author FROM conversation_messages WHERE conversation_id = ?1 AND message_id = ?2",
+                params![id, message],
+                |r| r.get(0),
+            )?;
+            tools::log_event(conn, "target_changed", id, Some(message), Some(&author))?;
+            if o.state == "refused" {
+                tools::activity(
+                    conn,
+                    "conversation.message_refused",
+                    &format!("{id}/{message}"),
+                )?;
+            }
+        }
+        conn.execute(
+            "UPDATE conversation_targets SET state = ?1, next_attempt_at = ?2, record = ?3 WHERE conversation_id = ?4 AND message_id = ?5 AND target = ?6 AND direction = 'out'",
+            params![o.state, o.next_attempt_at, serde_json::to_string(o)?, id, message, o.participant],
+        )?;
+        self.note_undelivered(conn, id, message, o)
+    }
+    /// The request for a target's next attempt, or `None` when it is no
+    /// longer due or was refused here for lack of anything to cite.
+    fn prepare_target(
+        &self,
+        id: &str,
+        message: &str,
+        target: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (mut out, prev_seq) = self.outbound_record(&tx, id, message, target)?;
+        if out.state != "sending" {
+            return Ok(None);
+        }
+        let stored: Stored = json(tx.query_row(
+            "SELECT record FROM conversation_messages WHERE conversation_id = ?1 AND message_id = ?2",
+            params![id, message],
+            |r| r.get::<_, String>(0),
+        )?)?;
+        if sync::push_window_over(&stored.message.sent_at) {
+            sync::stop(&mut out);
+            self.save_outbound(&tx, id, message, &out)?;
+            tx.commit()?;
+            return Ok(None);
+        }
+        let (kind, host, local) = participant_parts(target).ok_or(Error::NotFound)?;
+        let host = host.to_owned();
+        let (grant_id, policy, self_access) = if kind == "agent" {
+            let origin = stored.message.origin.as_ref().map(|o| o.agent_id.clone());
+            match self.conversation_citation(&tx, &host, local, origin.as_deref())? {
+                Some(cited) => cited,
+                None => {
+                    out.state = "refused".into();
+                    out.code = Some("not_authorized".into());
+                    out.error = Some("no current authorization lets this host reach it".into());
+                    out.next_attempt_at = None;
+                    self.save_outbound(&tx, id, message, &out)?;
+                    tx.commit()?;
+                    return Ok(None);
+                }
+            }
+        } else {
+            (None, None, None)
+        };
+        let request = MessageRequest {
+            message: stored.message,
+            target: target.into(),
+            prev_seq,
+            grant_id,
+            policy,
+            self_access,
+        };
+        Ok(Some((host, serde_json::to_vec(&request)?)))
+    }
+    fn finish_target(
+        &self,
+        id: &str,
+        message: &str,
+        target: &str,
+        peer: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (mut out, _) = self.outbound_record(&tx, id, message, target)?;
+        // An attempt in flight when the 24 hours passed may still settle it.
+        let settles = !matches!(outcome, Outcome::Retry(_));
+        if out.state != "sending" && !(out.state == "stopped" && settles) {
+            return Ok(());
+        }
+        out.attempts += 1;
+        let result = match outcome {
+            Outcome::Answer(body) => match serde_json::from_slice::<Receipt>(&body) {
+                Ok(r)
+                    if r.message_id == message
+                        && r.target == target
+                        && r.receiver_host_id == peer =>
+                {
+                    Ok(())
+                }
+                _ => Err(Outcome::Retry("invalid peer receipt".into())),
+            },
+            other => Err(other),
+        };
+        match result {
+            Ok(()) => {
+                out.state = "delivered".into();
+                out.code = None;
+                out.error = None;
+                out.next_attempt_at = None;
+            }
+            Err(Outcome::Final(state, code, error)) => {
+                out.state = state.into();
+                out.code = Some(code.into());
+                out.error = Some(error);
+                out.next_attempt_at = None;
+            }
+            Err(Outcome::Retry(error)) if out.state == "sending" => {
+                out.error = Some(error);
+                out.next_attempt_at = Some(rfc3339(
+                    crate::clock::now() + backoff(out.attempts, jitter()),
+                ));
+            }
+            Err(Outcome::Answer(_)) if out.state == "sending" => {
+                out.error = Some("invalid peer answer".into());
+                out.next_attempt_at = Some(rfc3339(
+                    crate::clock::now() + backoff(out.attempts, jitter()),
+                ));
+            }
+            Err(_) => return Ok(()),
+        }
+        self.save_outbound(&tx, id, message, &out)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// `POST /peer/v1/conversations/invites`.
+    pub fn accept_invite(&self, sender: &str, r: InviteRequest) -> Result<Value, Error> {
+        if r.target.kind == "person" {
+            return self.accept_person_invite(sender, r);
+        }
+        let own = self.identity().id;
+        let agent = match (&r.target.kind[..], &r.target.agent_id, &r.target.person_id) {
+            ("agent", Some(agent), None) if valid_id(agent, "agent", 16) => agent.clone(),
+            _ => return Err(invalid("invalid invite target")),
+        };
+        let participant = format!("agent:{own}/{agent}");
+        let cited = one_authorization(
+            r.grant_id.as_deref(),
+            r.policy.as_ref(),
+            r.self_access.as_ref(),
+        );
+        if !valid_conversation_id(&r.conversation_id)
+            || r.roster.conversation_id != r.conversation_id
+            || r.roster.home_host_id != sender
+            || r.roster.version < 1
+            || !consistent(&r.roster)
+            || r.roster.joined(&participant).is_none()
+            || !cited
+            || r.note.as_ref().is_some_and(|n| n.len() > MAX_NOTE)
+            || r.roster.title.as_deref().is_some_and(|t| !valid_title(t))
+            || participant_parts(&r.adder).is_none()
+            || r.origin.as_ref().is_some_and(|o| !o.valid())
+        {
+            return Err(invalid("invalid invite"));
+        }
+        let (adder_kind, adder_host, adder_local) =
+            participant_parts(&r.adder).ok_or_else(|| invalid("invalid adder"))?;
+        let origin_ok = match (&r.origin, adder_kind) {
+            (Some(o), "agent") => o.agent_id == adder_local,
+            (None, "person") => true,
+            _ => false,
+        };
+        if !origin_ok {
+            return Err(invalid("origin must name an agent adder"));
+        }
+        if adder_host != sender || r.roster.joined(&r.adder).is_none() {
+            return Err(Error::Forbidden);
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let name: Option<String> = tx
+            .query_row("SELECT name FROM agents WHERE id = ?1", [&agent], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        let Some(name) = name else {
+            return Err(Error::Forbidden);
+        };
+        self.conversation_authorize(
+            &tx,
+            sender,
+            (
+                r.grant_id.as_deref(),
+                r.policy.as_ref(),
+                r.self_access.as_ref(),
+            ),
+            &agent,
+            0,
+            r.origin.as_ref(),
+        )?;
+        let held = self.held_opt(&tx, &r.conversation_id)?;
+        if let Some(held) = &held
+            && held.roster.home_host_id != sender
+        {
+            return Err(Error::Forbidden);
+        }
+        // Another local agent may be listed `inviting`, or `joined` only if
+        // this host already holds it joined: an invite joins its own target
+        // and nothing else.
+        let stray = r.roster.participants.iter().any(|p| {
+            let id = p.id.as_deref().unwrap_or_default();
+            p.host_id.as_deref() == Some(own.as_str())
+                && id != participant
+                && p.state == "joined"
+                && held.as_ref().is_none_or(|h| !h.joined_here(id))
+        });
+        if stray || r.roster.state != "open" {
+            return Err(invalid(
+                "an invite cannot join another participant on this host",
+            ));
+        }
+        let added_at = r
+            .roster
+            .participants
+            .iter()
+            .find(|p| p.id.as_deref() == Some(participant.as_str()))
+            .map(|p| p.added_at.clone())
+            .unwrap_or_default();
+        let mut held = match held {
+            Some(h) => h,
+            None => Held {
+                roster: r.roster.clone(),
+                local: LocalState::default(),
+            },
+        };
+        if held.local.admitted.get(&participant) == Some(&added_at)
+            && held.joined_here(&participant)
+        {
+            return Ok(json!({"state": "joined", "name": name}));
+        }
+        if held.local.ended.get(&participant) == Some(&added_at) {
+            return Err(not_participant());
+        }
+        // An invite that a roster this host already holds supersedes (it
+        // dropped the target, or added it again later) admits nothing.
+        let superseded = held.roster != r.roster
+            && held.roster.version >= r.roster.version
+            && held
+                .roster
+                .participants
+                .iter()
+                .find(|p| p.id.as_deref() == Some(participant.as_str()))
+                .is_none_or(|p| p.added_at != added_at);
+        if superseded {
+            return Err(not_participant());
+        }
+        if self.open_count(&tx, &participant)? >= MAX_OPEN {
+            return Err(coded_error(429, "limit", OPEN_LIMIT));
+        }
+        if held.roster.version < r.roster.version || held.roster == r.roster {
+            let mut roster = r.roster.clone();
+            for p in &mut roster.participants {
+                if p.id.as_deref() == Some(participant.as_str()) {
+                    p.name = Some(name.clone());
+                }
+            }
+            self.apply_roster(&tx, &mut held, roster, None)?;
+        }
+        held.admit(&participant, &added_at);
+        save_held(&tx, &held)?;
+        let change = self.roster_change(&tx, &r.roster, "added", &r.adder, r.note.as_deref())?;
+        self.notify(
+            &tx,
+            &r.conversation_id,
+            &agent,
+            "roster",
+            None,
+            Some(change),
+        )?;
+        tx.commit()?;
+        Ok(json!({"state": "joined", "name": name}))
+    }
+
+    /// Accepts when the cited authorization, self access, or this host's
+    /// owner's current policy allows `message.append`; 503 only when the
+    /// cited policy is newer than this host holds.
+    fn conversation_authorize(
+        &self,
+        conn: &Connection,
+        sender: &str,
+        cited: (Option<&str>, Option<&PolicyRef>, Option<&SelfRef>),
+        agent: &str,
+        size: usize,
+        origin: Option<&Origin>,
+    ) -> Result<(), Error> {
+        let deadline = now();
+        let check =
+            |grant_id: Option<&str>, policy: Option<&PolicyRef>, self_access: Option<&SelfRef>| {
+                let authz = Authz {
+                    action: crate::policy::ACTION,
+                    grant_id,
+                    policy,
+                    self_access,
+                    target_agent_id: agent,
+                    deadline: &deadline,
+                    size,
+                    origin,
+                    artifacts: None,
+                };
+                self.message_authority(conn, sender, &authz, false)
+            };
+        // A receiver behind the cited policy version answers 503 before
+        // anything else, so an older version never decides.
+        if cited != (None, None, None) {
+            match check(cited.0, cited.1, cited.2) {
+                Ok(_) => return Ok(()),
+                Err(Error::Forbidden) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if let (Some(person), _) = crate::adapter::sender_person(self, conn, sender)? {
+            let s = SelfRef { person_id: person };
+            if check(None, None, Some(&s)).is_ok() {
+                return Ok(());
+            }
+        }
+        if let Some(own) = self.conversation_person(conn)? {
+            let p = PolicyRef {
+                person_id: own,
+                version: 1,
+            };
+            if check(None, Some(&p), None).is_ok() {
+                return Ok(());
+            }
+        }
+        let grants: Vec<String> = {
+            let mut statement = conn.prepare(
+                "SELECT id FROM grants WHERE json_extract(record, '$.requester_host_id') = ?1 AND json_extract(record, '$.target_agent_id') = ?2 ORDER BY id",
+            )?;
+            statement
+                .query_map(params![sender, agent], |r| r.get::<_, String>(0))?
+                .collect::<Result<_, _>>()?
+        };
+        if grants
+            .iter()
+            .any(|g| check(Some(g.as_str()), None, None).is_ok())
+        {
+            return Ok(());
+        }
+        Err(Error::Forbidden)
+    }
+
+    /// `POST /peer/v1/conversations/{id}/messages`.
+    pub fn accept_conversation_message(
+        &self,
+        sender: &str,
+        id: &str,
+        r: MessageRequest,
+    ) -> Result<Receipt, Error> {
+        self.accept_inbound(sender, id, r, false)
+    }
+    /// Message acceptance, for a pushed message and (`fetched`, contract C4)
+    /// one fetched from its author's host, which carries no citation and
+    /// passes exactly the same steps.
+    fn accept_inbound(
+        &self,
+        sender: &str,
+        id: &str,
+        r: MessageRequest,
+        fetched: bool,
+    ) -> Result<Receipt, Error> {
+        let own = self.identity().id;
+        let m = &r.message;
+        let target = participant_parts(&r.target);
+        let author = participant_parts(&m.author);
+        let cited = (
+            r.grant_id.as_deref(),
+            r.policy.as_ref(),
+            r.self_access.as_ref(),
+        );
+        let citation_ok = match target {
+            _ if fetched => cited == (None, None, None),
+            Some(("agent", _, _)) => one_authorization(cited.0, cited.1, cited.2),
+            Some(_) => cited == (None, None, None),
+            None => false,
+        };
+        let origin_ok = match (author, &m.origin) {
+            (Some(("agent", _, agent)), Some(o)) => o.valid() && o.agent_id == agent,
+            (Some(("person", _, _)), None) => true,
+            _ => false,
+        };
+        if m.conversation_id != id
+            || !valid_conversation_id(id)
+            || !valid_message_id(&m.message_id)
+            || author.is_none()
+            || !citation_ok
+            || !origin_ok
+            || !(1..=MAX_COUNTER).contains(&m.seq)
+            || !(1..=MAX_COUNTER).contains(&m.clock)
+            || !(1..=MAX_COUNTER).contains(&m.roster_version)
+            || r.prev_seq.is_some_and(|p| p < 1 || p >= m.seq)
+            || !valid_content(&m.content)
+            || chrono::DateTime::parse_from_rfc3339(&m.sent_at).is_err()
+            || m.addressed_to.as_ref().is_some_and(|a| {
+                a.is_empty() || a.len() > 16 || a.iter().any(|p| participant_parts(p).is_none())
+            })
+        {
+            return Err(invalid("invalid conversation message"));
+        }
+        // Both parse: the shape check above refuses either missing.
+        let (Some((_, author_host, _)), Some((target_kind, target_host, target_local))) =
+            (author, target)
+        else {
+            return Err(invalid("invalid conversation message"));
+        };
+        if author_host != sender {
+            return Err(Error::Forbidden);
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'accepted' AND peer = ?4",
+                params![id, m.message_id, r.target, sender],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(previous) = previous {
+            let previous: Inbound = json(previous)?;
+            if previous.message == *m
+                && previous.target == r.target
+                && previous.prev_seq == r.prev_seq
+            {
+                return Ok(previous.receipt);
+            }
+            return Err(Error::Conflict(
+                "message ID reused with different fields".into(),
+            ));
+        }
+        // A refusal recorded at a fetch is final: a later push meets it.
+        let refused: Option<String> = tx
+            .query_row(
+                "SELECT record FROM conversation_targets WHERE conversation_id = ?1 AND message_id = ?2 AND target = ?3 AND direction = 'in' AND state = 'refused' AND peer = ?4",
+                params![id, m.message_id, r.target, sender],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(refused) = refused {
+            return Err(sync::saved_refusal(refused)?);
+        }
+        let Some(held) = self.held_opt(&tx, id)? else {
+            return Err(unavailable(
+                "this host does not hold that conversation's roster",
+            ));
+        };
+        let roster = &held.roster;
+        if m.roster_version > roster.version {
+            return Err(unavailable("this host holds an older roster"));
+        }
+        // A clock far ahead of everything held would leave nothing to count
+        // up to; honest clocks advance by one per message.
+        let highest: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(clock), 0) FROM conversation_messages WHERE conversation_id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        if m.clock > highest.saturating_add(MAX_CLOCK_JUMP) {
+            return Err(invalid("clock too far ahead"));
+        }
+        // A local participant counts as joined only when this host admitted
+        // it (contract C2, Admission), never by a peer's roster.
+        if target_host != own || !held.joined_here(&r.target) || roster.joined(&m.author).is_none()
+        {
+            return Err(not_participant());
+        }
+        // A message authored before its author's host knew of the close is
+        // still accepted.
+        if roster.state == "closed" && m.roster_version >= roster.version {
+            return Err(closed());
+        }
+        if target_kind == "agent" {
+            let authorized = self.conversation_authorize(
+                &tx,
+                sender,
+                cited,
+                target_local,
+                m.content.len(),
+                m.origin.as_ref(),
+            );
+            // A fetch with no current policy of the owner here waits for
+            // the next sync instead of refusing (contract C4).
+            if fetched
+                && matches!(authorized, Err(Error::Forbidden))
+                && !self.own_policy_current(&tx, sender)?
+            {
+                return Err(unavailable("this host holds no current policy"));
+            }
+            authorized?;
+        } else {
+            let person = self.conversation_person(&tx)?;
+            if person.as_deref() != Some(target_local)
+                || self.product_members_of(&tx, sender)?.is_empty()
+                || self.blocked(&tx, sender)?
+            {
+                return Err(Error::Forbidden);
+            }
+        }
+        let held: Option<String> = tx
+            .query_row(
+                "SELECT record FROM conversation_messages WHERE message_id = ?1",
+                [&m.message_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let at = now();
+        match held {
+            Some(held) => {
+                let held: Stored = json(held)?;
+                if held.message != *m || held.sender_host != sender {
+                    return Err(Error::Conflict(
+                        "message ID reused with different fields".into(),
+                    ));
+                }
+            }
+            None => {
+                // Only a message not yet held counts; a further target of
+                // one passes. Its time is the lesser of `sent_at` and now.
+                let sent = crate::membership::time(&m.sent_at)
+                    .map_err(|_| invalid("invalid conversation message"))?;
+                if tools::rate_full(&tx, id, &m.author, sent.min(crate::clock::now()))? {
+                    return Err(tools::recipient_limit());
+                }
+                tools::activity(
+                    &tx,
+                    "conversation.message_received",
+                    &format!("{id}/{}", m.message_id),
+                )?;
+                let local_seq: i64 = tx.query_row(
+                    "SELECT COALESCE(MAX(local_seq), 0) + 1 FROM conversation_messages",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let stored = Stored {
+                    message: m.clone(),
+                    received_at: at.clone(),
+                    sender_host: sender.into(),
+                };
+                let inserted = tx.execute(
+                    "INSERT INTO conversation_messages (conversation_id, message_id, author, seq, clock, local_seq, record) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id, m.message_id, m.author, m.seq, m.clock, local_seq, serde_json::to_string(&stored)?],
+                );
+                match inserted {
+                    Ok(_) => {}
+                    Err(rusqlite::Error::SqliteFailure(e, _))
+                        if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+                    {
+                        return Err(Error::Conflict("author sequence number reused".into()));
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+        let receipt = Receipt {
+            message_id: m.message_id.clone(),
+            target: r.target.clone(),
+            receiver_host_id: own,
+            accepted_at: at.clone(),
+        };
+        let inbound = Inbound {
+            message: m.clone(),
+            target: r.target.clone(),
+            prev_seq: r.prev_seq,
+            receipt: receipt.clone(),
+        };
+        tx.execute(
+            "INSERT INTO conversation_targets (conversation_id, message_id, target, direction, peer, prev_seq, state, next_attempt_at, record) VALUES (?1, ?2, ?3, 'in', ?4, ?5, 'accepted', NULL, ?6)",
+            params![id, m.message_id, r.target, sender, r.prev_seq, serde_json::to_string(&inbound)?],
+        )?;
+        tools::log_event(
+            &tx,
+            "message_received",
+            id,
+            Some(&m.message_id),
+            Some(&r.target),
+        )?;
+        if target_kind == "agent" {
+            self.notify(&tx, id, target_local, "message", Some(&m.message_id), None)?;
+        }
+        tx.commit()?;
+        Ok(receipt)
+    }
+
+    /// A local agent's participant ID, by agent ID or name.
+    fn agent_participant(&self, conn: &Connection, agent: &str) -> Result<String, Error> {
+        let id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM agents WHERE id = ?1 OR name = ?1 ORDER BY id = ?1 DESC LIMIT 1",
+                [agent],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let id = id.ok_or(Error::NotFound)?;
+        Ok(format!("agent:{}/{id}", self.identity().id))
+    }
+    /// The creator checks of `add`, `remove` and `close`: 404, then
+    /// `not_creator` and `not_participant`. Returns the held conversation.
+    fn creator_check(&self, conn: &Connection, id: &str, actor: &str) -> Result<Held, Error> {
+        let held = self.held(conn, id)?;
+        if held.roster.created_by != actor || held.roster.home_host_id != self.identity().id {
+            return Err(not_creator());
+        }
+        if !held.joined_here(actor) {
+            return Err(not_participant());
+        }
+        Ok(held)
+    }
+    /// Whether `participant` is already `inviting` or `joined`.
+    fn listed(held: &Held, participant: &str) -> bool {
+        held.roster
+            .participants
+            .iter()
+            .any(|p| p.id.as_deref() == Some(participant))
+    }
+    /// `add` once resolved: a local agent is joined at once (or refused
+    /// over its limit), a remote one is committed `inviting` and invited.
+    /// Returns the local outcome (`None` for remote) and whether a new
+    /// invite was created.
+    fn add_participant(
+        &self,
+        id: &str,
+        actor: &str,
+        target: &crate::directory::Candidate,
+        given: &str,
+    ) -> Result<(Option<&'static str>, bool), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut held = self.creator_check(&tx, id, actor)?;
+        if held.roster.state == "closed" {
+            return Err(closed());
+        }
+        let participant = format!("agent:{}/{}", target.host_id, target.agent_id);
+        if Self::listed(&held, &participant) {
+            return Ok((target.local.then_some("joined"), false));
+        }
+        if held.count() >= MAX_PARTICIPANTS {
+            return Err(coded_error(409, "full", FULL));
+        }
+        if target.local && self.open_count(&tx, &participant)? >= MAX_OPEN {
+            return Ok((Some("limit"), false));
+        }
+        let at = now();
+        let person = if target.local {
+            self.conversation_person(&tx)?
+        } else {
+            crate::adapter::sender_person(self, &tx, &target.host_id)?.0
+        };
+        let mut next = held.roster.clone();
+        next.departed
+            .retain(|d| d["id"].as_str() != Some(participant.as_str()));
+        next.participants.push(Participant {
+            id: Some(participant.clone()),
+            kind: "agent".into(),
+            host_id: Some(target.host_id.clone()),
+            person_id: person,
+            agent_id: Some(target.agent_id.clone()),
+            name: Some(target.name.clone()),
+            state: if target.local { "joined" } else { "inviting" }.into(),
+            added_by: Some(actor.into()),
+            added_at: at.clone(),
+        });
+        self.commit(&tx, &mut held, next, Some(actor))?;
+        if target.local {
+            held.admit(&participant, &at);
+            save_held(&tx, &held)?;
+            let change = self.roster_change(&tx, &held.roster, "added", actor, None)?;
+            self.notify(&tx, id, &target.agent_id, "roster", None, Some(change))?;
+        } else {
+            self.save_invite(
+                &tx,
+                id,
+                &Invite {
+                    target: given.into(),
+                    participant: participant.clone(),
+                    agent_id: target.agent_id.clone(),
+                    adder: actor.into(),
+                    state: "sending".into(),
+                    code: None,
+                    error: None,
+                    attempts: 0,
+                    next_attempt_at: Some(later(10)),
+                    note: None,
+                    offered: 0,
+                    added_at: at.clone(),
+                    person_id: None,
+                },
+            )?;
+        }
+        tx.commit()?;
+        Ok((target.local.then_some("joined"), !target.local))
+    }
+    /// `remove`: a participant ID, or a label matching exactly one.
+    fn remove_participant(&self, id: &str, actor: &str, which: &str) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut held = self.creator_check(&tx, id, actor)?;
+        if held.roster.state == "closed" {
+            return Err(closed());
+        }
+        let mut matches = Vec::new();
+        for p in &held.roster.participants {
+            // A person not yet joined is named `person:PERSON_ID`.
+            let pid = match (&p.id, &p.person_id) {
+                (Some(id), _) => id.clone(),
+                (None, Some(person)) => format!("person:{person}"),
+                (None, None) => continue,
+            };
+            if pid == which || self.label(&tx, p)? == which {
+                matches.push(pid);
+            }
+        }
+        let participant = match matches.as_slice() {
+            [] => {
+                return Err(coded_error(
+                    404,
+                    "not_found",
+                    "No such participant in that conversation.",
+                ));
+            }
+            [one] => one.clone(),
+            many => {
+                return Err(coded(
+                    409,
+                    "ambiguous",
+                    format!("{which} names several participants: {}", many.join(", ")),
+                    json!({ "matches": many }),
+                ));
+            }
+        };
+        if participant == held.roster.created_by {
+            return Err(invalid("the creator cannot be removed; it can leave"));
+        }
+        if let Some(person) = unjoined_person(&participant) {
+            self.drop_person(&tx, &mut held, person, Some(actor), "removed")?;
+            tx.commit()?;
+            return Ok(());
+        }
+        let mut next = held.roster.clone();
+        next.participants
+            .retain(|p| p.id.as_deref() != Some(participant.as_str()));
+        next.departed.push(departed_entry(&participant, "removed"));
+        self.commit(&tx, &mut held, next, Some(actor))?;
+        self.stop_invite(&tx, id, &participant, "removed")?;
+        tx.commit()?;
+        Ok(())
+    }
+    /// `close`: idempotent; pending invites stop.
+    fn close_conversation(&self, id: &str, actor: &str) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut held = self.creator_check(&tx, id, actor)?;
+        if held.roster.state == "closed" {
+            return Ok(());
+        }
+        let mut next = held.roster.clone();
+        next.state = "closed".into();
+        self.commit(&tx, &mut held, next, Some(actor))?;
+        let inviting: Vec<String> = held
+            .roster
+            .participants
+            .iter()
+            .filter(|p| p.state == "inviting")
+            .filter_map(|p| p.id.clone())
+            .collect();
+        for p in inviting {
+            self.stop_invite(&tx, id, &p, "closed")?;
+        }
+        let persons: Vec<String> = held
+            .roster
+            .participants
+            .iter()
+            .filter(|p| p.id.is_none())
+            .filter_map(|p| p.person_id.clone())
+            .collect();
+        for person in persons {
+            self.stop_pinvites(&tx, id, &person, "closed")?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// A local participant leaves: at once here, then at home.
+    fn leave_conversation(&self, id: &str, participant: &str) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut held = self.held(&tx, id)?;
+        if !held.joined_here(participant) {
+            return Err(not_participant());
+        }
+        if held.roster.state == "closed" {
+            return Err(closed());
+        }
+        held.end(participant);
+        held.local.left.insert(participant.into(), now());
+        if let Some(("agent", _, agent)) = participant_parts(participant) {
+            self.withdraw(&tx, id, agent)?;
+        }
+        let own = self.identity().id;
+        if held.roster.home_host_id == own {
+            let mut next = held.roster.clone();
+            next.participants
+                .retain(|p| p.id.as_deref() != Some(participant));
+            next.departed.push(departed_entry(participant, "left"));
+            self.commit(&tx, &mut held, next, Some(participant))?;
+        } else {
+            save_held(&tx, &held)?;
+            let leave = Leave {
+                participant: participant.into(),
+                state: "sending".into(),
+                attempts: 0,
+                error: None,
+                next_attempt_at: Some(now()),
+                added_at: None,
+            };
+            tx.execute(
+                "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                params![id, held.roster.home_host_id, format!("leave:{participant}"), serde_json::to_string(&leave)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn current_member(&self, conn: &Connection, sender: &str) -> Result<(), Error> {
+        if self.product_members_of(conn, sender)?.is_empty() {
+            return Err(Error::Forbidden);
+        }
+        Ok(())
+    }
+    /// `POST /peer/v1/conversations/{id}/leave` at home.
+    pub fn accept_leave(
+        &self,
+        sender: &str,
+        id: &str,
+        participant: &str,
+        added_at: Option<&str>,
+    ) -> Result<Value, Error> {
+        let decline = unjoined_person(participant).map(str::to_owned);
+        // `added_at` names the declined invite, and comes only with a decline.
+        if decline.is_some() != added_at.is_some() {
+            return Err(invalid("added_at comes with a decline, and only then"));
+        }
+        match participant_parts(participant) {
+            _ if !valid_conversation_id(id) => return Err(invalid("invalid conversation ID")),
+            Some((_, host, _)) => {
+                if host != sender {
+                    return Err(Error::Forbidden);
+                }
+            }
+            None if decline.is_some() => {}
+            None => return Err(invalid("participant must be a participant ID")),
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        self.current_member(&tx, sender)?;
+        let Some(mut held) = self.held_opt(&tx, id)? else {
+            return Err(Error::NotFound);
+        };
+        if held.roster.home_host_id != self.identity().id {
+            return Err(Error::NotFound);
+        }
+        if let Some(person) = decline {
+            // A decline: the sender must be bound to that person.
+            let bound = self
+                .product_members_of(&tx, sender)?
+                .iter()
+                .any(|(_, m)| m.person_id.as_deref() == Some(person.as_str()));
+            if !bound {
+                return Err(Error::Forbidden);
+            }
+            // A repeat of an earlier decline never drops a newer invite.
+            if unjoined_entry(&held.roster, &person)
+                .is_some_and(|p| Some(p.added_at.as_str()) == added_at)
+            {
+                self.drop_person(&tx, &mut held, &person, None, "declined")?;
+            }
+            tx.commit()?;
+            return Ok(json!({ "roster": held.roster }));
+        }
+        if held.roster.state == "open" && Self::listed(&held, participant) {
+            let mut next = held.roster.clone();
+            next.participants
+                .retain(|p| p.id.as_deref() != Some(participant));
+            next.departed.push(departed_entry(participant, "left"));
+            self.commit(&tx, &mut held, next, None)?;
+            self.stop_invite(&tx, id, participant, "left")?;
+        }
+        tx.commit()?;
+        Ok(json!({ "roster": held.roster }))
+    }
+    /// `GET /peer/v1/conversations/{id}/roster` at home.
+    pub fn serve_roster(&self, sender: &str, id: &str) -> Result<Value, Error> {
+        let conn = self.connection()?;
+        self.current_member(&conn, sender)?;
+        let Some(held) = self.held_opt(&conn, id)? else {
+            return Err(Error::NotFound);
+        };
+        let on_sender = |pid: &str| participant_parts(pid).is_some_and(|(_, h, _)| h == sender);
+        let holds = held
+            .roster
+            .participants
+            .iter()
+            .any(|p| p.id.as_deref().is_some_and(on_sender))
+            || held
+                .roster
+                .departed
+                .iter()
+                .any(|d| d["id"].as_str().is_some_and(on_sender));
+        let pending = self.all_pinvites(&conn, id)?.iter().any(|(peer, i)| {
+            peer == sender
+                && i.state == "invited"
+                && i.person_id
+                    .as_deref()
+                    .is_some_and(|p| lists_invited(&held.roster, p, &i.added_at))
+        });
+        if held.roster.home_host_id != self.identity().id || !(holds || pending) {
+            return Err(Error::NotFound);
+        }
+        Ok(json!({ "roster": held.roster }))
+    }
+    /// `POST /peer/v1/conversations/{id}/roster`, and a roster fetched from
+    /// home: steps 1 to 6 of the contract.
+    pub fn accept_roster(&self, sender: &str, id: &str, roster: Roster) -> Result<Value, Error> {
+        if !valid_conversation_id(id)
+            || roster.conversation_id != id
+            || !(1..=MAX_COUNTER).contains(&roster.version)
+            || !consistent(&roster)
+            || roster.title.as_deref().is_some_and(|t| !valid_title(t))
+        {
+            return Err(invalid("invalid roster"));
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        self.current_member(&tx, sender)?;
+        let Some(mut held) = self.held_opt(&tx, id)? else {
+            let answer = self.accept_pending_roster(&tx, sender, id, roster)?;
+            tx.commit()?;
+            return Ok(answer);
+        };
+        if held.roster.home_host_id != sender || roster.home_host_id != sender {
+            return Err(Error::Forbidden);
+        }
+        if roster.version <= held.roster.version {
+            return Ok(json!({ "version": held.roster.version }));
+        }
+        let own = self.identity().id;
+        // This host's person, listed joined while a join is outstanding:
+        // home's confirmation (contract C3, Admission).
+        let mut confirmed = None;
+        if let Some(person) = self.conversation_person(&tx)?
+            && let Some(pending) = self.pending_opt(&tx, id, &person)?
+            && pending.joining
+            && pending.current()
+        {
+            let me = format!("person:{own}/{person}");
+            // Only a confirmation of this invite: same admission, and not
+            // older than the roster the invite holds.
+            if let Some(p) = roster.joined(&me)
+                && p.added_at == pending.added_at
+                && roster.version >= pending.roster.version
+            {
+                confirmed = Some((person, me, p.added_at.clone(), pending));
+            }
+        }
+        let claims = roster.participants.iter().any(|p| {
+            let pid = p.id.as_deref().unwrap_or_default();
+            p.host_id.as_deref() == Some(own.as_str())
+                && p.state == "joined"
+                && !held.joined_here(pid)
+                && !held.local.left.contains_key(pid)
+                && confirmed.as_ref().is_none_or(|c| c.1 != pid)
+        });
+        if claims {
+            return Err(invalid("a roster cannot join a participant on this host"));
+        }
+        if let Some((person, _, _, pending)) = &confirmed {
+            let mut pending = pending.clone();
+            pending.state = "joined".into();
+            pending.joining = false;
+            self.save_pending(&tx, id, person, &pending)?;
+        }
+        self.apply_roster(&tx, &mut held, roster, None)?;
+        if let Some((_, me, added_at, _)) = &confirmed {
+            held.admit(me, added_at);
+        }
+        save_held(&tx, &held)?;
+        tx.commit()?;
+        Ok(json!({ "version": held.roster.version }))
+    }
+    /// Home drops invites still unanswered 10 minutes after `added_at`.
+    fn expire_invites(&self) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let rows: Vec<(String, String)> = {
+            let mut statement = tx.prepare(
+                "SELECT conversation_id, record FROM conversation_roster_outbound WHERE kind LIKE 'invite:%'",
+            )?;
+            statement
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?
+        };
+        let at = crate::clock::now();
+        for (id, record) in rows {
+            let mut invite: Invite = json(record)?;
+            if invite.state != "sending" {
+                continue;
+            }
+            let Some(mut held) = self.held_opt(&tx, &id)? else {
+                continue;
+            };
+            let due = held.roster.participants.iter().any(|p| {
+                p.id.as_deref() == Some(invite.participant.as_str())
+                    && p.state == "inviting"
+                    && crate::membership::time(&p.added_at)
+                        .is_ok_and(|t| t + chrono::TimeDelta::seconds(INVITE_LIMIT_SECONDS) <= at)
+            });
+            if !due || held.roster.state != "open" {
+                continue;
+            }
+            invite.state = "unanswered".into();
+            invite.next_attempt_at = None;
+            let mut next = held.roster.clone();
+            next.participants
+                .retain(|p| p.id.as_deref() != Some(invite.participant.as_str()));
+            next.departed
+                .push(departed_entry(&invite.participant, "unanswered"));
+            self.commit(&tx, &mut held, next, None)?;
+            self.save_invite(&tx, &id, &invite)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn outbound_row<T: serde::de::DeserializeOwned>(
+        &self,
+        conn: &Connection,
+        id: &str,
+        peer: &str,
+        kind: &str,
+    ) -> Result<Option<T>, Error> {
+        let text: Option<String> = conn
+            .query_row(
+                "SELECT record FROM conversation_roster_outbound WHERE conversation_id = ?1 AND peer = ?2 AND kind = ?3",
+                params![id, peer, kind],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.map(json).transpose()
+    }
+    fn save_row<T: Serialize>(
+        &self,
+        conn: &Connection,
+        id: &str,
+        peer: &str,
+        kind: &str,
+        record: &T,
+    ) -> Result<(), Error> {
+        conn.execute(
+            "UPDATE conversation_roster_outbound SET record = ?1 WHERE conversation_id = ?2 AND peer = ?3 AND kind = ?4",
+            params![serde_json::to_string(record)?, id, peer, kind],
+        )?;
+        Ok(())
+    }
+    /// The roster push for its next attempt: the newest roster.
+    fn prepare_push(&self, id: &str, peer: &str) -> Result<Option<(Vec<u8>, i64)>, Error> {
+        let conn = self.connection()?;
+        let Some(push) = self.outbound_row::<Push>(&conn, id, peer, "roster")? else {
+            return Ok(None);
+        };
+        if push.state != "sending" {
+            return Ok(None);
+        }
+        let held = self.held(&conn, id)?;
+        Ok(Some((
+            serde_json::to_vec(&json!({ "roster": held.roster }))?,
+            held.roster.version,
+        )))
+    }
+    fn finish_push(
+        &self,
+        id: &str,
+        peer: &str,
+        version: i64,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let Some(mut push) = self.outbound_row::<Push>(&tx, id, peer, "roster")? else {
+            return Ok(());
+        };
+        if push.state != "sending" {
+            return Ok(());
+        }
+        push.attempts += 1;
+        let retry = |push: &mut Push, error: String| {
+            push.error = Some(error);
+            push.next_attempt_at = Some(rfc3339(
+                crate::clock::now() + backoff(push.attempts, jitter()),
+            ));
+        };
+        match outcome {
+            Outcome::Answer(body) => {
+                let held = serde_json::from_slice::<Value>(&body)
+                    .ok()
+                    .and_then(|v| v["version"].as_i64());
+                match held {
+                    Some(v) if v >= push.version => {
+                        push.state = "done".into();
+                        push.error = None;
+                        push.next_attempt_at = None;
+                    }
+                    _ => retry(&mut push, "the host did not take the roster yet".into()),
+                }
+            }
+            Outcome::Final(_, _, error) => {
+                if version >= push.version {
+                    push.state = "stopped".into();
+                    push.next_attempt_at = None;
+                    push.error = Some(error);
+                } else {
+                    push.next_attempt_at = Some(now());
+                }
+            }
+            Outcome::Retry(error) => retry(&mut push, error),
+        }
+        self.save_row(&tx, id, peer, "roster", &push)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn prepare_leave(
+        &self,
+        id: &str,
+        peer: &str,
+        participant: &str,
+    ) -> Result<Option<LeaveRequestBody>, Error> {
+        let conn = self.connection()?;
+        let kind = format!("leave:{participant}");
+        match self.outbound_row::<Leave>(&conn, id, peer, &kind)? {
+            Some(leave) if leave.state == "sending" => {
+                let mut body = json!({ "participant": participant });
+                if let Some(at) = &leave.added_at {
+                    body["added_at"] = json!(at);
+                }
+                Ok(Some((serde_json::to_vec(&body)?, leave.added_at)))
+            }
+            _ => Ok(None),
+        }
+    }
+    fn finish_leave(
+        &self,
+        id: &str,
+        peer: &str,
+        participant: &str,
+        generation: Option<String>,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let kind = format!("leave:{participant}");
+        let roster = {
+            let mut conn = self.connection()?;
+            let tx = conn.transaction()?;
+            let Some(mut leave) = self.outbound_row::<Leave>(&tx, id, peer, &kind)? else {
+                return Ok(());
+            };
+            // An answer to a decline since replaced by a newer one settles
+            // nothing: the newer decline is still to be sent.
+            if leave.added_at != generation {
+                return Ok(());
+            }
+            leave.attempts += 1;
+            let mut roster = None;
+            match outcome {
+                Outcome::Answer(body) => {
+                    leave.state = "done".into();
+                    leave.next_attempt_at = None;
+                    roster = serde_json::from_slice::<Value>(&body)
+                        .ok()
+                        .and_then(|v| serde_json::from_value::<Roster>(v["roster"].clone()).ok());
+                }
+                Outcome::Final(_, _, error) => {
+                    leave.state = "stopped".into();
+                    leave.next_attempt_at = None;
+                    leave.error = Some(error);
+                }
+                Outcome::Retry(error) => {
+                    leave.error = Some(error);
+                    leave.next_attempt_at = Some(rfc3339(
+                        crate::clock::now() + backoff(leave.attempts, jitter()),
+                    ));
+                }
+            }
+            self.save_row(&tx, id, peer, &kind, &leave)?;
+            tx.commit()?;
+            roster
+        };
+        if let Some(roster) = roster {
+            let _ = self.accept_roster(peer, id, roster);
+        }
+        Ok(())
+    }
+    /// The home host of a conversation this host holds at a lower roster
+    /// version than `version`.
+    fn behind(&self, id: &str, version: i64) -> Option<String> {
+        let conn = self.connection().ok()?;
+        let held = self.held_opt(&conn, id).ok()??;
+        (held.roster.version < version && held.roster.home_host_id != self.identity().id)
+            .then_some(held.roster.home_host_id)
+    }
+    fn adapter_message(
+        &self,
+        conn: &Connection,
+        roster: &Roster,
+        stored: &Stored,
+        me: &str,
+        limit: Option<usize>,
+    ) -> Result<Value, Error> {
+        let m = &stored.message;
+        let host = participant_parts(&m.author)
+            .map(|p| p.1)
+            .unwrap_or_default();
+        let (person_id, person) = crate::adapter::sender_person(self, conn, host)?;
+        let addressed_to = m.addressed_to.clone().unwrap_or_default();
+        let mut view = json!({
+            "message_id": m.message_id,
+            "author": m.author,
+            "author_label": self.label_of(conn, roster, &m.author)?,
+            "author_kind": Self::author_kind(&m.author),
+            "origin_agent_id": m.origin.as_ref().map(|o| o.agent_id.clone()),
+            "sender_person_id": person_id,
+            "sender_person": person,
+            "seq": m.seq,
+            "clock": m.clock,
+            "sent_at": m.sent_at,
+            "received_at": stored.received_at,
+            "content": m.content,
+            "addressed": addressed_to.is_empty() || addressed_to.iter().any(|a| a == me),
+            "addressed_to_labels": self.addressed_labels(conn, roster, &addressed_to)?,
+            "addressed_to": addressed_to,
+            "mine": m.author == me,
+        });
+        if let Some(limit) = limit {
+            let short = cut(&m.content, limit);
+            view["truncated"] = json!(short.len() < m.content.len());
+            if short.len() < m.content.len() {
+                view["content_bytes"] = json!(m.content.len());
+                view["content"] = json!(short);
+            }
+        }
+        Ok(view)
+    }
+    fn agent_summary(&self, conn: &Connection, held: &Held, me: &str) -> Result<Value, Error> {
+        let roster = &held.roster;
+        let agent = participant_parts(me).map(|p| p.2).unwrap_or_default();
+        let unseen = self.unseen(conn, &roster.conversation_id, agent)?;
+        let visible = self.visible(conn, &roster.conversation_id, me)?;
+        let participants = self
+            .shown(held)
+            .0
+            .iter()
+            .map(|p| {
+                Ok(json!({
+                    "id": p.id,
+                    "label": self.label(conn, p)?,
+                    "kind": p.kind,
+                    "state": p.state,
+                    "you": p.id.as_deref() == Some(me),
+                }))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        Ok(json!({
+            "conversation_id": roster.conversation_id,
+            "title": roster.title,
+            "state": roster.state,
+            "home_host_id": roster.home_host_id,
+            "participants": participants,
+            "unseen": unseen,
+            "last_message_at": Self::last_message_at(&visible),
+            "creator": roster.created_by == me,
+            "about": roster.about,
+            "home_unavailable": self.home_unavailable(conn, roster)?,
+        }))
+    }
+    /// `GET /adapter/v1/conversations`: open conversations the agent is
+    /// joined in, and closed ones it was in with unseen messages.
+    pub fn agent_conversations(
+        &self,
+        auth: &crate::adapter_connection::AdapterAuth,
+    ) -> Result<Value, Error> {
+        let conn = self.connection()?;
+        let (a, ss) = authority(&conn, auth)?;
+        crate::directory::directory_access(&a)?;
+        let me = format!("agent:{}/{}", self.identity().id, ss.agent_id);
+        let mut items = Vec::new();
+        for held in self.all_held(&conn)? {
+            if !held.joined_here(&me) {
+                continue;
+            }
+            let summary = self.agent_summary(&conn, &held, &me)?;
+            if held.roster.state != "open" && summary["unseen"].as_i64().unwrap_or(0) == 0 {
+                continue;
+            }
+            let activity = summary["last_message_at"]
+                .as_str()
+                .unwrap_or(&held.roster.created_at)
+                .to_owned();
+            items.push((activity, summary));
+        }
+        items.sort_by(|a, b| {
+            crate::membership::time(&b.0)
+                .ok()
+                .cmp(&crate::membership::time(&a.0).ok())
+        });
+        Ok(json!({ "conversations": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }))
+    }
+    /// `POST /adapter/v1/conversation-notifications/{id}/forwarded`.
+    pub fn conversation_forwarded(
+        &self,
+        auth: &crate::adapter_connection::AdapterAuth,
+        id: &str,
+    ) -> Result<Value, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (_, ss) = authority(&tx, auth)?;
+        let record: Option<String> = tx
+            .query_row(
+                "SELECT record FROM conversation_notifications WHERE id = ?1 AND agent_id = ?2",
+                params![id, ss.agent_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let mut n: Notification = json(record.ok_or(Error::NotFound)?)?;
+        if n.forwarded_at.is_none() {
+            n.forwarded_at = Some(now());
+            tx.execute(
+                "UPDATE conversation_notifications SET record = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&n)?, id],
+            )?;
+            self.forward_coalesced(&tx, &n, &ss.agent_id)?;
+        }
+        let view = context::notification_view(&tx, &n)?;
+        tx.commit()?;
+        Ok(json!({ "notification": view }))
+    }
+    /// The adapter's author participant and origin, once directory access
+    /// is established.
+    fn adapter_author(
+        &self,
+        auth: &crate::adapter_connection::AdapterAuth,
+    ) -> Result<(String, Origin), Error> {
+        let conn = self.connection()?;
+        let (a, ss) = authority(&conn, auth)?;
+        crate::directory::directory_access(&a)?;
+        Ok((
+            format!("agent:{}/{}", self.identity().id, ss.agent_id),
+            Origin {
+                agent_id: ss.agent_id.clone(),
+                session_id: Some(ss.id.clone()),
+            },
+        ))
+    }
+
+    fn due_conversation_attempts(
+        &self,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, String)>, Error> {
+        let conn = self.connection()?;
+        let mut due = Vec::new();
+        {
+            let mut statement = conn.prepare(
+                "SELECT conversation_id, message_id, target, next_attempt_at FROM conversation_targets WHERE direction = 'out' AND state = 'sending'",
+            )?;
+            let rows = statement
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (c, m, t, next) in rows {
+                if let Some(when) = due_at(&next).filter(|w| *w <= at) {
+                    due.push((when, "target".to_owned(), format!("{c} {m} {t}")));
+                }
+            }
+        }
+        {
+            let mut statement = conn.prepare(
+                "SELECT conversation_id, peer, kind, record FROM conversation_roster_outbound",
+            )?;
+            let rows = statement
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (c, peer, kind, record) in rows {
+                let value: Value = serde_json::from_str(&record)?;
+                if value["state"] != "sending" {
+                    continue;
+                }
+                let next = value["next_attempt_at"].as_str().map(str::to_owned);
+                let Some(when) = due_at(&next).filter(|w| *w <= at) else {
+                    continue;
+                };
+                if let Some(person) = kind.strip_prefix("pinvite:") {
+                    due.push((when, "pinvite".to_owned(), format!("{c} {peer} {person}")));
+                } else if kind.starts_with("invite:") {
+                    let participant = value["participant"].as_str().unwrap_or_default();
+                    due.push((when, "invite".to_owned(), format!("{c} {participant}")));
+                } else if kind == "roster" {
+                    due.push((when, "push".to_owned(), format!("{c} {peer}")));
+                } else if let Some(participant) = kind.strip_prefix("leave:") {
+                    due.push((
+                        when,
+                        "leave".to_owned(),
+                        format!("{c} {peer} {participant}"),
+                    ));
+                }
+            }
+        }
+        due.sort();
+        Ok(due.into_iter().map(|(_, kind, key)| (kind, key)).collect())
+    }
+    /// At startup, spreads overdue attempts over the next 10 seconds.
+    fn spread_conversation_attempts(&self, at: chrono::DateTime<chrono::Utc>) -> Result<(), Error> {
+        let due = self.due_conversation_attempts(at)?;
+        let count = due.len() as i64;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        for (index, (kind, key)) in due.iter().enumerate() {
+            let when = rfc3339(
+                at + chrono::TimeDelta::milliseconds(
+                    crate::retry::RESTART_SPREAD_MS * index as i64 / count,
+                ),
+            );
+            let parts: Vec<&str> = key.split(' ').collect();
+            match &kind[..] {
+                "target" => {
+                    let (mut out, _) = self.outbound_record(&tx, parts[0], parts[1], parts[2])?;
+                    out.next_attempt_at = Some(when);
+                    self.save_outbound(&tx, parts[0], parts[1], &out)?;
+                }
+                "invite" => {
+                    let mut invite = self.invite_record(&tx, parts[0], parts[1])?;
+                    invite.next_attempt_at = Some(when);
+                    self.save_invite(&tx, parts[0], &invite)?;
+                }
+                "pinvite" => {
+                    if let Some(mut invite) = self.pinvite_opt(&tx, parts[0], parts[1], parts[2])? {
+                        invite.next_attempt_at = Some(when);
+                        self.save_pinvite(&tx, parts[0], parts[1], &invite)?;
+                    }
+                }
+                "push" => {
+                    if let Some(mut push) =
+                        self.outbound_row::<Push>(&tx, parts[0], parts[1], "roster")?
+                    {
+                        push.next_attempt_at = Some(when);
+                        self.save_row(&tx, parts[0], parts[1], "roster", &push)?;
+                    }
+                }
+                _ => {
+                    let kind = format!("leave:{}", parts[2]);
+                    if let Some(mut leave) =
+                        self.outbound_row::<Leave>(&tx, parts[0], parts[1], &kind)?
+                    {
+                        leave.next_attempt_at = Some(when);
+                        self.save_row(&tx, parts[0], parts[1], &kind, &leave)?;
+                    }
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------- people (C3)
+
+/// A person target as home resolved it: the person and its bound hosts.
+#[derive(Clone, Debug)]
+pub(crate) struct PersonTarget {
+    person_id: String,
+    hosts: Vec<String>,
+}
+
+/// A resolved start or add target.
+#[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+enum Target {
+    Agent(crate::directory::Candidate),
+    Person(PersonTarget),
+}
+
+/// Whether a target string names a person: `person:…`, or no `/`.
+fn person_form(to: &str) -> bool {
+    to.starts_with("person:") || !to.contains('/')
+}
+
+/// The step after a local join's checks: done at home, or a request to home.
+enum JoinStep {
+    Done,
+    /// Home, the request, and the invite's person and `added_at`.
+    Remote(String, Vec<u8>, String, String),
+}
+
+impl Store {
+    fn save_pinvite(
+        &self,
+        conn: &Connection,
+        id: &str,
+        host: &str,
+        invite: &Invite,
+    ) -> Result<(), Error> {
+        let person = invite.person_id.clone().unwrap_or_default();
+        conn.execute(
+            "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+            params![id, host, format!("pinvite:{person}"), serde_json::to_string(invite)?],
+        )?;
+        Ok(())
+    }
+    fn pinvite_opt(
+        &self,
+        conn: &Connection,
+        id: &str,
+        host: &str,
+        person: &str,
+    ) -> Result<Option<Invite>, Error> {
+        self.outbound_row(conn, id, host, &format!("pinvite:{person}"))
+    }
+    /// Every person invite of a conversation home sent: `(host, invite)`.
+    fn all_pinvites(&self, conn: &Connection, id: &str) -> Result<Vec<(String, Invite)>, Error> {
+        let mut statement = conn.prepare(
+            "SELECT peer, record FROM conversation_roster_outbound WHERE conversation_id = ?1 AND kind LIKE 'pinvite:%' ORDER BY peer",
+        )?;
+        let rows = statement
+            .query_map([id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(peer, record)| Ok((peer, json(record)?)))
+            .collect()
+    }
+    /// The invites home sent for one person, in host order.
+    fn pinvites(
+        &self,
+        conn: &Connection,
+        id: &str,
+        person: &str,
+    ) -> Result<Vec<(String, Invite)>, Error> {
+        Ok(self
+            .all_pinvites(conn, id)?
+            .into_iter()
+            .filter(|(_, i)| i.person_id.as_deref() == Some(person))
+            .collect())
+    }
+    /// Stops a person's invites still being sent.
+    fn stop_pinvites(
+        &self,
+        conn: &Connection,
+        id: &str,
+        person: &str,
+        state: &str,
+    ) -> Result<(), Error> {
+        for (host, mut invite) in self.pinvites(conn, id, person)? {
+            if invite.state == "sending" {
+                invite.state = state.into();
+                invite.next_attempt_at = None;
+                self.save_pinvite(conn, id, &host, &invite)?;
+            }
+        }
+        Ok(())
+    }
+    fn pending_opt(
+        &self,
+        conn: &Connection,
+        id: &str,
+        person: &str,
+    ) -> Result<Option<Pending>, Error> {
+        let text: Option<String> = conn
+            .query_row(
+                "SELECT record FROM conversation_invites WHERE conversation_id = ?1 AND person_id = ?2",
+                params![id, person],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.map(json).transpose()
+    }
+    fn save_pending(
+        &self,
+        conn: &Connection,
+        id: &str,
+        person: &str,
+        pending: &Pending,
+    ) -> Result<(), Error> {
+        let before = self.pending_opt(conn, id, person)?;
+        if pending.state == "pending" && before.is_none_or(|b| b.added_at != pending.added_at) {
+            tools::log_event(conn, "invited", id, None, Some(&format!("person:{person}")))?;
+        }
+        conn.execute(
+            "INSERT INTO conversation_invites (conversation_id, person_id, home_host, expires_at, record) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(conversation_id, person_id) DO UPDATE SET home_host = excluded.home_host, expires_at = excluded.expires_at, record = excluded.record",
+            params![
+                id,
+                person,
+                pending.roster.home_host_id,
+                pending.expires_at,
+                serde_json::to_string(pending)?
+            ],
+        )?;
+        Ok(())
+    }
+    /// Every pending-invite row of a conversation: `(person, pending)`.
+    fn pending_rows(&self, conn: &Connection, id: &str) -> Result<Vec<(String, Pending)>, Error> {
+        let mut statement = conn.prepare(
+            "SELECT person_id, record FROM conversation_invites WHERE conversation_id = ?1 ORDER BY person_id",
+        )?;
+        let rows = statement
+            .query_map([id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(person, record)| Ok((person, json(record)?)))
+            .collect()
+    }
+    /// A newer roster replaces each pending invite's roster, and drops the
+    /// invite once it no longer lists the person as not yet joined.
+    fn sync_pending(&self, conn: &Connection, roster: &Roster) -> Result<(), Error> {
+        for (person, mut pending) in self.pending_rows(conn, &roster.conversation_id)? {
+            if pending.roster.home_host_id != roster.home_host_id
+                || roster.version < pending.roster.version
+            {
+                continue;
+            }
+            pending.roster = roster.clone();
+            if pending.state == "pending" && !lists_invited(roster, &person, &pending.added_at) {
+                pending.state = "dropped".into();
+                pending.joining = false;
+            }
+            self.save_pending(conn, &roster.conversation_id, &person, &pending)?;
+        }
+        Ok(())
+    }
+    /// Resolves a person target against the current persons of this
+    /// host's coordinator-free networks (contract C3, Resolution).
+    fn resolve_person_target(
+        &self,
+        given: &str,
+        network: Option<&str>,
+    ) -> Result<PersonTarget, Error> {
+        if given.len() > 256 {
+            return Err(invalid("participant is longer than 256 characters"));
+        }
+        let raw = given.strip_prefix("person:").unwrap_or(given);
+        let by_id = crate::policy::person_id_shape(raw);
+        let conn = self.connection()?;
+        let own = self.identity().id;
+        // The person first, by ID or label; then every host bound to that
+        // person in any shared network, whatever its label there.
+        let mut networks = Vec::new();
+        for id in self.product_network_ids(&conn)? {
+            if network.is_some_and(|n| n != id) {
+                continue;
+            }
+            let members = self.product_members(&conn, &id)?;
+            if members.iter().any(|m| m.host_id == own) {
+                networks.push((id, members));
+            }
+        }
+        let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (id, _) in &networks {
+            for p in self.product_persons(&conn, id)? {
+                let matched = if by_id {
+                    p.person_id == raw
+                } else {
+                    p.member == raw
+                };
+                if matched {
+                    found.entry(p.person_id).or_default();
+                }
+            }
+        }
+        for (person, hosts) in found.iter_mut() {
+            for (_, members) in &networks {
+                for m in members {
+                    if m.person_id.as_deref() == Some(person.as_str()) {
+                        hosts.insert(m.host_id.clone());
+                    }
+                }
+            }
+        }
+        let unknown = |text: &str| coded(404, "unknown", text.into(), json!({}));
+        match found.len() {
+            0 if by_id => Err(unknown("No person with that ID in this host's networks.")),
+            0 => Err(unknown(
+                "No person with that label in this host's networks.",
+            )),
+            1 => {
+                let (person_id, hosts) = found.into_iter().next().unwrap_or_default();
+                if hosts.is_empty() {
+                    return Err(unknown("No current host is bound to that person."));
+                }
+                Ok(PersonTarget {
+                    person_id,
+                    hosts: hosts.into_iter().collect(),
+                })
+            }
+            _ => Err(coded(
+                409,
+                "ambiguous",
+                "That label matches more than one person.".into(),
+                json!({ "matches": found.keys().collect::<Vec<_>>() }),
+            )),
+        }
+    }
+    /// Adds a person entry to `held`'s roster and returns it; the invites
+    /// and the local pending invite are saved by `invite_person`.
+    fn person_entry(&self, held: &mut Held, target: &PersonTarget, adder: &str, at: &str) {
+        let own = self.identity().id;
+        held.roster.participants.push(Participant {
+            id: None,
+            kind: "person".into(),
+            host_id: None,
+            person_id: Some(target.person_id.clone()),
+            agent_id: None,
+            name: None,
+            state: if target.hosts.contains(&own) {
+                "invited"
+            } else {
+                "inviting"
+            }
+            .into(),
+            added_by: Some(adder.into()),
+            added_at: at.into(),
+        });
+    }
+    /// Saves one invite per other bound host and, when home is bound, the
+    /// pending invite held here.
+    #[allow(clippy::too_many_arguments)]
+    fn invite_person(
+        &self,
+        conn: &Connection,
+        held: &Held,
+        given: &str,
+        target: &PersonTarget,
+        adder: &str,
+        note: Option<String>,
+        at: &str,
+    ) -> Result<(), Error> {
+        let own = self.identity().id;
+        let id = &held.roster.conversation_id;
+        for host in &target.hosts {
+            if *host == own {
+                let pending = Pending {
+                    roster: held.roster.clone(),
+                    adder: adder.into(),
+                    note: note.clone(),
+                    added_at: at.into(),
+                    expires_at: expires(at)?,
+                    state: "pending".into(),
+                    joining: false,
+                };
+                self.save_pending(conn, id, &target.person_id, &pending)?;
+                continue;
+            }
+            self.save_pinvite(
+                conn,
+                id,
+                host,
+                &Invite {
+                    target: given.into(),
+                    participant: format!("person:{}", target.person_id),
+                    agent_id: String::new(),
+                    adder: adder.into(),
+                    state: "sending".into(),
+                    code: None,
+                    error: None,
+                    attempts: 0,
+                    next_attempt_at: Some(later(10)),
+                    note: note.clone(),
+                    offered: 0,
+                    added_at: at.into(),
+                    person_id: Some(target.person_id.clone()),
+                },
+            )?;
+        }
+        Ok(())
+    }
+    /// `add` of a person: committed `inviting` (or `invited` when home is
+    /// bound) and invited. Returns whether invites were created.
+    fn add_person(
+        &self,
+        id: &str,
+        actor: &str,
+        target: &PersonTarget,
+        given: &str,
+    ) -> Result<bool, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut held = self.creator_check(&tx, id, actor)?;
+        if held.roster.state == "closed" {
+            return Err(closed());
+        }
+        let listed = held
+            .roster
+            .participants
+            .iter()
+            .any(|p| p.kind == "person" && p.person_id.as_deref() == Some(&target.person_id));
+        if listed {
+            return Ok(false);
+        }
+        if held.count() >= MAX_PARTICIPANTS {
+            return Err(coded_error(409, "full", FULL));
+        }
+        let at = now();
+        let mut scratch = held.clone();
+        self.person_entry(&mut scratch, target, actor, &at);
+        self.commit(&tx, &mut held, scratch.roster, Some(actor))?;
+        self.invite_person(&tx, &held, given, target, actor, None, &at)?;
+        tx.commit()?;
+        Ok(true)
+    }
+    /// Drops a person not yet joined from home's roster, stopping its
+    /// invites; nothing when the person is not listed that way.
+    fn drop_person(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        person: &str,
+        actor: Option<&str>,
+        why: &str,
+    ) -> Result<(), Error> {
+        if held.roster.state != "open" || unjoined_entry(&held.roster, person).is_none() {
+            return Ok(());
+        }
+        let mut next = held.roster.clone();
+        next.participants
+            .retain(|p| !(p.id.is_none() && p.person_id.as_deref() == Some(person)));
+        self.commit(conn, held, next, actor)?;
+        self.stop_pinvites(conn, &held.roster.conversation_id, person, why)
+    }
+    /// The person invite request for its next attempt, or `None` when it is
+    /// no longer due.
+    fn prepare_pinvite(
+        &self,
+        id: &str,
+        host: &str,
+        person: &str,
+    ) -> Result<Option<(Vec<u8>, String)>, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let Some(mut invite) = self.pinvite_opt(&tx, id, host, person)? else {
+            return Ok(None);
+        };
+        if invite.state != "sending" {
+            return Ok(None);
+        }
+        let roster = self.roster(&tx, id)?;
+        if !lists_invited(&roster, person, &invite.added_at) {
+            invite.state = "stopped".into();
+            invite.next_attempt_at = None;
+            self.save_pinvite(&tx, id, host, &invite)?;
+            tx.commit()?;
+            return Ok(None);
+        }
+        let mut next = roster.clone();
+        next.version += 1;
+        for p in &mut next.participants {
+            if p.id.is_none() && p.person_id.as_deref() == Some(person) {
+                p.state = "invited".into();
+            }
+        }
+        invite.offered = invite.offered.max(next.version);
+        let generation = invite.added_at.clone();
+        self.save_pinvite(&tx, id, host, &invite)?;
+        tx.commit()?;
+        let origin = participant_parts(&invite.adder)
+            .filter(|(kind, _, _)| *kind == "agent")
+            .map(|(_, _, agent)| Origin {
+                agent_id: agent.to_owned(),
+                session_id: None,
+            });
+        let request = InviteRequest {
+            conversation_id: id.into(),
+            roster: next,
+            target: InviteTarget {
+                kind: "person".into(),
+                agent_id: None,
+                person_id: Some(person.into()),
+            },
+            adder: invite.adder.clone(),
+            note: invite.note.clone(),
+            origin,
+            grant_id: None,
+            policy: None,
+            self_access: None,
+        };
+        Ok(Some((serde_json::to_vec(&request)?, generation)))
+    }
+    /// Records one host's answer to a person invite. The first `invited`
+    /// commits the person as `invited`; when every host refused, the person
+    /// is dropped.
+    fn finish_pinvite(
+        &self,
+        id: &str,
+        host: &str,
+        person: &str,
+        generation: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let Some(mut invite) = self.pinvite_opt(&tx, id, host, person)? else {
+            return Ok(());
+        };
+        let replaced = invite.added_at != generation;
+        if !replaced {
+            invite.attempts += 1;
+            self.save_pinvite(&tx, id, host, &invite)?;
+        }
+        let mut held = self.held(&tx, id)?;
+        if replaced || invite.state != "sending" {
+            // A host that took a stopped invite learns from home's current
+            // roster that the person is no longer invited.
+            if let Outcome::Answer(_) = &outcome {
+                let push = Push {
+                    version: held.roster.version,
+                    state: "sending".into(),
+                    attempts: 0,
+                    error: None,
+                    next_attempt_at: Some(now()),
+                    created_at: Some(now()),
+                };
+                tx.execute(
+                    "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                    params![id, host, serde_json::to_string(&push)?],
+                )?;
+            }
+            tx.commit()?;
+            return Ok(());
+        }
+        let listed = lists_invited(&held.roster, person, &invite.added_at);
+        match outcome {
+            Outcome::Answer(body) => {
+                let ok = serde_json::from_slice::<Value>(&body)
+                    .ok()
+                    .is_some_and(|v| v == json!({"state": "invited"}));
+                if !ok {
+                    invite.error = Some("invalid invite answer".into());
+                    invite.next_attempt_at = Some(rfc3339(
+                        crate::clock::now() + backoff(invite.attempts.max(1), jitter()),
+                    ));
+                    self.save_pinvite(&tx, id, host, &invite)?;
+                } else {
+                    invite.state = "invited".into();
+                    invite.code = None;
+                    invite.error = None;
+                    invite.next_attempt_at = None;
+                    self.save_pinvite(&tx, id, host, &invite)?;
+                    let inviting =
+                        unjoined_entry(&held.roster, person).is_some_and(|p| p.state == "inviting");
+                    if listed && inviting {
+                        let mut next = held.roster.clone();
+                        for p in &mut next.participants {
+                            if p.id.is_none() && p.person_id.as_deref() == Some(person) {
+                                p.state = "invited".into();
+                            }
+                        }
+                        self.commit_as(&tx, &mut held, next, None, Some(invite.offered))?;
+                    } else if listed && held.roster.version > invite.offered {
+                        // Home moved on while this host's answer was in
+                        // flight: send it the current roster.
+                        let push = Push {
+                            version: held.roster.version,
+                            state: "sending".into(),
+                            attempts: 0,
+                            error: None,
+                            next_attempt_at: Some(now()),
+                            created_at: Some(now()),
+                        };
+                        tx.execute(
+                            "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, 'roster', ?3) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                            params![id, host, serde_json::to_string(&push)?],
+                        )?;
+                    }
+                }
+            }
+            Outcome::Final(state, code, error) => {
+                invite.state = state.into();
+                invite.code = Some(code.into());
+                invite.error = Some(error);
+                invite.next_attempt_at = None;
+                self.save_pinvite(&tx, id, host, &invite)?;
+                let all = self.pinvites(&tx, id, person)?;
+                let same: Vec<&Invite> = all
+                    .iter()
+                    .map(|(_, i)| i)
+                    .filter(|i| i.added_at == invite.added_at)
+                    .collect();
+                let refused_everywhere = same
+                    .iter()
+                    .all(|i| matches!(&i.state[..], "refused" | "unsupported"))
+                    && self
+                        .pending_opt(&tx, id, person)?
+                        .is_none_or(|p| p.added_at != invite.added_at);
+                if listed && refused_everywhere {
+                    self.drop_person(&tx, &mut held, person, None, "refused")?;
+                }
+            }
+            Outcome::Retry(error) => {
+                invite.error = Some(error);
+                invite.next_attempt_at = Some(rfc3339(
+                    crate::clock::now() + backoff(invite.attempts.max(1), jitter()),
+                ));
+                self.save_pinvite(&tx, id, host, &invite)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// `POST /peer/v1/conversations/invites` for a person target.
+    fn accept_person_invite(&self, sender: &str, r: InviteRequest) -> Result<Value, Error> {
+        let own = self.identity().id;
+        let person = match (&r.target.kind[..], &r.target.agent_id, &r.target.person_id) {
+            ("person", None, Some(p)) if crate::policy::person_id_shape(p) => p.clone(),
+            _ => return Err(invalid("invalid invite target")),
+        };
+        let entry = unjoined_entry(&r.roster, &person).cloned();
+        if !valid_conversation_id(&r.conversation_id)
+            || r.roster.conversation_id != r.conversation_id
+            || r.roster.home_host_id != sender
+            || !(1..=MAX_COUNTER).contains(&r.roster.version)
+            || !consistent(&r.roster)
+            || r.roster.state != "open"
+            || entry.as_ref().is_none_or(|e| e.state != "invited")
+            || r.grant_id.is_some()
+            || r.policy.is_some()
+            || r.self_access.is_some()
+            || r.note.as_ref().is_some_and(|n| n.len() > MAX_NOTE)
+            || r.roster.title.as_deref().is_some_and(|t| !valid_title(t))
+            || participant_parts(&r.adder).is_none()
+            || r.origin.as_ref().is_some_and(|o| !o.valid())
+        {
+            return Err(invalid("invalid invite"));
+        }
+        let added_at = entry.map(|e| e.added_at).unwrap_or_default();
+        let (adder_kind, adder_host, adder_local) =
+            participant_parts(&r.adder).ok_or_else(|| invalid("invalid adder"))?;
+        let origin_ok = match (&r.origin, adder_kind) {
+            (Some(o), "agent") => o.agent_id == adder_local,
+            (None, "person") => true,
+            _ => false,
+        };
+        if !origin_ok {
+            return Err(invalid("origin must name an agent adder"));
+        }
+        if adder_host != sender || r.roster.joined(&r.adder).is_none() {
+            return Err(Error::Forbidden);
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        self.current_member(&tx, sender)?;
+        let bound = self
+            .own_members(&tx)?
+            .iter()
+            .any(|(_, m)| m.person_id.as_deref() == Some(person.as_str()));
+        if !bound || self.blocked(&tx, sender)? {
+            return Err(Error::Forbidden);
+        }
+        let held = self.held_opt(&tx, &r.conversation_id)?;
+        if let Some(held) = &held
+            && held.roster.home_host_id != sender
+        {
+            return Err(Error::Forbidden);
+        }
+        let stray = r.roster.participants.iter().any(|p| {
+            let id = p.id.as_deref().unwrap_or_default();
+            p.host_id.as_deref() == Some(own.as_str())
+                && p.state == "joined"
+                && held.as_ref().is_none_or(|h| !h.joined_here(id))
+        });
+        if stray {
+            return Err(invalid("an invite cannot join a participant on this host"));
+        }
+        let existing = self.pending_opt(&tx, &r.conversation_id, &person)?;
+        if let Some(p) = &existing
+            && p.roster.home_host_id == sender
+            && p.added_at == added_at
+        {
+            return if p.current() {
+                Ok(json!({"state": "invited"}))
+            } else {
+                Err(not_participant())
+            };
+        }
+        // A roster this host already holds that no longer lists the person
+        // with this admission supersedes the invite.
+        let mut held_rosters: Vec<&Roster> = Vec::new();
+        if let Some(h) = &held {
+            held_rosters.push(&h.roster);
+        }
+        if let Some(p) = &existing
+            && p.roster.home_host_id == sender
+        {
+            held_rosters.push(&p.roster);
+        }
+        let superseded = held_rosters.iter().any(|held| {
+            **held != r.roster
+                && held.version >= r.roster.version
+                && !lists_invited(held, &person, &added_at)
+        });
+        if superseded {
+            return Err(not_participant());
+        }
+        if held
+            .as_ref()
+            .is_some_and(|h| h.joined_here(&format!("person:{own}/{person}")))
+        {
+            return Err(not_participant());
+        }
+        let at = rfc3339(crate::clock::now());
+        let others: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM conversation_invites WHERE home_host = ?1 AND json_extract(record, '$.state') = 'pending' AND expires_at > ?2 AND NOT (conversation_id = ?3 AND person_id = ?4)",
+            params![sender, at, r.conversation_id, person],
+            |row| row.get(0),
+        )?;
+        if others >= MAX_PENDING_FROM_HOST {
+            return Err(coded_error(
+                429,
+                "limit",
+                "This host holds 20 pending conversation invites from that host.",
+            ));
+        }
+        let mut roster = r.roster.clone();
+        if let Some(h) = &held
+            && h.roster.version > roster.version
+        {
+            roster = h.roster.clone();
+        }
+        let pending = Pending {
+            roster,
+            adder: r.adder.clone(),
+            note: r.note.clone(),
+            added_at: added_at.clone(),
+            expires_at: expires(&added_at)?,
+            state: "pending".into(),
+            joining: false,
+        };
+        self.save_pending(&tx, &r.conversation_id, &person, &pending)?;
+        tx.commit()?;
+        Ok(json!({"state": "invited"}))
+    }
+    /// Home commits `person` as joined from `host` (contract C3, join route
+    /// steps 4 to 7), or answers a repeat.
+    fn join_at_home(
+        &self,
+        conn: &Connection,
+        held: &mut Held,
+        host: &str,
+        person: &str,
+    ) -> Result<(), Error> {
+        if held.roster.state == "closed" {
+            return Err(closed());
+        }
+        let id = format!("person:{host}/{person}");
+        if held.roster.joined(&id).is_some() {
+            return Ok(());
+        }
+        if held
+            .roster
+            .participants
+            .iter()
+            .any(|p| p.kind == "person" && p.person_id.as_deref() == Some(person) && p.id.is_some())
+        {
+            return Err(coded_error(409, "conflict", OTHER_HOST));
+        }
+        if unjoined_entry(&held.roster, person).is_none() {
+            return Err(Error::NotFound);
+        }
+        let mut next = held.roster.clone();
+        // A person who left or was removed and joins again leaves `departed`.
+        next.departed
+            .retain(|d| d["id"].as_str() != Some(id.as_str()));
+        for p in &mut next.participants {
+            if p.id.is_none() && p.person_id.as_deref() == Some(person) {
+                p.id = Some(id.clone());
+                p.host_id = Some(host.into());
+                p.state = "joined".into();
+            }
+        }
+        self.commit(conn, held, next, None)?;
+        self.stop_pinvites(conn, &held.roster.conversation_id, person, "joined")
+    }
+    /// `POST /peer/v1/conversations/{id}/join` at home.
+    pub fn accept_join(&self, sender: &str, id: &str, person: &str) -> Result<Value, Error> {
+        if !valid_conversation_id(id) || !crate::policy::person_id_shape(person) {
+            return Err(invalid("invalid join"));
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        self.current_member(&tx, sender)?;
+        let Some(mut held) = self.held_opt(&tx, id)? else {
+            return Err(Error::NotFound);
+        };
+        if held.roster.home_host_id != self.identity().id {
+            return Err(Error::NotFound);
+        }
+        let bound = self
+            .product_members_of(&tx, sender)?
+            .iter()
+            .any(|(_, m)| m.person_id.as_deref() == Some(person));
+        if !bound || self.blocked(&tx, sender)? {
+            return Err(Error::Forbidden);
+        }
+        self.join_at_home(&tx, &mut held, sender, person)?;
+        tx.commit()?;
+        Ok(json!({ "roster": held.roster }))
+    }
+    /// The current pending invite here for a conversation: for this host's
+    /// bound person, or for any person when it has none. Then the bound
+    /// person (contract C3, Joining steps 1 and 2).
+    fn current_pending(&self, conn: &Connection, id: &str) -> Result<(String, Pending), Error> {
+        let bound = self.conversation_person(conn)?;
+        let found = self
+            .pending_rows(conn, id)?
+            .into_iter()
+            .find(|(person, p)| p.current() && bound.as_ref().is_none_or(|b| b == person));
+        let (person, pending) = found.ok_or_else(no_invite)?;
+        if bound.is_none() {
+            return Err(not_bound());
+        }
+        Ok((person, pending))
+    }
+    /// The local join's checks; at home it joins at once.
+    fn prepare_join(&self, id: &str) -> Result<JoinStep, Error> {
+        let own = self.identity().id;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (person, mut pending) = self.current_pending(&tx, id)?;
+        let participant = format!("person:{own}/{person}");
+        if self.open_count(&tx, &participant)? >= MAX_OPEN {
+            return Err(coded_error(429, "limit", OPEN_LIMIT));
+        }
+        let home = pending.roster.home_host_id.clone();
+        if home == own {
+            let mut held = self.held(&tx, id)?;
+            self.join_at_home(&tx, &mut held, &own, &person)?;
+            held.admit(&participant, &pending.added_at);
+            save_held(&tx, &held)?;
+            pending.state = "joined".into();
+            pending.joining = false;
+            self.save_pending(&tx, id, &person, &pending)?;
+            tx.commit()?;
+            return Ok(JoinStep::Done);
+        }
+        pending.joining = true;
+        self.save_pending(&tx, id, &person, &pending)?;
+        tx.commit()?;
+        Ok(JoinStep::Remote(
+            home,
+            serde_json::to_vec(&json!({ "person_id": person }))?,
+            person,
+            pending.added_at,
+        ))
+    }
+    /// Applies home's answer to a local join (contract C3, Joining step 4).
+    fn finish_join(
+        &self,
+        id: &str,
+        person: &str,
+        generation: &str,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
+        let own = self.identity().id;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let Some(mut pending) = self.pending_opt(&tx, id, person)? else {
+            return Err(no_invite());
+        };
+        // A refusal for an invite since replaced by a new one leaves the
+        // new invite as it is.
+        let replaced = pending.added_at != generation;
+        let participant = format!("person:{own}/{person}");
+        let unanswered = || {
+            coded_error(
+                503,
+                "unavailable",
+                "The home host did not answer; run conversation join again.",
+            )
+        };
+        let refusal = match outcome {
+            Outcome::Answer(body) => {
+                let roster = serde_json::from_slice::<Value>(&body)
+                    .ok()
+                    .and_then(|v| serde_json::from_value::<Roster>(v["roster"].clone()).ok())
+                    .filter(|r| {
+                        r.conversation_id == id
+                            && r.home_host_id == pending.roster.home_host_id
+                            && consistent(r)
+                            && r.joined(&participant).is_some()
+                    });
+                let Some(roster) = roster else {
+                    return Err(unanswered());
+                };
+                // A push already settled this join (and a newer roster may
+                // have removed the person since): the answer changes nothing.
+                // An answer for a replaced invite, or older than the roster
+                // the invite holds when that no longer lists the person
+                // joined, admits nothing.
+                if replaced
+                    || (roster.version < pending.roster.version
+                        && pending.roster.joined(&participant).is_none())
+                {
+                    return Err(not_participant());
+                }
+                if pending.state != "pending" {
+                    let joined = self
+                        .held_opt(&tx, id)?
+                        .is_some_and(|h| h.joined_here(&participant));
+                    return if joined {
+                        Ok(())
+                    } else {
+                        Err(not_participant())
+                    };
+                }
+                let added_at = roster
+                    .joined(&participant)
+                    .map(|p| p.added_at.clone())
+                    .unwrap_or_default();
+                pending.state = "joined".into();
+                pending.joining = false;
+                self.save_pending(&tx, id, person, &pending)?;
+                let mut held = match self.held_opt(&tx, id)? {
+                    Some(mut h) => {
+                        if roster.version > h.roster.version {
+                            self.apply_roster(&tx, &mut h, roster, None)?;
+                        } else if h.roster.joined(&participant).is_none() {
+                            // A newer roster held here no longer lists the
+                            // person joined: home removed them since.
+                            pending.state = "dropped".into();
+                            self.save_pending(&tx, id, person, &pending)?;
+                            tx.commit()?;
+                            return Err(not_participant());
+                        }
+                        h
+                    }
+                    None => Held {
+                        roster,
+                        local: LocalState::default(),
+                    },
+                };
+                held.admit(&participant, &added_at);
+                save_held(&tx, &held)?;
+                tx.commit()?;
+                return Ok(());
+            }
+            Outcome::Final(_, "unsupported", _) => no_invite(),
+            Outcome::Final(_, "closed", _) => closed(),
+            Outcome::Final(_, "conflict", _) => coded_error(409, "conflict", OTHER_HOST),
+            Outcome::Final(_, "not_authorized" | "not_participant", _) => {
+                coded_error(403, "forbidden", "The home host refused the join.")
+            }
+            _ => return Err(unanswered()),
+        };
+        if replaced {
+            return Err(refusal);
+        }
+        pending.state = "dropped".into();
+        pending.joining = false;
+        self.save_pending(&tx, id, person, &pending)?;
+        tx.commit()?;
+        Err(refusal)
+    }
+    /// `POST /v1/conversations/{id}/decline`: drops the pending invite here
+    /// and tells home. Returns the leave key to send, if any.
+    fn decline_invite(&self, id: &str) -> Result<Option<(String, String)>, Error> {
+        let own = self.identity().id;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (person, mut pending) = self.current_pending(&tx, id)?;
+        pending.state = "declined".into();
+        pending.joining = false;
+        self.save_pending(&tx, id, &person, &pending)?;
+        let home = pending.roster.home_host_id.clone();
+        let mut key = None;
+        if home == own {
+            let mut held = self.held(&tx, id)?;
+            self.drop_person(&tx, &mut held, &person, None, "declined")?;
+        } else {
+            let participant = format!("person:{person}");
+            let leave = Leave {
+                participant: participant.clone(),
+                state: "sending".into(),
+                attempts: 0,
+                error: None,
+                next_attempt_at: Some(now()),
+                added_at: Some(pending.added_at.clone()),
+            };
+            tx.execute(
+                "INSERT INTO conversation_roster_outbound (conversation_id, peer, kind, record) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(conversation_id, peer, kind) DO UPDATE SET record = excluded.record",
+                params![id, home, format!("leave:{participant}"), serde_json::to_string(&leave)?],
+            )?;
+            key = Some(("leave".to_owned(), format!("{id} {home} {participant}")));
+        }
+        tx.commit()?;
+        Ok(key)
+    }
+    /// `GET /v1/conversations/invites`.
+    pub fn conversation_invites(&self) -> Result<Value, Error> {
+        let conn = self.connection()?;
+        let bound = self.conversation_person(&conn)?;
+        let mut statement =
+            conn.prepare("SELECT conversation_id, person_id, record FROM conversation_invites")?;
+        let rows = statement
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut items = Vec::new();
+        for (id, person, record) in rows {
+            let pending: Pending = json(record)?;
+            if !pending.current() || bound.as_ref() != Some(&person) {
+                continue;
+            }
+            let roster = &pending.roster;
+            let participants = roster
+                .participants
+                .iter()
+                .map(|p| {
+                    Ok(json!({
+                        "id": p.id,
+                        "label": self.label(&conn, p)?,
+                        "kind": p.kind,
+                        "state": p.state,
+                    }))
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            items.push((
+                pending.added_at.clone(),
+                json!({
+                    "conversation_id": id,
+                    "title": roster.title,
+                    "home_host_id": roster.home_host_id,
+                    "person_id": person,
+                    "added_by": pending.adder,
+                    "added_by_label": self.label_of(&conn, roster, &pending.adder)?,
+                    "about": pending.roster.about,
+                    "note": pending.note,
+                    "added_at": pending.added_at,
+                    "expires_at": pending.expires_at,
+                    "participants": participants,
+                }),
+            ));
+        }
+        items.sort_by(|a, b| {
+            crate::membership::time(&b.0)
+                .ok()
+                .cmp(&crate::membership::time(&a.0).ok())
+        });
+        Ok(json!({ "invites": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }))
+    }
+    /// `{open, invites}` for status (contract C3, Status).
+    pub(crate) fn conversation_status(&self, conn: &Connection) -> Result<(i64, i64, i64), Error> {
+        let Some(person) = self.conversation_person(conn)? else {
+            return Ok((0, 0, 0));
+        };
+        let participant = format!("person:{}/{person}", self.identity().id);
+        let open = self.open_count(conn, &participant)? as i64;
+        let mut unread = 0;
+        for held in self.all_held(conn)? {
+            if held.roster.state == "open" && held.joined_here(&participant) {
+                unread += self.unread(conn, &held.roster.conversation_id, &participant)?;
+            }
+        }
+        let mut statement =
+            conn.prepare("SELECT record FROM conversation_invites WHERE person_id = ?1")?;
+        let rows = statement
+            .query_map([&person], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut invites = 0;
+        for record in rows {
+            if json::<Pending>(record)?.current() {
+                invites += 1;
+            }
+        }
+        Ok((open, unread, invites))
+    }
+    /// A roster pushed to a host whose only state for the conversation is a
+    /// pending invite (contract C3, Roster push and fetch).
+    fn accept_pending_roster(
+        &self,
+        tx: &Transaction<'_>,
+        sender: &str,
+        id: &str,
+        roster: Roster,
+    ) -> Result<Value, Error> {
+        let rows: Vec<(String, Pending)> = self
+            .pending_rows(tx, id)?
+            .into_iter()
+            .filter(|(_, p)| p.state == "pending")
+            .collect();
+        let Some((_, first)) = rows.first() else {
+            return Err(Error::NotFound);
+        };
+        if first.roster.home_host_id != sender || roster.home_host_id != sender {
+            return Err(Error::Forbidden);
+        }
+        let held_version = rows
+            .iter()
+            .map(|(_, p)| p.roster.version)
+            .max()
+            .unwrap_or(0);
+        if roster.version <= held_version {
+            return Ok(json!({ "version": held_version }));
+        }
+        let own = self.identity().id;
+        let mut admit = None;
+        for p in &roster.participants {
+            if p.host_id.as_deref() != Some(own.as_str()) || p.state != "joined" {
+                continue;
+            }
+            let id_text = p.id.clone().unwrap_or_default();
+            let joining = rows.iter().find(|(person, pending)| {
+                pending.joining
+                    && pending.current()
+                    && pending.added_at == p.added_at
+                    && id_text == format!("person:{own}/{person}")
+            });
+            match joining {
+                Some((person, _)) if admit.is_none() => {
+                    admit = Some((person.clone(), id_text, p.added_at.clone()))
+                }
+                _ => return Err(invalid("a roster cannot join a participant on this host")),
+            }
+        }
+        if let Some((person, participant, added_at)) = admit {
+            if let Some(mut pending) = self.pending_opt(tx, id, &person)? {
+                pending.state = "joined".into();
+                pending.joining = false;
+                self.save_pending(tx, id, &person, &pending)?;
+            }
+            let mut held = Held {
+                roster: roster.clone(),
+                local: LocalState::default(),
+            };
+            held.admit(&participant, &added_at);
+            save_held(tx, &held)?;
+        }
+        self.sync_pending(tx, &roster)?;
+        Ok(json!({ "version": roster.version }))
+    }
+    /// Home drops person entries unanswered for 10 minutes or invited for
+    /// 7 days (contract C3, Expiry).
+    fn expire_person_invites(&self) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let own = self.identity().id;
+        let at = crate::clock::now();
+        for mut held in self.all_held(&tx)? {
+            if held.roster.home_host_id != own || held.roster.state != "open" {
+                continue;
+            }
+            let due: Vec<(String, &'static str)> = held
+                .roster
+                .participants
+                .iter()
+                .filter(|p| p.id.is_none() && p.kind == "person")
+                .filter_map(|p| {
+                    let added = crate::membership::time(&p.added_at).ok()?;
+                    let person = p.person_id.clone()?;
+                    if added + chrono::TimeDelta::seconds(PERSON_INVITE_SECONDS) <= at {
+                        Some((person, "expired"))
+                    } else if p.state == "inviting"
+                        && added + chrono::TimeDelta::seconds(INVITE_LIMIT_SECONDS) <= at
+                    {
+                        Some((person, "unanswered"))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for (person, why) in due {
+                self.drop_person(&tx, &mut held, &person, None, why)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+/// Sends a local join to home, retrying within 15 seconds.
+async fn send_join(store: &Arc<Store>, id: &str, home: &str, body: &[u8]) -> Outcome {
+    let began = tokio::time::Instant::now();
+    let path = format!("/peer/v1/conversations/{id}/join");
+    loop {
+        let outcome = send(store, home, &path, body).await;
+        match outcome {
+            Outcome::Retry(_)
+                if began.elapsed() + ATTEMPT_TIMEOUT + Duration::from_secs(1) <= START_WAIT =>
+            {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+// ---------------------------------------------------------------- attempts
+
+fn dispatcher() -> &'static Dispatcher {
+    static DISPATCHER: OnceLock<Dispatcher> = OnceLock::new();
+    DISPATCHER.get_or_init(|| Dispatcher::new(crate::retry::CONCURRENCY))
+}
+
+async fn send(store: &Arc<Store>, peer: &str, path: &str, body: &[u8]) -> Outcome {
+    request(store, peer, "POST", path, body).await
+}
+async fn request(store: &Arc<Store>, peer: &str, method: &str, path: &str, body: &[u8]) -> Outcome {
+    let id = peer.to_owned();
+    let target = match blocking(store.clone(), move |s| s.dial_target(&id)).await {
+        Ok(t) => t,
+        Err(e) => return Outcome::Retry(format!("{e:?}")),
+    };
+    match tokio::time::timeout(
+        ATTEMPT_TIMEOUT,
+        crate::quic::request(store.clone(), &target, method, path, body),
+    )
+    .await
+    {
+        Ok(Ok((status, body))) => classify(status, &body, peer),
+        Ok(Err(e)) => Outcome::Retry(format!("{e:#}")),
+        Err(_) => Outcome::Retry("timed out".into()),
+    }
+}
+
+async fn attempt(store: Arc<Store>, kind: String, key: String) {
+    let parts: Vec<String> = key.split(' ').map(str::to_owned).collect();
+    if kind == "target" {
+        let [id, message, target] = &parts[..] else {
+            return;
+        };
+        let (i, m, t) = (id.clone(), message.clone(), target.clone());
+        let Ok(Some((peer, body))) =
+            blocking(store.clone(), move |s| s.prepare_target(&i, &m, &t)).await
+        else {
+            return;
+        };
+        let outcome = send(
+            &store,
+            &peer,
+            &format!("/peer/v1/conversations/{id}/messages"),
+            &body,
+        )
+        .await;
+        let (i, m, t) = (id.clone(), message.clone(), target.clone());
+        let _ = blocking(store, move |s| s.finish_target(&i, &m, &t, &peer, outcome)).await;
+    } else if kind == "push" {
+        let [id, peer] = &parts[..] else {
+            return;
+        };
+        let (i, p) = (id.clone(), peer.clone());
+        let Ok(Some((body, version))) =
+            blocking(store.clone(), move |s| s.prepare_push(&i, &p)).await
+        else {
+            return;
+        };
+        let outcome = send(
+            &store,
+            peer,
+            &format!("/peer/v1/conversations/{id}/roster"),
+            &body,
+        )
+        .await;
+        let (i, p) = (id.clone(), peer.clone());
+        let _ = blocking(store, move |s| s.finish_push(&i, &p, version, outcome)).await;
+    } else if kind == "pinvite" {
+        let [id, host, person] = &parts[..] else {
+            return;
+        };
+        let (i, h, p) = (id.clone(), host.clone(), person.clone());
+        let Ok(Some((body, generation))) =
+            blocking(store.clone(), move |s| s.prepare_pinvite(&i, &h, &p)).await
+        else {
+            return;
+        };
+        let outcome = send(&store, host, "/peer/v1/conversations/invites", &body).await;
+        let (i, h, p) = (id.clone(), host.clone(), person.clone());
+        let _ = blocking(store, move |s| {
+            s.finish_pinvite(&i, &h, &p, &generation, outcome)
+        })
+        .await;
+    } else if kind == "leave" {
+        let [id, peer, participant] = &parts[..] else {
+            return;
+        };
+        let (i, h, p) = (id.clone(), peer.clone(), participant.clone());
+        let Ok(Some((body, generation))) =
+            blocking(store.clone(), move |s| s.prepare_leave(&i, &h, &p)).await
+        else {
+            return;
+        };
+        let outcome = send(
+            &store,
+            peer,
+            &format!("/peer/v1/conversations/{id}/leave"),
+            &body,
+        )
+        .await;
+        let (i, h, p) = (id.clone(), peer.clone(), participant.clone());
+        let _ = blocking(store, move |s| {
+            s.finish_leave(&i, &h, &p, generation, outcome)
+        })
+        .await;
+    } else {
+        let [id, participant] = &parts[..] else {
+            return;
+        };
+        let (i, p) = (id.clone(), participant.clone());
+        let Ok(Some((peer, body, generation))) =
+            blocking(store.clone(), move |s| s.prepare_invite(&i, &p)).await
+        else {
+            return;
+        };
+        let outcome = send(&store, &peer, "/peer/v1/conversations/invites", &body).await;
+        let (i, p) = (id.clone(), participant.clone());
+        let _ = blocking(store, move |s| {
+            s.finish_invite(&i, &p, &generation, outcome)
+        })
+        .await;
+    }
+}
+
+fn fetching() -> &'static Mutex<BTreeSet<String>> {
+    static FETCHING: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
+    FETCHING.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+/// Fetches a conversation's roster from home, at most one at a time per
+/// conversation, and stores it as a push.
+async fn fetch_roster(store: Arc<Store>, id: String, home: String) {
+    if !fetching()
+        .lock()
+        .map(|mut f| f.insert(id.clone()))
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let path = format!("/peer/v1/conversations/{id}/roster");
+    if let Outcome::Answer(body) = request(&store, &home, "GET", &path, &[]).await
+        && let Some(roster) = serde_json::from_slice::<Value>(&body)
+            .ok()
+            .and_then(|v| serde_json::from_value::<Roster>(v["roster"].clone()).ok())
+    {
+        let (i, h) = (id.clone(), home.clone());
+        let _ = blocking(store, move |s| s.accept_roster(&h, &i, roster)).await;
+    }
+    if let Ok(mut f) = fetching().lock() {
+        f.remove(&id);
+    }
+}
+
+/// Starts attempts for these keys now, within the shared concurrency bound;
+/// one that finds no free slot is left to the worker.
+fn dispatch(store: &Arc<Store>, keys: Vec<(String, String)>) -> Vec<tokio::task::JoinHandle<()>> {
+    dispatcher()
+        .claim(keys)
+        .into_iter()
+        .map(|claim| {
+            let store = store.clone();
+            let (kind, key) = claim.key().clone();
+            tokio::spawn(async move {
+                attempt(store, kind, key).await;
+                drop(claim);
+            })
+        })
+        .collect()
+}
+
+/// Runs conversation attempts (invites and message targets) until shutdown.
+pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    let _ = blocking(store.clone(), |s| {
+        s.spread_conversation_attempts(crate::clock::now())
+    })
+    .await;
+    let mut ticks: u32 = 0;
+    loop {
+        tokio::select! {
+            _ = shutdown.changed() => return,
+            _ = tokio::time::sleep(crate::retry::POLL) => {}
+        }
+        ticks = ticks.wrapping_add(1);
+        if ticks.is_multiple_of(8) {
+            let _ = blocking(store.clone(), |s| s.expire_invites()).await;
+            let _ = blocking(store.clone(), |s| s.expire_person_invites()).await;
+            let _ = blocking(store.clone(), |s| s.stop_overdue()).await;
+        }
+        if ticks.is_multiple_of(20) {
+            sync::schedule(&store).await;
+        }
+        let Ok(due) = blocking(store.clone(), |s| {
+            s.due_conversation_attempts(crate::clock::now())
+        })
+        .await
+        else {
+            continue;
+        };
+        dispatch(&store, due);
+    }
+}
+
+// ---------------------------------------------------------------- routes
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartRequest {
+    participants: Vec<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    content: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    message_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    note: Option<String>,
+    #[serde(rename = "as", default, deserialize_with = "crate::policy::present")]
+    as_agent: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    network: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    about: Option<About>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdapterStartRequest {
+    participants: Vec<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    content: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    note: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    message_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    about: Option<About>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SendRequest {
+    content: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    message_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    addressed_to: Option<Vec<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManageRequest {
+    action: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    participant: Option<String>,
+    #[serde(rename = "as", default, deserialize_with = "crate::policy::present")]
+    as_agent: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    network: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdapterManageRequest {
+    action: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    participant: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LeaveRequest {
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    agent: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RosterRequest {
+    roster: Roster,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerLeaveRequest {
+    participant: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    added_at: Option<String>,
+}
+#[derive(Deserialize)]
+struct ListQuery {
+    state: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PageQueryAdapter {
+    before: Option<String>,
+    limit: Option<i64>,
+}
+#[derive(Deserialize)]
+struct ReadQuery {
+    participant: Option<String>,
+}
+#[derive(Deserialize)]
+struct PageQuery {
+    participant: Option<String>,
+    before: Option<String>,
+    limit: Option<i64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Empty {}
+
+pub(crate) fn local_routes() -> Router<Arc<Store>> {
+    Router::new()
+        .route("/v1/conversations", get(list).post(start))
+        .route("/v1/conversations/invites", get(invites))
+        .route("/v1/conversations/events", get(tools::events))
+        .route("/v1/conversations/{id}/join", post(join))
+        .route("/v1/conversations/{id}/decline", post(decline))
+        .route("/v1/conversations/{id}", get(show).delete(tools::forget))
+        .route("/v1/conversations/{id}/messages", get(page).post(say))
+        .route(
+            "/v1/conversations/{id}/messages/{message_id}",
+            get(tools::one),
+        )
+        .route("/v1/conversations/{id}/read", post(tools::read))
+        .route("/v1/conversations/{id}/manage", post(manage))
+        .route("/v1/conversations/{id}/leave", post(leave))
+        .route("/v1/conversations/{id}/sync", post(sync::local_sync))
+}
+pub(crate) fn peer_routes() -> Router<Arc<Store>> {
+    Router::new()
+        .route("/peer/v1/conversations/invites", post(peer_invite))
+        .route(
+            "/peer/v1/conversations/{id}/messages",
+            post(peer_message).get(sync::peer_fetch),
+        )
+        .route("/peer/v1/conversations/{id}/heads", get(sync::peer_heads))
+        .route("/peer/v1/conversations/{id}/acks", post(sync::peer_acks))
+        .route(
+            "/peer/v1/conversations/{id}/roster",
+            get(peer_get_roster).post(peer_roster),
+        )
+        .route("/peer/v1/conversations/{id}/leave", post(peer_leave))
+        .route("/peer/v1/conversations/{id}/join", post(peer_join))
+}
+pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
+    Router::new()
+        .route(
+            "/adapter/v1/conversations",
+            get(adapter_list).post(adapter_start),
+        )
+        .route(
+            "/adapter/v1/conversations/{id}/messages",
+            get(context::adapter_history).post(adapter_say),
+        )
+        .route(
+            "/adapter/v1/conversations/{id}/manage",
+            post(adapter_manage),
+        )
+        .route(
+            "/adapter/v1/conversation-notifications/next",
+            post(context::adapter_next),
+        )
+        .route(
+            "/adapter/v1/conversation-notifications/{id}/forwarded",
+            post(adapter_forwarded),
+        )
+}
+
+async fn list(
+    State(store): State<Arc<Store>>,
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Json<Value>, Error> {
+    let Query(q) = query.map_err(|_| invalid("invalid query"))?;
+    let all = match q.state.as_deref() {
+        None | Some("open") => false,
+        Some("all") => true,
+        Some(_) => return Err(invalid("state must be open or all")),
+    };
+    Ok(Json(blocking(store, move |s| s.conversations(all)).await?))
+}
+async fn show(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    query: Result<Query<ReadQuery>, QueryRejection>,
+) -> Result<Json<Value>, Error> {
+    let Query(q) = query.map_err(|_| invalid("invalid query"))?;
+    Ok(Json(
+        blocking(store, move |s| s.conversation(&id, q.participant)).await?,
+    ))
+}
+async fn page(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    query: Result<Query<PageQuery>, QueryRejection>,
+) -> Result<Json<Value>, Error> {
+    let Query(q) = query.map_err(|_| invalid("invalid query"))?;
+    Ok(Json(
+        blocking(store, move |s| {
+            s.conversation_messages(&id, q.participant, q.before, q.limit)
+        })
+        .await?,
+    ))
+}
+fn target_keys(keys: Vec<String>) -> Vec<(String, String)> {
+    keys.into_iter().map(|k| ("target".to_owned(), k)).collect()
+}
+async fn say(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: SendRequest = decode(body)?;
+    let (value, keys) = blocking(store.clone(), move |s| {
+        s.not_forgotten(&id)?;
+        let author = s.person_participant(&*s.connection()?)?;
+        s.author_message(&id, &author, None, r.message_id, r.content, r.addressed_to)
+    })
+    .await?;
+    dispatch(&store, target_keys(keys));
+    Ok(Json(value))
+}
+
+/// Who starts or manages: this host's person, or a local agent with the
+/// origin its messages carry.
+#[derive(Clone)]
+struct Actor {
+    participant: String,
+    origin: Option<Origin>,
+}
+impl Actor {
+    fn agent(&self) -> Option<String> {
+        self.origin.as_ref().map(|o| o.agent_id.clone())
+    }
+}
+/// The actor of an owner request: the agent named by `as`, or the person.
+async fn owner_actor(store: &Arc<Store>, agent: Option<String>) -> Result<Actor, Error> {
+    blocking(store.clone(), move |s| {
+        let conn = s.connection()?;
+        match agent {
+            Some(agent) => {
+                let participant = s.agent_participant(&conn, &agent)?;
+                let id = participant_parts(&participant)
+                    .map(|p| p.2.to_owned())
+                    .unwrap_or_default();
+                Ok(Actor {
+                    participant,
+                    origin: Some(Origin {
+                        agent_id: id,
+                        session_id: None,
+                    }),
+                })
+            }
+            None => Ok(Actor {
+                participant: s.person_participant(&conn)?,
+                origin: None,
+            }),
+        }
+    })
+    .await
+}
+/// The adapter's agent as actor, once directory access is established.
+async fn adapter_actor(store: &Arc<Store>, headers: &HeaderMap) -> Result<Actor, Error> {
+    let auth = crate::adapter::token(headers);
+    let (participant, origin) = blocking(store.clone(), move |s| s.adapter_author(&auth)).await?;
+    Ok(Actor {
+        participant,
+        origin: Some(origin),
+    })
+}
+
+/// A target's length limit; person forms are resolved apart (C3).
+fn target_shape(to: &str) -> Result<(), Error> {
+    if to.len() > 256 || to.is_empty() {
+        return Err(invalid("participant must be 1 to 256 characters"));
+    }
+    Ok(())
+}
+
+/// Resolves one start or add target: a person form against the persons of
+/// this host's networks, otherwise an agent address through the directory.
+async fn resolve_target(
+    store: &Arc<Store>,
+    to: &str,
+    network: Option<&str>,
+) -> Result<(String, Target), Error> {
+    target_shape(to)?;
+    if person_form(to) {
+        let (t, n) = (to.to_owned(), network.map(str::to_owned));
+        let person = blocking(store.clone(), move |s| {
+            s.resolve_person_target(&t, n.as_deref())
+        })
+        .await?;
+        return Ok((
+            format!("person:{}", person.person_id),
+            Target::Person(person),
+        ));
+    }
+    let target = crate::directory::resolve_participant(store, to, network).await?;
+    Ok((
+        format!("agent:{}/{}", target.host_id, target.agent_id),
+        Target::Agent(target),
+    ))
+}
+
+/// Waits at most 15 seconds for these invites to settle.
+async fn wait_invites(
+    store: &Arc<Store>,
+    id: &str,
+    participants: Vec<String>,
+) -> Result<(), Error> {
+    if participants.is_empty() {
+        return Ok(());
+    }
+    let began = tokio::time::Instant::now();
+    let keys = {
+        let (i, ps) = (id.to_owned(), participants.clone());
+        blocking(store.clone(), move |s| {
+            let conn = s.connection()?;
+            let mut keys = Vec::new();
+            for p in &ps {
+                match unjoined_person(p) {
+                    Some(person) => {
+                        for (host, _) in s.pinvites(&conn, &i, person)? {
+                            keys.push(("pinvite".to_owned(), format!("{i} {host} {person}")));
+                        }
+                    }
+                    None => keys.push(("invite".to_owned(), format!("{i} {p}"))),
+                }
+            }
+            Ok(keys)
+        })
+        .await?
+    };
+    let handles = dispatch(store, keys);
+    for handle in handles {
+        let left = START_WAIT.saturating_sub(began.elapsed());
+        let _ = tokio::time::timeout(left, handle).await;
+    }
+    loop {
+        let (i, ps) = (id.to_owned(), participants.clone());
+        let pending = blocking(store.clone(), move |s| {
+            let conn = s.connection()?;
+            let mut pending = false;
+            for p in &ps {
+                let sending = match unjoined_person(p) {
+                    Some(person) => s
+                        .pinvites(&conn, &i, person)?
+                        .iter()
+                        .any(|(_, v)| v.state == "sending"),
+                    None => s
+                        .invite_opt(&conn, &i, p)?
+                        .is_some_and(|v| v.state == "sending"),
+                };
+                pending |= sending;
+            }
+            Ok(pending)
+        })
+        .await?;
+        if !pending || began.elapsed() >= START_WAIT {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+struct Started {
+    id: String,
+    outcomes: Vec<(String, String, Option<&'static str>)>,
+    message: Value,
+}
+
+/// Starts a conversation (contract C2, Starting).
+#[allow(clippy::too_many_arguments)]
+async fn start_conversation(
+    store: &Arc<Store>,
+    actor: &Actor,
+    participants: Vec<String>,
+    title: Option<String>,
+    content: Option<String>,
+    message_id: Option<String>,
+    note: Option<String>,
+    network: Option<String>,
+    about: Option<About>,
+) -> Result<Started, Error> {
+    if participants.is_empty() || participants.len() > MAX_PARTICIPANTS - 1 {
+        return Err(invalid("give 1 to 15 participants"));
+    }
+    let mut seen = BTreeSet::new();
+    for to in &participants {
+        target_shape(to)?;
+        if !seen.insert(to.clone()) {
+            return Err(invalid("a participant is given twice"));
+        }
+    }
+    if title.as_deref().is_some_and(|t| !valid_title(t)) {
+        return Err(invalid(
+            "title must be at most 200 bytes without control characters",
+        ));
+    }
+    if content.as_deref().is_some_and(|c| !valid_content(c)) {
+        return Err(invalid("content must be 1 to 65,536 bytes of UTF-8"));
+    }
+    if about.as_ref().is_some_and(|a| !tools::valid_about(a)) {
+        return Err(invalid("invalid about"));
+    }
+    if note.as_deref().is_some_and(|n| n.len() > MAX_NOTE) {
+        return Err(invalid("note must be at most 4,096 bytes"));
+    }
+    if let Some(m) = &message_id
+        && (content.is_none() || !valid_message_id(m))
+    {
+        return Err(invalid("invalid message_id"));
+    }
+    let mut targets = Vec::new();
+    let mut ids = BTreeSet::from([actor.participant.clone()]);
+    // The creator's own person, when the creator is that person.
+    if let Some(("person", _, person)) = participant_parts(&actor.participant) {
+        ids.insert(format!("person:{person}"));
+    }
+    for to in &participants {
+        let (id, target) = resolve_target(store, to, network.as_deref()).await?;
+        if !ids.insert(id) {
+            return Err(invalid(
+                "two targets name the same participant, or the creator",
+            ));
+        }
+        targets.push((to.clone(), target));
+    }
+    let origin = actor.agent();
+    for (to, target) in &targets {
+        if let Target::Agent(target) = target
+            && !target.local
+        {
+            crate::directory::authorize(
+                store,
+                to,
+                target,
+                crate::policy::ACTION,
+                origin.as_deref(),
+            )
+            .await?;
+        }
+    }
+    let creator = actor.participant.clone();
+    let (id, outcomes) = blocking(store.clone(), move |s| {
+        s.create_conversation(&creator, &targets, title, note, about)
+    })
+    .await?;
+    let remote: Vec<String> = outcomes
+        .iter()
+        .filter(|o| o.2.is_none())
+        .map(|o| o.1.clone())
+        .collect();
+    wait_invites(store, &id, remote).await?;
+    let message = match content {
+        Some(content) => {
+            let (i, author, origin) = (id.clone(), actor.participant.clone(), actor.origin.clone());
+            let (value, keys) = blocking(store.clone(), move |s| {
+                s.author_message(&i, &author, origin, message_id, content, None)
+            })
+            .await?;
+            dispatch(store, target_keys(keys));
+            value["message"].clone()
+        }
+        None => Value::Null,
+    };
+    Ok(Started {
+        id,
+        outcomes,
+        message,
+    })
+}
+
+/// The answer of a start: the creator's view, outcomes, the first message.
+async fn started_answer(
+    store: &Arc<Store>,
+    actor: &Actor,
+    started: Started,
+    adapter: bool,
+) -> Result<Value, Error> {
+    let reader = actor.participant.clone();
+    blocking(store.clone(), move |s| {
+        let conn = s.connection()?;
+        let held = s.held(&conn, &started.id)?;
+        let mut message = started.message;
+        if let Some(mid) = message["message_id"].as_str().map(str::to_owned) {
+            message["targets"] = Value::from(s.targets(&conn, &held.roster, &mid)?);
+        }
+        let invites = started
+            .outcomes
+            .iter()
+            .map(|(given, participant, local)| {
+                s.outcome_view(&conn, &held, given, participant, *local)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let conversation = if adapter {
+            s.agent_summary(&conn, &held, &reader)?
+        } else {
+            s.conversation_view(&conn, &held, &reader)?
+        };
+        Ok(json!({
+            "conversation": conversation,
+            "invites": invites,
+            "message": message,
+        }))
+    })
+    .await
+}
+
+async fn start(
+    State(store): State<Arc<Store>>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Value>), Error> {
+    let r: StartRequest = decode(body)?;
+    if r.participants.is_empty() || r.participants.len() > MAX_PARTICIPANTS - 1 {
+        return Err(invalid("give 1 to 15 participants"));
+    }
+    let actor = owner_actor(&store, r.as_agent).await?;
+    let started = start_conversation(
+        &store,
+        &actor,
+        r.participants,
+        r.title,
+        r.content,
+        r.message_id,
+        r.note,
+        r.network,
+        r.about,
+    )
+    .await?;
+    let answer = started_answer(&store, &actor, started, false).await?;
+    Ok((StatusCode::CREATED, Json(answer)))
+}
+
+/// `add`, `remove`, `close`, and the adapter's `leave`: returns the add's
+/// invite outcome, or null.
+async fn manage_as(
+    store: &Arc<Store>,
+    id: String,
+    actor: &Actor,
+    action: &str,
+    participant: Option<String>,
+    network: Option<String>,
+) -> Result<Value, Error> {
+    match (action, &participant) {
+        ("add" | "remove", Some(_)) | ("close" | "leave", None) => {}
+        ("add" | "remove", None) => return Err(invalid("participant is required")),
+        ("close" | "leave", Some(_)) => {
+            return Err(invalid("participant is not allowed for this action"));
+        }
+        _ => return Err(invalid("action must be add, remove, leave or close")),
+    }
+    if network.is_some() && action != "add" {
+        return Err(invalid("network is only for add"));
+    }
+    let who = actor.participant.clone();
+    match action {
+        "leave" => {
+            blocking(store.clone(), move |s| s.leave_conversation(&id, &who)).await?;
+            Ok(Value::Null)
+        }
+        "close" => {
+            blocking(store.clone(), move |s| s.close_conversation(&id, &who)).await?;
+            Ok(Value::Null)
+        }
+        "remove" => {
+            let which = participant.unwrap_or_default();
+            blocking(store.clone(), move |s| {
+                s.remove_participant(&id, &who, &which)
+            })
+            .await?;
+            Ok(Value::Null)
+        }
+        _ => {
+            let to = participant.unwrap_or_default();
+            {
+                let (i, w) = (id.clone(), who.clone());
+                blocking(store.clone(), move |s| {
+                    let held = s.creator_check(&*s.connection()?, &i, &w)?;
+                    if held.roster.state == "closed" {
+                        return Err(closed());
+                    }
+                    Ok(())
+                })
+                .await?;
+            }
+            let (participant, target) = resolve_target(store, &to, network.as_deref()).await?;
+            let target = match target {
+                Target::Agent(target) => target,
+                Target::Person(person) => {
+                    let (i, w, g) = (id.clone(), who.clone(), to.clone());
+                    if let Some(("person", _, own)) = participant_parts(&who)
+                        && own == person.person_id
+                    {
+                        return Err(invalid("the target is the creator"));
+                    }
+                    let invited =
+                        blocking(store.clone(), move |s| s.add_person(&i, &w, &person, &g)).await?;
+                    if invited {
+                        wait_invites(store, &id, vec![participant.clone()]).await?;
+                    }
+                    return blocking(store.clone(), move |s| {
+                        let conn = s.connection()?;
+                        let held = s.held(&conn, &id)?;
+                        s.outcome_view(&conn, &held, &to, &participant, None)
+                    })
+                    .await;
+                }
+            };
+            let listed = {
+                let (i, p) = (id.clone(), participant.clone());
+                blocking(store.clone(), move |s| {
+                    Ok(Store::listed(&s.held(&*s.connection()?, &i)?, &p))
+                })
+                .await?
+            };
+            if !listed && !target.local {
+                crate::directory::authorize(
+                    store,
+                    &to,
+                    &target,
+                    crate::policy::ACTION,
+                    actor.agent().as_deref(),
+                )
+                .await?;
+            }
+            let (i, w, t, g) = (id.clone(), who.clone(), target.clone(), to.clone());
+            let (local, invited) =
+                blocking(store.clone(), move |s| s.add_participant(&i, &w, &t, &g)).await?;
+            if invited {
+                wait_invites(store, &id, vec![participant.clone()]).await?;
+            }
+            blocking(store.clone(), move |s| {
+                let conn = s.connection()?;
+                let held = s.held(&conn, &id)?;
+                s.outcome_view(&conn, &held, &to, &participant, local)
+            })
+            .await
+        }
+    }
+}
+
+async fn manage(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: ManageRequest = decode(body)?;
+    if r.action == "leave" {
+        return Err(invalid("action must be add, remove or close"));
+    }
+    if !valid_conversation_id(&id) {
+        return Err(Error::NotFound);
+    }
+    let i = id.clone();
+    blocking(store.clone(), move |s| s.not_forgotten(&i)).await?;
+    {
+        let i = id.clone();
+        blocking(store.clone(), move |s| {
+            s.held(&*s.connection()?, &i).map(|_| ())
+        })
+        .await?;
+    }
+    let actor = owner_actor(&store, r.as_agent).await?;
+    let action = r.action.clone();
+    let invite = manage_as(
+        &store,
+        id.clone(),
+        &actor,
+        &r.action,
+        r.participant,
+        r.network,
+    )
+    .await?;
+    let reader = actor.participant.clone();
+    let view = blocking(store, move |s| {
+        let conn = s.connection()?;
+        let held = s.held(&conn, &id)?;
+        s.conversation_view(&conn, &held, &reader)
+    })
+    .await?;
+    Ok(Json(if action == "add" {
+        json!({"conversation": view, "invite": invite})
+    } else {
+        json!({"conversation": view})
+    }))
+}
+
+async fn leave(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: LeaveRequest = decode(body)?;
+    let i = id.clone();
+    blocking(store.clone(), move |s| s.not_forgotten(&i)).await?;
+    let participant = blocking(store.clone(), move |s| {
+        let conn = s.connection()?;
+        match r.agent {
+            Some(agent) => s.agent_participant(&conn, &agent),
+            None => s.person_participant(&conn),
+        }
+    })
+    .await?;
+    let (i, p) = (id.clone(), participant.clone());
+    blocking(store.clone(), move |s| s.leave_conversation(&i, &p)).await?;
+    let view = blocking(store, move |s| {
+        let conn = s.connection()?;
+        let held = s.held(&conn, &id)?;
+        s.conversation_view(&conn, &held, &participant)
+    })
+    .await?;
+    Ok(Json(json!({ "conversation": view })))
+}
+
+async fn invites(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
+    Ok(Json(blocking(store, |s| s.conversation_invites()).await?))
+}
+async fn join(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let _: Empty = decode(body)?;
+    if !valid_conversation_id(&id) {
+        return Err(no_invite());
+    }
+    let i = id.clone();
+    if let JoinStep::Remote(home, request, person, generation) =
+        blocking(store.clone(), move |s| s.prepare_join(&i)).await?
+    {
+        let outcome = send_join(&store, &id, &home, &request).await;
+        let i = id.clone();
+        blocking(store.clone(), move |s| {
+            s.finish_join(&i, &person, &generation, outcome)
+        })
+        .await?;
+    }
+    let view = blocking(store, move |s| {
+        let conn = s.connection()?;
+        let held = s.held(&conn, &id)?;
+        let me = s.person_participant(&conn)?;
+        s.conversation_view(&conn, &held, &me)
+    })
+    .await?;
+    Ok(Json(json!({ "conversation": view })))
+}
+async fn decline(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let _: Empty = decode(body)?;
+    if !valid_conversation_id(&id) {
+        return Err(no_invite());
+    }
+    let i = id.clone();
+    if let Some(key) = blocking(store.clone(), move |s| s.decline_invite(&i)).await? {
+        dispatch(&store, vec![key]);
+    }
+    Ok(Json(json!({"conversation_id": id, "state": "declined"})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerJoinRequest {
+    person_id: String,
+}
+async fn peer_join(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: PeerJoinRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.accept_join(&sender, &id, &r.person_id)).await?,
+    ))
+}
+async fn peer_invite(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: InviteRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.accept_invite(&sender, r)).await?,
+    ))
+}
+async fn peer_message(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Receipt>, Error> {
+    let r: MessageRequest = decode(body)?;
+    let version = r.message.roster_version;
+    let gap = (r.message.author.clone(), r.target.clone(), r.prev_seq);
+    let (s2, i) = (sender.clone(), id.clone());
+    let result = blocking(store.clone(), move |s| {
+        s.accept_conversation_message(&s2, &i, r)
+    })
+    .await;
+    if let Err(Error::Unavailable(_)) = &result {
+        let i = id.clone();
+        if let Ok(Some(home)) = blocking(store.clone(), move |s| Ok(s.behind(&i, version))).await {
+            tokio::spawn(fetch_roster(store, id, home));
+        }
+    } else if result.is_ok() {
+        sync::after_push(store, id, sender, gap);
+    }
+    Ok(Json(result?))
+}
+async fn peer_roster(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: RosterRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| s.accept_roster(&sender, &id, r.roster)).await?,
+    ))
+}
+async fn peer_get_roster(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, Error> {
+    Ok(Json(
+        blocking(store, move |s| s.serve_roster(&sender, &id)).await?,
+    ))
+}
+async fn peer_leave(
+    State(store): State<Arc<Store>>,
+    Extension(sender): Extension<String>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let r: PeerLeaveRequest = decode(body)?;
+    Ok(Json(
+        blocking(store, move |s| {
+            s.accept_leave(&sender, &id, &r.participant, r.added_at.as_deref())
+        })
+        .await?,
+    ))
+}
+
+async fn adapter_list(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Error> {
+    let auth = crate::adapter::token(&headers);
+    Ok(Json(
+        blocking(store, move |s| s.agent_conversations(&auth)).await?,
+    ))
+}
+async fn adapter_start(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Value>), Error> {
+    let actor = adapter_actor(&store, &headers).await?;
+    let r: AdapterStartRequest = decode(body)?;
+    let started = start_conversation(
+        &store,
+        &actor,
+        r.participants,
+        r.title,
+        r.content,
+        r.message_id,
+        r.note,
+        None,
+        r.about,
+    )
+    .await?;
+    let answer = started_answer(&store, &actor, started, true).await?;
+    Ok((StatusCode::CREATED, Json(answer)))
+}
+async fn adapter_manage(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let actor = adapter_actor(&store, &headers).await?;
+    let r: AdapterManageRequest = decode(body)?;
+    if !valid_conversation_id(&id) {
+        return Err(Error::NotFound);
+    }
+    {
+        let i = id.clone();
+        blocking(store.clone(), move |s| {
+            s.held(&*s.connection()?, &i).map(|_| ())
+        })
+        .await?;
+    }
+    let invite = manage_as(&store, id.clone(), &actor, &r.action, r.participant, None).await?;
+    let me = actor.participant.clone();
+    let auth = crate::adapter::token(&headers);
+    let summary = blocking(store, move |s| {
+        s.conversation_seen(&auth, &id)?;
+        let conn = s.connection()?;
+        let held = s.held(&conn, &id)?;
+        s.agent_summary(&conn, &held, &me)
+    })
+    .await?;
+    Ok(Json(json!({"conversation": summary, "invite": invite})))
+}
+
+async fn adapter_say(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let auth = crate::adapter::token(&headers);
+    let r: SendRequest = decode(body)?;
+    let (value, keys) = blocking(store.clone(), move |s| {
+        let (author, origin) = s.adapter_author(&auth)?;
+        if !valid_conversation_id(&id) {
+            return Err(Error::NotFound);
+        }
+        let sent = s.author_message(
+            &id,
+            &author,
+            Some(origin),
+            r.message_id,
+            r.content,
+            r.addressed_to,
+        )?;
+        s.conversation_seen(&auth, &id)?;
+        Ok(sent)
+    })
+    .await?;
+    dispatch(&store, target_keys(keys));
+    Ok(Json(value))
+}
+async fn adapter_forwarded(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let _: Empty = decode(body)?;
+    let auth = crate::adapter::token(&headers);
+    Ok(Json(
+        blocking(store, move |s| s.conversation_forwarded(&auth, &id)).await?,
+    ))
+}

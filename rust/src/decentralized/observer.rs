@@ -214,27 +214,8 @@ impl Evidence {
                         || invite.expected_person_public_key == person),
             )?;
         }
-        if p.record.migration_proposal_id != "-" {
-            let catalog = self
-                .catalogs
-                .get(&context)
-                .ok_or_else(|| Error::missing(&p.record.migration_proposal_id))?;
-            let staged = super::migration_link::observed_owner(store, c, p, owner, catalog)?;
-            check(staged.descriptor.context_id() == context)?;
-            require(
-                text(o, "not_after")? > staged.time.as_str(),
-                "authority_expired",
-            )?;
-            return Ok(Offer {
-                descriptor,
-                owner: owner.clone(),
-                owner_bytes: observed.bytes.clone(),
-                catalog: Some(staged.catalog),
-                provider: staged.provider,
-                decision_time: staged.time,
-                staging: Some(staged.staging),
-            });
-        }
+        // In-place migration is removed (DEC-OWN3).
+        require(p.record.migration_proposal_id == "-", "not_found")?;
         let present: bool = c
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
@@ -377,7 +358,22 @@ pub(crate) fn observe(store: &Store, id: &str) -> Result<()> {
         }
     };
     let mut barriers = Vec::new();
+    let mut automatic = None;
     if let Some(offer) = chosen {
+        // Exactly one valid owner offer was present when this request first
+        // processed offers: the requester selects it without a prompt
+        // (spec 8.4, DEC-S5, DEC-Q5). A later offer is ignored.
+        if p.record.roles.iter().any(|r| r == "requester") && !p.record.selection_approved {
+            automatic = Some(json!({
+                "owner_offer_id": offer.owner.id,
+                "network_id": offer.descriptor.network_id,
+                "context_id": offer.descriptor.context_id(),
+                "person_public_key": text(&offer.owner.object, "person_public_key")?,
+                "host_public_key": p.record.host_public_key,
+                "device_public_key": p.record.device_public_key,
+                "approve": true,
+            }));
+        }
         offer.remember(&mut p)?;
         if previous_owner == "-" {
             barriers.push("dec.owner.after_commit")
@@ -389,6 +385,11 @@ pub(crate) fn observe(store: &Store, id: &str) -> Result<()> {
     drop(c);
     for barrier in barriers {
         controls::barrier(store, barrier, id)?
+    }
+    if let Some(input) = automatic {
+        // A selection that cannot be signed now stays `needs_selection`;
+        // the next observation or `link resume` tries again.
+        let _ = super::requester::select(store, id, object(&input)?);
     }
     Ok(())
 }
@@ -426,17 +427,49 @@ fn advance_prefix(
     }
     p.record.selection_packet_base64 = encode(&selection.bytes);
     p.record.selection_id = selection.packet.id.clone();
-    let administrator = evidence.matching(
-        "administrator",
-        &p.record.administrator_offer_id,
-        &[
-            ("owner_offer_id", offer.owner.id.as_str()),
-            ("selection_id", selection.packet.id.as_str()),
-        ],
-    )?;
-    if administrator.is_none() && p.record.mode != "renew" {
-        return Ok(());
-    }
+    // A folded admin stage (spec 8.2, DEC-S7, DEC-Q4): the owner's
+    // finalization names no administrator packet. When one is present, an
+    // administrator offer for the same selection is not used.
+    let folded_finalization = if p.record.mode != "renew" {
+        let folded: Vec<_> = evidence
+            .packets
+            .values()
+            .filter(|f| {
+                f.packet.object.get("role").and_then(Value::as_str) == Some("owner_finalization")
+                    && (p.record.owner_finalization_id == "-"
+                        || f.packet.id == p.record.owner_finalization_id)
+                    && f.packet.payload.get("selection_id").and_then(Value::as_str)
+                        == Some(selection.packet.id.as_str())
+                    && f.packet
+                        .payload
+                        .get("administrator_offer_id")
+                        .and_then(Value::as_str)
+                        == Some("-")
+            })
+            .collect();
+        require(folded.len() <= 1, "operation_conflict")?;
+        folded.first().copied()
+    } else {
+        None
+    };
+    let administrator = if folded_finalization.is_some() {
+        p.record.administrator_offer_id = "-".into();
+        p.record.administrator_packet_base64 = "-".into();
+        None
+    } else {
+        let administrator = evidence.matching(
+            "administrator",
+            &p.record.administrator_offer_id,
+            &[
+                ("owner_offer_id", offer.owner.id.as_str()),
+                ("selection_id", selection.packet.id.as_str()),
+            ],
+        )?;
+        if administrator.is_none() && p.record.mode != "renew" {
+            return Ok(());
+        }
+        administrator
+    };
     let Some(catalog) = &offer.catalog else {
         return Err(Error::missing(text(
             &administrator
@@ -465,6 +498,10 @@ fn advance_prefix(
         Value::from("-")
     };
     let request = p.packet()?;
+    let folded = match folded_finalization {
+        Some(f) => state::folded_host(catalog, &request, None, &f.packet)?,
+        None => None,
+    };
     let prefix = CeremonyPrefix {
         descriptor: &offer.descriptor,
         prior: &prior,
@@ -475,6 +512,7 @@ fn advance_prefix(
         administrator: administrator.map(|a| &a.packet),
         now,
         staging: offer.staging.as_ref(),
+        folded_host: folded.as_ref(),
     };
     let admissions = Projection::prepare_administrator(prefix)?;
     if let Some(administrator) = administrator {
@@ -512,56 +550,15 @@ fn advance_prefix(
         prepared.admissions.root == text(&finalization.packet.payload, "root_state_id")?
             && stamp(&prepared.admissions.decision_time)? < stamp(&p.deadline)?,
     )?;
-    if p.record.migration_proposal_id != "-"
-        && let Some(commit) = evidence.matching("commit", "-", &[])?
-    {
-        if p.record.roles.iter().any(|r| r == "requester") {
-            require(
-                p.record.commit_approved && p.record.commit_packet_base64 != "-",
-                "review_required",
-            )?;
-            check(b64(&p.record.commit_packet_base64, MAX_OBJECT)? == commit.bytes)?;
-        }
-        let raw = super::requester::activation_bytes(p, &commit.bytes)?;
-        let activation = super::transcript::Activation::read(&offer.descriptor, &raw)?;
-        let proof = super::statement::proof_id("activation", &raw);
-        let addition = Catalog::read(
-            &offer.descriptor,
-            &bytes(
-                &json!({"format":1,"context_id":offer.descriptor.context_id(),"objects":[{"id":proof,"kind":"activation","body_base64":encode(&raw)}]}),
-            )?,
-        )?;
-        let full = Catalog::union(&offer.descriptor, catalog, &addition)?;
-        let checked = offer
-            .staging
-            .as_ref()
-            .ok_or_else(|| Error::new("forbidden"))?
-            .migration_owner_prefix(&full.bytes, &offer.owner, now)?;
-        checked.activation_response(&p.id, &Value::from("-"))?;
-        p.record.commit_packet_base64 = encode(&commit.bytes);
-        p.record.activation_id = activation.id;
-        p.record.manifest_id = activation.manifest_id;
-        p.record.catalog_base64 = encode(&full.bytes);
-        super::migration_link::retain_prepared(store, c, p)?;
-    }
     Ok(())
 }
 
 pub(crate) fn owned_device(
-    store: &Store,
+    _store: &Store,
     c: &Connection,
     p: &Pending,
 ) -> Result<ed25519_dalek::SigningKey> {
-    if p.record.migration_proposal_id != "-" {
-        let staged = super::migration_link::Owned::load(
-            store,
-            c,
-            &p.record.expected_network_id,
-            &p.record.migration_proposal_id,
-        )?;
-        staged.matches(p)?;
-        return Ok(staged.device);
-    }
+    require(p.record.migration_proposal_id == "-", "not_found")?;
     let seed: Option<Vec<u8>> = c
         .query_row(
             "SELECT seed FROM link_device_keys WHERE public_key=?1",

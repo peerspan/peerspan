@@ -47,7 +47,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 
 ## Sources
 
-A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude-laptop/github`. Slice 3 adds [built-in sources](#built-in-sources), starting with the `gh` adapter Peerspan ships.
+A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude/github`. Slice 3 adds [built-in sources](#built-in-sources), starting with the `gh` adapter Peerspan ships.
 
 `attach` discovers sources after its session setup succeeds. `peerspan sources refresh [--agent NAME]` repeats discovery for each `attach` profile on this host, or for one agent. Both run in the CLI, which has the user's environment and the project directory. The CLI sends the result to the daemon.
 
@@ -133,7 +133,7 @@ A capability record is:
 ```json
 {
   "name": "github-issues",
-  "source": {"agent": "claude-laptop", "server": "github"},
+  "source": {"agent": "claude", "server": "github"},
   "operations": ["list_issues", "get_issue"],
   "resources": null,
   "credential": {"env_file": null, "args": null},
@@ -249,6 +249,7 @@ It then states the reach: `PRINCIPAL can use these operations with the credentia
 - **Signing.** A yes adds this host to `trusted_hosts`, and the policy is signed at once.
 - **Output.** They always output `trusted`. If the trust signing fails, the command still succeeds, with `trusted: false` and `trusted_error`.
 - **The person key.** On an untrusted machine they print that any host holding the person key can mark itself trusted.
+- **Coordinator-free networks** ([DEC.impl17](decision-log.md)). `network create` signs a yes at once with the creation key. A `join` is a request that is applied later ([spec 8.1](decentralized-spec.md#81-the-flow)): an interactive `join` waits until it is applied, then asks and signs; a `join` that returns a pending request signs nothing, so `--trusted` gives `trusted: false` with a `trusted_error` naming `peerspan trust --network ID`. Without either flag and without the question, `join` prints the request view unchanged.
 
 **Outputs.**
 - `share` prints `{policy, capability, principal, recipient, created}`, where `created` says whether the guided share created the capability. `recipient` (slice 3, [Sharing with an agent](#sharing-with-an-agent)) is null unless `--with` was an agent address.
@@ -384,10 +385,10 @@ The receiver stores the request, the status record, and the result. Seven days a
 | CLI | Local API | Behavior |
 | --- | --- | --- |
 | `discover [PERSON] [--network ID] [--json]` | `GET /v1/discover?person=…&network=…` | Reachable agents and usable capabilities together. Agents come from the directory, as `agents` shows them. Capabilities come from `GET /peer/v1/capabilities` on each host bound to a person in the selected networks' maps, at most 8 at once with a 5-second timeout each. The JSON is `{agents: [...], capabilities: [{address, host_id, kind, capability, operations, resources, state, unavailable, via}], unanswered: [{host_id, error}]}`, including sources opened to this host. `agents` uses the `reachable` entries of `agents --json`. An entry belongs to the person its host is bound to in one of the entry's `via` networks, the first such network deciding; with `PERSON`, entries that belong to someone else are left out, and "the person has it on only one host" counts only entries that belong to that person. `address` is `PERSON/CAPABILITY` when the person's label contains no `/` and the person's policy for the entry's network binds the name to that host, or when none of the person's policies binds the name and the person has it on only one host; otherwise it is `HOST_ID/CAPABILITY`. A copy that lost a concurrent claim is therefore listed only by host ID. For a source it is `PERSON/AGENT/SERVER`, or `HOST_ID/AGENT/SERVER` when the person's label contains `/` or the person has that agent and server on more than one host. |
-| `call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]` | `POST /v1/calls` with `{target, operation, input, deadline, network, call_id}` | Resolves ADDRESS as `discover` does, persists the outbound call, and submits it, with retries as for tasks. It waits up to `--wait` (`N`, `Ns`, or `Nm`, 0 to 15 minutes, default 60 seconds) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
+| `call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]` | `POST /v1/calls` with `{target, operation, input, deadline, network, call_id}` | Resolves ADDRESS as `discover` does, persists the outbound call, and submits it, with retries as for tasks. It waits up to `--wait` (`N`, `Ns`, or `Nm`, 0 to 15 minutes, default 60 seconds) for a final state, with `GET /v1/calls/{peer}/{id}?wait=N`, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
 | `calls list [--after N] [--limit N]` | `GET /v1/calls` | Outbound calls in insertion order, as `[{sequence, call}]`. |
 | `calls received [--after N] [--limit N]` | `GET /v1/calls/received` | `[{sequence, request, status}]`. |
-| `calls inspect --peer HOST ID` | `GET /v1/calls/{peer}/{id}` | The local outbound record. |
+| `calls inspect --peer HOST ID` | `GET /v1/calls/{peer}/{id}` | The local outbound record. With `?wait=N` (seconds, at most 30), the daemon answers once the record is final (`succeeded` or another final state, or a refused submission) or after N seconds, whichever is first, so `call` learns a result as soon as it is stored instead of on a fixed poll. |
 | `calls cancel --peer HOST ID` | `POST /v1/calls/{peer}/{id}/cancel` | Sends cancellation, resent while uncertain, as for tasks. |
 
 **Input.**
@@ -801,8 +802,8 @@ Unchanged: the policy statement, its JSON, and its test vector; coordinator hand
 
 | Form | Example | Meaning |
 | --- | --- | --- |
-| `PERSON/AGENT` | `alice/claude-laptop` | The agent named `AGENT` on one of the hosts bound to the person `PERSON` in the selected network. `PERSON` is a person label or person ID, resolved as other person arguments are. |
-| `HOST_ID/AGENT` | `host_3f…/claude-laptop` | The agent named `AGENT` on that host. It also reaches hosts without a bound person, and persons whose label contains `/`. |
+| `PERSON/AGENT` | `alice/claude` | The agent named `AGENT` on one of the hosts bound to the person `PERSON` in the selected network. `PERSON` is a person label or person ID, resolved as other person arguments are. |
+| `HOST_ID/AGENT` | `host_3f…/claude` | The agent named `AGENT` on that host. It also reaches hosts without a bound person, and persons whose label contains `/`. |
 | `agent:HOST_ID/AGENT_ID` | as before | Used as given, with no lookup. |
 
 **Parsing.** For a value with no `KIND:` prefix (`person:`, `group:`, `agent:`) that is not `everyone` or `network`:
@@ -874,7 +875,7 @@ Then `Share? [y/N] ` as before. Sharing with an agent on another host of the sig
 
 **`shares`, `capability list`, and `capability show`** use `?lookup=true`.
 - The overall layout of `shares --json` is not shared, but each recipient object of a capability on this host whose principal is `agent:` is exactly `{network_id, principal, label, agent_state, unshare}`, where `unshare` is the command that removes it: `peerspan unshare NAME --with HOST_ID/AGENT_NAME --network NETWORK_ID` when `agent_state` is `found` and `label` is not null, where `AGENT_NAME` is the part of `label` after its last `/`, and `peerspan unshare NAME --with agent:HOST_ID/AGENT_ID --network NETWORK_ID` otherwise. The command uses the host's address rather than `label`: `HOST_ID/AGENT_NAME` names exactly that agent even when the person has an agent of the same name on another host, and it is always safe to paste into a shell.
-- The readable layout marks agent recipients, for example `alice/claude-laptop (agent)` and, for any state other than `found`, `carol/codex-desk (agent, gone)`. Its wording is not shared.
+- The readable layout marks agent recipients, for example `alice/claude (agent)` and, for any state other than `found`, `carol/codex-desk (agent, gone)`. Its wording is not shared.
 
 Principals of agents that are gone are never removed automatically. Each still uses one of the rule's 64 principal slots.
 

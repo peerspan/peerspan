@@ -31,23 +31,39 @@ cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI also runs the coordinator-free [native introduction suite](../conformance/decentralized_native_introduction.py) with the Rust host and the Rust peer probe:
+CI also runs the [slim conformance suites](../conformance/slim/) (one small black-box suite per area, written from the spec; DEC-OWN6, DEC-OWN9, DEC-OWN10) against the Rust host and peer probe, in parallel. To run one locally after building the binaries, put `peerspan-host` and `peerspan-peer-probe` in one directory and run, for example:
 
 ```sh
-python3 conformance/decentralized_native_introduction.py \
-  --host rust/target/debug/peerspan-host \
-  --probe rust/target/debug/peerspan-peer-probe \
-  --source "$(git rev-parse HEAD)" --work-dir /tmp/peerspan-dec-cases \
-  --results /tmp/peerspan-dec-results.json
+python3 conformance/slim/join.py --bin DIR
 ```
 
-Many older [conformance suites](../conformance/) still take a `--go` binary and, for enrollment, the retired `peerspan-coord` coordinator; Rust-only conformance replaces them. Until then, run them with binaries built from [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) where a check requires them. Recorded acceptance is in [launch-acceptance.json](results/launch-acceptance.json).
+The large earlier conformance suites were deleted in favour of the slim suites ([DEC-OWN10](decision-log.md)). Verification sections of older contracts and proposals still name them as history; the slim suites are what CI and reviewers use now. `conformance/installed_bundle.py` remains for checking packaged bundles.
+
+## Test clock (debug builds only)
+
+Debug builds let a suite move the host's clock forward or back, so a test of a 7-day lease, a 1-hour invite or a 10-minute idle stop takes seconds ([DEC-OWN9](decision-log.md), DEC.impl16). Release builds compile this out and ignore both variables.
+
+- `PEERSPAN_TEST_CLOCK_OFFSET`: a signed duration added to the time for the whole process.
+- `PEERSPAN_TEST_CLOCK_OFFSET_FILE`: a file holding a signed duration, re-read every time the host reads the clock, and added to the first. A missing file counts as zero. To advance running processes, rewrite the file atomically (write a temporary file, then rename it over the old one).
+
+A duration is an optional `+` or `-` followed by one or more `<digits><unit>` groups, with unit `s`, `m`, `h` or `d`: `+3d`, `-2h`, `90s`, `1d12h`. Surrounding whitespace in the file is ignored. An invalid value makes the process panic.
+
+Set the same variables on every process in a test (daemons, CLI invocations and `peerspan-helper`): the CLI computes expiry times, and hosts compare each other's signed times. Leases, renewal, invite, request and join-stage windows, policy and group leases, call deadlines and capability idle stop all follow the shifted clock; a periodic worker notices a jump on its next pass (lease renewal every 10 seconds, call deadlines, including a running call's, and idle stop every 250 ms). TLS certificate validity, discovery ping freshness and transport retry timing keep the real time.
+
+```sh
+export PEERSPAN_TEST_CLOCK_OFFSET_FILE=/tmp/peerspan-clock
+echo +4d > /tmp/peerspan-clock.new && mv /tmp/peerspan-clock.new /tmp/peerspan-clock
+```
+
+## Timing log (debug builds only)
+
+With `PEERSPAN_TIMING=1`, a debug build prints one `timing #N KIND WHAT MS` line on standard error for each CLI request to the daemon (`cli`) and each whole command (`total`), each request the daemon serves on the local or peer API (`serve`) and each it sends to a peer (`peer`), and the daemon's costly steps (`step`: snapshot loads and reuses, projection builds, catalog reads and reuses, and waits of more than 5 ms for the store lock). `#N` numbers the served request a line belongs to; `#0` is work outside one, such as background sync. Set it on the daemon and the CLI. Release builds ignore it.
 
 ## Explore a subsystem
 
-- [Manual agent testing](manual-agent-testing.md) covers explicit sessions, routes, and local fixtures.
-- [Coordination contract](coordination-contract.md) and [peer messaging contract](peer-messaging-contract.md) explain enrollment and transport.
+- [Manual agent testing](manual-agent-testing.md) covers candidate installation and live work on separate machines.
+- [Coordinator-free spec](decentralized-spec.md), [wire appendix](decentralized-wire-formats.md) and [runtime contract](decentralized-runtime-contract.md) explain current enrollment and transport. The coordination contract describes the retired coordinator product.
 - [Connectivity evaluation](connectivity-evaluation.md) explains the controlled network benchmarks and their limits.
-- [Build timing script](../conformance/build_timings.py) and [peer transport benchmark](../conformance/peer_transport_bench.py) provide reproducible measurements.
+- `PEERSPAN_TIMING=1` in debug builds prints per-request timings (see above), and the ignored Rust connectivity benchmarks in `rust/src/quic/` can be run on demand.
 
 The [earlier prototype](../legacy/README.md) has its own Go module and test requirements. It is historical code, separate from the current hosts.

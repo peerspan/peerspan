@@ -52,7 +52,13 @@ pub(crate) struct Record {
     pub terminal: String,
     pub carrier_endpoints: Vec<Value>,
     pub outbound_frames: Vec<Value>,
+    /// When this host recorded the request's latest stage (spec 8.5); `-`
+    /// for a record written before stage times were kept.
+    #[serde(default = "empty")]
+    pub stage_at: String,
 }
+/// Each stage times out after 10 minutes of inactivity (spec 8.5).
+const STAGE_SECONDS: i64 = 600;
 pub(crate) struct Pending {
     pub id: String,
     pub deadline: String,
@@ -70,6 +76,32 @@ fn empty() -> String {
     "-".into()
 }
 impl Pending {
+    fn stages(&self) -> usize {
+        let r = &self.record;
+        [
+            &r.owner_packet_base64,
+            &r.selection_packet_base64,
+            &r.administrator_packet_base64,
+            &r.owner_finalization_packet_base64,
+            &r.commit_packet_base64,
+        ]
+        .iter()
+        .filter(|raw| raw.as_str() != "-")
+        .count()
+    }
+    /// Whether the request sat more than 600 seconds after its latest stage
+    /// was recorded here, before a commit was persisted (spec 8.5).
+    pub(crate) fn stage_expired(&self, now: &str) -> Result<bool> {
+        if self.record.commit_packet_base64 != "-" {
+            return Ok(false);
+        }
+        let latest = if self.record.stage_at == "-" {
+            text(&self.packet()?.payload, "created_at")?.to_owned()
+        } else {
+            self.record.stage_at.clone()
+        };
+        Ok(stamp(now)? - stamp(&latest)? > chrono::TimeDelta::seconds(STAGE_SECONDS))
+    }
     pub fn validate(&self) -> Result<()> {
         let r = &self.record;
         check(
@@ -277,6 +309,64 @@ impl Pending {
     pub fn packet(&self) -> Result<Packet> {
         Packet::read(&b64(&self.record.request_packet_base64, 8 << 10)?)
     }
+    /// Whether the owner can fold the admin stage into owner finalization
+    /// (spec 8.2), judged from the owner offer's own signing path: an
+    /// existing person outside renew mode, whose signing device (if any) has
+    /// the admin bit, and who holds an admin grant that is the head of its
+    /// stream, unexpired at NOW and not withdrawn. Only the display state
+    /// uses it; verification is separate.
+    fn folds(&self, d: Option<&Descriptor>, now: &str) -> bool {
+        let r = &self.record;
+        let (Some(d), false) = (d, r.mode == "renew" || r.catalog_base64 == "-") else {
+            return false;
+        };
+        let Ok(owner) = b64(&r.owner_packet_base64, MAX_OBJECT).and_then(|raw| Packet::read(&raw))
+        else {
+            return false;
+        };
+        let (Ok(person), Ok(lease), Ok(issuer)) = (
+            text(&owner.object, "person_public_key"),
+            text(&owner.payload, "person_lease_id"),
+            text(&owner.object, "issuer_id"),
+        ) else {
+            return false;
+        };
+        let Ok(catalog) = b64(&r.catalog_base64, MAX_CATALOG)
+            .and_then(|raw| super::catalog::Catalog::read(d, &raw))
+        else {
+            return false;
+        };
+        let statements = &catalog.statements;
+        let device_admin = issuer == "-"
+            || statements.get(issuer).is_some_and(|device| {
+                device
+                    .subject()
+                    .is_ok_and(|v| num(v, "scopes").is_ok_and(|scopes| scopes & 8 == 8))
+            });
+        let superseded = |id: &str| {
+            statements.values().any(|s| {
+                s.payload
+                    .get("predecessors")
+                    .and_then(Value::as_array)
+                    .is_some_and(|p| p.iter().any(|x| x.as_str() == Some(id)))
+                    || s.kind == "admin_withdraw"
+                        && s.payload
+                            .get("target")
+                            .and_then(|t| t.get("statement_id"))
+                            .and_then(Value::as_str)
+                            == Some(id)
+            })
+        };
+        lease != "-"
+            && device_admin
+            && statements.values().any(|s| {
+                s.kind == "admin_lease"
+                    && s.subject()
+                        .is_ok_and(|v| text(v, "person_public_key").is_ok_and(|k| k == person))
+                    && text(&s.payload, "not_after").is_ok_and(|end| now < end)
+                    && !superseded(&s.id)
+            })
+    }
     pub fn view(&self, now: &str) -> Result<Value> {
         let r = &self.record;
         let request = self.packet()?;
@@ -310,14 +400,14 @@ impl Pending {
             _ => {
                 if r.commit_packet_base64 != "-" {
                     "finalizing"
-                } else if stamp(now)? >= stamp(&self.deadline)? {
+                } else if stamp(now)? >= stamp(&self.deadline)? || self.stage_expired(now)? {
                     "expired"
                 } else if r.owner_packet_base64 == "-" {
                     "pending"
                 } else if r.selection_packet_base64 == "-" {
                     "needs_selection"
                 } else if r.owner_finalization_packet_base64 == "-" {
-                    if r.administrator_packet_base64 == "-" {
+                    if r.administrator_packet_base64 == "-" && !self.folds(d.as_ref(), now) {
                         "needs_administrator"
                     } else {
                         "needs_owner_finalization"
@@ -368,7 +458,7 @@ impl Pending {
             json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":[]}),
         )
     }
-    fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
+    pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
         if self.record.terminal != "-" || stamp(now)? >= stamp(&self.deadline)? {
             return Ok(None);
         }
@@ -487,26 +577,58 @@ pub(crate) fn frames(c: &Connection, pending: &Pending) -> Result<Vec<Frame>> {
 }
 pub(crate) fn save(c: &Connection, p: &Pending) -> Result<()> {
     p.validate()?;
-    let record = String::from_utf8(bytes(&p.record)?).map_err(|_| Error::new("internal"))?;
+    // A new stage is recorded only within 600 seconds of the latest one
+    // (spec 8.5); its time starts the next stage's window.
+    let now = controls::local_decision_time()?;
+    let mut record = p.record.clone();
+    let old = match load(c, &p.id) {
+        Ok(old) => Some(old),
+        Err(e) if e.code == "not_found" => None,
+        Err(e) => return Err(e),
+    };
+    match old {
+        // The requester recorded its request when it signed it.
+        None if p.record.roles.iter().any(|r| r == "requester") => {
+            record.stage_at = text(&p.packet()?.payload, "created_at")?.to_owned()
+        }
+        None => record.stage_at = now,
+        Some(old) if p.stages() > old.stages() => {
+            // A complete activation (its commit, or the applied outcome) has
+            // no timeout (spec 8.5 "After commit").
+            let complete = p.record.commit_packet_base64 != "-" || p.record.terminal == "applied";
+            require(complete || !old.stage_expired(&now)?, "expired")?;
+            record.stage_at = now;
+        }
+        Some(_) => {}
+    }
+    let record = String::from_utf8(bytes(&record)?).map_err(|_| Error::new("internal"))?;
     c.execute("INSERT INTO dec_pending(request_id,deadline,record,secret,terminal_read_cap) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id) DO UPDATE SET deadline=excluded.deadline,record=excluded.record,secret=excluded.secret,terminal_read_cap=excluded.terminal_read_cap",rusqlite::params![p.id,p.deadline,record,p.secret.as_ref().map(|s|s.as_slice()),p.terminal_read_cap.as_ref().map(|s|s.as_slice())]).map_err(db)?;
     Ok(())
 }
 fn ids_in(c: &Connection) -> Result<Vec<String>> {
     let mut q = c
-        .prepare("SELECT request_id FROM dec_pending ORDER BY request_id")
+        .prepare(
+            "SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*' ORDER BY request_id",
+        )
         .map_err(db)?;
     q.query_map([], |r| r.get(0))
         .map_err(db)?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(db)
 }
-fn cleanup(c: &Connection, now: &str) -> Result<()> {
+pub(crate) fn cleanup(c: &Connection, now: &str) -> Result<()> {
+    super::invite_return::cleanup(c, now)?;
     for id in ids_in(c)? {
         let mut p = load(c, &id)?;
-        if p.record.terminal == "migration_prepared" {
-            continue;
+        // A host prepared for an in-place migration, which is removed
+        // (DEC-OWN3), ends like any other request at its deadline.
+        if p.record.terminal == "migration_prepared" && stamp(now)? >= stamp(&p.deadline)? {
+            p.record.terminal = "expired".into();
         }
-        if stamp(now)? < stamp(&p.deadline)? {
+        // A stage idle for more than 600 seconds ends the request early (spec 8.5).
+        if stamp(now)? < stamp(&p.deadline)?
+            && !(p.record.terminal == "-" && p.stage_expired(now)?)
+        {
             continue;
         }
         if p.record.terminal == "-" && p.record.commit_packet_base64 == "-" {
@@ -583,7 +705,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     let mut descriptor = empty();
     let mut renewed = empty();
     let mut owned = None;
-    let mut staged_catalog = empty();
+    let staged_catalog = empty();
     let present: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
@@ -591,18 +713,9 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
             |r| r.get(0),
         )
         .map_err(db)?;
-    if migration != "-" {
-        let staged = super::migration_link::Owned::load(store, &tx, &network, migration)?;
-        let own = &staged.context.own;
-        let reviewed = text(own, "person_public_key")?;
-        require(person == "-" || person == reviewed, "operation_conflict")?;
-        person = reviewed.into();
-        now = staged.context.source.time.clone();
-        context = staged.context.source.descriptor.context_id();
-        descriptor = encode(&bytes(&staged.context.source.descriptor)?);
-        staged_catalog = staged.context.record.prepared_catalog_base64.clone();
-        owned = Some(staged.device);
-    } else if present {
+    // In-place migration is removed (DEC-OWN3).
+    require(migration == "-", "not_found")?;
+    if present {
         let s = Snapshot::load(&tx, &network, &store.identity().public_key)?;
         let p = s.project(&now)?;
         now = p.decision_time.clone();
@@ -736,7 +849,12 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         }
     }
     let rows = ids_in(&tx)?;
-    require(rows.len() < 4096, "quota_exceeded")?;
+    // Every pending row counts toward the 4096 total, invitation rows too;
+    // only join requests count toward the 8 active ones (DEC-Q32).
+    let total: i64 = tx
+        .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
+        .map_err(db)?;
+    require(total < 4096, "quota_exceeded")?;
     let active = rows
         .iter()
         .map(|id| load(&tx, id))
@@ -766,7 +884,9 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         )
     });
     carrier_endpoints.dedup();
-    require(carrier_endpoints.len() <= 8, "quota_exceeded")?;
+    if carrier_endpoints.len() > 8 {
+        return Err(Error::quota("more than 8 carrier endpoints"));
+    }
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(|_| Error::new("internal"))?;
     let device = owned.unwrap_or_else(|| SigningKey::from_bytes(&random));
@@ -774,7 +894,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     getrandom::fill(&mut nonce).map_err(|_| Error::new("internal"))?;
     let mut secret = [0u8; 16];
     getrandom::fill(&mut secret).map_err(|_| Error::new("internal"))?;
-    let deadline = (stamp(&now)? + chrono::TimeDelta::seconds(300))
+    let deadline = (stamp(&now)? + chrono::TimeDelta::seconds(super::bootstrap::REQUEST_WINDOW))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
     let host = store.identity().public_key;
@@ -828,6 +948,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         outbound_frames: vec![
             json!({"role":"request","writer_public_key":host,"frame_id":frame.frame_id,"acknowledged_by":[]}),
         ],
+        stage_at: empty(),
     };
     let p = Pending {
         id: id.clone(),
@@ -894,12 +1015,13 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
     let mut p = load(&tx, id)?;
+    // An obsolete prepared migration (DEC-OWN3) can always be cancelled,
+    // even with its commit stored; other requests only before commit.
     require(
-        p.record.commit_packet_base64 == "-"
-            && !matches!(
-                p.record.terminal.as_str(),
-                "applied" | "migration_prepared" | "migration_adopted"
-            ),
+        p.record.terminal == "migration_prepared"
+            || p.record.migration_proposal_id != "-" && p.record.terminal == "expired"
+            || p.record.commit_packet_base64 == "-"
+                && !matches!(p.record.terminal.as_str(), "applied" | "migration_adopted"),
         "operation_conflict",
     )?;
     p.record.terminal = "cancelled".into();

@@ -51,6 +51,7 @@ fn status_unavailable(error: &Error) -> bool {
                 | "forbidden"
                 | "person_removed"
                 | "authority_expired"
+                | "expired"
                 | "device_revoked"
                 | "not_yet_valid"
         )
@@ -89,8 +90,18 @@ pub(crate) fn is_decentralized(
 }
 struct Context {
     snapshot: Snapshot,
-    projection: Projection,
+    projection: std::sync::Arc<Projection>,
 }
+/// Projections of recent snapshots, keyed by network, own host key, the
+/// snapshot's revision (a hash of every row it was loaded from) and the
+/// decision time. A product read rebuilds the same projection many times per
+/// request (membership, persons, policy, chain checks); the projection is a
+/// pure function of these inputs, so an identical key reuses it.
+type ProjectionKey = (String, String, String, String);
+static PROJECTIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<ProjectionKey, std::sync::Arc<Projection>>>,
+> = std::sync::LazyLock::new(Default::default);
+const PROJECTION_CACHE: usize = 32;
 impl Context {
     fn read(store: &Store, c: &Connection, network: &str) -> Result<Self> {
         let snapshot = Snapshot::load(c, network, &store.identity().public_key)?;
@@ -101,7 +112,33 @@ impl Context {
                 .any(|m| m.fenced && m.state != "adopted"),
             "migration_pending",
         )?;
-        let projection = snapshot.project(&read_time()?)?;
+        let now = read_time()?;
+        let key = (
+            network.to_owned(),
+            store.identity().public_key,
+            snapshot.revision.clone(),
+            now.clone(),
+        );
+        let cached = if snapshot.revision.is_empty() {
+            None
+        } else {
+            PROJECTIONS.lock().ok().and_then(|m| m.get(&key).cloned())
+        };
+        let projection = match cached {
+            Some(p) => p,
+            None => {
+                let p = std::sync::Arc::new(snapshot.project(&now)?);
+                if !snapshot.revision.is_empty()
+                    && let Ok(mut m) = PROJECTIONS.lock()
+                {
+                    if m.len() >= PROJECTION_CACHE {
+                        m.clear();
+                    }
+                    m.insert(key, p.clone());
+                }
+                p
+            }
+        };
         Ok(Self {
             snapshot,
             projection,
@@ -326,6 +363,21 @@ impl Store {
         result.sort_by(|a, b| a.person_id.cmp(&b.person_id));
         Ok(result)
     }
+    /// Person keys with a current admin grant on a coordinator-free network.
+    pub(crate) fn product_admins(
+        &self,
+        c: &Connection,
+        network: &str,
+    ) -> std::result::Result<std::collections::BTreeSet<String>, ModelError> {
+        let s = Context::read(self, c, network).map_err(model)?;
+        Ok(s.projection
+            .streams
+            .values()
+            .filter(|r| r.key[0] == "admin" && r.key.len() == 2)
+            .filter(|r| s.projection.current_statement(&r.key).is_ok())
+            .map(|r| r.key[1].clone())
+            .collect())
+    }
     pub(crate) fn product_members(
         &self,
         c: &Connection,
@@ -403,6 +455,7 @@ impl Store {
                     e.code,
                     "not_found"
                         | "authority_expired"
+                        | "expired"
                         | "not_yet_valid"
                         | "forbidden"
                         | "device_revoked"

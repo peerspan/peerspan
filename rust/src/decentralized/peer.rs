@@ -24,10 +24,17 @@ use std::{
 };
 
 pub(crate) const REPAIR_ALPN: &[u8] = b"peerspan-state-repair/1";
+/// Wakes the publication worker after new deliveries are queued; it reads them
+/// once the queuing transaction commits, as they share the store's connection.
+pub(crate) fn wake_delivery() {
+    delivery::WAKE.notify_one();
+}
 pub async fn state_worker(store: Arc<Store>, shutdown: tokio::sync::watch::Receiver<bool>) {
     tokio::join!(
         delivery::worker(store.clone(), shutdown.clone()),
         super::renewal::worker(store.clone(), shutdown.clone()),
+        super::requests_io::approver_worker(store.clone(), shutdown.clone()),
+        super::invite_return::worker(store.clone(), shutdown.clone()),
         crate::quic::helper_worker(store, shutdown)
     );
 }
@@ -312,8 +319,14 @@ fn sync_plan(store: &Store, network: &str) -> Result<SyncPlan> {
         if record.conflicted {
             continue;
         }
+        // A member's expired contacts stay address hints while it has no
+        // valid one (DEC.impl36), as invite and code contacts do (DEC-Q25,
+        // DEC-Q33): the peer's key is still checked on connect, and without
+        // them two hosts that were both away longer than 300 seconds could
+        // never reach each other again.
+        let any_valid = record.contacts.iter().any(|c| c.valid_at(&now).is_ok());
         for contact in record.contacts {
-            if contact.valid_at(&now).is_err() {
+            if any_valid && contact.valid_at(&now).is_err() {
                 continue;
             }
             let payload = object(&contact.payload)?;
@@ -955,15 +968,8 @@ fn exchange(
     if resource == "contact" {
         require(body.len() <= 16 << 10, "invalid")?;
     }
-    if resource == "migration" {
-        if *method == Method::POST {
-            let value = parse(body, WHOLE)?;
-            super::migration_evidence::peer_receive(store, network, sender, object(&value)?)?;
-        }
-        let output = super::migration_evidence::peer_export(store, network, sender)?;
-        require(output.len() <= WHOLE, "quota_exceeded")?;
-        return Ok(output);
-    }
+    // In-place migration is removed (DEC-OWN3).
+    require(resource != "migration", "not_found")?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let mut tx = c.transaction().map_err(db)?;
     let exists: bool = tx

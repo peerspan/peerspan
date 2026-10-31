@@ -16,7 +16,6 @@ use crate::{
     relay::{Coordinator, Presence},
     store::Store,
 };
-use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -65,7 +64,7 @@ impl Store {
         }
         let lapse: Option<i64> = conn.query_row(
             "SELECT MIN(x.lease_until_ms) FROM sessions s JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.state = 'attached' AND x.lease_until_ms > ?1",
-            [Utc::now().timestamp_millis()],
+            [crate::clock::now().timestamp_millis()],
             |r| r.get(0),
         )?;
         Ok((hex::encode(hash.finalize()), lapse))
@@ -186,7 +185,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
             seen = Some(fingerprint);
             if let Some(until) = lapse {
                 // A lease is live while its time is ahead; look just after.
-                let ms = until.saturating_sub(Utc::now().timestamp_millis()) + 5;
+                let ms = until.saturating_sub(crate::clock::now().timestamp_millis()) + 5;
                 wait = wait.min(Duration::from_millis(ms.max(1) as u64));
             }
         }

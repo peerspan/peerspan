@@ -461,12 +461,14 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::link_runtime::peer::routes())
         .merge(crate::decentralized::peer::routes(store.clone()))
         .merge(crate::directory::peer_routes())
+        .merge(crate::conversations::peer_routes())
         .merge(crate::agent_lookup::peer_routes())
         .merge(crate::coordinator_move::peer_routes())
         .layer(axum::middleware::from_fn_with_state(
             store.clone(),
             crate::decentralized::history::gate,
         ))
+        .layer(axum::middleware::from_fn(crate::timing::layer))
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
@@ -620,7 +622,7 @@ pub(crate) async fn exchange(
     crate::retry::schedule(
         &mut out,
         receipt_only,
-        chrono::Utc::now(),
+        crate::clock::now(),
         crate::retry::jitter(),
     );
     blocking(store, move |s| s.finish_outbound(out)).await

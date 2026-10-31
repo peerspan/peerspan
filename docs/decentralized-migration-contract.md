@@ -1,5 +1,7 @@
 # Coordinator-free migration and retained history
 
+> **Removed (DEC-OWN3, DEC-S12).** In-place migration is no longer implemented: the `network migrate` commands, the `/v2/networks/{id}/migration` routes and the peer `migration` resource are gone. This contract is kept as history. Readers still verify networks created by an earlier migration.
+
 Status: DEC-01/05 shared contract candidate, 2026-10-26. Review and merge with the
 [authority](decentralized-authority-contract.md),
 [bootstrap](decentralized-bootstrap-contract.md) and

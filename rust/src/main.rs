@@ -4,12 +4,12 @@ mod admin;
 mod builtin_discovery;
 mod capability_cli;
 mod cli;
+mod conversation_cli;
 mod decentralized_action_cli;
 mod decentralized_admin_cli;
 mod decentralized_cli;
 mod decentralized_groups_cli;
 mod decentralized_link_cli;
-mod decentralized_migration_cli;
 mod decentralized_onboarding_cli;
 mod decentralized_policy_cli;
 mod decentralized_root_cli;
@@ -44,6 +44,20 @@ use tokio::{
 };
 
 static PROGRAM: OnceLock<&'static str> = OnceLock::new();
+/// When this process started, for the debug timing log.
+static STARTED: OnceLock<std::time::Instant> = OnceLock::new();
+
+/// The debug timing log's line for the whole command.
+fn log_total() {
+    if let Some(began) = STARTED.get() {
+        let args: Vec<String> = env::args()
+            .skip(1)
+            .filter(|a| !a.starts_with('/'))
+            .take(4)
+            .collect();
+        peerspan_host::timing::log("total", &args.join(" "), *began);
+    }
+}
 
 /// The base name this binary was invoked as, `peerspan` or `peerspan-host`;
 /// help and hints name it.
@@ -53,6 +67,7 @@ pub(crate) fn program() -> &'static str {
 
 #[tokio::main]
 async fn main() {
+    STARTED.get_or_init(std::time::Instant::now);
     // The hidden built-in source server, started by the daemon.
     let raw: Vec<String> = env::args_os()
         .map(|a| a.to_string_lossy().into_owned())
@@ -78,7 +93,9 @@ async fn main() {
         .try_get_matches()
         .and_then(|matches| Cli::from_arg_matches(&matches))
         .unwrap_or_else(|e| e.exit());
-    if let Err(error) = run(cli).await {
+    let outcome = run(cli).await;
+    log_total();
+    if let Err(error) = outcome {
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }
@@ -104,9 +121,6 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     if let cli::Command::Network(cli::NetworkCommand::Repair(args)) = command {
         return link_cli::repair(args, cli.state).await;
-    }
-    if let cli::Command::Network(cli::NetworkCommand::Migrate(args)) = command {
-        return decentralized_migration_cli::run(args, cli.state).await;
     }
     if let cli::Command::Network(cli::NetworkCommand::EnableLinking { network, root_key }) = command
     {
@@ -157,6 +171,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     };
     if let cli::Command::Status { json } = command {
         return status(&directory, json).await;
+    }
+    if conversation_cli::handles(&command) {
+        return conversation_cli::run(command, &directory.join("admin.sock")).await;
     }
     if let Some(network) = command.network_mut()
         && network.is_none()
@@ -374,6 +391,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
 }
 fn exit(code: i32) -> ! {
     use std::io::Write;
+    log_total();
     let _ = std::io::stdout().flush();
     std::process::exit(code)
 }
@@ -506,7 +524,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
     let signer = |path: &Option<PathBuf>| {
         persons::PersonSigner::open(path.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))
     };
-    let at = || chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let at = || peerspan_host::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let local = |method: Method, path: String, body: Option<Value>| {
         let socket = socket.clone();
         async move {
@@ -553,12 +571,28 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             if *no_person {
                 bail!("local genesis requires an original-person owner; omit --no-person");
             }
-            if *trusted {
-                bail!("create the network, then review a separate typed trust policy");
-            }
-            let _ = untrusted;
             let choice = choose_key(person_key)?;
-            decentralized_cli::create(&admin::Local(&socket), &name, &member, &choice).await?
+            let mut value =
+                decentralized_cli::create(&admin::Local(&socket), &name, &member, &choice).await?;
+            // Only a committed creation returns the network view.
+            if value["mode"] == "decentralized"
+                && let Some(id) = value["id"].as_str().map(str::to_owned)
+            {
+                // The creation key signs the trust change: an explicit file,
+                // else the configured owner key or the agent identity.
+                let path = choice.path.clone();
+                capability_cli::dec_trust_outcome(
+                    &mut value,
+                    &socket,
+                    &id,
+                    path.as_deref(),
+                    *trusted,
+                    *untrusted,
+                    true,
+                )
+                .await;
+            }
+            value
         }
         Command::Network(NetworkCommand::Join {
             token,
@@ -1153,6 +1187,7 @@ async fn run_daemon(
     let reply_workers =
         peerspan_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let retries = peerspan_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
+    let conversations = peerspan_host::conversations::worker(store.clone(), peer_shutdown.clone());
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
@@ -1181,6 +1216,10 @@ async fn run_daemon(
         },
         async {
             retries.await;
+            Ok(())
+        },
+        async {
+            conversations.await;
             Ok(())
         },
         async {
@@ -1230,6 +1269,22 @@ pub(crate) async fn delete(socket: &Path, path: String) -> anyhow::Result<Value>
 }
 
 async fn call(
+    socket: PathBuf,
+    method: Method,
+    path: String,
+    body: Option<Value>,
+) -> anyhow::Result<Value> {
+    if !peerspan_host::timing::enabled() {
+        return call_inner(socket, method, path, body).await;
+    }
+    let began = std::time::Instant::now();
+    let what = format!("{method} {path}");
+    let out = call_inner(socket, method, path, body).await;
+    peerspan_host::timing::log("cli", &what, began);
+    out
+}
+
+async fn call_inner(
     socket: PathBuf,
     method: Method,
     path: String,

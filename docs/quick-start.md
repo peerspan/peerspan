@@ -106,10 +106,14 @@ standard device profile permits managing your access and trust settings and,
 while you are an administrator, approving further machines. The original person
 private key remains on its existing machine.
 
-Back on the new machine, select the exact reviewed owner offer. Selection and
-final **commit** are separate confirmations and both default to no. When the
+Back on the new machine, a single valid owner offer is selected automatically.
+If several offers are present, choose the exact reviewed one; there is no
+default. The final **commit** is a separate consent prompt and defaults to no. When the
 owner is also an administrator using that same signing path, its approval can
-include the required admission. An original-person SSH signer may need to finish
+include the required admission. An owner whose host holds the root seed can
+explicitly combine it with `link approve --signer network_root`; the review
+shows that additional root use without changing the owner provider. An
+original-person SSH signer may need to finish
 its already approved signatures on the existing machine:
 
 ```sh
@@ -162,8 +166,9 @@ Teammates use their own person identity. On an existing authorized machine:
 peerspan invite bob
 ```
 
-The output contains a private `psi2-` contact introduction. It lasts five
-minutes and grants no membership. Send it privately to the teammate; do not put
+The output contains a private `psi2-` contact introduction. It lasts one hour
+by default; `--expires-in` or `--expires-at` can choose 60 seconds to 24 hours.
+It grants no membership. Send it privately to the teammate; do not put
 it in a command argument or shell history. On the teammate's machine:
 
 ```sh
@@ -177,20 +182,26 @@ original identity on this machine or explicitly approve creating a new one.
 `peerspan join` provides the same explicit handoff without attaching an agent;
 `--invite-file PATH` reads a protected file instead of prompting.
 
-The teammate returns the new private `psl2-` request code. For a new person,
+The request returns to the inviter automatically through the invite's direct
+address or helper mailbox. `peerspan status` shows `link_request_waiting` and
+the request ID on the inviter. If that return path fails within about 30 seconds,
+the teammate sends the printed private `psl2-` request code instead. For a new person,
 there are three participants in approval: that person's original key on their
 own machine, the administrator on an authorized existing machine, and the new
 machine's separate selection and final consent. The inviter cannot sign as the
 new person.
 
-1. On the teammate's machine, run `peerspan link approve --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY` and enter its request code. Review and approve
+1. On the teammate's machine, run `peerspan link approve REQUEST_ID --network NETWORK_ID
+   --person PERSON_PUBLIC_KEY`. Review and approve
    the exact host/device and requested powers. The new-person default is 7;
    this initial possession review grants no membership or administrator power.
-2. Run `peerspan link resume REQUEST_ID` on that machine and select the exact
-   owner offer when prompted. Selection defaults to no.
-3. On the administrator's machine, run `peerspan link admit --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY` with the same private code. Check the exact
+2. A single owner offer is selected automatically. If several are present,
+   choose the exact reviewed offer with no default. The daemon advances the
+   request automatically; `peerspan link resume REQUEST_ID` requests an
+   immediate pass.
+3. On the administrator's machine, run `peerspan link admit REQUEST_ID --network NETWORK_ID
+   --person PERSON_PUBLIC_KEY`. If using the manual fallback, omit REQUEST_ID
+   and enter the private request code at the hidden prompt. Check the exact
    host/device, owner-offer and selection references from `link status` and the
    review. Supply `--owner-offer OWNER_OFFER_ID --selection SELECTION_ID` and
    the matching `--expect-host-key` / `--expect-device-key` pins. The default
@@ -216,8 +227,9 @@ new person.
 A pending request exits nonzero and retains its identity and next step. Keep
 using that request after an interruption; do not create another person or copy
 an original key. The introduction must still be current when starting. The new
-request has its own fixed five-minute signing window: finish owner approval,
-admission, finalization and both requester confirmations within that window.
+request has a one-hour backstop and a 10-minute inactivity limit for each stage:
+finish owner approval, admission, finalization and final requester consent
+within those limits. An invite expiring after a request starts does not cancel it.
 After expiry, follow the retained request’s recovery guidance; expiry does not
 permit a new signature or consent on the old attempt. Already durably signed
 completion may continue only under the protocol’s separate recovery rules.
@@ -247,9 +259,9 @@ starts the same agent again after a session ends. An existing running session
 keeps its attachment. Use `peerspan up claude --no-start` to prepare without
 launching; the result gives the command to start it later.
 
-The default agent name includes the machine name, such as `claude-laptop`. A
-second project on the same machine gets a project suffix; name conflicts across
-your machines get a host-ID suffix. `--name` chooses a name explicitly. The
+The default agent name is `claude`. A second project on the same machine gets a
+project suffix, such as `claude-site`, and a second machine gets a host-ID
+suffix, such as `claude-5c12`. `--name` chooses a name explicitly. The
 session lasts 24 hours and renews while connected. Private attachment files live
 under `~/.config/peerspan/sessions`; the Claude integration does not change global
 Claude Code configuration.
@@ -260,17 +272,31 @@ and stops before changing them or the project attachment.
 
 ## Work across agents
 
-Inside Claude Code, ask it to list the agents it can reach, message one, or delegate a task, for example "ask bob/claude-laptop to review this change". It uses Peerspan's `list_agents`, `send`, and `delegate_task` tools. Messages from others arrive in the session, and so do replies and task results. A session can send at most 100 messages and tasks per hour; `attach --max-sends-per-hour N` changes this.
+Inside Claude Code, ask it to list the agents it can reach, message one, or delegate a task, for example "ask bob/claude to review this change". It uses Peerspan's `list_agents`, `send`, and `delegate_task` tools. Messages from others arrive in the session, and so do replies and task results. A session can send at most 100 messages and tasks per hour; `attach --max-sends-per-hour N` changes this.
 
 From a terminal:
 
 ```sh
 peerspan agents                          # who you can reach, and who can reach you
-peerspan send bob/claude-laptop "Can you look at the failing test?"
-peerspan task bob/claude-laptop "Summarize the open issues" --file notes.md
+peerspan send bob/claude "Can you look at the failing test?"
+peerspan task bob/claude "Summarize the open issues" --file notes.md
 ```
 
 When someone has the same agent name on two machines, `peerspan agents` shows an address of the form `host_…/NAME` for each.
+
+For back-and-forth among several agents and people, start a conversation. Each recipient's owner still decides who may reach it, and an invited person takes part after `conversation join`:
+
+```sh
+peerspan conversation start bob/claude person:carol --title "Flaky test" --message "Who can look at this?"
+peerspan conversations                   # your conversations and unread counts
+peerspan conversation say conv_3f9a1c "I can review it" --to bob/claude
+peerspan conversation show conv_3f9a1c
+peerspan conversation watch              # print new messages as they arrive
+peerspan conversations --invites         # conversations you were invited to
+peerspan conversation join conv_3f9a1c
+```
+
+`conversation add`, `remove` and `close` are for the conversation's creator. `leave`, `read` and `forget` are for anyone in it. Inside Claude Code, Codex, or OpenCode, agents use the `conversation_start`, `conversation_send`, `conversation_history`, `conversation_manage` and `list_conversations` tools. Each author can send at most 60 messages per hour in one conversation.
 
 ## Check
 

@@ -4,7 +4,7 @@ use super::*;
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use std::os::unix::fs::PermissionsExt;
-#[path = "../../../conformance/connectivity/net_driver.rs"]
+#[path = "connectivity_net_driver.rs"]
 mod net_driver;
 
 async fn command(store: Arc<Store>, cmd: Value) -> Result<Value> {

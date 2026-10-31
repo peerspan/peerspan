@@ -998,7 +998,7 @@ fn verify_map(
         &person_keys,
         std::mem::take(&mut statements.policies),
         map.policies,
-        chrono::Utc::now(),
+        crate::clock::now(),
     );
     Ok(VerifiedMap {
         members,
@@ -1291,6 +1291,13 @@ impl Store {
     }
     pub fn members(&self, id: &str) -> Result<Vec<Member>, Error> {
         let connection = self.connection()?;
+        // A coordinator-free network lists its verified current members,
+        // which the CLIs' native reads use (DEC.impl12).
+        if crate::decentralized::product::is_decentralized(&connection, id)? {
+            let mut members = self.product_members(&connection, id)?;
+            members.sort_by(|a, b| a.host_id.cmp(&b.host_id));
+            return Ok(members);
+        }
         self.network_record(&connection, id)?;
         let mut statement = connection
             .prepare("SELECT record FROM network_members WHERE network_id = ?1 ORDER BY host_id")?;
@@ -1338,7 +1345,7 @@ impl Store {
             .query_map([host], |r| r.get::<_, String>(0))?
             .map(|r| json::<Network>(r?))
             .collect::<Result<Vec<_>, _>>()?;
-        let at = chrono::Utc::now();
+        let at = crate::clock::now();
         Ok(networks.iter().any(|n| {
             n.last_sync_at
                 .as_deref()
@@ -1539,7 +1546,7 @@ impl Store {
         let root = random_seed()?;
         let invite = random_seed()?;
         let joined = now();
-        let expires = rfc3339(chrono::Utc::now() + MAX_INVITE_LIFETIME);
+        let expires = rfc3339(crate::clock::now() + MAX_INVITE_LIFETIME);
         let signed = membership::sign_invite(&root, &invite, &r.member, &expires);
         let own = membership::sign_member(
             signed,
@@ -1622,7 +1629,7 @@ impl Store {
                 crate::link_runtime::support::now()
                     .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
             } else {
-                chrono::Utc::now()
+                crate::clock::now()
             }
         };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
@@ -2646,7 +2653,7 @@ impl Store {
             return Err(Error::Invalid("token is for another network".into()));
         }
         let expiry = membership::time(&expires)?;
-        if expiry > chrono::Utc::now() + MAX_INVITE_LIFETIME {
+        if expiry > crate::clock::now() + MAX_INVITE_LIFETIME {
             return Err(Error::Invalid(
                 "invite expiry must be in the future and at most 30 days ahead".into(),
             ));
@@ -2694,7 +2701,7 @@ impl Store {
                 crate::link_runtime::support::now()
                     .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
             } else {
-                chrono::Utc::now()
+                crate::clock::now()
             }
         };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
@@ -3391,6 +3398,38 @@ impl Store {
 
     pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
         let connection = self.connection()?;
+        // A coordinator-free network lists its current persons from the
+        // verified projection for `network persons` (DEC.impl12).
+        if crate::decentralized::product::is_decentralized(&connection, id)? {
+            let persons = self.product_persons(&connection, id)?;
+            let members = self.product_members(&connection, id)?;
+            let admins = self.product_admins(&connection, id)?;
+            let labels: Vec<String> = persons.iter().map(|p| p.member.clone()).collect();
+            return Ok(persons
+                .into_iter()
+                .map(|p| {
+                    let mut hosts: Vec<String> = members
+                        .iter()
+                        .filter(|m| m.person_id.as_deref() == Some(p.person_id.as_str()))
+                        .map(|m| m.host_id.clone())
+                        .collect();
+                    hosts.sort();
+                    let label_conflict = labels
+                        .iter()
+                        .filter(|l| labels_conflict(l, &p.member))
+                        .count()
+                        > 1;
+                    PersonView {
+                        administrator: admins.contains(&p.person_public_key),
+                        person_id: p.person_id,
+                        public_key: p.person_public_key,
+                        member: p.member,
+                        hosts,
+                        label_conflict,
+                    }
+                })
+                .collect());
+        }
         let network = self.network_record(&connection, id)?;
         let members = self.stored_members(&connection, id)?;
         let stored = self.stored_persons(&connection, id)?;
@@ -6107,7 +6146,7 @@ mod tests {
                 .unwrap(),
             store.identity().id
         );
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let issued = store
             .issue_invite(
                 &network.id,
@@ -6122,7 +6161,7 @@ mod tests {
         let token = InviteToken::decode(&issued.token).unwrap();
         assert_eq!(token.member, "bob");
         assert_eq!(token.invite_expires_at, expires);
-        let too_late = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(31));
+        let too_late = rfc3339(crate::clock::now() + chrono::TimeDelta::days(31));
         assert!(
             store
                 .issue_invite(
@@ -6224,7 +6263,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "x".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             ),
@@ -6334,7 +6373,7 @@ mod tests {
                 person_public_key: None,
             })
             .unwrap();
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let member = store
             .issue_invite(
                 &network.id,
@@ -6471,7 +6510,7 @@ mod tests {
         // A member invite whose person part cannot be redeemed now (the
         // coordinator is down): the follow-up redeems the same token later.
         let invite = random_seed().unwrap();
-        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let expires = rfc3339(crate::clock::now() + chrono::TimeDelta::days(1));
         let token = MemberInviteToken::issue(
             &r0,
             &invite,
@@ -6925,7 +6964,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: label.into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::hours(1)),
                     host_only: true,
                 },
             )
@@ -7600,7 +7639,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "dana".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             )
@@ -7982,7 +8021,7 @@ mod tests {
                 CreateInvite {
                     token: None,
                     member: "erin".into(),
-                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    expires_at: rfc3339(crate::clock::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
                 },
             )
@@ -8238,7 +8277,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE conversation_events; DROP TABLE conversation_reads; DROP TABLE conversation_notifications; DROP TABLE conversation_roster_outbound; DROP TABLE conversation_invites; DROP TABLE conversation_targets; DROP TABLE conversation_messages; DROP TABLE conversations; DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -8250,11 +8289,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 23);
+        assert_eq!(version, 24);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 24;")
+            .execute_batch("PRAGMA user_version = 25;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

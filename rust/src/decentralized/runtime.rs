@@ -201,24 +201,52 @@ pub(crate) fn status_network(
                     let kind = match e.code {
                         "proof_required" => "network_proof_required",
                         "state_conflict" => "network_state_conflict",
-                        "authority_expired" => "policy_expired",
+                        "authority_expired" | "expired" => "policy_expired",
                         "forbidden" | "not_yet_valid" | "device_revoked" | "person_removed" => {
                             "network_authority_expired"
                         }
                         _ => return Err(e),
                     };
+                    // A root split freezes changes (spec 13.2).
+                    let split = e.code == "state_conflict"
+                        && p.streams
+                            .get(&vec!["root".to_string()])
+                            .is_some_and(|r| r.heads.len() > 1);
                     edit_attention.push((
                         kind.into(),
                         network.into(),
-                        format!(
-                            "own policy path is unavailable: {}; required_ids {}",
-                            e.code,
-                            e.required_ids.iter().cloned().collect::<Vec<_>>().join(",")
-                        ),
+                        if split {
+                            "root split: changes are frozen; create a new network and run network reinvite".to_owned()
+                        } else {
+                            format!(
+                                "own policy path is unavailable: {}; required_ids {}",
+                                e.code,
+                                e.required_ids.iter().cloned().collect::<Vec<_>>().join(",")
+                            )
+                        },
                         format!("peerspan access renew --network {network}"),
                     ));
                 }
             }
+            // A root split freezes changes even while existing grants still
+            // work (spec 13.2); status always explains it.
+            if p.streams
+                .get(&vec!["root".to_string()])
+                .is_some_and(|r| r.heads.len() > 1)
+                && !edit_attention
+                    .iter()
+                    .any(|i| i.0 == "network_state_conflict")
+            {
+                edit_attention.push((
+                    "network_state_conflict".into(),
+                    network.into(),
+                    "root split: changes are frozen; create a new network and run network reinvite"
+                        .into(),
+                    "peerspan network create NAME".into(),
+                ));
+            }
+            edit_attention.extend(super::renewal::attention(&s, &p, network)?);
+            edit_attention.extend(super::invite_return::waiting_items(c, network)?);
             view
         }
         Err(e)
@@ -412,7 +440,7 @@ fn read_network_context(
                 let floors=if stream.at_maximum.is_empty() && s.context.origin=="migration" {vec![s.context.origin_proof_id.clone()]} else {Vec::new()};
                 Ok(json!({"stream_kind":kind,"subject":subject,"subject2":subject2,"head_ids":stream.heads,"version":stream.maximum,"statement_ids":stream.at_maximum,"floor_proof_ids":floors}))
             }).collect::<Result<Vec<_>>>()?;
-            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams})
+            json!({"network":public_network(store,&read)?,"decision_time":p.decision_time,"catalog":parse(&p.catalog.bytes,MAX_CATALOG)?,"streams":streams,"restriction_ids":p.restrictions,"admitted_ids":p.admitted})
         }
         _ => return Err(Error::new("not_found")),
     };
@@ -525,7 +553,14 @@ fn networks(store: &Store, _time: &str) -> Result<Vec<u8>> {
     ))
 }
 fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
-    fields(input, "member expected_person_public_key")?;
+    // `expires_at` is optional (DEC-Q2): 60 to 86400 seconds after the
+    // decision time; the default is one hour.
+    let lifetime = input.get("expires_at");
+    if lifetime.is_some() {
+        fields(input, "member expected_person_public_key expires_at")?;
+    } else {
+        fields(input, "member expected_person_public_key")?;
+    }
     label(text(input, "member")?)?;
     let person = text(input, "expected_person_public_key")?;
     check(person == "-" || key(person))?;
@@ -553,14 +588,29 @@ fn invitation(store: &Store, network: &str, input: &Obj) -> Result<Vec<u8>> {
         .map_err(|_| Error::new("internal"))?
         .rendezvous
         .clone();
-    let end = (stamp(&actual)? + chrono::TimeDelta::seconds(300))
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    let end = match lifetime {
+        Some(value) => {
+            let end = value.as_str().ok_or_else(|| Error::new("invalid"))?;
+            let lasts = stamp(end)? - stamp(&actual)?;
+            check(
+                lasts >= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MIN)
+                    && lasts <= chrono::TimeDelta::seconds(super::bootstrap::INVITE_MAX),
+            )?;
+            end.to_owned()
+        }
+        None => (stamp(&actual)? + chrono::TimeDelta::seconds(super::bootstrap::INVITE_DEFAULT))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+    };
+    // The return secret of the automatic return path (DEC-Q3).
+    let mut secret = [0u8; 16];
+    getrandom::fill(&mut secret).map_err(|_| Error::new("internal"))?;
     let (invite, token) = super::bootstrap::Invitation::create(
         &store.signing_key,
-        &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers}),
+        &json!({"descriptor":snapshot.descriptor,"member":text(input,"member")?,"expected_person_public_key":person,"issued_at":actual,"expires_at":end,"contacts":[parse(&contact.body,8<<10)?],"helpers":helpers,"return_secret_base64":encode(&secret)}),
         &actual,
     )?;
+    super::invite_return::remember(&tx, &invite, &secret)?;
     let result = encode_json(
         &json!({"network_id":network,"context_id":snapshot.network.context_id,"invitation_id":invite.id,"invitation":token,"expires_at":invite.expires_at}),
     )?;
@@ -681,21 +731,11 @@ fn route(parts: &[&str]) -> Option<Route> {
         ["v2", "network-creations", _, "signed"] => ("POST", "sign"),
         ["v2", "networks", _] => ("GET", "repair"),
         ["v2", "networks", _, "provider"] => ("GET, POST", "sign"),
-        ["v2", "networks", _, "policy-edits"] => ("GET, POST", "sign"),
+        ["v2", "networks", _, "policy-edits"] => ("GET", "sign"),
+        ["v2", "networks", _, "policy-edits", "plan"] => ("POST", "sign"),
         ["v2", "networks", _, "policy-edits", "reapply-preview"] => ("POST", "repair"),
         ["v2", "networks", _, "invitations"] => ("POST", "request"),
         ["v2", "networks", _, "root-transitions"] => ("POST", "sign"),
-        ["v2", "networks", _, "migration", "identity"] => ("POST", "migration"),
-        [
-            "v2",
-            "networks",
-            _,
-            "migration",
-            "prepare" | "signed" | "resume" | "review" | "host-lease" | "device-bans" | "link"
-            | "acknowledgment" | "commit" | "adopt",
-        ] => ("POST", "migration"),
-        ["v2", "networks", _, "migration", "evidence"] => ("GET, POST", "migration"),
-        ["v2", "networks", _, "migration"] => ("GET", "migration"),
         ["v2", "networks", _, "actions" | "policy-claims"] => ("POST", "sign"),
         ["v2", "networks", _, "actions" | "policy-claims", _] => ("GET", "sign"),
         [
@@ -750,19 +790,7 @@ async fn dispatch(
     if uri.query().is_some() || (method == Method::GET && !body.is_empty()) {
         return failure(Error::new("invalid"), network, "-", route.stage, None);
     }
-    let limit = if matches!(
-        parts.as_slice(),
-        ["v2", "networks", _, "migration", "host-lease"]
-    ) {
-        2 << 20
-    } else if matches!(
-        parts.as_slice(),
-        ["v2", "networks", _, "migration", "evidence"]
-    ) {
-        20 << 20
-    } else {
-        1 << 20
-    };
+    let limit = 1 << 20;
     if body.len() > limit {
         return failure(
             Error::new("quota_exceeded"),
@@ -857,9 +885,7 @@ async fn dispatch(
             return failure(e, network, "-", route.stage, None);
         }
     }
-    let create_request = method == Method::POST
-        && (parts.as_slice() == ["v2", "link", "requests"]
-            || matches!(parts.as_slice(), ["v2", "networks", _, "migration", "link"]));
+    let create_request = method == Method::POST && parts.as_slice() == ["v2", "link", "requests"];
     let resume_request = method == Method::POST
         && matches!(parts.as_slice(), ["v2", "link", "requests", _, "resume"]);
     let selection_request = method == Method::POST
@@ -887,7 +913,9 @@ async fn dispatch(
     let error_context = Arc::new(OnceLock::new());
     let read_context = error_context.clone();
     let stage = route.stage;
+    let timed = crate::timing::current();
     let result = tokio::task::spawn_blocking(move || -> Result<(u16, Vec<u8>)> {
+        let _request = crate::timing::within(timed);
         let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
         // Each current-state operation captures guarded time inside its own
         // coherent snapshot. Historical exact replies need no clock read.
@@ -897,20 +925,6 @@ async fn dispatch(
             ["v2","info"] => {let identity=store.identity();encode_json(&json!({"id":identity.id,"public_key":identity.public_key,"created_at":identity.created_at,"default_coordinator":Value::Null,"network_protocols":["peerspan-decentralized-v1"]}))},
             ["v2","networks",id,"root-transitions"] => super::roots::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
             ["v2","status"] => encode_json(&store.status_v2().map_err(|_|Error::new("state_conflict"))?),
-            ["v2","networks",id,"migration","link"] => return super::migration_link::create(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","adopt"] => super::migration_adopt::adopt(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","commit"] => super::migration_commit::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","acknowledgment"] => super::migration_ack::acknowledge(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","identity"] => super::migration_local::identity(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","prepare"] => super::migration_prepare::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","signed"] => super::migration_prepare::signed(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","resume"] => super::migration_evidence::resume(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","review"] => super::migration_evidence::participate(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","host-lease"] => super::migration_host::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","device-bans"] => super::migration_device_bans::prepare(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","evidence"] if method=="POST" => super::migration_evidence::receive(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?),
-            ["v2","networks",id,"migration","evidence"] => super::migration_prepare::evidence(&store,id),
-            ["v2","networks",id,"migration"] => super::migration_local::status(&store,id),
             ["v2","networks",id,"invitations"] =>return invitation(&store,id,object.as_ref().ok_or_else(||Error::new("invalid"))?).map(|body|(201,body)),
             ["v2","link","admissions"] => super::ceremony_admin::prepare(&store,object.as_ref().ok_or_else(||Error::new("invalid"))?),
             ["v2","link","approvals"] => super::ceremony::owner(&store,object.as_ref().ok_or_else(||Error::new("invalid"))?),
@@ -963,7 +977,7 @@ async fn dispatch(
                 object.as_ref().ok_or_else(|| Error::new("invalid"))?,
                 time,
             ),
-            ["v2", "networks", id, "policy-edits"] if method == "POST" => edits::reserve(
+            ["v2", "networks", id, "policy-edits", "plan"] => edits::plan(
                 &store,
                 id,
                 object.as_ref().ok_or_else(|| Error::new("invalid"))?,
@@ -1015,6 +1029,15 @@ async fn dispatch(
             }) {
                 Ok(id) => {
                     let delivery = requests_io::publish(transport_store.clone(), &id).await;
+                    if create_request {
+                        // The automatic return path, one 30-second attempt
+                        // (spec 8.1 step 4, DEC-Q3).
+                        let _ = tokio::time::timeout(
+                            std::time::Duration::from_secs(30),
+                            super::invite_return::send(transport_store.clone(), &id),
+                        )
+                        .await;
+                    }
                     let refresh = transport_store.clone();
                     let read_id = id.clone();
                     let refreshed = tokio::task::spawn_blocking(move || {
@@ -1234,6 +1257,8 @@ fn failure(
     };
     let message = if error.code == "internal" {
         "internal error".to_owned()
+    } else if let Some(detail) = error.detail {
+        format!("{}: {detail}", error.code.replace('_', " "))
     } else {
         error.code.replace('_', " ")
     };

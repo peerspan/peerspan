@@ -265,7 +265,7 @@ fn finish(
     error: Option<&str>,
     result: Option<Payload>,
 ) -> Result<(), Error> {
-    let at = Utc::now();
+    let at = crate::clock::now();
     s.status.state = state.into();
     s.status.error = error.map(str::to_owned);
     s.status.result_bytes = result.as_ref().map(|(_, text)| text.len() as i64);
@@ -290,7 +290,7 @@ fn expire(
     r: &CallRequest,
     s: &mut Stored,
 ) -> Result<bool, Error> {
-    if s.status.state != "queued" || crate::membership::time(&r.deadline)? > Utc::now() {
+    if s.status.state != "queued" || crate::membership::time(&r.deadline)? > crate::clock::now() {
         return Ok(false);
     }
     // A pending approval expires with the call; an approved one stays.
@@ -426,8 +426,9 @@ fn trusted_in(
     if !own || !bound {
         return Ok(false);
     }
-    Ok(own_policy(store, conn, network, person)?
-        .is_some_and(|p| p.in_window(Utc::now()) && p.trusted_hosts().iter().any(|h| h == sender)))
+    Ok(own_policy(store, conn, network, person)?.is_some_and(|p| {
+        p.in_window(crate::clock::now()) && p.trusted_hosts().iter().any(|h| h == sender)
+    }))
 }
 /// The networks in which self access covers `sender`.
 fn trusted_networks(store: &Store, conn: &Connection, sender: &str) -> Result<Vec<String>, Error> {
@@ -503,7 +504,7 @@ fn candidates(
             "this host has not yet received the cited policy version".into(),
         ));
     }
-    if !policy.in_window(Utc::now()) {
+    if !policy.in_window(crate::clock::now()) {
         return Err(Error::Forbidden);
     }
     let Some(sender_member) = store
@@ -545,7 +546,7 @@ fn candidates(
 }
 /// Calls counted against a budget by a caller in the trailing hour.
 fn used(conn: &Connection, budget: &str, caller: &str) -> Result<i64, Error> {
-    let since = Utc::now().timestamp_millis() - 3_600_000;
+    let since = crate::clock::now().timestamp_millis() - 3_600_000;
     Ok(conn.query_row(
         "SELECT COUNT(*) FROM received_calls WHERE json_extract(record, '$.budget') = ?1 AND json_extract(record, '$.caller') = ?2 AND json_extract(record, '$.accepted_ms') > ?3",
         params![budget, caller, since],
@@ -647,7 +648,7 @@ fn authorize(
     }
     if submission {
         // One minute of clock skew beyond the 15 minutes.
-        let at = Utc::now();
+        let at = crate::clock::now();
         let deadline = crate::membership::time(&r.deadline)?;
         if deadline <= at || deadline > at + MAX_DEADLINE + TimeDelta::minutes(1) {
             return Err(Error::Invalid(
@@ -787,7 +788,7 @@ impl Store {
             }
             return Ok(s.status);
         }
-        let at = Utc::now();
+        let at = crate::clock::now();
         let (authorized, target) = authorize(self, &tx, sender, &r, true)?;
         // Whether the call needs approval, decided once, then the pending
         // limit per pending key.
@@ -1067,7 +1068,7 @@ impl Store {
     /// network is evaluated.
     pub fn listing(&self, sender: &str, network: Option<&str>) -> Result<Vec<Value>, Error> {
         let conn = self.connection()?;
-        let at = Utc::now();
+        let at = crate::clock::now();
         let me = self.identity().id;
         let in_scope = |n: &str| network.is_none_or(|x| x == n);
         let selfs: Vec<String> = trusted_networks(self, &conn, sender)?
@@ -1419,7 +1420,7 @@ impl Store {
     }
     /// Deletes inputs and results 7 days after their calls became final.
     fn prune_calls(&self) -> Result<(), Error> {
-        let cutoff = Utc::now() - RETENTION;
+        let cutoff = crate::clock::now() - RETENTION;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let rows: Vec<(String, String, String)> = {
@@ -1581,7 +1582,7 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     live.active
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut used) = live.used.lock() {
-        *used = std::time::Instant::now();
+        *used = crate::clock::instant();
     }
     let (state, error, result, auth, scope) = outcome;
     let (s, i) = (sender.to_owned(), id.to_owned());
@@ -1653,8 +1654,7 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
         Ok(sent) => sent,
         Err(_) => return (Some("failed"), Some("server_exited"), None, None, None),
     };
-    let deadline = crate::membership::time(&r.deadline).unwrap_or_else(|_| Utc::now());
-    let wait = (deadline - Utc::now()).to_std().unwrap_or(Duration::ZERO);
+    let deadline = crate::membership::time(&r.deadline).unwrap_or_else(|_| crate::clock::now());
     tokio::select! {
         reply = rx => match reply {
             Ok(Reply::Result(result, text)) => {
@@ -1684,7 +1684,7 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
             live.client.cancel(rid, "cancel_requested").await;
             (None, None, None, None, None)
         }
-        _ = tokio::time::sleep(wait) => {
+        _ = crate::clock::sleep_until(deadline) => {
             live.client.forget(rid);
             live.client.cancel(rid, "deadline").await;
             (Some("uncertain"), Some("deadline"), None, None, None)

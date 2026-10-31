@@ -1,6 +1,6 @@
 # Coordinator-free networks
 
-Status: **DRAFT for owner review, 2026-10-27.** This spec takes the
+Status: **Current coordinator-free contract.** This spec takes the
 coordinator-free design of 2026-10-26 (the nine `docs/decentralized-*.md`
 files) and applies the owner's decisions of 2026-10-27, logged as
 [DEC-S1 to DEC-S17](decision-log.md#dec-s-simplifying-the-coordinator-free-design-2026-10-27),
@@ -11,9 +11,10 @@ Exact bytes, IDs and sizes are in the
 
 - **Decided.** Every point in this spec is decided. Section 19 lists how each
   question of the first draft was resolved.
-- **The old files.** Until code follows this spec, the nine 2026-10-26 files
-  describe what PR #139 implements. A later PR replaces them with this spec
-  and the appendix.
+- **Earlier contracts.** This spec and its wire appendix supersede conflicting
+  behavior in the nine 2026-10-26 contracts. Those files retain detailed
+  implementation references and historical verification plans. The active
+  implementation is Rust; Go/Rust pairing gates were retired by DEC-OWN5.
 - **What this does not change.** Tasks, messages, capabilities, sources,
   agents, sessions, attachments, per-call approvals (schema 20), resource bounds
   and the `gh` source (schema 21), and remote MCP and OAuth (schema 22) keep
@@ -84,7 +85,7 @@ Each term is defined once here and used with this meaning throughout.
 | --- | --- |
 | `peerspan-host` | The host daemon. It keeps the state database, checks records, serves the listeners below and signs with keys it owns. |
 | `peerspan` | The CLI. It talks to the daemon over the private Unix administration socket. It signs with an original person key or an external root key on the user's machine, never inside the daemon. |
-| `peerspan-helper` | The optional helper server (Go only). Both Go and Rust hosts use it. |
+| `peerspan-helper` | The optional Rust mailbox and encrypted relay helper. |
 | Host key | The daemon's existing Ed25519 identity. It signs contacts, packets, frames and its own role in host grants and bindings. |
 | Device key | 32-byte seed in the existing `link_device_keys` table. One per person per host after linking. |
 | Root seed | The existing `networks.root_seed` column, when the root key is a raw key held by this host. A root moved to an SSH key is not stored. |
@@ -221,6 +222,11 @@ Rules that apply to the whole table:
   person, host and binding grants, every signing ancestor, and the root state
   are current and not banned. For an ancestor device, "current" means its device
   stream has a current, unrevoked head (DEC-Q29).
+- **Original-key ceilings.** An original-person signature is capped by its
+  declared person ancestry and, for administrator work, its admin ancestry.
+  The unrelated host or binding grant on the machine holding that key does
+  not shorten the new statement. The signing host still needs current local
+  membership when it approves and signs.
 - **New-person exception.** A brand-new person has no person grant until an
   admin issues one inside the join request. Within that one request, the new
   person's original key may use that pending person grant to sign its own
@@ -332,6 +338,9 @@ remain (DEC-Q12).
   current) the renewal is an ordinary signed statement with `operation_id` `-`,
   not a join request, and needs no target consent. An expired device needs a
   join request in `renew` mode (section 8.6).
+  An original-person signature also preserves the target device's existing
+  `issuer_device` parent, if any, and its ordinary ancestor deadline caps.
+  Automatic renewal never resets the device's delegation ancestry.
 - **Sibling renewal (DEC-Q7).** A device grant renewed by another device of the
   same person keeps the target's existing `issuer_device` parent; the renewer
   appears only as the `issuer` signer. The renewer must be current, the same
@@ -349,7 +358,11 @@ remain (DEC-Q12).
 - **Who runs it (DEC-Q11).** Each host checks every 60 seconds, with its sync,
   which grants it may renew are inside their threshold. Hosts able to renew a
   grant take turns in a ranked order: the original key's host first, then
-  devices by host key. With K ranked signers and a renewal window W, signer
+  devices by host key. A locally selected original key takes the first turn
+  when usable. Remote original-key availability is not advertised: device
+  hosts rank the eligible current devices without reserving a turn for an
+  original key they cannot observe. Concurrent signatures use the plain
+  renewal fork rule below. With K ranked signers and a renewal window W, signer
   number i (from 0) starts at i × W ÷ (K + 1) into the window, so the last
   one still starts before expiry. Each syncs with known peers (30-second bound)
   before signing and skips grants already renewed. If two plain renewals with
@@ -478,6 +491,12 @@ Each stage is a signed **packet** (appendix section 9).
   the commit catalog and the manifest pins them. There is no admin packet; the
   activation's admin field is `-` (DEC-Q4). The root seed on the owner's host
   counts when the same reviewer approves with `network_root`.
+- **Root-seed owner approval.** `link approve --signer network_root` uses the
+  host's selected owner provider for the owner stages and its current local
+  root seed for the folded host grant. It does not change the selected owner
+  provider. The review explicitly names the additional root use and pins the
+  exact host grant under the same approval. Losing either authority before
+  signing refuses; approval does not select a replacement signing path.
 - **Separate admin.** Otherwise a different person, or the root, approves stage
   4 with `peerspan link admit`. Its CLI default signer is `network_root`, shown
   in the review; `--signer auto` uses the admin's own current path.
@@ -853,14 +872,14 @@ the appendix.
 | `POST /v2/link/requests/{id}/selection`, `.../commit`, `.../finalization`, `.../resume`, `.../cancel`, `.../signed`, `GET .../approval` | Stages. |
 | `POST /v2/link/approvals`, `POST /v2/link/admissions` | Owner and admin reviews. |
 
-CLI commands, all in both CLIs:
+CLI commands in the Rust host:
 
 | Command | Does |
 | --- | --- |
 | `network create NAME [--as MEMBER] [--person-key-file PATH]` | Section 6. |
 | `invite MEMBER [--expires-in D \| --expires-at T] [--network ID]` | Section 8.1. |
 | `join [--invite-stdin]` | Section 8.1. |
-| `link`, `link approve [REQUEST_ID]`, `link admit [REQUEST_ID] [--signer network_root\|auto]`, `link finalize REQUEST_ID`, `link resume`, `link status`, `link cancel` | Section 8. Without a request ID, codes come from a hidden prompt, `--code-stdin` or a private file. |
+| `link`, `link approve [REQUEST_ID] [--signer network_root\|auto]`, `link admit [REQUEST_ID] [--signer network_root\|auto]`, `link finalize REQUEST_ID`, `link resume`, `link status`, `link cancel` | Section 8. Without a request ID, codes come from a hidden prompt, `--code-stdin` or a private file. |
 | `network list`, `network members`, `network groups`, `network sync` | Views and sync. |
 | `network rotate-root ID [--to-ssh --root-key PATH]` | Section 13.1. |
 | `network reinvite OLD NEW [--expires-in D \| --expires-at T]` | Section 14.2. |
@@ -874,7 +893,7 @@ Removed: `network migrate …`, `network resolve-root`, and every
 waits until the request is applied and the provider is usable before attaching
 an agent. Pending `up` never shows a code again.
 
-Release builds: the normal Go and Rust bundles need no coordinator address or
+Release builds: normal Rust bundles need no coordinator address or
 key, and a build that still passes the old mandatory coordinator option fails
 with guidance. `network move` and coordinator successor settings remain only
 as legacy history.
@@ -1085,6 +1104,9 @@ named, with no change to stored state other than the stored decision time.
     grant renewed by an admin succeeds without the target host's signature.
 22. A person or host grant renewed by a non-admin device refuses; by an admin
     (original key or scope-8 device path) or the root works.
+    With the root host offline, a host without the root seed automatically
+    renews eligible person and host grants through each supported admin path,
+    and renews a 24-hour group when 8 hours remain, within its parents' caps.
 23. Renewing a scope-15 device as scope 7 leaves its retained child device and
     policy unable to use scope 8.
     A renewal's `retained_statement_ids` lists every current non-banned child
@@ -1098,6 +1120,8 @@ named, with no change to stored state other than the stored decision time.
     offline, the attention item appears when N ≤ 3 with the text `root
     unreachable: network stops in N days` and the right N; renewal resumes when
     the root host returns.
+    With an external SSH root available only through the daemon's SSH agent,
+    root-signed grants renew automatically without storing the root seed.
 26. Three hosts able to renew one grant, the first two offline: the third renews
     it before expiry. With all three online, one new generation results; if two
     identical plain renewals fork the stream, the next renewal resolves it.
@@ -1105,8 +1129,8 @@ named, with no change to stored state other than the stored decision time.
 
 **Joining**
 
-28. Create, invite and join with no coordinator and no helper across all four
-    Go/Rust CLI and daemon pairings; the joiner sees exactly one default-no
+28. Create, invite and join with the Rust CLI and daemon, no coordinator and
+    no helper; the joiner sees exactly one default-no
     consent prompt, at commit; with a pinned key that exists locally there is
     no identity choice.
 29. The request reaches the inviter without a code over a direct address, and
@@ -1132,6 +1156,9 @@ named, with no change to stored state other than the stored decision time.
     new machine in six stages with no admin packet and the person and host
     grants in the commit catalog; a non-admin owner needs a separate admin
     approval.
+    After the owner's admin grant is withdrawn, `link approve --signer
+    network_root` explicitly reviews the root-seed fold, retains the selected
+    owner provider and completes with no administrator packet.
 36. Answering blank or `n` at commit leaves the request pending and exits
     nonzero; nothing is applied.
 37. Crash at each durable point (approval, signature, frame, final commit,
@@ -1207,10 +1234,10 @@ named, with no change to stored state other than the stored decision time.
 59. A schema 21 or 22 database opens to schema 23 with all old data intact; an
     old binary refuses schema 23; schema 24 is refused; `dec_migrations` stays
     empty.
-60. Go and Rust each reopen the other's state and continue an unfinished join
-    and an unfinished plan with identical bytes.
+60. After a Rust daemon restart, an unfinished join and an unfinished signing
+    plan continue with identical approved bytes and no duplicate events.
 
 **Installed**
 
-61. The installed Go and Rust bundles create, join and run a real agent task
+61. The installed Rust bundles create, join and run a real agent task
     across two machines with no coordinator, then lose access after a ban.

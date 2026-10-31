@@ -1,0 +1,72 @@
+name: Conformance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build host, peer probe and helper
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          cache-on-failure: true
+      - name: Build
+        run: |
+          set -euo pipefail
+          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-host --bin peerspan-peer-probe --bin peerspan-helper
+          mkdir -p bin
+          cp rust/target/debug/peerspan-host rust/target/debug/peerspan-peer-probe rust/target/debug/peerspan-helper bin/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-binaries
+          path: bin/
+          retention-days: 1
+          if-no-files-found: error
+
+  suite:
+    name: ${{ matrix.suite }}
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, naming]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: conformance-binaries
+          path: bin
+      - name: Run ${{ matrix.suite }}
+        run: |
+          set -euo pipefail
+          chmod +x bin/*
+          python3 conformance/slim/${{ matrix.suite }}.py --bin bin

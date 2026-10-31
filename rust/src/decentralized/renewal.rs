@@ -261,8 +261,10 @@ fn cap(
     if let Some(after) = s.payload.get("not_after").and_then(Value::as_str) {
         *until = until.clone().min(after.into());
     }
-    for parent in s.parents()?.values() {
-        cap(p, parent, seen, depth + 1, until)?;
+    for (role, parent) in s.parents()? {
+        if !s.uncapped_parent(&role) {
+            cap(p, &parent, seen, depth + 1, until)?;
+        }
     }
     Ok(())
 }
@@ -393,10 +395,10 @@ fn renew(store: &Store, network: &str) -> Result<()> {
         let decision = stamp(&p.decision_time)?;
         let expiry = stamp(&body.valid_until)?;
         let issued = stamp(&body.issued_at)?;
-        if !closing
-            && !changed
-            && (decision >= expiry || expiry - decision >= (expiry - issued) / 4)
-        {
+        // A 24-hour policy renews with 8 hours left (DEC-Q24); a shorter one
+        // with a third of its lifetime left.
+        let threshold = ((expiry - issued) / 3).min(TimeDelta::seconds(DAY_THRESHOLD));
+        if !closing && !changed && (decision >= expiry || expiry - decision > threshold) {
             return Ok(());
         }
         let mut q=tx.prepare("SELECT intent_id FROM dec_intents WHERE network_id=?1 AND kind='action' ORDER BY intent_id").map_err(db)?;
@@ -539,8 +541,100 @@ fn cleanup(store: &Store, network: &str) -> Result<()> {
     actions::remember_clock(&tx, network, &latest.decision_time)?;
     tx.commit().map_err(db)
 }
+/// Renewal thresholds (spec 7.1, DEC-Q12, DEC-Q24).
+pub(crate) const SEVEN_DAY_THRESHOLD: i64 = 172_800;
+pub(crate) const DAY_THRESHOLD: i64 = 28_800;
+fn left(p: &Projection, until: &str) -> Result<TimeDelta> {
+    Ok(stamp(until)? - stamp(&p.decision_time)?)
+}
+/// Status items for renewal (spec 7.1 warnings, 7.3 countdown), in the order
+/// of spec 16: `network_root_unreachable`, then
+/// `person_device_signer_unavailable`.
+pub(crate) fn attention(
+    s: &Snapshot,
+    p: &Projection,
+    network: &str,
+) -> Result<Vec<(String, String, String, String)>> {
+    let mut out = Vec::new();
+    // The countdown: the latest deadline among current admin grants and
+    // root-signed person and host grants (DEC-Q12).
+    let mut latest: Option<String> = None;
+    for stream in p.streams.values() {
+        if !matches!(stream.key[0].as_str(), "admin" | "person" | "host") {
+            continue;
+        }
+        let Ok((statement, _)) = p.current_statement(&stream.key) else {
+            continue;
+        };
+        if statement.kind != "admin_lease" && text(statement.issuer()?, "kind")? != "root" {
+            continue;
+        }
+        let until = text(&statement.payload, "not_after")?.to_owned();
+        if latest.as_ref().is_none_or(|l| *l < until) {
+            latest = Some(until);
+        }
+    }
+    if let Some(latest) = latest {
+        let seconds = left(p, &latest)?.num_seconds();
+        let days = (seconds + 86_399) / 86_400;
+        if seconds > 0 && days <= 3 {
+            out.push((
+                "network_root_unreachable".into(),
+                network.into(),
+                format!(
+                    "root unreachable: network stops in {days} days; root-signed grants end at {latest} unless the root host renews them"
+                ),
+                format!("peerspan network sync {network}"),
+            ));
+        }
+    }
+    // This host's own device grant inside its threshold with no renewer.
+    let own = &s.network.own_identity;
+    if let Some(selected) = s.selection.as_ref().filter(|s| s.kind == "device") {
+        let person = &selected.person_key;
+        let stream = vec!["device".into(), person.clone(), selected.device_key.clone()];
+        if let Ok((device, deadline)) = p.current_statement(&stream)
+            && left(p, &deadline)?.num_seconds() <= SEVEN_DAY_THRESHOLD
+        {
+            let mut current = 0;
+            let mut renewers = 0;
+            for other in p
+                .streams
+                .values()
+                .filter(|s| s.key[0] == "device" && s.key[1] == *person)
+            {
+                let Ok((grant, _)) = p.current_statement(&other.key) else {
+                    continue;
+                };
+                current += 1;
+                if other.key[2] != selected.device_key && num(grant.subject()?, "scopes")? & 4 == 4
+                {
+                    renewers += 1;
+                }
+            }
+            let creator = text(&device.payload, "operation_id")? == "-"
+                && !device.parents()?.contains_key("issuer_device");
+            if renewers == 0 && !(creator && current == 1) {
+                out.push((
+                    "person_device_signer_unavailable".into(),
+                    network.into(),
+                    format!(
+                        "no host able to renew this host's device grant {} is reachable; it ends at {deadline}",
+                        device.id
+                    ),
+                    format!(
+                        "peerspan link --network {network} --expect-person {}",
+                        own.person_public_key
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
 pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
+    let mut attempted = BTreeMap::<String, std::time::Instant>::new();
     tick.tick().await;
     loop {
         tokio::select! {_ = shutdown.changed()=>break,_=tick.tick()=>{}}
@@ -552,11 +646,36 @@ pub(crate) async fn worker(store: Arc<Store>, mut shutdown: tokio::sync::watch::
                     return;
                 }
                 let s = store.clone();
+                let network = id.clone();
                 let _ = tokio::task::spawn_blocking(move || {
-                    let _ = renew(&s, &id);
-                    let _ = cleanup(&s, &id);
+                    let _ = renew(&s, &network);
+                    let _ = cleanup(&s, &network);
                 })
                 .await;
+                // Grants (spec 7.1): sync with known peers (30-second bound)
+                // before signing, so already renewed grants and unknown
+                // children are seen; at most one attempt per 30 seconds.
+                let s = store.clone();
+                let network = id.clone();
+                let due =
+                    tokio::task::spawn_blocking(move || super::grant_renewal::due(&s, &network))
+                        .await;
+                if !matches!(due, Ok(Ok(true)))
+                    || attempted.get(&id).is_some_and(|at: &std::time::Instant| {
+                        at.elapsed() < Duration::from_secs(30)
+                    })
+                {
+                    continue;
+                }
+                attempted.insert(id.clone(), std::time::Instant::now());
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(30),
+                    super::peer::sync(store.clone(), &id),
+                )
+                .await;
+                let s = store.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::grant_renewal::renew(&s, &id)).await;
             }
         }
     }

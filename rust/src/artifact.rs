@@ -21,7 +21,7 @@ use axum::{
     routing::{get, post},
 };
 use bytes::Bytes;
-use chrono::{TimeDelta, Utc};
+use chrono::TimeDelta;
 use http_body_util::BodyExt;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -469,7 +469,7 @@ impl Store {
         let result = (|| {
             let mut conn = self.connection()?;
             let tx = conn.transaction()?;
-            let at = Utc::now();
+            let at = crate::clock::now();
             let until = Some(rfc3339(at + UPLOAD_HOLD));
             let file = match stored_file(&tx, &sha)? {
                 Some(mut file) => {
@@ -600,7 +600,7 @@ impl Store {
     /// final state, or at once for `prune`; an outbound task never accepted
     /// 7 days after its deadline.
     fn released(&self, conn: &Connection, r: &Row, all: bool) -> Result<bool, Error> {
-        let at = Utc::now();
+        let at = crate::clock::now();
         let after = |final_at: &serde_json::Value| -> Result<bool, Error> {
             Ok(all || time(final_at.as_str().unwrap_or_default())? + TASK_HOLD <= at)
         };
@@ -648,7 +648,7 @@ impl Store {
     pub fn prune_artifacts(&self, all: bool) -> Result<PruneResult, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let at = Utc::now();
+        let at = crate::clock::now();
         let stamp = rfc3339(at);
         for state in [STORED, PENDING] {
             for mut r in rows_in(&tx, state)? {

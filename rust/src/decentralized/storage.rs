@@ -226,8 +226,87 @@ pub struct ProviderSelection {
     pub device_key: String,
     pub lease_id: String,
 }
+/// Snapshots recently loaded, by network, own host key, and every row
+/// `Snapshot::load` reads for the network.
+static SNAPSHOTS: super::memo::Memo<Snapshot> = super::memo::Memo::new();
+/// A hash of every row of the network that `Snapshot::load` reads, in every
+/// context, with the network and own host key; None if a table cannot be
+/// read, which loads without the memo.
+fn fingerprint(connection: &Connection, network_id: &str, own_host_key: &str) -> Option<[u8; 32]> {
+    use rusqlite::types::ValueRef;
+    use sha2::{Digest, Sha256};
+    const TABLES: [(&str, &str); 11] = [
+        ("networks", "id=?1"),
+        ("dec_contexts", "network_id=?1 ORDER BY context_id"),
+        ("dec_objects", "network_id=?1 ORDER BY context_id,proof_id"),
+        (
+            "dec_admissions",
+            "network_id=?1 ORDER BY context_id,statement_id",
+        ),
+        (
+            "dec_restrictions",
+            "network_id=?1 ORDER BY context_id,restriction_id",
+        ),
+        (
+            "dec_activations",
+            "network_id=?1 ORDER BY context_id,activation_id",
+        ),
+        (
+            "dec_heads",
+            "network_id=?1 ORDER BY context_id,stream_kind,subject,subject2",
+        ),
+        (
+            "dec_highwater",
+            "network_id=?1 ORDER BY context_id,stream_kind,subject,subject2",
+        ),
+        ("dec_clock", "network_id=?1"),
+        ("dec_signers", "network_id=?1 ORDER BY context_id"),
+        ("dec_migrations", "network_id=?1 ORDER BY proposal_id"),
+    ];
+    let mut hash = Sha256::new();
+    for part in [network_id, own_host_key] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part.as_bytes());
+    }
+    for (table, filter) in TABLES {
+        let mut query = connection
+            .prepare_cached(&format!("SELECT * FROM {table} WHERE {filter}"))
+            .ok()?;
+        let columns = query.column_count();
+        hash.update(table.as_bytes());
+        let mut rows = query.query([network_id]).ok()?;
+        while let Some(row) = rows.next().ok()? {
+            hash.update([0xff]);
+            for i in 0..columns {
+                match row.get_ref(i).ok()? {
+                    ValueRef::Null => hash.update([0]),
+                    ValueRef::Integer(v) => {
+                        hash.update([1]);
+                        hash.update(v.to_be_bytes());
+                    }
+                    ValueRef::Real(v) => {
+                        hash.update([2]);
+                        hash.update(v.to_bits().to_be_bytes());
+                    }
+                    ValueRef::Text(v) => {
+                        hash.update([3]);
+                        hash.update((v.len() as u64).to_be_bytes());
+                        hash.update(v);
+                    }
+                    ValueRef::Blob(v) => {
+                        hash.update([4]);
+                        hash.update((v.len() as u64).to_be_bytes());
+                        hash.update(v);
+                    }
+                }
+            }
+        }
+    }
+    Some(hash.finalize().into())
+}
 /// A coherent collection of exact public proof bytes and private local markers.
 /// This is not a transferable network map or a provider availability claim.
+#[derive(Clone)]
 pub struct Snapshot {
     pub network: NetworkRecord,
     pub context: ContextRecord,
@@ -354,7 +433,20 @@ impl Snapshot {
     /// Caller holds one connection guard/read transaction while copying every
     /// coupled table. No nested Store lock or network/SSH operation occurs.
     pub fn load(connection: &Connection, network_id: &str, own_host_key: &str) -> Result<Self> {
-        Self::load_inner(connection, network_id, own_host_key).map_err(|mut e| {
+        let began = std::time::Instant::now();
+        // A snapshot is a pure function of the rows it is loaded from, so
+        // identical rows reuse the one verified last time.
+        let key = fingerprint(connection, network_id, own_host_key);
+        if let Some(hit) = key.as_ref().and_then(|k| SNAPSHOTS.get(k)) {
+            crate::timing::log("step", "snapshot reuse", began);
+            return Ok(hit);
+        }
+        let out = Self::load_inner(connection, network_id, own_host_key);
+        crate::timing::log("step", "snapshot load", began);
+        if let (Some(key), Ok(snapshot)) = (key, &out) {
+            SNAPSHOTS.put(key, snapshot, snapshot.prior.catalog.bytes.len());
+        }
+        out.map_err(|mut e| {
             if e.code == "invalid" {
                 e.code = "state_conflict";
             }
@@ -1068,8 +1160,35 @@ impl Snapshot {
             connection,
             &deliveries.iter().map(|(_, _, r)| r).collect::<Vec<_>>(),
         )?;
+        let queued = !deliveries.is_empty();
         for (delivery, target, record) in deliveries {
             connection.execute("INSERT INTO dec_outbox(delivery_id,network_id,context_id,target_key,record) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![delivery,network,context,target,record.to_string()]).map_err(db)?;
+        }
+        if queued {
+            super::peer::wake_delivery();
+        }
+        // A renewal of the selected device's grant (spec 7.1) moves the
+        // selection to the new head, whoever signed it.
+        if let Some(selected) = self.selection.as_ref().filter(|s| s.kind == "device") {
+            let stream = vec![
+                "device".to_string(),
+                selected.person_key.clone(),
+                selected.device_key.clone(),
+            ];
+            if let Some(head) = projection.streams.get(&stream).and_then(|s| {
+                (s.heads.len() == 1)
+                    .then(|| s.heads.first().cloned())
+                    .flatten()
+            }) && head != selected.lease_id
+                && projection.current_statement(&stream).is_ok()
+            {
+                connection
+                    .execute(
+                        "UPDATE dec_signers SET lease_id=?3 WHERE network_id=?1 AND context_id=?2",
+                        rusqlite::params![network, context, head],
+                    )
+                    .map_err(db)?;
+            }
         }
         Ok(())
     }
@@ -1084,182 +1203,6 @@ fn stream_tuple(key: &[String]) -> Result<(&str, &str, &str)> {
 }
 
 impl Snapshot {
-    /// Install only a complete, locally acknowledged all-host migration. The
-    /// caller validates the current legacy source and consent in this same TX;
-    /// an ordinary catalog reader never calls this mode switch.
-    pub(crate) fn install_migration(
-        transaction: &mut rusqlite::Transaction<'_>,
-        descriptor_bytes: &[u8],
-        migration_bytes: &[u8],
-        now: &str,
-        identity: &OwnIdentity,
-    ) -> Result<Self> {
-        let descriptor = Descriptor::read(descriptor_bytes)?;
-        let migration = super::migration::Migration::read(&descriptor, migration_bytes)?;
-        let savepoint = transaction.savepoint().map_err(db)?;
-        let actual: Vec<u8> = savepoint
-            .query_row(
-                "SELECT private_key FROM identity WHERE singleton=1",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(db)?;
-        let key = ed25519_dalek::SigningKey::from_keypair_bytes(
-            actual
-                .as_slice()
-                .try_into()
-                .map_err(|_| Error::new("state_conflict"))?,
-        )
-        .map_err(|_| Error::new("state_conflict"))?;
-        require(
-            encode(key.verifying_key().as_bytes()) == identity.host_public_key,
-            "forbidden",
-        )?;
-        let ack = migration
-            .acknowledgments
-            .get(&identity.host_public_key)
-            .ok_or_else(|| Error::new("forbidden"))?;
-        require(
-            text(&ack.payload, "person_public_key")? == identity.person_public_key,
-            "forbidden",
-        )?;
-        let roster = array(&migration.proposal.payload, "roster")?;
-        let own = object(
-            roster
-                .iter()
-                .find(|r| {
-                    r.get("host_public_key").and_then(Value::as_str)
-                        == Some(&identity.host_public_key)
-                })
-                .ok_or_else(|| Error::new("forbidden"))?,
-        )?;
-        require(text(own, "member")? == identity.member, "forbidden")?;
-        let old: String = savepoint
-            .query_row(
-                "SELECT record FROM networks WHERE id=?1",
-                [&descriptor.network_id],
-                |r| r.get(0),
-            )
-            .map_err(db)?;
-        require(old.len() <= MAX_PRIVATE, "quota_exceeded")?;
-        let old: Value = serde_json::from_str(&old).map_err(|_| Error::new("state_conflict"))?;
-        require(
-            old.get("mode").and_then(Value::as_str) != Some("decentralized"),
-            "state_conflict",
-        )?;
-        let known: bool = savepoint
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM dec_contexts WHERE network_id=?1)",
-                [&descriptor.network_id],
-                |r| r.get(0),
-            )
-            .map_err(db)?;
-        require(!known, "state_conflict")?;
-        let decision = super::controls::guarded_decision(&savepoint, &descriptor.network_id, now)?;
-        let proof = super::statement::proof_id("migration", migration_bytes);
-        let catalog = serde_json::to_vec(&json!({"format":1,"context_id":descriptor.context_id(),
-            "objects":[{"id":proof,"kind":"migration","body_base64":encode(migration_bytes)}]}))
-        .map_err(|_| Error::new("internal"))?;
-        let projection = Projection::build(
-            &descriptor,
-            &Value::from("-"),
-            Some(&catalog),
-            &decision,
-            "repair",
-        )?;
-        require(
-            projection.root_state_id()? == migration.root_id,
-            "state_conflict",
-        )?;
-        let network = NetworkRecord {
-            format: 2,
-            mode: "decentralized".into(),
-            descriptor_base64: encode(descriptor_bytes),
-            context_id: descriptor.context_id(),
-            root_state_id: migration.root_id.clone(),
-            own_identity: identity.clone(),
-            created_at: decision.clone(),
-        };
-        let context = ContextRecord {
-            format: 1,
-            descriptor_base64: network.descriptor_base64.clone(),
-            origin: "migration".into(),
-            initial_root_state_id: migration.root_id.clone(),
-            origin_proof_id: proof,
-            migration_proposal_id: migration.proposal.id.clone(),
-            adopted_at: decision.clone(),
-        };
-        let empty = serde_json::to_vec(
-            &json!({"format":1,"context_id":descriptor.context_id(),"objects":[]}),
-        )
-        .map_err(|_| Error::new("internal"))?;
-        let prior=Prior::read(&descriptor,&json!({"format":1,"context_id":descriptor.context_id(),
-            "catalog_base64":encode(&empty),"admitted_statement_ids":[],"admitted_restriction_ids":[],
-            "admitted_activation_ids":[],"root_head_ids":[],"maxima":[],"migration_proposal_id":"-","clock_guard":decision}))?
-            .ok_or_else(||Error::new("invalid"))?;
-        savepoint
-            .execute(
-                "UPDATE networks SET record=?2 WHERE id=?1",
-                rusqlite::params![
-                    descriptor.network_id,
-                    serde_json::to_string(&network).map_err(|_| Error::new("internal"))?
-                ],
-            )
-            .map_err(db)?;
-        savepoint
-            .execute(
-                "INSERT INTO dec_contexts(network_id,context_id,record) VALUES(?1,?2,?3)",
-                rusqlite::params![
-                    descriptor.network_id,
-                    descriptor.context_id(),
-                    serde_json::to_string(&context).map_err(|_| Error::new("internal"))?
-                ],
-            )
-            .map_err(db)?;
-        super::controls::remember_decision(&savepoint, &descriptor.network_id, &decision)?;
-        let initial = Self {
-            network,
-            context,
-            descriptor,
-            selection: None,
-            prior,
-            revision: String::new(),
-            migrations: Vec::new(),
-        };
-        initial.persist(&savepoint, &projection)?;
-        if identity.person_public_key != "-" {
-            let device = text(&ack.payload, "device_public_key")?;
-            let seed: Option<Vec<u8>> = savepoint
-                .query_row(
-                    "SELECT seed FROM link_device_keys WHERE public_key=?1",
-                    [device],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(db)?;
-            let seed: [u8; 32] = seed
-                .ok_or_else(|| Error::new("signer_unavailable"))?
-                .try_into()
-                .map_err(|_| Error::new("state_conflict"))?;
-            require(
-                encode(
-                    ed25519_dalek::SigningKey::from_bytes(&seed)
-                        .verifying_key()
-                        .as_bytes(),
-                ) == device,
-                "signer_unavailable",
-            )?;
-            savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'device',?3,?4,?5)",
-                rusqlite::params![initial.descriptor.network_id,initial.network.context_id,identity.person_public_key,device,text(&ack.payload,"device_lease_id")?]).map_err(db)?;
-        }
-        let result = Self::load(
-            &savepoint,
-            &initial.descriptor.network_id,
-            &identity.host_public_key,
-        )?;
-        savepoint.commit().map_err(db)?;
-        Ok(result)
-    }
     /// Adopt one exact locally approved requester activation. The caller owns
     /// consent/outcome atomicity; this helper never signs or imports a key.
     pub(crate) fn install_activation(
@@ -1491,7 +1434,8 @@ impl Snapshot {
     }
     /// Called only after the fixed owner-local creation intent has all explicit
     /// approval/signature slots. Ordinary ingestion never calls this gate.
-    /// Genesis initializes an ORIGINAL provider and issues no device lease.
+    /// Genesis selects the creator device (DEC-Q21), or the original key for a
+    /// creation that predates it.
     pub fn install_genesis(
         transaction: &mut rusqlite::Transaction<'_>,
         descriptor_bytes: &[u8],
@@ -1499,6 +1443,7 @@ impl Snapshot {
         now: &str,
         identity: &OwnIdentity,
         root_seed: &[u8; 32],
+        creator_device: &str,
     ) -> Result<Self> {
         let descriptor = Descriptor::read(descriptor_bytes)?;
         require(
@@ -1636,7 +1581,43 @@ impl Snapshot {
             migrations: Vec::new(),
         };
         initial.persist(&savepoint, &projection)?;
-        savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'original',?3,'-','-')",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key]).map_err(db)?;
+        if creator_device == "-" {
+            savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'original',?3,'-','-')",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key]).map_err(db)?;
+        } else {
+            // The creator device is the selected provider (DEC-Q21).
+            let device = projection
+                .catalog
+                .statements
+                .values()
+                .find(|s| {
+                    s.kind == "device_lease"
+                        && s.subject().is_ok_and(|subject| {
+                            text(subject, "device_public_key").is_ok_and(|k| k == creator_device)
+                        })
+                })
+                .ok_or_else(|| Error::new("state_conflict"))?;
+            let seed: Option<Vec<u8>> = savepoint
+                .query_row(
+                    "SELECT seed FROM link_device_keys WHERE public_key=?1",
+                    [creator_device],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db)?;
+            let seed: [u8; 32] = seed
+                .ok_or_else(|| Error::new("signer_unavailable"))?
+                .try_into()
+                .map_err(|_| Error::new("state_conflict"))?;
+            require(
+                encode(
+                    ed25519_dalek::SigningKey::from_bytes(&seed)
+                        .verifying_key()
+                        .as_bytes(),
+                ) == creator_device,
+                "signer_unavailable",
+            )?;
+            savepoint.execute("INSERT INTO dec_signers(network_id,context_id,provider_kind,person_key,device_key,lease_id) VALUES(?1,?2,'device',?3,?4,?5)",rusqlite::params![initial.descriptor.network_id,initial.network.context_id,member.person_public_key,creator_device,device.id]).map_err(db)?;
+        }
         savepoint
             .execute(
                 "INSERT INTO events(kind,subject_id,created_at) VALUES('network.created',?1,?2)",

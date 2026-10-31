@@ -470,7 +470,7 @@ impl Store {
         if !r.same_policy(attempted) || r.delivery.state != "pending" {
             return Ok(false);
         }
-        let at = Utc::now();
+        let at = crate::clock::now();
         let d = &mut r.delivery;
         d.attempts = d.attempts.saturating_add(1);
         let delivered = outcome.is_ok();
@@ -533,7 +533,7 @@ impl Store {
     ) -> Result<Accepted, Error> {
         self.network_record(tx, network)?;
         let edit = self.check_edit(tx, network, p)?;
-        let outcome = self.accept_policy(tx, network, p, Utc::now())?;
+        let outcome = self.accept_policy(tx, network, p, crate::clock::now())?;
         match &outcome {
             Accepted::Kept(old) => {
                 return Err(Error::Conflict(format!(
@@ -569,7 +569,7 @@ impl Store {
             return Err(Error::Forbidden);
         }
         // A sibling's policy whose owner is not current is invalid.
-        self.accept_policy(&tx, network, p, Utc::now())
+        self.accept_policy(&tx, network, p, crate::clock::now())
             .map_err(|e| match e {
                 Error::Forbidden => invalid("the policy owner is not a current person"),
                 other => other,
@@ -607,7 +607,7 @@ impl Store {
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        let stored = self.accept_policy(&tx, network, p, Utc::now())? == Accepted::Stored;
+        let stored = self.accept_policy(&tx, network, p, crate::clock::now())? == Accepted::Stored;
         if stored {
             append_event(
                 &tx,
@@ -987,7 +987,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
             known = seen;
         }
         if let Ok(due) = blocking(store.clone(), |s| {
-            s.due_policy_deliveries(None, Some(Utc::now()))
+            s.due_policy_deliveries(None, Some(crate::clock::now()))
         })
         .await
         {
@@ -1093,7 +1093,7 @@ mod tests {
         t.to_rfc3339_opts(SecondsFormat::Secs, true)
     }
     fn sign(owner: &PersonSigner, version: u64, offset: i64, principal: &str) -> Policy {
-        let issued = Utc::now() - TimeDelta::minutes(1) + TimeDelta::seconds(offset);
+        let issued = crate::clock::now() - TimeDelta::minutes(1) + TimeDelta::seconds(offset);
         Policy::sign(
             owner,
             NETWORK,
@@ -1231,14 +1231,14 @@ mod tests {
         drop(Store::open(&path).unwrap());
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
+            .execute_batch("DROP TABLE conversation_events; DROP TABLE conversation_reads; DROP TABLE conversation_notifications; DROP TABLE conversation_roster_outbound; DROP TABLE conversation_invites; DROP TABLE conversation_targets; DROP TABLE conversation_messages; DROP TABLE conversations; DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers; DROP TABLE builtin_sources; DROP TABLE approval_notices; DROP TABLE call_approvals; DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
             .unwrap();
         let store = Store::open(&path).unwrap();
         let connection = store.connection().unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 23);
+        assert_eq!(version, 24);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1254,7 +1254,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 24;")
+            .execute_batch("PRAGMA user_version = 25;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }
@@ -1368,10 +1368,12 @@ mod tests {
         let s = &f.store;
         let v1 = sign(&f.owner, 1, 0, "network");
         s.submit_local_policy(NETWORK, &v1).unwrap();
-        let due = s.due_policy_deliveries(None, Some(Utc::now())).unwrap();
+        let due = s
+            .due_policy_deliveries(None, Some(crate::clock::now()))
+            .unwrap();
         assert_eq!(due.len(), 2);
         let attempted = record(s, &f.owner_id, &host('a'));
-        let before = Utc::now();
+        let before = crate::clock::now();
         assert!(
             !s.finish_delivery(NETWORK, &f.owner_id, &attempted, Err("down".into()), 0.0)
                 .unwrap()
@@ -1387,9 +1389,11 @@ mod tests {
         );
         let next = crate::retry::due_at(&failed.next_attempt_at).unwrap();
         assert!(next >= before + TimeDelta::milliseconds(900));
-        assert!(next <= Utc::now() + TimeDelta::milliseconds(1100));
+        assert!(next <= crate::clock::now() + TimeDelta::milliseconds(1100));
         // Not due until then, but `access sync` retries pending ones at once.
-        let due = s.due_policy_deliveries(None, Some(Utc::now())).unwrap();
+        let due = s
+            .due_policy_deliveries(None, Some(crate::clock::now()))
+            .unwrap();
         assert_eq!(
             due,
             [(NETWORK.into(), f.owner_id.clone(), COORDINATOR.into())]
@@ -1447,7 +1451,8 @@ mod tests {
             Accepted::Stored
         );
         assert_eq!(
-            s.due_policy_deliveries(None, Some(Utc::now())).unwrap(),
+            s.due_policy_deliveries(None, Some(crate::clock::now()))
+                .unwrap(),
             [(NETWORK.into(), f.other_id.clone(), COORDINATOR.into())]
         );
         let status = s.policy_sync_status(NETWORK).unwrap();
@@ -1456,8 +1461,13 @@ mod tests {
         // propagated at all.
         let mut connection = s.connection().unwrap();
         let tx = connection.transaction().unwrap();
-        s.accept_policy(&tx, NETWORK, &sign(&f.other, 2, 0, "network"), Utc::now())
-            .unwrap();
+        s.accept_policy(
+            &tx,
+            NETWORK,
+            &sign(&f.other, 2, 0, "network"),
+            crate::clock::now(),
+        )
+        .unwrap();
         tx.commit().unwrap();
         drop(connection);
         assert_eq!(record(s, &f.other_id, COORDINATOR).delivery.version, 1);

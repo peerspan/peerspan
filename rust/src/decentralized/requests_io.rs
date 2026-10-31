@@ -163,7 +163,17 @@ async fn publish_to(store: Arc<Store>, plan: &Plan, endpoint: &Value) -> Result<
         )
         .await?;
     }
-    for frame in &plan.frames {
+    // Proof frames go first: a stage packet needs the proofs that travel
+    // beside it, and a reader takes each mailbox as one snapshot. Posting a
+    // packet before its proofs let a reader see the packet alone and answer
+    // proof_required (stored frames are listed by role, so `administrator`
+    // came before `proofs`).
+    let ordered = plan
+        .frames
+        .iter()
+        .filter(|f| f.role == "proofs")
+        .chain(plan.frames.iter().filter(|f| f.role != "proofs"));
+    for frame in ordered {
         if frame.role == "request"
             || frame.writer_host_public_key != own
             || !unacknowledged(frame, plan, endpoint)
@@ -396,7 +406,9 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
         )
     });
     p.record.carrier_endpoints.dedup();
-    require(p.record.carrier_endpoints.len() <= 8, "quota_exceeded")?;
+    if p.record.carrier_endpoints.len() > 8 {
+        return Err(Error::quota("more than 8 carrier endpoints"));
+    }
     let mut inserted = 0;
     for frame in all.values() {
         inserted+=tx.execute("INSERT INTO dec_frames(request_id,role,writer_key,frame_id,record) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(request_id,role,writer_key,frame_id) DO NOTHING",rusqlite::params![id,frame.role,frame.writer_host_public_key,frame.frame_id,json!({"frame_base64":encode(&frame.body)}).to_string()]).map_err(|_|Error::new("internal"))?;
@@ -507,5 +519,70 @@ pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
             .map_err(|_| Error::new("internal"))?
     } else {
         Err(error.unwrap_or_else(|| Error::new("recovery_required")))
+    }
+}
+/// Approved owner work proceeds without `link resume` on the approving host
+/// (spec 8.2 preapproval and fold, 8.7): every 2 seconds, an approving host
+/// reads the mailboxes of its approved, unfinished requests, signs the stages
+/// its approval already covers, and publishes them.
+pub(crate) async fn approver_worker(
+    store: Arc<Store>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+    tick.tick().await;
+    loop {
+        tokio::select! {_ = shutdown.changed()=>break,_=tick.tick()=>{}}
+        let capture = store.clone();
+        let ids = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
+            let c = capture.connection().map_err(|_| Error::new("internal"))?;
+            let now = controls::local_decision_time()?;
+            let mut q = c
+                .prepare("SELECT request_id FROM dec_pending WHERE request_id GLOB 'link_*' ORDER BY request_id")
+                .map_err(|_| Error::new("internal"))?;
+            let ids = q
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(|_| Error::new("internal"))?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| Error::new("internal"))?;
+            let mut due = Vec::new();
+            for id in ids {
+                let Ok(p) = requests::load(&c, &id) else {
+                    continue;
+                };
+                // Kept until the request ends, so a finalization whose frame
+                // was not yet retained or published is retried after a crash.
+                // Approved work on an approving host, and every unfinished
+                // request of this machine as requester: its stages arrive by
+                // mailbox and advance without `link resume` (spec 8.4, 9.5).
+                let requester = p.record.roles.iter().any(|r| r == "requester");
+                if p.record.terminal == "-"
+                    && (p.record.owner_intent_id != "-"
+                        || requester && p.record.commit_packet_base64 == "-")
+                    && stamp(&now)? < stamp(&p.deadline)?
+                {
+                    due.push(id);
+                }
+            }
+            Ok(due)
+        })
+        .await;
+        let Ok(Ok(ids)) = ids else { continue };
+        for id in ids.into_iter().take(8) {
+            if *shutdown.borrow() {
+                return;
+            }
+            if poll(store.clone(), &id).await.is_err() {
+                continue;
+            }
+            let target = store.clone();
+            let resume_id = id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = super::ceremony::resume(&target, &resume_id);
+                super::requester::resume_approved(&target, &resume_id)
+            })
+            .await;
+            let _ = publish(store.clone(), &id).await;
+        }
     }
 }

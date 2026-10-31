@@ -195,7 +195,7 @@ pub fn now() -> Result<DateTime<Utc>, Failure> {
         return stamp(raw.strip_suffix('\n').unwrap_or(&raw))
             .map_err(|_| Failure::new("internal", "-", "clock"));
     }
-    Ok(DateTime::from_timestamp(Utc::now().timestamp(), 0).expect("UTC timestamp"))
+    Ok(DateTime::from_timestamp(crate::clock::now().timestamp(), 0).expect("UTC timestamp"))
 }
 
 pub async fn barrier(

@@ -509,7 +509,7 @@ impl Store {
     pub fn approvals_view(&self, all: bool) -> Result<Value, Error> {
         let conn = self.connection()?;
         let mut list = records(&conn, "SELECT record FROM call_approvals", [])?;
-        let since = Utc::now() - DECIDED_LISTED;
+        let since = crate::clock::now() - DECIDED_LISTED;
         list.retain(|r| {
             r.state == "pending"
                 || (all && r.decided_at.as_deref().is_some_and(|d| time_of(d) >= since))

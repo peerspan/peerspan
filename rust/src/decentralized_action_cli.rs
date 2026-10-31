@@ -65,7 +65,10 @@ impl Plan {
         let v = local
             .get(format!("/v2/networks/{}/planning", encoded(id)))
             .await?;
-        shape(&v, "network decision_time catalog streams")?;
+        shape(
+            &v,
+            "network decision_time catalog streams restriction_ids admitted_ids",
+        )?;
         let n = &v["network"];
         ensure!(
             n["id"] == id
@@ -404,6 +407,9 @@ fn review(v: &Value, p: &Plan, a: &Authority, s: &FixedStatement) -> Result<Stri
     );
     Ok(expected)
 }
+/// Set by an administration command's `--approve` before it runs its action.
+pub(crate) static APPROVED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 pub(crate) async fn run(
     local: &Local<'_>,
     p: &Plan,
@@ -435,13 +441,20 @@ pub(crate) async fn run(
         text(&value["review"], "authority_warning")?
     );
     eprintln!("Exact provider {}", value["review"]["provider"]);
-    eprint!("{prompt} [y/N] ");
-    std::io::stderr().flush()?;
+    // `--approve` approves the displayed typed action (spec 11 "Approval
+    // first"); otherwise the user answers at a terminal.
+    let flagged = APPROVED.load(std::sync::atomic::Ordering::Relaxed);
+    if !flagged {
+        eprint!("{prompt} [y/N] ");
+        std::io::stderr().flush()?;
+    }
     let mut answer = String::new();
-    if !std::io::stdin().is_terminal() || {
-        std::io::stdin().lock().read_line(&mut answer)?;
-        !answer.trim().eq_ignore_ascii_case("y") && !answer.trim().eq_ignore_ascii_case("yes")
-    } {
+    if !flagged && !std::io::stdin().is_terminal()
+        || !flagged && {
+            std::io::stdin().lock().read_line(&mut answer)?;
+            !answer.trim().eq_ignore_ascii_case("y") && !answer.trim().eq_ignore_ascii_case("yes")
+        }
+    {
         println!("{}", serde_json::to_string_pretty(&value)?);
         anyhow::bail!("action not approved; retain its exact action ID");
     }

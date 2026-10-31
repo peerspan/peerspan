@@ -895,7 +895,7 @@ impl Store {
             let typed = catalogs.iter().any(|c| c.network_id == network);
             if !typed {
                 p.verify(&network)?;
-                if !p.in_window(chrono::Utc::now()) {
+                if !p.in_window(crate::clock::now()) {
                     return Err(Error::Invalid(
                         "a claim policy is not within its validity window".into(),
                     ));

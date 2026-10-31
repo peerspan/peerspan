@@ -194,7 +194,7 @@ fn selection(p: &Plan, requested: &[String], empty: bool) -> anyhow::Result<Vec<
         .context("invalid exclusions")?;
     ensure!(
         !excluded.iter().any(|e| e["code"] == "proof_required"),
-        "retention eligibility is unknown; run network sync and repair the listed proofs before full-set rotation, or explicitly select --retain/--retain-none"
+        "retention eligibility is unknown; run network sync and repair the listed proofs before rotating"
     );
     let mut selected = BTreeSet::new();
     for candidate in p.value["candidates"]
@@ -527,13 +527,13 @@ fn committed(
     Ok(())
 }
 pub(crate) async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<Value>> {
-    let (network, target_path, old_paths, requested, empty, resolution) = match command {
+    // Retention is automatic (spec 13.1, DEC-Q13), and a root fork is not
+    // resolved by command (DEC-Q19: `network resolve-root` is removed).
+    let (network, target_path, old_paths) = match command {
         Command::Network(NetworkCommand::RotateRoot {
             id,
             to_ssh,
             root_key,
-            retain,
-            retain_none,
         }) => (
             id,
             if *to_ssh { root_key.as_ref() } else { None },
@@ -542,26 +542,10 @@ pub(crate) async fn command(command: &Command, socket: &Path) -> anyhow::Result<
             } else {
                 root_key.iter().cloned().collect::<Vec<_>>()
             },
-            retain,
-            *retain_none,
-            false,
-        ),
-        Command::Network(NetworkCommand::ResolveRoot {
-            id,
-            new_root_key,
-            root_key,
-            retain,
-            retain_none,
-        }) => (
-            id,
-            Some(new_root_key),
-            root_key.clone(),
-            retain,
-            *retain_none,
-            true,
         ),
         _ => return Ok(None),
     };
+    let (requested, empty, resolution): (&[String], bool, bool) = (&[], false, false);
     ensure!(ident(network, "net_"), "invalid network ID");
     let mut keys = BTreeMap::new();
     for path in &old_paths {
@@ -580,7 +564,7 @@ pub(crate) async fn command(command: &Command, socket: &Path) -> anyhow::Result<
     let p = plan(&local, network).await?;
     ensure!(
         resolution || p.heads.len() == 1,
-        "root is forked; use network resolve-root with every branch key"
+        "the root is forked (a root split); rotation is refused until the network is reinvited"
     );
     let selected = selection(&p, requested, empty)?;
     let mut request = json!({"new_root_public_key":target,"new_root_signature_format":if target_path.is_some(){"sshsig"}else{"ed25519"},"signature_format":if old_paths.is_empty(){"auto"}else{"sshsig"},"retained_statement_ids":selected,"approve":false});

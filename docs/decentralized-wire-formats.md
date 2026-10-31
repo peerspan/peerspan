@@ -133,6 +133,11 @@ Kinds: `admin_lease`, `person_lease`, `host_lease`, `binding_lease`,
   scope 4), and the renewal is capped by the person, host and binding parents,
   not by the sibling's or the old issuer device's `not_after`. The signer may
   not be the target device.
+- A deadline-only device renewal signed by the original person key preserves
+  an existing `issuer_device` parent too. This exception applies only to a
+  renewal of an already trusted, current device grant; ordinary original-key
+  issuance has no `issuer_device` parent. The original-key renewal keeps the
+  normal parent deadline caps and the target's delegation ancestry.
 - **Changed (DEC-Q21):** the creator device grant made by `network create` uses
   `operation_id` `-`, sequence 1, scopes 15, issuer the original person key,
   and the genesis person, host and binding grants as parents. These two are the
@@ -693,6 +698,10 @@ action_id = "act_" + H(L("peerspan-decentralized-action-intent-v1",
   unsettled_seqs}`; `payload_base64` `-` when nothing is unsettled.
 - **Changed (DEC-S16):** `POST /v2/networks/{id}/policy-edits` (reservation) is
   removed.
+- `POST /v2/networks/{id}/policy-edits/plan`: `{provider_id}` → 200
+  `{context_id, person_public_key, policy, version, seq, created_at}`, read-only:
+  the current policy reference and version and this host's next edit number
+  (DEC.impl28).
 
 ### 16.7 Invitations and sync
 
@@ -748,6 +757,14 @@ Review:
 
 **Changed (DEC-Q3):** approvals and admissions gain `request_id`, placed after
 `code`; exactly one of `code` and `request_id` is not `-`.
+
+For an owner approval, `provider_id:"network_root"` explicitly requests the
+root-seed fold (spec 8.2). The selected owner provider still signs the owner
+stages; the current local root seed signs the folded host grant. The review's
+`provider` names that owner provider, `authority_warning` explicitly states
+the additional root use, and `host_lease_id` pins the exact root-signed host
+template under the same approval. No provider selection is changed. Admission
+reviews continue to use `network_root` as their root signing provider.
 
 ### 16.9 Info and status
 

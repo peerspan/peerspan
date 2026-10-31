@@ -17,7 +17,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -73,7 +73,7 @@ pub struct CreateAdapter {
 pub(crate) const RENEWAL_WINDOW: chrono::TimeDelta = chrono::TimeDelta::hours(24);
 /// A renewable credential's expiry a day from now.
 pub(crate) fn renewed_expiry() -> String {
-    crate::store::rfc3339(Utc::now() + RENEWAL_WINDOW)
+    crate::store::rfc3339(crate::clock::now() + RENEWAL_WINDOW)
 }
 #[derive(Serialize)]
 pub struct AdapterCredential {
@@ -191,7 +191,7 @@ pub(crate) fn credential_authority(
         Error::NotFound => Error::Forbidden,
         other => other,
     })?;
-    if a.revoked_at.is_some() || expires(&a.expires_at)? <= Utc::now() {
+    if a.revoked_at.is_some() || expires(&a.expires_at)? <= crate::clock::now() {
         return Err(Error::Forbidden);
     }
     let ss = session(conn, &a.session_id)?;
@@ -262,7 +262,7 @@ impl Store {
         let expires_at = r.expires_at.unwrap_or_else(renewed_expiry);
         let expiration = DateTime::parse_from_rfc3339(&expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
-        if expiration <= Utc::now() {
+        if expiration <= crate::clock::now() {
             return Err(Error::Invalid("invalid expiration".into()));
         }
         let ss = session(tx, &r.session_id)?;
@@ -280,7 +280,7 @@ impl Store {
             })?
             .collect::<Result<Vec<_>, _>>()?
         };
-        let current = Utc::now();
+        let current = crate::clock::now();
         let at = now();
         let mut stale = Vec::new();
         for (data, hash, until) in active {
@@ -317,7 +317,7 @@ impl Store {
                 && !remaining.is_zero()
             {
                 let until = crate::store::rfc3339(
-                    Utc::now()
+                    crate::clock::now()
                         + chrono::Duration::from_std(remaining)
                             .map_err(|e| Error::Internal(e.into()))?,
                 );
@@ -430,7 +430,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         if let Some(handoff) = self.claim_returned_delivery(&tx, &a, &ss)? {
             tx.commit()?;
             return Ok(Some(handoff));
@@ -779,6 +779,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::live_delivery::adapter_routes())
         .merge(crate::agent_calls::adapter_routes())
         .merge(crate::approvals::adapter_routes())
+        .merge(crate::conversations::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

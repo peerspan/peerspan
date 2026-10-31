@@ -46,42 +46,21 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
     )?;
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
     let tx = c.transaction().map_err(db)?;
-    let staged = if text(&request.payload, "migration_proposal_id")? != "-" {
-        Some(super::migration_host::Context::load(
-            store,
-            &tx,
-            network,
-            text(&request.payload, "migration_proposal_id")?,
-        )?)
-    } else {
-        None
-    };
-    let snapshot = if staged.is_none() {
-        Some(Snapshot::load(&tx, network, &store.identity().public_key)?)
-    } else {
-        None
-    };
-    let known_descriptor = if let Some(stage) = &staged {
-        &stage.source.descriptor
-    } else {
-        &snapshot
-            .as_ref()
-            .ok_or_else(|| Error::new("state_conflict"))?
-            .descriptor
-    };
-    let base_catalog = if let Some(stage) = &staged {
-        stage
-            .prefix
-            .catalog
-            .as_ref()
-            .ok_or_else(|| Error::missing(&stage.prefix.proposal.id))?
-    } else {
-        &snapshot
-            .as_ref()
-            .ok_or_else(|| Error::new("state_conflict"))?
-            .prior
-            .catalog
-    };
+    // In-place migration is removed (DEC-OWN3).
+    require(
+        text(&request.payload, "migration_proposal_id")? == "-",
+        "not_found",
+    )?;
+    let snapshot = Some(Snapshot::load(&tx, network, &store.identity().public_key)?);
+    let known_descriptor = &snapshot
+        .as_ref()
+        .ok_or_else(|| Error::new("state_conflict"))?
+        .descriptor;
+    let base_catalog = &snapshot
+        .as_ref()
+        .ok_or_else(|| Error::new("state_conflict"))?
+        .prior
+        .catalog;
     for (field, want) in [
         ("expected_network_id", network),
         (
@@ -98,7 +77,7 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
             let count: i64 = tx
                 .query_row("SELECT COUNT(*) FROM dec_pending", [], |r| r.get(0))
                 .map_err(db)?;
-            let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_pending WHERE json_extract(record,'$.terminal') IN ('-','migration_prepared')",[],|r|r.get(0)).map_err(db)?;
+            let active:i64=tx.query_row("SELECT COUNT(*) FROM dec_pending WHERE request_id GLOB 'link_*' AND json_extract(record,'$.terminal') IN ('-','migration_prepared')",[],|r|r.get(0)).map_err(db)?;
             require(count < 4096 && active < 8, "quota_exceeded")?;
             let mut p = from_code(&code, known_descriptor)?;
             p.record.roles = vec!["administrator".into()];
@@ -252,27 +231,10 @@ fn resolve(c: &Connection, b: &Base, provider: &str, format: &str) -> Result<Res
     if let Some(snapshot) = &b.snapshot {
         return Resolved::resolve(c, snapshot, &b.projection, provider, format, "host_lease");
     }
-    require(
-        b.offer.staging.is_some() && provider == "network_root",
-        "forbidden",
-    )?;
-    check(matches!(format, "auto" | "ed25519" | "sshsig"))?;
-    let root = b.projection.catalog.get(b.projection.root_state_id()?)?;
-    let key = text(&root.payload, "root_public_key")?;
-    let seed = super::migration_prepare::root_seed(c, &b.descriptor.network_id, key)?;
-    let actual = if format == "auto" {
-        if seed.is_some() { "ed25519" } else { "sshsig" }
-    } else {
-        format
-    };
-    require(actual != "ed25519" || seed.is_some(), "signer_unavailable")?;
-    Ok(Resolved {
-        provider: intents::Provider {kind: "root".into(), signer_public_key:key.into(), signature_format:actual.into(), lease_id:"-".into()},
-        concrete_id: "network_root".into(),
-        actor: object(&json!({"person_public_key":"-","host_public_key":"-","device_public_key":"-","issuer_id":root.id}))?.clone(),
-        automatic: format == "auto",
-        seed,
-    })
+    // Without an adopted network there is no administrator path; in-place
+    // migration is removed (DEC-OWN3).
+    let _ = (c, provider, format);
+    Err(Error::new("forbidden"))
 }
 fn issuer(base: &Base, r: &Resolved) -> Result<(Value, BTreeMap<String, String>)> {
     if r.provider.kind == "root" {
@@ -546,6 +508,16 @@ pub(crate) fn resume_owned(store: &Store, id: &str) -> Result<()> {
     let owner = owner_intent(&tx, &p)?;
     let frozen = read_review(&owner)?;
     if !owner.record.approved || num(object(&frozen["provider"])?, "scopes")? & 8 != 8 {
+        return Ok(());
+    }
+    // A folded owner intent mints the host grant itself; it has no
+    // administrator stage (spec 8.2, DEC-S7).
+    if owner
+        .record
+        .templates
+        .iter()
+        .any(|t| t.object_type == "host_lease")
+    {
         return Ok(());
     }
     let b = base(
@@ -927,6 +899,7 @@ fn complete_packet(store: &Store, i: &mut Intent, p: &mut Pending, b: &Base) -> 
             administrator: Some(&a),
             now: &b.now,
             staging: b.offer.staging.as_ref(),
+            folded_host: None,
         })?;
         p.record.administrator_offer_id = a.id;
         p.record.administrator_packet_base64 = encode(raw);
@@ -1074,6 +1047,7 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
                 administrator: Some(&admin),
                 now: &b2.now,
                 staging: b2.offer.staging.as_ref(),
+                folded_host: None,
             })?;
             super::requester::retain_catalog(&tx, store, &mut p, &prepared.catalog, &b2.now)?;
             retain_packet(&tx, store, &mut p, "administrator", &raw, &b2.now)?;

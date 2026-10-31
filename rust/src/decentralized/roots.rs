@@ -209,7 +209,21 @@ pub(crate) fn prepare(store: &Store, network: &str, r: &Obj) -> Result<Vec<u8>> 
         let p = s.project(&controls::local_decision_time()?)?;
         let mut i;
         let new;
-        if let Some(existing) = pending(&tx, network, &s.descriptor)? {
+        let mut existing = pending(&tx, network, &s.descriptor)?;
+        // An unapproved earlier preview that no longer matches a new preview
+        // request or the current root (a renewal or sync landed during its
+        // review) signed nothing; the new review replaces it. An approval
+        // never replaces what was reviewed.
+        if let Some(old) = &existing
+            && !approve
+            && !old.record.approved
+            && (matches_request(old, &s.descriptor, r).is_err() || current(&s, &p, old).is_err())
+        {
+            tx.execute("DELETE FROM dec_intents WHERE intent_id=?1", [&old.id])
+                .map_err(db)?;
+            existing = None;
+        }
+        if let Some(existing) = existing {
             matches_request(&existing, &s.descriptor, r)?;
             let fixed = current(&s, &p, &existing)?;
             actions::preflight(&tx, &p, &s, &fixed)?;

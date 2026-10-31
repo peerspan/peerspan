@@ -611,7 +611,7 @@ impl Store {
         if newest != Some(seq) {
             return Err(edit_conflict("a newer edit was started on this host"));
         }
-        if time(&r.reserved_at).is_none_or(|t| t + RESERVATION < Utc::now()) {
+        if time(&r.reserved_at).is_none_or(|t| t + RESERVATION < crate::clock::now()) {
             return Err(Error::Invalid(format!(
                 "the reservation of edit number {seq} lapsed"
             )));
@@ -850,7 +850,7 @@ impl Store {
         if current.as_ref() != Some(&plan.stored) {
             return Ok(false);
         }
-        let stored = self.accept_policy(&tx, &plan.network, p, Utc::now())?
+        let stored = self.accept_policy(&tx, &plan.network, p, crate::clock::now())?
             == crate::policy::Accepted::Stored;
         if stored {
             self.note_dropped(&tx, &plan.network, &p.person_id(), &plan.dropped, false)?;
@@ -906,7 +906,7 @@ impl Store {
     pub(crate) fn prune_edits(&self) -> Result<(), Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let at = Utc::now();
+        let at = crate::clock::now();
         let acks = self.edit_acks.lock().map(|a| a.clone()).unwrap_or_default();
         for (network, person) in groups(&tx)? {
             // Suspended edits are not deleted.
@@ -1072,7 +1072,7 @@ pub(crate) async fn reapply(store: Arc<Store>, network: String) -> bool {
             _ => return false,
         }
     };
-    let at = Utc::now();
+    let at = crate::clock::now();
     // An ssh-agent answers over a blocking socket: sign off the runtime's
     // worker threads, bounded in time.
     let (n, version, content, edits, duration) = (

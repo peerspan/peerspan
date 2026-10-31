@@ -270,7 +270,7 @@ impl Store {
             .map(DateTime::parse_from_rfc3339)
             .transpose()
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
-        if exp.is_some_and(|exp| exp <= Utc::now())
+        if exp.is_some_and(|exp| exp <= crate::clock::now())
             || !valid_name(&r.name)
             || !valid_id(&r.target_agent_id, "agent", 16)
             || !r
@@ -304,7 +304,7 @@ impl Store {
             |row| row.get(0),
         )?;
         let ae = expiration(&a.expires_at)?;
-        if a.revoked_at.is_some() || state != "attached" || ae <= Utc::now() {
+        if a.revoked_at.is_some() || state != "attached" || ae <= crate::clock::now() {
             return Err(Error::Forbidden);
         }
         let follows_credential = exp.is_none();
@@ -402,7 +402,7 @@ impl Store {
         for row in rows {
             let (data, used) = row?;
             let r: OutboundRoute = serde_json::from_str(&data)?;
-            if r.revoked_at.is_none() && expiration(&r.expires_at)? > Utc::now() {
+            if r.revoked_at.is_none() && expiration(&r.expires_at)? > crate::clock::now() {
                 result.push(Destination {
                     name: r.name,
                     action: r.action,
@@ -441,7 +441,7 @@ impl Store {
         let exp = expiration(&route.expires_at)?;
         if route.revoked_at.is_some()
             || route.action != crate::policy::ACTION
-            || exp <= Utc::now()
+            || exp <= crate::clock::now()
             || r.content.len() as i64 > route.max_message_bytes
         {
             return Err(Error::Forbidden);
@@ -479,7 +479,8 @@ impl Store {
                     "request ID reused with different fields".into(),
                 ));
             }
-            if expiration(&old.request.deadline)? <= Utc::now() && old.state != "accepted" {
+            if expiration(&old.request.deadline)? <= crate::clock::now() && old.state != "accepted"
+            {
                 return Err(Error::Forbidden);
             }
             return Ok(old);
@@ -487,7 +488,7 @@ impl Store {
         if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
-        let deadline = (Utc::now() + SEND_DEADLINE)
+        let deadline = (crate::clock::now() + SEND_DEADLINE)
             .fixed_offset()
             .min(exp)
             .min(expiration(&a.expires_at)?);
@@ -518,7 +519,7 @@ impl Store {
             attempts: 0,
             // Retried automatically if the inline send never finishes.
             next_attempt_at: Some(crate::store::rfc3339(
-                Utc::now() + crate::retry::PREPARE_GUARD,
+                crate::clock::now() + crate::retry::PREPARE_GUARD,
             )),
             receipt_queries: 0,
             to: None,
@@ -638,7 +639,7 @@ impl Store {
                 "request ID reused with different fields".into(),
             ));
         }
-        if expiration(&old.request.deadline)? <= Utc::now() && old.state != "accepted" {
+        if expiration(&old.request.deadline)? <= crate::clock::now() && old.state != "accepted" {
             return Err(Error::Forbidden);
         }
         Ok(Some(old))
@@ -693,7 +694,7 @@ impl Store {
         if taken {
             return Err(Error::Conflict("request ID belongs to another send".into()));
         }
-        let deadline = (Utc::now() + SEND_DEADLINE)
+        let deadline = (crate::clock::now() + SEND_DEADLINE)
             .fixed_offset()
             .min(expiration(&a.expires_at)?);
         let (grant_id, policy, self_access) = self.chosen_citation(&tx, &target.host_id, choice)?;
@@ -717,7 +718,7 @@ impl Store {
             error: None,
             attempts: 0,
             next_attempt_at: Some(crate::store::rfc3339(
-                Utc::now() + crate::retry::PREPARE_GUARD,
+                crate::clock::now() + crate::retry::PREPARE_GUARD,
             )),
             receipt_queries: 0,
             to: Some(to.to_owned()),
@@ -754,7 +755,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         type Row = (String, String, String, String, Option<String>, bool);
         let candidates: Vec<Row> = {
             let mut stmt = tx.prepare("SELECT o.peer,o.request_id,r.record,o.adapter_id,o.reply_delivery,o.reply_returned_at IS NOT NULL FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions s ON s.id = o.session_id WHERE s.agent_id = ?1 AND (o.reply_delivery IS NULL OR o.reply_returned_at IS NOT NULL) ORDER BY o.rowid")?;
@@ -847,7 +848,7 @@ impl Store {
         // Replies are fetched while a session can receive them: the sending
         // authorization's own, or, once it has ended, a verified session of
         // the same agent, which receives replies that arrive late.
-        let current = Utc::now();
+        let current = crate::clock::now();
         let result: Option<(String, String)> = tx
             .query_row(
                 "SELECT o.peer,o.request_id FROM adapter_outbound o JOIN sessions ss ON ss.id = o.session_id WHERE o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) AND EXISTS (SELECT 1 FROM sessions s2 JOIN adapter_credentials c2 ON c2.session_id = s2.id JOIN adapter_connections x2 ON x2.adapter_id = c2.id WHERE s2.agent_id = ss.agent_id AND s2.state = 'attached' AND x2.lease_until_ms > ?1 AND json_extract(c2.record, '$.revoked_at') IS NULL AND json_extract(c2.record, '$.expires_at') > ?2 AND (c2.id = o.adapter_id OR x2.channel_verified_at IS NOT NULL)) ORDER BY o.next_poll_at,o.rowid LIMIT 1",
@@ -859,7 +860,7 @@ impl Store {
             tx.execute(
                 "UPDATE adapter_outbound SET next_poll_at = ?1 WHERE peer = ?2 AND request_id = ?3",
                 params![
-                    (Utc::now() + chrono::Duration::seconds(10)).timestamp_millis(),
+                    (crate::clock::now() + chrono::Duration::seconds(10)).timestamp_millis(),
                     peer,
                     id
                 ],
@@ -1026,7 +1027,7 @@ async fn reply_loop(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
             s.connection()?.execute(
                 "UPDATE adapter_outbound SET next_poll_at = ?1 WHERE peer = ?2 AND request_id = ?3",
                 params![
-                    (Utc::now() + chrono::Duration::seconds(2)).timestamp_millis(),
+                    (crate::clock::now() + chrono::Duration::seconds(2)).timestamp_millis(),
                     peer,
                     id
                 ],
@@ -1073,7 +1074,7 @@ pub(crate) mod tests {
             .create_adapter(CreateAdapter {
                 session_id: session.id.clone(),
                 expires_at: Some(crate::store::rfc3339(
-                    Utc::now() + chrono::Duration::hours(1),
+                    crate::clock::now() + chrono::Duration::hours(1),
                 )),
             })
             .unwrap();
@@ -1127,7 +1128,7 @@ pub(crate) mod tests {
                 target_agent_id: format!("agent_{}", "1".repeat(32)),
                 grant_id: Some(format!("grant_{}", "1".repeat(32))),
                 expires_at: Some(crate::store::rfc3339(
-                    Utc::now() + chrono::Duration::minutes(30),
+                    crate::clock::now() + chrono::Duration::minutes(30),
                 )),
                 max_message_bytes: 100,
                 max_messages: 10,

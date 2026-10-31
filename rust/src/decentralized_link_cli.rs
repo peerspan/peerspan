@@ -39,6 +39,9 @@ struct Keys {
 }
 #[derive(Debug, Args)]
 struct Approval {
+    /// A link request ID already on this machine, for example one returned
+    /// through an invite; its code is read from the daemon, not the prompt.
+    request: Option<String>,
     #[arg(long)]
     network: String,
     #[arg(long, alias = "expect-person")]
@@ -203,7 +206,13 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    view(&v)?;
+    // `join` adds its trust answer (CLI output, not part of the daemon view).
+    let mut checked = v.clone();
+    if let Some(o) = checked.as_object_mut() {
+        o.remove("trusted");
+        o.remove("trusted_error");
+    }
+    view(&checked)?;
     println!("{}", serde_json::to_string_pretty(&v)?);
     if v["state"] != "linked" {
         bail!("linking is incomplete; follow the returned next step");
@@ -675,7 +684,7 @@ pub(crate) async fn guide(socket: &Path, mut v: Value, interactive: bool) -> Res
                 let preview = local.post(route.clone(), body).await?;
                 describe(&preview["review"])?;
                 if !confirm(if commit {
-                    "Commit this exact machine link? (y/N)"
+                    "Commit this exact machine link? [y/N]"
                 } else {
                     "Select this exact owner offer? (y/N)"
                 })
@@ -823,7 +832,18 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         .signer
         .as_deref()
         .unwrap_or(if admin { "network_root" } else { "auto" });
-    let private = private_code(input.code_stdin).await?;
+    let private = match (&input.request, input.code_stdin) {
+        (Some(id), false) => {
+            let view = local
+                .post(format!("{}/resume", base(id)?), json!({}))
+                .await?;
+            view["display_code"]
+                .as_str()
+                .context("this request's code is not here yet; enter it with --code-stdin")?
+                .to_owned()
+        }
+        _ => private_code(input.code_stdin).await?,
+    };
     let now = local_decision_time()?;
     let token = PairingToken::read(&private, &now)?;
     let packet: Value = serde_json::from_slice(&token.request_packet)?;
@@ -960,7 +980,11 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         } else {
             n["provider"].clone()
         };
-        if !pending && staged.is_none() && body["provider_id"] != "auto" {
+        if !pending
+            && staged.is_none()
+            && body["provider_id"] != "auto"
+            && body["provider_id"] != "network_root"
+        {
             let p=local.post(format!("/v2/networks/{}/provider",encoded(text(&n,"id")?)),json!({"provider_id":body["provider_id"],"person_public_key":person,"host_public_key":n["host_public_key"],"approve":false})).await?;
             provider = p["provider"].clone();
         }

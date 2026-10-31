@@ -45,6 +45,9 @@ impl Local<'_> {
     pub(crate) async fn post(&self, path: String, body: Value) -> anyhow::Result<Value> {
         self.call(Method::POST, path, Some(body)).await
     }
+    pub(crate) async fn delete(&self, path: String) -> anyhow::Result<Value> {
+        self.call(Method::DELETE, path, None).await
+    }
     pub(crate) async fn put(&self, path: String, body: Value) -> anyhow::Result<Value> {
         self.call(Method::PUT, path, Some(body)).await
     }
@@ -61,7 +64,7 @@ impl Local<'_> {
 }
 
 fn at() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    peerspan_host::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 fn text<'a>(value: &'a Value, field: &str) -> &'a str {
     value[field].as_str().unwrap_or_default()

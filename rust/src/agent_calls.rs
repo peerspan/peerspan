@@ -468,7 +468,7 @@ impl Store {
                 ss.agent_id,
                 a.id,
                 ss.id,
-                Utc::now().timestamp_millis()
+                crate::clock::now().timestamp_millis()
             ],
         )?;
         append_event(&tx, "call.submitted", &call_outbound::subject(out), &now())?;
@@ -531,7 +531,7 @@ impl Store {
         let tx = conn.transaction()?;
         let (a, ss) = calls_authority(&tx, auth)?;
         crate::adapter_connection::verified_authority(&tx, auth)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         let at = now();
         // A call that an agent's POST is holding is answered there, so its
         // notification is not claimed meanwhile.
@@ -672,7 +672,7 @@ fn repeat(
 /// persisted through this credential in the preceding 60 minutes.
 fn rate_check(conn: &Connection, a: &Adapter) -> Result<(), Error> {
     let cap = a.max_calls_per_hour.unwrap_or(DEFAULT_CALLS_PER_HOUR);
-    let now = Utc::now().timestamp_millis();
+    let now = crate::clock::now().timestamp_millis();
     let (count, oldest): (i64, Option<i64>) = conn.query_row(
         "SELECT COUNT(*), MIN(called_at_ms) FROM adapter_calls WHERE adapter_id = ?1 AND called_at_ms > ?2",
         params![a.id, now - HOUR_MS],
@@ -765,7 +765,7 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Ca
         Err(existing) => return hold(&store, auth, existing, until).await,
     };
     // 8. Submit; attempts after the first continue in the background.
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     tokio::spawn(call_outbound::submit(
         store.clone(),
         out.clone(),
@@ -839,7 +839,7 @@ async fn prepare(
         result: None,
         cancel_state: None,
         attempts: 0,
-        next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+        next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
         error: None,
         status_queries: 0,
         network_id: Some(network_id),

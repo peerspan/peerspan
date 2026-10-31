@@ -82,9 +82,16 @@ impl PolicySigner {
         if let Some(provider) =
             crate::decentralized_policy_cli::provider(local, network, path, allow_unbound).await?
         {
-            let original = path
+            let mut original = path
                 .map(|p| PersonSigner::open(Some(p)).map_err(failed))
                 .transpose()?;
+            if original.is_none() && provider.is_original() && provider.id == provider.person {
+                // The selected provider is the original key itself. The CLI
+                // signs its slots with that key from the configured owner
+                // key file or ssh-agent (spec 3, 11), whether or not the
+                // daemon also holds it.
+                original = PersonSigner::local_original(&provider.person);
+            }
             return Ok(Self::Decentralized { provider, original });
         }
         if path.is_none() {
@@ -209,10 +216,17 @@ impl PolicySigning for PolicySigner {
 }
 
 /// A submission refused because the stored policy or the newest
-/// reservation changed since the edit started.
+/// reservation changed since the edit started. On a coordinator-free
+/// network that is the version check of spec 12.1 (`state_conflict`, or the
+/// CLI's own check against the planning summary): the CLI reloads and starts
+/// again.
 pub(crate) fn edit_conflict(e: &anyhow::Error) -> bool {
-    e.downcast_ref::<DaemonError>()
-        .is_some_and(|d| d.status == 409 && d.message.contains("edit_conflict"))
+    e.chain().any(|c| {
+        c.downcast_ref::<crate::decentralized_policy_cli::StaleEdit>()
+            .is_some()
+    }) || e.downcast_ref::<DaemonError>().is_some_and(|d| {
+        d.status == 409 && (d.message.contains("edit_conflict") || d.code == "state_conflict")
+    })
 }
 /// A refused edit starts again from the edit route, at most 3 times.
 pub(crate) const EDIT_ATTEMPTS: usize = 4;
@@ -446,7 +460,7 @@ impl Editor {
             .as_ref()
             .map(|s| DateTime::parse_from_rfc3339(s).map(|t| t.with_timezone(&Utc)))
             .transpose()?
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(peerspan_host::clock::now);
         let version = start
             .version
             .checked_add(1)
@@ -535,7 +549,7 @@ impl Editor {
         policy: &PolicyValue,
     ) -> anyhow::Result<Value> {
         if let Some(provider) = &self.decentralized {
-            return crate::decentralized_policy_cli::submit(
+            crate::decentralized_policy_cli::submit(
                 local,
                 &self.network,
                 provider,
@@ -543,7 +557,10 @@ impl Editor {
                 policy.native_body()?,
                 None,
             )
-            .await;
+            .await?;
+            // The commands print the policy (its policy-v2 fields), as on
+            // legacy networks, not the action result or statement envelope.
+            return Ok(serde_json::to_value(policy)?);
         }
         if let Some(certificate) = &self.device_certificate {
             let mut payload = serde_json::to_value(policy)?;
@@ -588,7 +605,14 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             let (_, body) = crate::decentralized_policy_cli::current_policy(&local, &view, &person)
                 .await?
                 .context("no current policy for that person")?;
-            return Ok(Some(serde_json::to_value(body)?));
+            let soon = expires_soon(
+                &body.issued_at,
+                &body.valid_until,
+                peerspan_host::clock::now(),
+            );
+            let mut value = serde_json::to_value(body)?;
+            value["expires_soon"] = Value::Bool(soon);
+            return Ok(Some(value));
         }
         return Ok(None);
     }
@@ -714,6 +738,21 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
             outcome => return Ok(Some(outcome?)),
         }
+    }
+}
+
+/// Less than a quarter of a native policy's validity remains (as
+/// `Policy::expires_soon`); unreadable times are not reported as soon.
+fn expires_soon(issued: &str, until: &str, at: DateTime<Utc>) -> bool {
+    match (
+        DateTime::parse_from_rfc3339(issued),
+        DateTime::parse_from_rfc3339(until),
+    ) {
+        (Ok(issued), Ok(until)) => {
+            let until = until.with_timezone(&Utc);
+            until - at < (until - issued.with_timezone(&Utc)) / 4
+        }
+        _ => false,
     }
 }
 

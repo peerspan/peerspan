@@ -75,14 +75,27 @@ pub fn helpers(value: &Value) -> Result<Vec<Value>> {
     }
     Ok(list.clone())
 }
-fn hint_window(issued: &str, expires: &str, now: &str, exact: bool) -> Result<()> {
+/// A contact's window: at most 300 seconds.
+fn hint_window(issued: &str, expires: &str, now: &str) -> Result<()> {
+    window(issued, expires, now, 1, 300)
+}
+/// The link request window: `expires_at = created_at + 3600` (wire formats
+/// 9.1, DEC-S4/DEC-Q1).
+pub(crate) const REQUEST_WINDOW: i64 = 3600;
+/// An invite's default lifetime and its bounds (wire formats 10.1, DEC-Q2).
+pub(crate) const INVITE_DEFAULT: i64 = 3600;
+pub(crate) const INVITE_MIN: i64 = 60;
+pub(crate) const INVITE_MAX: i64 = 86400;
+/// `issued..expires` lasts `min..=max` seconds, has started (30 seconds of
+/// skew) and has not ended at `now`.
+fn window(issued: &str, expires: &str, now: &str, min: i64, max: i64) -> Result<()> {
     let issued = stamp(issued)?;
     let expires = stamp(expires)?;
     let now = stamp(now)?;
     check(
         expires > issued
-            && expires - issued <= chrono::TimeDelta::seconds(300)
-            && (!exact || expires - issued == chrono::TimeDelta::seconds(300)),
+            && expires - issued >= chrono::TimeDelta::seconds(min)
+            && expires - issued <= chrono::TimeDelta::seconds(max),
     )?;
     require(
         issued <= now + chrono::TimeDelta::seconds(30),
@@ -172,7 +185,18 @@ impl Contact {
         })
     }
     pub fn valid_at(&self, now: &str) -> Result<()> {
-        hint_window(&self.issued_at, &self.expires_at, now, false)
+        hint_window(&self.issued_at, &self.expires_at, now)
+    }
+    /// The contact's window shape and start, without its expiry: for an
+    /// address hint inside a current invite or request code.
+    fn started_by(&self, now: &str) -> Result<()> {
+        let issued = stamp(&self.issued_at)?;
+        let expires = stamp(&self.expires_at)?;
+        check(expires > issued && expires - issued <= chrono::TimeDelta::seconds(300))?;
+        require(
+            issued <= stamp(now)? + chrono::TimeDelta::seconds(30),
+            "not_yet_valid",
+        )
     }
     pub fn create(
         key: &SigningKey,
@@ -200,11 +224,16 @@ impl Contact {
         )?)
     }
 }
+/// `hints`: the contacts are address hints inside an invite or request code
+/// that is itself within its window. They are used even after their own
+/// 300-second expiry (DEC-Q25, DEC-Q33), but must still be well-formed,
+/// signed, at most 300 seconds long and not issued in the future.
 fn contacts(
     raw: &[u8],
     now: &str,
     writer: Option<&str>,
     context: Option<&str>,
+    hints: bool,
 ) -> Result<Vec<Contact>> {
     let value = parse_array(raw, (32 << 10) + 5)?;
     let list = value.as_array().ok_or_else(|| Error::new("invalid"))?;
@@ -217,7 +246,11 @@ fn contacts(
     for (entry, original) in list.iter().zip(originals) {
         let raw = original.get().as_bytes();
         let contact = Contact::read(raw)?;
-        contact.valid_at(now)?;
+        if hints {
+            contact.started_by(now)?;
+        } else {
+            contact.valid_at(now)?;
+        }
         check(
             writer.is_none_or(|w| w == contact.host_public_key)
                 && context.is_none_or(|c| c == contact.context_id),
@@ -271,6 +304,9 @@ pub struct Invitation {
     pub helpers: Vec<Value>,
     pub issued_at: String,
     pub expires_at: String,
+    /// The 16-byte return secret of the automatic return path (DEC-Q3);
+    /// `None` in an invite made before it.
+    pub return_secret: Option<[u8; 16]>,
 }
 impl Invitation {
     pub fn create(key: &SigningKey, payload: &Value, now: &str) -> Result<(Self, String)> {
@@ -308,10 +344,23 @@ impl Invitation {
         check(key(host))?;
         let payload = b64(text(o, "payload_base64")?, 32 << 10)?;
         let p = object(&parse(&payload, 32 << 10)?)?.clone();
-        fields(
-            &p,
-            "descriptor expected_person_public_key member issued_at expires_at contacts helpers",
-        )?;
+        let return_secret = if p.contains_key("return_secret_base64") {
+            fields(
+                &p,
+                "descriptor expected_person_public_key member issued_at expires_at contacts helpers return_secret_base64",
+            )?;
+            Some(
+                b64(text(&p, "return_secret_base64")?, 16)?
+                    .try_into()
+                    .map_err(|_| Error::new("invalid"))?,
+            )
+        } else {
+            fields(
+                &p,
+                "descriptor expected_person_public_key member issued_at expires_at contacts helpers",
+            )?;
+            None
+        };
         let descriptor =
             Descriptor::from_value(p.get("descriptor").ok_or_else(|| Error::new("invalid"))?)?;
         let context = descriptor.context_id();
@@ -322,12 +371,13 @@ impl Invitation {
         label(member)?;
         let issued = text(&p, "issued_at")?;
         let expires = text(&p, "expires_at")?;
-        hint_window(issued, expires, now, true)?;
+        window(issued, expires, now, INVITE_MIN, INVITE_MAX)?;
         let contacts = contacts(
             &super::catalog::raw_field(&payload, "contacts")?,
             now,
             Some(host),
             Some(&context),
+            true,
         )?;
         let helpers = helpers(p.get("helpers").ok_or_else(|| Error::new("invalid"))?)?;
         let message = lines(&[
@@ -348,6 +398,7 @@ impl Invitation {
             helpers,
             issued_at: issued.into(),
             expires_at: expires.into(),
+            return_secret,
         })
     }
 }
@@ -385,11 +436,12 @@ impl PairingToken {
             text(&packet.object, "role")? == "request"
                 && text(&packet.object, "request_id")? == request,
         )?;
-        hint_window(
+        window(
             text(&packet.payload, "created_at")?,
             text(&packet.payload, "expires_at")?,
             now,
-            true,
+            REQUEST_WINDOW,
+            REQUEST_WINDOW,
         )?;
         let context = text(&packet.payload, "expected_context_id")?;
         let contacts = contacts(
@@ -397,6 +449,7 @@ impl PairingToken {
             now,
             Some(text(&packet.object, "writer_host_public_key")?),
             Some(context),
+            true,
         )?;
         let helpers = helpers(o.get("helpers").ok_or_else(|| Error::new("invalid"))?)?;
         Ok(Self {
@@ -472,33 +525,26 @@ pub struct Frame {
     pub expires_at: String,
     pub ciphertext: Vec<u8>,
 }
-/// Which request windows a carrier accepts.
+/// Which request windows a carrier accepts: the request window of a `link_`
+/// request (3600 seconds) or of an invite's return mailbox, named by its
+/// `di_` invitation ID (60 to 86400 seconds). Hosts' own first-contact
+/// mailboxes and the optional helper (spec 9.2, wire section 12) both carry
+/// these; neither can tell which a mailbox is, so both accept 60 to 86400.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Window {
-    /// A host's own mailbox: `link_` requests with exactly 300 seconds.
-    Exact300,
-    /// The optional helper (spec section 9.2, wire section 12): the request
-    /// window of a `link_` request (3600 seconds) or of an invite's return
-    /// mailbox, named by its `di_` invitation ID (60 to 86400 seconds).
     Request,
 }
 impl Window {
     pub fn request_id(self, id: &str) -> bool {
-        ident(id, "link_") || (self == Self::Request && ident(id, "di_"))
+        ident(id, "link_") || ident(id, "di_")
     }
     fn lifetime(self, created: &str, expires: &str) -> Result<()> {
         let seconds = (stamp(expires)? - stamp(created)?).num_seconds();
-        check(match self {
-            Self::Exact300 => seconds == 300,
-            Self::Request => (60..=86400).contains(&seconds),
-        })
+        check((INVITE_MIN..=INVITE_MAX).contains(&seconds))
     }
     /// The mailbox creation/append window: syntax, `created_at <= now + 30`
     /// (else invalid) and `now < expires_at` (else expired).
     pub fn check_at(self, created: &str, expires: &str, now: &str) -> Result<()> {
-        if self == Self::Exact300 {
-            return hint_window(created, expires, now, true);
-        }
         self.lifetime(created, expires)?;
         let now = stamp(now)?;
         check(stamp(created)? <= now + chrono::TimeDelta::seconds(30))?;
@@ -511,7 +557,7 @@ impl Window {
 }
 impl Frame {
     pub fn read(raw: &[u8]) -> Result<Self> {
-        Self::read_in(raw, Window::Exact300)
+        Self::read_in(raw, Window::Request)
     }
     pub fn read_in(raw: &[u8], window: Window) -> Result<Self> {
         let v = parse(raw, MAX_FRAME_POST)?;
@@ -563,7 +609,7 @@ impl Frame {
         Ok(f)
     }
     pub fn valid_at(&self, now: &str) -> Result<()> {
-        hint_window(&self.created_at, &self.expires_at, now, true)
+        Window::Request.check_at(&self.created_at, &self.expires_at, now)
     }
     fn ad(&self) -> Vec<u8> {
         lines(&[
@@ -665,6 +711,14 @@ impl Frame {
         let packet = text(p, "packet_base64")?;
         let catalog = text(p, "catalog_base64")?;
         check(packet != "-" || catalog != "-")?;
+        if ident(&self.request_id, "di_") {
+            // An invite's return frame carries the request code's JSON
+            // object (DEC-Q3, wire section 10.1).
+            check(self.role == "request" && catalog == "-")?;
+            let raw = b64(packet, 32 << 10)?;
+            PairingToken::read(&format!("psl2-{}", URL_SAFE_NO_PAD.encode(&raw)), now)?;
+            return Ok(value);
+        }
         if packet != "-" {
             let packet = Packet::read(&b64(packet, MAX_OBJECT)?)?;
             check(
@@ -711,6 +765,7 @@ impl Frame {
             now,
             None,
             None,
+            false,
         )?;
         Ok(value)
     }
