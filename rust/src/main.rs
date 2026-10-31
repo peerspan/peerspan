@@ -17,6 +17,7 @@ mod decentralized_up;
 mod discovery;
 mod integration;
 mod link_cli;
+mod runtime_cli;
 mod service;
 mod sign_in_cli;
 mod up;
@@ -205,6 +206,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         person_agent,
         artifact_quota,
         person_key_file,
+        runtime_socket,
     } = command
     {
         let person_agent = person_agent.or_else(|| {
@@ -225,6 +227,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             person_agent,
             person_key_file,
             artifact_quota,
+            runtime_socket,
         )
         .await;
     }
@@ -251,6 +254,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
         return Ok(value);
     }
     if let Some(value) = capability_cli::command(&command, directory).await? {
+        return Ok(value);
+    }
+    if let Some(value) = runtime_cli::command(&command, &socket).await? {
         return Ok(value);
     }
     if let Some(value) = access::top_command(&command, &socket).await? {
@@ -1101,6 +1107,7 @@ async fn run_daemon(
     person_agent: Option<PathBuf>,
     person_key_file: Option<PathBuf>,
     artifact_quota: i64,
+    runtime_socket: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let ListenerOptions {
         bootstrap_listen,
@@ -1113,6 +1120,9 @@ async fn run_daemon(
     store.set_coordination_interval(coordination_interval);
     store.set_person_agent(person_agent);
     store.set_person_key_file(person_key_file);
+    if let Some(socket) = runtime_socket {
+        store.set_runtime_switch(Some(&std::path::absolute(socket)?))?;
+    }
     let path = store.socket_path();
     match fs::symlink_metadata(&path) {
         Ok(metadata) => {

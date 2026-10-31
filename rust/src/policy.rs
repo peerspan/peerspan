@@ -113,6 +113,59 @@ impl CapabilityRule {
     }
 }
 
+/// The action a runtime rule grants (runtime task contract). Only runtime
+/// rules hold it: rules, grants and routes for agents refuse it.
+pub const RUNTIME_ACTION: &str = "runtime.run";
+const MAX_RUNTIME_RULES: usize = 64;
+
+/// A runtime rule (runtime task contract): who may run commands in the
+/// runtime of the host it names, and the bounds of each run.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeRule {
+    pub host: String,
+    pub principals: Vec<String>,
+    pub max_cpus: i64,
+    pub max_memory_mib: i64,
+    pub max_seconds: i64,
+    pub max_output_bytes: i64,
+    pub max_artifact_bytes: i64,
+    pub allow_disconnected: bool,
+}
+impl RuntimeRule {
+    fn check(&self) -> Result<(), Error> {
+        if !crate::peer_store::valid_id(&self.host, "host", 32) {
+            return Err(invalid("a runtime rule's host is a host ID"));
+        }
+        if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
+            return Err(invalid("a runtime rule has 1-64 principals"));
+        }
+        for p in &self.principals {
+            principal(p)?;
+        }
+        for (name, value, range) in [
+            ("max_cpus", self.max_cpus, 1..=64),
+            ("max_memory_mib", self.max_memory_mib, 128..=262_144),
+            ("max_seconds", self.max_seconds, 1..=86_400),
+            ("max_output_bytes", self.max_output_bytes, 0..=67_108_864),
+            (
+                "max_artifact_bytes",
+                self.max_artifact_bytes,
+                0..=crate::artifact::MAX_BOUND,
+            ),
+        ] {
+            if !range.contains(&value) {
+                return Err(invalid(&format!(
+                    "a runtime rule's {name} must be {}-{}",
+                    range.start(),
+                    range.end()
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// One `edits` entry (coordination contract, concurrent edits): the
 /// highest number of `host`'s edits the policy reflects.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,6 +238,14 @@ pub struct PolicyBody {
         deserialize_with = "present"
     )]
     pub capability_rules: Option<Vec<CapabilityRule>>,
+    /// Runtime rules (runtime task contract); absent when there are none,
+    /// so a policy without them has the same body as before.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub runtime_rules: Option<Vec<RuntimeRule>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -226,12 +287,23 @@ impl PolicyBody {
     pub fn trusted_hosts(&self) -> &[String] {
         self.trusted_hosts.as_deref().unwrap_or_default()
     }
+    pub fn runtime_rules(&self) -> &[RuntimeRule] {
+        self.runtime_rules.as_deref().unwrap_or_default()
+    }
     pub fn content(&self) -> Content {
         Content {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
+            runtime_rules: self.runtime_rules().to_vec(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
+    }
+    /// Sets its rules, capability rules, runtime rules and trusted hosts.
+    pub fn set_content(&mut self, content: Content) {
+        self.rules = content.rules;
+        self.capability_rules = Some(content.capability_rules);
+        self.runtime_rules = Some(content.runtime_rules).filter(|r| !r.is_empty());
+        self.trusted_hosts = Some(content.trusted_hosts);
     }
     fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
         if self.version < 1 {
@@ -257,7 +329,7 @@ impl PolicyBody {
             &self.trusted_hosts,
             &self.edits,
         ) {
-            (None, None, None, None) => {}
+            (None, None, None, None) if self.runtime_rules.is_none() => {}
             (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
                 if self
                     .rules
@@ -300,6 +372,20 @@ impl PolicyBody {
                 if names.windows(2).any(|w| w[0] == w[1]) {
                     return Err(invalid("a policy has at most one rule per capability name"));
                 }
+                if let Some(runtime_rules) = &self.runtime_rules {
+                    if runtime_rules.is_empty() || runtime_rules.len() > MAX_RUNTIME_RULES {
+                        return Err(invalid("a policy's runtime_rules has 1-64 rules"));
+                    }
+                    for r in runtime_rules {
+                        r.check()?;
+                    }
+                    let mut hosts: Vec<&str> =
+                        runtime_rules.iter().map(|r| r.host.as_str()).collect();
+                    hosts.sort_unstable();
+                    if hosts.windows(2).any(|w| w[0] == w[1]) {
+                        return Err(invalid("a policy has at most one runtime rule per host"));
+                    }
+                }
                 if trusted.len() > MAX_TRUSTED {
                     return Err(invalid("a policy has at most 64 trusted hosts"));
                 }
@@ -331,6 +417,9 @@ impl PolicyBody {
 pub struct Content {
     pub rules: Vec<Rule>,
     pub capability_rules: Vec<CapabilityRule>,
+    /// Only coordinator-free policies hold runtime rules; a legacy policy
+    /// has none.
+    pub runtime_rules: Vec<RuntimeRule>,
     pub trusted_hosts: Vec<String>,
 }
 impl Content {
@@ -580,6 +669,7 @@ impl Policy {
             valid_until: self.valid_until.clone(),
             rules: self.rules.clone(),
             capability_rules: self.capability_rules.clone(),
+            runtime_rules: None,
             trusted_hosts: self.trusted_hosts.clone(),
             edits: self.edits.clone(),
         }
@@ -689,6 +779,7 @@ impl Policy {
         Content {
             rules: self.rules.clone(),
             capability_rules: self.capability_rules().to_vec(),
+            runtime_rules: Vec::new(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
@@ -1947,6 +2038,7 @@ mod tests {
             Content {
                 rules: rules(),
                 capability_rules,
+                runtime_rules: Vec::new(),
                 trusted_hosts: vec![
                     format!("host_{}", "b".repeat(64)),
                     format!("host_{}", "a".repeat(64)),

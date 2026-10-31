@@ -100,8 +100,8 @@ body as before. Each rule is an object with exactly these keys, in this order: `
 
 The daemon's runtime is enabled when it is started with `run --runtime-socket PATH` (alias
 `serve`), or when the owner sets it with `runtime enable` (below). It is stored only on this
-host and never in policy, so a machine holding the person key cannot enable another machine's
-runtime.
+host, as `runtime.json` (mode 0600) in the state directory, and never in policy, so a machine
+holding the person key cannot enable another machine's runtime.
 
 ### Checks
 
@@ -284,7 +284,7 @@ and the result manifest.
 | --- | --- | --- |
 | `runtime enable --socket PATH [--for PRINCIPAL ...] [--max-cpus N] [--max-memory-mib N] [--max-seconds N] [--max-output-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--network ID]` | `PUT /v1/runtime` with `{socket}`, then the policy routes | Checks that `GET /v1/runtime` answers on `PATH`, stores the switch, then adds or replaces this host's runtime rule in the person's policy for the selected network and signs the next version through the network's provider, as a policy edit with a version check (spec section 12.1): a policy that changed meanwhile fails with `state_conflict` and the CLI reloads and starts again, and an unsettled edit refuses it. Before signing it states that hosts on software without runtime rules will stop accepting this person's policy (RUN-5). `--network` is optional when this host belongs to exactly one coordinator-free network. `--for` defaults to `person:` this host's person, the person its binding grant names. The maximums default to 2 vCPUs, 2,048 MiB, 3,600 seconds, 1,048,576 output bytes and 104,857,600 artifact bytes, and may not exceed what the runtime reports. |
 | `runtime disable [--network ID]` | `DELETE /v1/runtime`, then the policy routes | Clears the switch and removes this host's runtime rule, signing as for `runtime enable`. Running tasks finish; queued ones are rejected at start. |
-| `runtime show [--json]` | `GET /v1/runtime` | `{enabled, socket, runtime, rule}`: the switch, the runtime's own report or its error, and this host's runtime rule, if any. |
+| `runtime show [--json]` | `GET /v1/runtime` | `{enabled, socket, runtime, rule}`: the switch, the runtime's own report or `{error}`, and this host's runtime rule with its `network_id` added, from the first coordinator-free network by ID whose current policy of this host's person has one, or null. |
 
 `run --runtime-socket PATH` sets the switch at start and overrides the stored value.
 
@@ -335,7 +335,8 @@ Received and outbound task records gain `executor` and `run`; received ones also
 internal `run_id`, whether the run was dispatched, the authorizing bounds, and the last stored
 runtime event sequence. Event
 records gain `chunk`.
-Route records accept `runtime.run`. The runtime switch is stored in the daemon's settings.
+Route records accept `runtime.run`. The runtime switch is the `runtime.json` file above, not a
+table.
 Older binaries reject the new version. New activity kinds are `task.run_started` and
 `task.run_exited` on the receiving side, and `runtime.enabled` and `runtime.disabled`.
 

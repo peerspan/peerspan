@@ -471,9 +471,7 @@ impl Store {
         if s.snapshot.network.own_identity.person_public_key == person {
             let content =
                 edits::enforced(c, &s.projection, person, body.content()).map_err(model)?;
-            body.rules = content.rules;
-            body.capability_rules = Some(content.capability_rules);
-            body.trusted_hosts = Some(content.trusted_hosts);
+            body.set_content(content);
         }
         Ok(Some(Policy {
             body,

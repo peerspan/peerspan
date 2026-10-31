@@ -573,7 +573,11 @@ fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Resul
             if kind == "policy" {
                 fields(
                     &body,
-                    "format network_id person_public_key version issued_at valid_until rules capability_rules trusted_hosts edits",
+                    if body.contains_key("runtime_rules") {
+                        "format network_id person_public_key version issued_at valid_until rules capability_rules runtime_rules trusted_hosts edits"
+                    } else {
+                        "format network_id person_public_key version issued_at valid_until rules capability_rules trusted_hosts edits"
+                    },
                 )?;
                 check(
                     num(&body, "format")? == 2

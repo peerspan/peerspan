@@ -472,18 +472,21 @@ impl Editor {
                 until > now,
                 "selected authority has expired; repair this network's provider"
             );
-            return Ok(PolicyValue::native(PolicyBody {
+            let mut body = PolicyBody {
                 format: Some(2),
                 network_id: self.network.clone(),
                 person_public_key: signer.public_key_b64(),
                 version,
                 issued_at: at(now),
                 valid_until: at(until),
-                rules: content.rules,
-                capability_rules: Some(content.capability_rules),
-                trusted_hosts: Some(content.trusted_hosts),
+                rules: Vec::new(),
+                capability_rules: None,
+                runtime_rules: None,
+                trusted_hosts: None,
                 edits: Some(edits),
-            }));
+            };
+            body.set_content(content);
+            return Ok(PolicyValue::native(body));
         }
         if let Some(original) = signer.original() {
             return Policy::sign_v2(

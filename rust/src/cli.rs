@@ -198,6 +198,10 @@ pub enum Command {
         /// $XDG_CONFIG_HOME/peerspan/person_ed25519, used while it exists
         #[arg(long, value_name = "PATH")]
         person_key_file: Option<PathBuf>,
+        /// Turn the runtime on with this socket (peerspan-runtime serve
+        /// --socket), replacing the stored switch
+        #[arg(long, value_name = "PATH")]
+        runtime_socket: Option<PathBuf>,
     },
     /// Join through a private contact introduction and explicit machine approval
     Join {
@@ -544,6 +548,9 @@ pub enum Command {
     /// Manage the owner access policy and this host's block list
     #[command(subcommand)]
     Access(AccessCommand),
+    /// Let your machines run commands in this host's runtime
+    #[command(subcommand)]
+    Runtime(RuntimeCommand),
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
@@ -694,6 +701,57 @@ pub enum SourcesCommand {
         all: bool,
     },
 }
+#[derive(Debug, Subcommand)]
+pub enum RuntimeCommand {
+    /// Turn this host's runtime on and add its runtime rule to your policy
+    Enable {
+        /// The runtime's socket (peerspan-runtime serve --socket)
+        #[arg(long, value_name = "PATH")]
+        socket: PathBuf,
+        /// Who may run commands: person:PERSON, group:NAME, network, or
+        /// agent:HOST/AGENT; repeat for each; defaults to your person
+        #[arg(long = "for", value_name = "PRINCIPAL")]
+        principals: Vec<String>,
+        /// vCPUs per run; default 2
+        #[arg(long, value_name = "N")]
+        max_cpus: Option<i64>,
+        /// Memory per run in MiB; default 2048
+        #[arg(long, value_name = "N")]
+        max_memory_mib: Option<i64>,
+        /// Seconds per run; default 3600
+        #[arg(long, value_name = "N")]
+        max_seconds: Option<i64>,
+        /// Output bytes streamed per run; default 1048576
+        #[arg(long, value_name = "N")]
+        max_output_bytes: Option<i64>,
+        /// Workspace and result bytes per run; default 104857600
+        #[arg(long, value_name = "N")]
+        max_artifact_bytes: Option<i64>,
+        /// Accept runs from senders whose membership lapsed
+        #[arg(long)]
+        allow_disconnected: bool,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Turn this host's runtime off and remove its runtime rule
+    Disable {
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// The person key that signs the policy
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show the switch, the runtime's report, and this host's runtime rule
+    Show {
+        /// Print the JSON object (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[derive(Debug, Subcommand)]
 pub enum CapabilityCommand {
     /// Create a capability from a source, without sharing it
@@ -1876,6 +1934,9 @@ impl Command {
                 | AccessCommand::Renew { network, .. }
                 | AccessCommand::Show { network, .. }
                 | AccessCommand::Sync { network, .. },
+            )
+            | Self::Runtime(
+                RuntimeCommand::Enable { network, .. } | RuntimeCommand::Disable { network, .. },
             ) => Some(network),
             Self::Network(
                 NetworkCommand::Persons { id }
@@ -1997,12 +2058,14 @@ impl Command {
                 | AccessCommand::Deny { .. }
                 | AccessCommand::Renew { .. },
             )
+            | Self::Runtime(RuntimeCommand::Enable { .. } | RuntimeCommand::Disable { .. })
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }
                 | NetworkCommand::Unbind { .. },
             ) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
+            Self::Runtime(RuntimeCommand::Show { .. }) => (Method::GET, "/v1/runtime".into(), None),
             Self::Calls(CallsCommand::List { after, limit }) => (
                 Method::GET,
                 format!("/v1/calls?after={after}&limit={limit}"),
