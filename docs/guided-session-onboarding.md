@@ -645,3 +645,16 @@ No native signing/application, provider fallback, automatic replacement, model
 action or readiness claim is added; these remain later slices. Contract-first
 independent native tests and final combined-head gates are recorded with the PR.
 All312 old native tests/all28 host suites and frozen Rust remain unchanged.
+
+The [native access verification record](results/guided-native-access-verification.json)
+retains the independent20-case source/corrections and every first runtime result.
+Initial new-file registration failed while old312 passed; corrected registration
+ran325/332, with six publication-wording expectations and one missing historical
+parent prerequisite. Clarified UI verbs and an independent parent-order fix
+precede the next run. That run records317/332 with15 default5s timeouts, including
+nine unchanged cases, while an external Rust status-fix build overlaps. This is
+observed overlap, not established causal attribution; no local retry or larger
+timeout follows. Final exact-head CI uses a separate runner and stays required.
+Initial draft CI separately retains two unchanged host history/purity failures;
+their callers remain unclassified. Final receipts are recorded on PR82/35 after
+the evidence commit. No full-feature readiness/acceptance gate is inferred.

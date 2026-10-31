@@ -483,8 +483,8 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite includes312 cases:20 requester consent/completion
-cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
+The independent native suite includes332 cases:20 access inspection/consent
+cases,20 requester consent/completion cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
 message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
