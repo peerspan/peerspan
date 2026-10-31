@@ -3732,3 +3732,11 @@ sample5/6in49s: outside-approval-held TCP counters changed, DB/files unchanged;
 cause remains unclassified. Preserve every first log, all85 old test/native
 files, and all source-only limits; no unchanged local retry. Final exact-head
 CI and review receipts on PR96 remain required before owner review.
+
+GU.impl43b keeps first final3e026ab requester-completion5/6in86s: wrong-review
+pure refusal, issuer UDP+2/+2400, no returns and requester DB/files unchanged.
+All other32 suites+build/four checks/native393/fresh review pass. Select only
+independent failure metadata at the untagged generic refusal assertion; removal
+restores the old source bytes/AST and all other84 old files stay exact. No
+runtime policy/counter/wait change or guessed transport fix. One diagnostic
+execution and a new final combined head must retain the original unknown cause.
