@@ -620,6 +620,46 @@ def restart_project(f):
     f["pb"] = project(f["b"], "current", old=old, agent={"kind": "existing", "id": old["review"]["agent"]["id"]})
 
 
+def bootstrap_retry_times(f):
+    """All genuine retained outboxes, without editing/filtering retry state."""
+    retry_times = []
+    for local in (f["a"], f["b"]):
+        with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+            if db.execute("SELECT count(*) FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()[0]:
+                return None
+            if db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]:
+                return None
+            for (record,) in db.execute("SELECT record FROM dec_outbox"):
+                value = json.loads(record)
+                check(type(value) is dict and type(value.get("next_attempt_at")) is str,
+                      "ordinary outbox lacks a documented retry timestamp")
+                retry_times.append(parse_time(value["next_attempt_at"]))
+        if list(local.state.glob("*-journal")):
+            return None
+    if any(local.now() + timedelta(seconds=2) >= deadline for local in (f["a"], f["b"]) for deadline in retry_times):
+        return None
+    return {"retry_times": retry_times}
+
+
+def bootstrap_quiet(f, h):
+    previous = snapshot(h), traffic(f)
+    stable_since = time.monotonic()
+    def settled():
+        nonlocal previous, stable_since
+        current = snapshot(h), traffic(f)
+        if current != previous:
+            stable_since = time.monotonic()
+        previous = current
+        window = bootstrap_retry_times(f)
+        return window if time.monotonic() - stable_since >= .3 and window is not None else None
+    return wait_for(settled, timeout=5, interval=.1, message="genuine whole-state no-route quiescence before all retained retry times")
+
+
+def before_retries(f, window):
+    check(all(local.now() < deadline for local in (f["a"], f["b"]) for deadline in window["retry_times"]),
+          "no-route capture crossed an actual retained outbox retry time")
+
+
 def world():
     if state:
         check("pb" in state and "ready" in state, "shared genuine bootstrap/direct prerequisite did not finish")
@@ -643,8 +683,9 @@ def world():
         local.restart()
     restart_project(state)
     for local in (a, b):
-        quiet(state, local, require_retirement=True)
+        retry_window = bootstrap_quiet(state, local)
     before, counts = whole(state), traffic(state)
+    before_retries(state, retry_window)
     observe(state, outcome="not_verified")
     began = b.now()
     result = b.cli("onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
@@ -652,6 +693,7 @@ def world():
     verify(state, state["pb"], request(state), result.json, (began, b.now()))
     check(result.json["reachability"]["result"] == "not_verified", "bootstrap-only request invented a usable peer route")
     strict_state(state, before, "no_current_route"); no_io(state, counts, "no_current_route")
+    before_retries(state, retry_window)
     state["no_route_pure"] = True
     for local in (a, b):
         local.direct = True
