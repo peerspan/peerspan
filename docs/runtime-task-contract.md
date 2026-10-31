@@ -134,20 +134,30 @@ A queued runtime task starts when its workspace archive is stored and the runtim
 slot. The host starts runtime tasks in `created_at` order. Missing `resources` take the
 rule's maximum.
 
+The host **dispatches** a run when it sends `POST /v1/runs`. It records the dispatch in the
+received task's record before sending, so a restarted daemon treats an unanswered start as
+dispatched. A dispatched task stays `queued` until the runtime reports `started` or `exited`,
+and from then on the runtime, not the host, decides how it ends: the deadline no longer
+applies, and a cancellation is forwarded.
+
 | Transition | Event | When |
 | --- | --- | --- |
 | `queued` to `running` | `accepted` | The runtime reports `started`. |
 | `queued` to `rejected` | `rejected` | The local switch is off at start, the rule lapsed, or the runtime refused the run (422 below); `message` gives the reason. |
-| `queued` to `expired` | `expired` | Not started by `deadline`. |
+| `queued` to `expired` | `expired` | Not dispatched by `deadline`. |
+| `queued` to `failed` | `failed` | The runtime reports `exited` without `started`: the run failed before the command started, for example on a refused archive entry. The run result has `exit_code` null, `duration_ms` 0 and `error` set. |
 | `running` to `succeeded` | `succeeded` | The command exited 0. |
-| `running` to `failed` | `failed` | Any other exit, a signal, the timeout, a failure before the command started, or the loss of the run. |
-| `queued` to `cancelled` | `cancelled` | A cancellation request arrived before the run started. |
+| `running` to `failed` | `failed` | Any other exit, a signal, the timeout, or the loss of the run. |
+| `queued` to `cancelled` | `cancelled` | A cancellation request arrived before dispatch, or after dispatch and the runtime then reported `exited` without `started`, or answered 404. |
 | `running` to `cancelled` | `cancelled` | A cancellation request arrived while running and the runtime stopped the run. |
 
-Unlike an agent, the host always honours a cancellation request. For a queued runtime task it
-ends the task `cancelled` at once, with `output` null. For a running one it forwards the
-request to the runtime, and the task ends `cancelled` when the runtime reports the stop, even
-if the command had just exited.
+Unlike an agent, the host always honours a cancellation request. For a queued task not yet
+dispatched it ends the task `cancelled` at once, with `output` null. For a dispatched or
+running one it forwards the request with `POST /v1/runs/{run_id}/cancel`, and the task ends
+`cancelled` when the runtime reports `exited`, even if the command had just exited, with the
+run result as `output`. If `started` arrives first, the task moves to `running` with
+`accepted` before it ends. A runtime that answers 404 never created the run, and the task
+ends `cancelled` with `output` null.
 
 ### Output events
 
@@ -304,7 +314,8 @@ fails it with `error: "the runtime restarted"`.
 The host schema version increments by one, with no new tables: it is the next free version on
 `main` when the implementing PR merges (`main` is at 24 today). No `dec_*` table changes.
 Received and outbound task records gain `executor` and `run`; received ones also gain the
-internal `run_id`, the authorizing bounds, and the last stored runtime event sequence. Event
+internal `run_id`, whether the run was dispatched, the authorizing bounds, and the last stored
+runtime event sequence. Event
 records gain `chunk`.
 Route records accept `runtime.run`. The runtime switch is stored in the daemon's settings.
 Older binaries reject the new version. New activity kinds are `task.run_started` and
@@ -330,7 +341,8 @@ by the argument `;`:
 
 It unpacks the archive into a private directory, refusing the entries this contract
 refuses, computes results as specified, and reports `max_concurrent_runs` 1 and fixed
-maximums unless told otherwise on its command line.
+maximums unless told otherwise on its command line. A command-line delay holds each run
+before `started`; a run cancelled during it ends with `exited`, `signal` 9 and no `started`.
 
 The suite covers:
 - the policy body: a policy with runtime rules admitted by the owner's other host and by a
@@ -348,8 +360,11 @@ The suite covers:
   code, signal and timeout; expiry before start; start order with one slot;
 - output: chunks in order per stream, the 16,384-byte bound, `max_output_bytes` and
   `output_truncated`, and `max_output_bytes` 0;
-- cancellation while running ending `cancelled` with a run result, and while queued ending
-  `cancelled` at once without one;
+- cancellation while running ending `cancelled` with a run result, while queued ending
+  `cancelled` at once without one, and after dispatch but before `started` (the fake
+  runtime told to delay its start) ending `cancelled` with no command run;
+- a failure before the command started (a refused archive entry) ending `queued` to `failed`
+  with `exit_code` null and `duration_ms` 0;
 - the workspace: an archive fetched before start and readable by the run; a missing manifest
   entry or wrong media type (400); a refused archive entry failing the run with `error`;
 - results: `none`, `output` and `changes`, including deletions, and the drops under a small
