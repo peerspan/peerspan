@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Section38 selected-machine reachability; independent public conformance.
 
-One genuine bootstrap-only two-person/two-host DEC ceremony precedes strict
-no-route purity, then ordinary current counted direct hints enable positive
-pinned exchanges. No protocol/authority row edits, worker suppression, key
+One genuine counted-route two-person/two-host DEC ceremony precedes actual
+proof drain and authenticated signed empty-QUIC contact withdrawal. A fresh
+bootstrap-only restart supplies strict no-route purity, then current counted
+direct hints enable positive pinned exchanges. No protocol/authority row edits, worker suppression, key
 removal or invented crypto. All365 native and29 old slim/helper files stay exact.
 Only new-suite copies of independent public fixture helpers are used.
 
@@ -40,9 +41,9 @@ from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 
-from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
+from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import exchange_current_contacts, peer_address
+from counted_peer import exchange_current_contacts, peer_address, peer_request
 
 suite = Suite("peer_reachability", __doc__)
 BASE = "/v1/onboarding/reachability"
@@ -368,7 +369,7 @@ def current_contacts(f, window_seconds):
                 hints = base64.b64decode(contact["payload_base64"], validate=True)
                 check(contact["host_public_key"] == remote.public_key and contact["context_id"] == net["context_id"]
                       and contact["sequence"] == sequence and parse_time(contact["expires_at"]) > local.now() + timedelta(seconds=window_seconds)
-                      and json.loads(hints) == {"bootstrap_addresses": [remote.relay.address], "quic_addresses": [peer_address(remote)], "relays": []},
+                      and json.loads(hints) == {"bootstrap_addresses": [remote.relay.address], "quic_addresses": [peer_address(remote)] if remote.advertise_direct else [], "relays": []},
                       "current retained signed contact expired or enables an uncounted carrier")
                 message = "\n".join(("peerspan-decentralized-contact-v1", contact["context_id"], contact["host_public_key"],
                     str(contact["sequence"]), contact["issued_at"], contact["expires_at"], hashlib.sha256(hints).hexdigest()))
@@ -481,18 +482,18 @@ class CountedBarrierUDP:
 def transport_config(h):
     path = h.root / "transport.json"
     path.write_bytes(compact({"format": 1, "advertise_bootstrap": [h.relay.address],
-        "advertise_quic": [h.counted_peer.address] if h.direct else [],
+        "advertise_quic": [h.counted_peer.address] if h.advertise_direct else [],
         "rendezvous": [], "relays": [], "publish_contacts": False}))
     path.chmod(0o600)
     return path
 
 
 def host(name):
-    """Public bootstrap-only run first; enable the ordinary peer listener later."""
+    """Public counted admission, then independently controllable advertised routes."""
     h = suite.host(name, start=False, clock=Clock(suite.work / (name + ".clock")))
     h.relay = Relay(("127.0.0.1", h.bootstrap_port))
     h.counted_peer = CountedBarrierUDP(("127.0.0.1", h.peer_port))
-    h.direct = False
+    h.direct = h.advertise_direct = True
     h.extra_args = ["--transport-config", transport_config(h), "--person-key-file", h.root / "absent-person-key"]
     h.extra_env = {"SSH_AUTH_SOCK": str(h.root / "absent-agent.sock")}
     normal = h.start
@@ -639,91 +640,49 @@ def restart_project(f):
     f["pb"] = project(f["b"], "current", old=old, agent={"kind": "existing", "id": old["review"]["agent"]["id"]})
 
 
-def bootstrap_retry_times(f, diagnostic=None):
-    """All genuine retained outboxes, without editing/filtering retry state."""
-    retry_times = []
-    if diagnostic is not None:
-        diagnostic["participants"] = []
-    for role, local in (("target", f["a"]), ("project", f["b"])):
-        observed = {"role": role, "pending_secrets": "unknown", "pending_readcaps": "unknown",
-                    "frames": "unknown", "journals": "unknown", "retry_seconds_remaining": []}
-        if diagnostic is not None:
-            diagnostic["participants"].append(observed)
+def outboxes_empty(f):
+    for local in (f["a"], f["b"]):
         with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
-            # Same rows/query as before; project the two constituent counts too.
-            pending = db.execute("SELECT count(*),sum(secret IS NOT NULL),sum(terminal_read_cap IS NOT NULL) "
-                "FROM dec_pending WHERE secret IS NOT NULL OR terminal_read_cap IS NOT NULL").fetchone()
-            observed["pending_secrets"], observed["pending_readcaps"] = int(pending[1] or 0), int(pending[2] or 0)
-            if pending[0]:
-                return None
-            frames = db.execute("SELECT count(*) FROM dec_frames").fetchone()[0]
-            observed["frames"] = frames
-            if frames:
-                return None
-            for (record,) in db.execute("SELECT record FROM dec_outbox"):
-                value = json.loads(record)
-                check(type(value) is dict and type(value.get("next_attempt_at")) is str,
-                      "ordinary outbox lacks a documented retry timestamp")
-                deadline = parse_time(value["next_attempt_at"])
-                retry_times.append(deadline)
-                observed["retry_seconds_remaining"].append({
-                    "target_clock": round((deadline - f["a"].now()).total_seconds(), 3),
-                    "project_clock": round((deadline - f["b"].now()).total_seconds(), 3)})
-        journals = list(local.state.glob("*-journal"))
-        observed["journals"] = len(journals)
-        if journals:
-            return None
-    if any(local.now() + timedelta(seconds=2) >= deadline for local in (f["a"], f["b"]) for deadline in retry_times):
-        return None
-    return {"retry_times": retry_times}
+            if db.execute("SELECT count(*) FROM dec_outbox").fetchone()[0]:
+                return False
+    return True
 
 
-def bootstrap_quiet(f, h):
-    previous = snapshot(h), traffic(f)
-    started = stable_since = time.monotonic()
-    samples = []
-    def settled():
-        nonlocal previous, stable_since
-        current = snapshot(h), traffic(f)
-        if current != previous:
-            stable_since = time.monotonic()
-        old = previous
-        previous = current
-        diagnostic = {}
-        window = bootstrap_retry_times(f, diagnostic)
-        try:
-            logical = {name: 0 for name in ("$schema", "$version", "dec_outbox", "dec_pending", "dec_frames",
-                "dec_contacts", "dec_decision_clock", "dec_clock", "decision_clock", "other")}
-            for database in set(old[0][0]) | set(current[0][0]):
-                for table in set(old[0][0].get(database, {})) | set(current[0][0].get(database, {})):
-                    if old[0][0].get(database, {}).get(table) != current[0][0].get(database, {}).get(table):
-                        logical[table if table in logical else "other"] += 1
-            diagnostic.update({"elapsed_ms": int((time.monotonic() - started) * 1000),
-                "since_stable_ms": int((time.monotonic() - stable_since) * 1000),
-                "logical_table_changes": logical,
-                "state_file_changes": sum(old[0][1].get(k) != current[0][1].get(k) for k in set(old[0][1]) | set(current[0][1])),
-                "home_file_changes": sum(old[0][2].get(k) != current[0][2].get(k) for k in set(old[0][2]) | set(current[0][2])),
-                "carrier_deltas": [[x-y for x, y in zip(a, b)] for a, b in zip(current[1], old[1])],
-                "retry_window_available": window is not None})
-            samples.append(diagnostic)
-            del samples[:-8]
-        except Exception:
-            pass
-        return window if time.monotonic() - stable_since >= .3 and window is not None else None
-    try:
-        return wait_for(settled, timeout=5, interval=.1, message="genuine whole-state no-route quiescence before all retained retry times")
-    except Exception:
-        try:
-            print("reachability_bootstrap_quiet_public=" + json.dumps({"participant": "target" if h is f["a"] else "project",
-                "samples": samples}, sort_keys=True), flush=True)
-        except Exception:
-            pass
-        raise
+def direct_sequences(f):
+    result = {}
+    for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
+        retained = peer_request(suite, local, remote, "GET", "/peer/v2/networks/" + f["net"] + "/contacts")
+        candidates = [row for row in retained["contacts"] if row["host_public_key"] == local.public_key
+            and json.loads(base64.b64decode(row["payload_base64"], validate=True))["quic_addresses"] == [peer_address(local)]]
+        check(candidates, "actual counted direct contact prerequisite missing before withdrawal")
+        result[local.public_key] = max(int(row["sequence"]) for row in candidates)
+    return result
 
 
-def before_retries(f, window):
-    check(all(local.now() < deadline for local in (f["a"], f["b"]) for deadline in window["retry_times"]),
-          "no-route capture crossed an actual retained outbox retry time")
+def exchange_empty_contacts(f, previous):
+    """Signed handoffs and membership-authenticated imports over known endpoints."""
+    bounds = []
+    for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
+        net = get(local, "/v2/networks/" + f["net"])
+        peer_net = get(remote, "/v2/networks/" + f["net"])
+        status, issued = local.api("POST", "/v2/networks/" + f["net"] + "/invitations", {
+            "member": "Empty contact setup", "expected_person_public_key": peer_net["person_public_key"],
+            "expires_at": rfc3339(local.now() + timedelta(seconds=65))}, timeout=8)
+        check(status == 201, "genuine empty-QUIC contact handoff failed")
+        bounds.append(issued["expires_at"])
+        envelope = b64url_json(issued["invitation"], "psi2-")
+        invitation = json.loads(base64.b64decode(envelope["payload_base64"], validate=True))
+        candidates = [row for row in invitation["contacts"] if row["host_public_key"] == local.public_key
+            and row["context_id"] == net["context_id"] and json.loads(base64.b64decode(row["payload_base64"], validate=True)) == {
+                "bootstrap_addresses": [local.relay.address], "quic_addresses": [], "relays": []}]
+        check(candidates, "public handoff did not contain the actual signed empty-QUIC contact")
+        contact = max(candidates, key=lambda row: int(row["sequence"]))
+        check(int(contact["sequence"]) > previous[local.public_key], "empty-QUIC withdrawal did not advance actual contact sequence")
+        imported = peer_request(suite, local, remote, "POST", "/peer/v2/networks/" + f["net"] + "/contact", {"contact": contact})
+        check(imported == {"contact": contact}, "authenticated import changed actual signed empty-QUIC contact")
+        retained = peer_request(suite, local, remote, "GET", "/peer/v2/networks/" + f["net"] + "/contacts")
+        check(contact in retained["contacts"], "remote participant did not retain exact signed empty-QUIC contact")
+    return bounds
 
 
 def world():
@@ -747,11 +706,27 @@ def world():
     for local in (a, b):
         unsigned_maintenance(local)
         local.restart()
-    restart_project(state)
+    # No manual peer hints yet: genuine signed contacts alone support drain.
+    direct_bounds = exchange_current_contacts(suite, a, b, state["net"])
+    sync_directory(state)
+    wait_for(lambda: outboxes_empty(state), timeout=5, interval=.1, message="actual ordinary proof outboxes drained before contact withdrawal")
+    previous = direct_sequences(state)
     for local in (a, b):
-        retry_window = bootstrap_quiet(state, local)
+        local.advertise_direct = False
+        transport_config(local)
+        local.restart()
+    empty_bounds = exchange_empty_contacts(state, previous)
+    advance(state, max(*[parse_time(x) for x in [*direct_bounds, *empty_bounds]], a.now(), b.now()) + timedelta(seconds=1))
+    for local in (a, b):
+        unsigned_maintenance(local)
+        local.direct = False
+        transport_config(local)
+        local.restart()
+    restart_project(state)
+    current_contacts(state, 55)
+    for local in (a, b):
+        quiet(state, local, require_retirement=True)
     before, counts = whole(state), traffic(state)
-    before_retries(state, retry_window)
     observe(state, outcome="not_verified")
     began = b.now()
     result = b.cli("onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
@@ -759,10 +734,9 @@ def world():
     verify(state, state["pb"], request(state), result.json, (began, b.now()))
     check(result.json["reachability"]["result"] == "not_verified", "bootstrap-only request invented a usable peer route")
     strict_state(state, before, "no_current_route"); no_io(state, counts, "no_current_route")
-    before_retries(state, retry_window)
     state["no_route_pure"] = True
     for local in (a, b):
-        local.direct = True
+        local.direct = local.advertise_direct = True
         transport_config(local)
         local.restart()
     for local, remote in ((a, b), (b, a)):
