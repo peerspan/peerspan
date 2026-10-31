@@ -55,7 +55,7 @@ impl Store {
                 "verify_owner_finalization":true,"prepare_commit_intent":false,"approve_commit_intent":false,
                 "sign_requester_commit":false,"publish_requester_commit":false,"apply_network":false,
                 "grant_membership":false,"grant_machine_powers":false,"grant_agent_access":false,
-                "share_files":false,"share_conversation":false,"capability_calls":false}});
+                "share_files":false,"share_conversation":false,"capability_calls":false});
         let review = json!({"version":1,"kind":"inspect_existing_person_requester_commit","host_id":self.identity().id,
             "context":input.context,"agent":parent["agent"],"flow_id":f.id,"join_review_id":f.review_id,
             "request_id":p.id,"network":e["network"],"member":e["member"],"person_public_key":r["person_public_key"],
