@@ -7815,6 +7815,18 @@ four PR checks and fresh bot/root review follow. Native393 stays unchanged;
 required final CI runs it. Full other-computer/native/terminal/reload/installed/
 physical/model/schema23-to27/full-state/final combined acceptance stays open.
 
+Pre-execution independent-test audit corrects semantic statement ds_ references
+versus catalog dp_ proof IDs using the public exact-byte identity formulas, and
+adds actual signed request dpk_ identity verification after both host/device
+signatures. Initial author4c0615 and corrected7776522 sources are retained; no
+new suite was executed before this correction. Six cases retain their bounds.
+The bounded suite leaves insufficient-device/separate-administrator, complex
+fork/restriction/ban/migration paths, foreign-person admitted requester, unavailable
+owned seed, malformed proofs, incoming dash/context-inconsistent signed pins,
+private-key/sign-call syscall attribution and an actual stalled-client5s cutoff
+as source-only limits. Later packet-stage purity is combined with genuine
+cancellation to retire approved work; it is not standalone live-packet purity.
+
 The first corrected-format receipt write fails with errno28 in shared /dev/shm;
 its child result is unretained. The following unchanged join_onboarding exits120
 in2.01s with empty log (case progress unknown). Preserve these resource-failed

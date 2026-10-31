@@ -3622,3 +3622,10 @@ lock to the local runner before further runtime execution. Do not retry these
 unchanged suites locally for a cleaner receipt; the required final exact-head
 CI must independently run both in its existing isolated matrix jobs. No tests,
 product, assertion or bound changes.
+
+GU.impl41 pre-execution independent-test audit distinguishes dp_ exact-envelope
+proof IDs from ds_ semantic statement IDs, derives both using public specification
+messages and verifies actual request dpk_ after genuine host/device signatures.
+Separate author commits4c0615/7776522 precede the first suite execution; all old
+tests/bounds remain exact. Record the author's bounded fixture and syscall/5s
+client-cutoff limits in section41 rather than infer those from snapshots.
