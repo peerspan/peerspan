@@ -361,7 +361,8 @@ adds owner-only `POST /v1/onboarding/readiness` and the advanced stdin-only
 project/person/network inspection, the ordinary receiver directory's advertised
 authorizations and only this project's session connections. It makes no overall
 ready, peer reachability or model-receipt claim, starts no network/model work and
-changes no authority/schema. Native presentation and explicit peer probes follow.
+changes no authority/schema. Native status and explicit outbound checks have
+[separate controls](guided-session-contract.md#39-native-selected-machine-outbound-connection-check).
 
 ### Explicit selected-machine peer reachability
 
@@ -374,4 +375,7 @@ Complete current project/inspection pins are checked again after IO. An
 authenticated HTTP response, including a refusal, proves only this outbound
 exchange; its body is discarded. Incoming agent delivery, model receipt and
 overall readiness remain unverified. No new schema, remote route, consent or
-durable observation is added. Native controls follow separately.
+durable observation is added.
+[Native section39](guided-session-contract.md#39-native-selected-machine-outbound-connection-check)
+composes it through explicit machine choice and Check outbound connection,
+with bounded volatile evidence and separate incoming/model readiness.
