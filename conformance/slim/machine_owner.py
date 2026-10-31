@@ -400,6 +400,22 @@ def strict(actual, expected, current, before, phase):
     check(current == before, 'machine inspection performed counted TCP/UDP traffic')
 
 
+def owner_prepare_diagnostic(actual, status, response):
+    """GU.impl41a: captured failure only; retain the original short circuit."""
+    try:
+        if not actual:
+            codes = {'invalid', 'expired', 'forbidden', 'state_conflict', 'operation_conflict', 'proof_required',
+                     'clock_rollback', 'signer_unavailable', 'authority_expired', 'not_yet_valid', 'internal'}
+            code = response.get('code') if type(response) is dict else None
+            summary = {'http_status': status if type(status) is int and 100 <= status <= 599 else 'unknown',
+                       'code': code if isinstance(code, str) and code in codes else 'unknown',
+                       'owner_intent_retained': actual if status == 200 and type(actual) is bool else 'unknown'}
+            print('machine_owner_prepare_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # No diagnostic failure may replace the original prerequisite.
+    return actual
+
+
 def pure(f, *, h=None, parent=None, rid=None, status=200, code=None, data=None, cli=False, hold=None):
     h = h or f['a']; parent = parent or f['parent']; rid = rid or f['rid']
     quiet(f)
@@ -691,7 +707,7 @@ def _():
         'not_after': value['review']['not_after'], 'expected_host_public_key': request['host_public_key'],
         'expected_device_public_key': request['device_public_key'], 'approve': False}
     status, advanced = a.api('POST', '/v2/link/approvals', ordinary)
-    check(status == 200 and pending(a, f['rid'])[0].get('owner_intent_id', '-') != '-', 'ordinary unapproved owner review prerequisite')
+    check(owner_prepare_diagnostic(status == 200 and pending(a, f['rid'])[0].get('owner_intent_id', '-') != '-', status, advanced), 'ordinary unapproved owner review prerequisite')
     pure(f, status=409, code='machine_owner_inspection_unavailable')
     status, advanced = a.api('POST', '/v2/link/approvals', {**ordinary, 'approve': True})
     check(status == 200, f'ordinary explicit owner approval HTTP {status}')
