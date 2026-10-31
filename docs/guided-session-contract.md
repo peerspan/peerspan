@@ -6900,7 +6900,9 @@ refresh/sync, credential retrieval, network or model action in a status check.
 The status pane provides **Check connection status** again, **Show connection
 details** / **Hide connection details**, **Review agent access** and Leave.
 Details toggle is purely local. Review agent access explicitly returns to the
-existing section30 inspection path, never grant preparation/approval. Leave
+existing section30 inspection path for the captured network/person, issuing
+one explicit access inspect without resetting selectors, never grant
+preparation/approval. Leave
 clears volatile terms/callbacks/timer and returns to the project. It does not
 revoke consent, retract dispatched work or stop an existing authorized runtime.
 Back/Close/Refresh/context/host/parent/surface/end similarly invalidate late
