@@ -778,6 +778,25 @@ pub(crate) fn owner_in(
     input: &Obj,
     check_proposal: impl FnOnce(&Value) -> Result<()>,
 ) -> Result<(String, bool, bool)> {
+    owner_in_mode(store, tx, input, check_proposal, true)
+}
+/// Guided preparation preserves incoming protocol material until approved work.
+/// All ordinary offer/provider/template validation remains shared.
+pub(crate) fn owner_in_guided(
+    store: &Store,
+    tx: &Connection,
+    input: &Obj,
+    check_proposal: impl FnOnce(&Value) -> Result<()>,
+) -> Result<(String, bool, bool)> {
+    owner_in_mode(store, tx, input, check_proposal, false)
+}
+fn owner_in_mode(
+    store: &Store,
+    tx: &Connection,
+    input: &Obj,
+    check_proposal: impl FnOnce(&Value) -> Result<()>,
+    retain_catalog: bool,
+) -> Result<(String, bool, bool)> {
     fields(
         input,
         "code network_id person_public_key provider_id signature_format scopes not_after expected_host_public_key expected_device_public_key approve",
@@ -927,7 +946,7 @@ pub(crate) fn owner_in(
     }
     pending.record.descriptor_base64 = encode(&bytes(&t.descriptor)?);
     pending.record.owner_intent_id = i.id.clone();
-    if let Some(catalog) = t.catalog {
+    if retain_catalog && let Some(catalog) = t.catalog {
         pending.record.catalog_base64 = encode(&catalog);
     }
     i.save(tx)?;
@@ -1087,6 +1106,9 @@ pub(crate) fn signed(store: &Store, request: &str, input: &Obj) -> Result<Vec<u8
             )?;
             p.record.owner_packet_base64 = encode(object.bytes());
             p.record.owner_offer_id = packet.id;
+            if let Some(catalog) = &t.catalog {
+                p.record.catalog_base64 = encode(catalog);
+            }
         }
         i.save(&tx)?;
         requests::save(&tx, &p)?;
@@ -1233,6 +1255,12 @@ pub(super) fn resume_offer(store: &Store, request: &str) -> Result<()> {
                 )?;
                 p.record.owner_packet_base64 = encode(first.bytes());
                 p.record.owner_offer_id = packet.id;
+                // A guided unsigned intent retained the incoming catalog.
+                // Persist the currently revalidated owner proof snapshot before
+                // the following durable proof/offer frame phase.
+                if let Some(catalog) = &t.catalog {
+                    p.record.catalog_base64 = encode(catalog);
+                }
             }
             i.save(&tx)?;
             requests::save(&tx, &p)?;
