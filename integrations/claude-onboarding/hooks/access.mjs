@@ -143,7 +143,8 @@ export async function consent(raw, parent, host, network, selected) {
       !same(r.effects, consentEffects)) throw new Error('Changed access consent');
   await review(r.inspection, parent, host, network, selected);
   const i = r.inspection;
-  if (r.inspection_review_id !== await digest('peerspan-project-access-inspection-v1', i) ||
+  if (!liveInspection({ review: i, observed_at: r.created_at }, Date.parse(r.created_at)) ||
+      r.inspection_review_id !== await digest('peerspan-project-access-inspection-v1', i) ||
       !same(r.grant, { policy_scope: 'owner_agent_name', agent_id: i.agent.id, agent_name: i.agent.name,
         principal: 'person:' + await personId(selected.person_public_key), actions: ['message.append', 'task.submit'],
         max_message_bytes: 65536, max_artifact_bytes: 0, allow_disconnected: false }) ||
