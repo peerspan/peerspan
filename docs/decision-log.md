@@ -3583,3 +3583,13 @@ Discard root fallback, key copying, implicit approval, silent scope downgrade,
 new schema and reusing the requester-local new-original review. Section41 fixes
 the external shape and six independent cases before implementation. Keep all
 existing suites/native393 and full-feature acceptance limits.
+
+GU.impl41 pre-conformance review: unpinned means signed request pins, not an
+extra invitation-as-authority rule. Digest stability requires the same live
+attached parent; ordinary restart detachment refuses old contexts and a fresh
+attachment changes the review. Source inspection found the ordinary snapshot
+memo fingerprint hashes root_seed despite not using it for public authority.
+Use a narrowly scoped public snapshot load that bypasses that fingerprint and
+reads only its existing public/marker columns; preserve other callers/cache.
+The first Rust compilation also exposed an inaccessible field helper; use the
+existing typed codec object/text accessors. Retain the failed compile receipt.

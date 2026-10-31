@@ -7701,6 +7701,9 @@ manifest, activation, outcome, selection approval or commit approval may exist.
 Check guarded decision time is at/after request creation and latest stage, and
 strictly before both ordinary request and stage deadlines. Cancelled, expired,
 blocked, later-stage, requester-local, unpinned and new-original requests refuse.
+Unpinned here means a dash in the signed request's network/context/person pins;
+an invitation's earlier pin is not an additional authority prerequisite for this
+existing-computer inspection. Section40's requester UI still requires its pin.
 No fetching/resume/import or automatic invitation redemption occurs.
 
 Load the current admitted DEC network/context and project its actual verified
@@ -7758,7 +7761,10 @@ public LINK_VIEW at this same observed time. `review` is exactly:
 `review_id` is `review_` plus SHA256 of UTF8
 `peerspan-machine-owner-inspection-v1\n` followed by recursively key-sorted,
 compact canonical JSON of the entire review. Observation time is outside the
-digest; unchanged reviewed facts retain the digest across reads/restarts. A new
+digest; unchanged reviewed facts retain the digest while the exact attached
+parent remains valid. Restart detaches sessions under the existing contract:
+old-context reads then refuse review_changed; explicit fresh attachment changes
+project/digest even if authority/request terms stay equal. A new
 root, selected provider, membership, cap or project produces changed terms or
 refusal, never repairs the prior snapshot. It is not a consent token. No new
 journal/schema/intent/clock save/event/key/queue/contact/cache refresh or network
@@ -7783,7 +7789,8 @@ queue row fabrication. Read-only SQL may snapshot/count rows.
 1. Existing selected device owner and actual pending new computer: complete
    closed shape, actual signed pins, current authority/dependencies, exact digest,
    finite7/bit8 exclusion, public fold potential and no original key on requester.
-2. Exact stdin CLI/API equivalence, stable digest across restart/read, no argv/
+2. Exact stdin CLI/API equivalence, stable digest across live reads, restart
+   detachment refusal and fresh-project changed digest, no argv/
    private output; strict nested/duplicate/null/unknown/oversize/wrong-type inputs
    and redacted argument failures. Same socket and5s client bound.
 3. Missing/local/new-original/unpinned/wrong-person/wrong-network-context and
