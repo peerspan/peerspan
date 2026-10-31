@@ -6238,6 +6238,25 @@ helper/call/timing wrapper/offset observations restores the exact prior source/
 AST. Commit before one retained local run on frozen4842404. A pass leaves the
 original CI cause unknown; no unchanged retry-to-green or guessed runtime fix.
 
+### GU.impl33g: current-hint payload fixture clarification
+
+The first GU.impl33e local run passes cases1–5, then stops in the new positive
+hint prerequisite before cleanup/history (5/6in138.67s). Retained actual current
+own contact has one matching bootstrap address, one QUIC address and no relays;
+the added literal quic_addresses=[] was unsupported. Runtime contract section9
+keeps the actual default integration/QUIC listener explicit; an enabled fresh
+host may advertise its actual non-wildcard bound listener in private handoffs.
+
+For this fixed loopback host profile, verify the exact closed signed payload as
+bootstrap_addresses=[h.relay.address], quic_addresses=[h.peer_address], relays=[].
+The independent author changes only that one added expectation from empty to
+the already known actual fixture peer listener. All other newly added signature/
+retention/validity/authority/cleanup checks and all old assertions/actions/order/
+waits remain exact. Preserve the first failure, actual bounded payload category
+artifact and duration; production stays frozen4842404. Commit before one run of
+the corrected source. Do not treat this new fixture error as a runtime fix or
+attribute old callers from its correction.
+
 ## 34. Remaining flow contract
 
 Teammate/device admission, remaining

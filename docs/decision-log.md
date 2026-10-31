@@ -3261,3 +3261,14 @@ changed wait/setup/verdict. Discard treating a helper storage ACK or requester
 local outcome as inviter application, a longer timeout, guessed transport fixes
 and unchanged retry-to-green. An independent author commits before one retained
 run; a pass does not erase the original failure or establish its cause.
+
+### GU.impl33g — Correct the new fixture's unsupported empty-QUIC expectation
+
+The first current-own-hint run passes1–5 but stops at the added payload check
+before cleanup/history,5/6in138.67s. Retained payload counts are bootstrap1
+matching the configured relay, QUIC1, relays0. The fresh peer-enabled runtime
+advertises its actual listener; select the exact known h.peer_address in that
+added fixture expectation. An independent one-line correction retains all other
+new checks and every old assertion/action/order/wait. Discard dropping the exact
+transport comparison, changing runtime advertising, or claiming a product fix.
+Keep the first failure and frozen production; one corrected-source run follows.
