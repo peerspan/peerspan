@@ -680,3 +680,12 @@ application is historical evidence and never a claim of current permission,
 peer delivery, actual model receipt or connection readiness. All333 existing
 native cases/all28 host suites and Rust remain unchanged; independent new native
 cases and final exact-head CI/review follow. Full-feature acceptance stays open.
+
+The separate author committed16 completion cases before execution. Strict native
+validation passes. First local full run347/349 in63.71s retains two new default5s
+timeouts, with all333 existing cases passing and no semantic mismatch reported.
+No known Cargo/rustc activity overlapped either observation; sampled host load
+does not establish a cause. Tests/deadlines remain unchanged, with no unchanged
+local retry. The [verification record](results/guided-native-access-completion-verification.json)
+preserves hashes/provenance/outcomes/limits; required final all28 CI/four checks
+and exact-head fresh bot/root review are recorded on the slice/tracking PR.
