@@ -7176,6 +7176,12 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    in both state comparisons. Observe real time before/after; never move retry
    timestamps, suppress a worker or ignore an outbox/table/counter difference.
    Positive-route captures still finish actual outstanding transport first.
+   If the unchanged bootstrap quiet bound fails, a failure-only observer may
+   retain the last eight existing samples: elapsed/stable milliseconds, retry
+   margins against both actual clocks, secret/readcap/frame/journal counts,
+   fixed changed-table/file categories and all carrier deltas. It adds no
+   network/daemon operation, sleep, state mutation or extra sampling query,
+   prints no raw identifiers/paths/records, and rethrows the original failure.
    Document public-fixture coverage limits.
 6. Closed malformed/duplicate/unknown/null/trailing/oversized/private stdin/argv,
    missing-daemon noncreation, wrong methods and owner-only isolation through
