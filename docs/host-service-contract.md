@@ -352,3 +352,13 @@ observation and explicit `access sign`, under the exact section31 dual approval.
 Only the existing policy action issuer slot is signed; its receipt stays
 nonsigning. No policy application, publication, new consent or readiness follows.
 Both owner routes remain absent from peer/bootstrap and adapter routers.
+
+### Current project readiness evidence
+
+The [guided readiness snapshot](guided-session-contract.md#36-current-project-readiness-evidence)
+adds owner-only `POST /v1/onboarding/readiness` and the advanced stdin-only
+`onboarding readiness --stdin` read. One DB snapshot composes exact current
+project/person/network inspection, the ordinary receiver directory's advertised
+authorizations and only this project's session connections. It makes no overall
+ready, peer reachability or model-receipt claim, starts no network/model work and
+changes no authority/schema. Native presentation and explicit peer probes follow.

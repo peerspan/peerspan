@@ -689,3 +689,13 @@ does not establish a cause. Tests/deadlines remain unchanged, with no unchanged
 local retry. The [verification record](results/guided-native-access-completion-verification.json)
 preserves hashes/provenance/outcomes/limits; required final all28 CI/four checks
 and exact-head fresh bot/root review are recorded on the slice/tracking PR.
+
+### Current project readiness evidence
+
+Section36/GU.impl36 starts after merged85 (`8b20ab5`). One owner-local read binds
+the exact attached project/session, explicitly selected network/person, current
+verified membership/policy, ordinary receiver-advertised authorization entries
+and exact-session adapter connections. A live/verified channel is separate from
+peer reachability and this native model's receipt. No native control or network
+probe is added in this backend slice; observed/full-feature readiness stays open.
+Independent real-host verification and final exact-head CI/review follow.
