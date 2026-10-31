@@ -1184,7 +1184,7 @@ def _():
     parent, prepared, _ = f["applied"]; iid = prepared["access"]["review"]["intent_id"]
     sid = prepared["access"]["review"]["statement"]["id"]; pid = f["main_proof"]
     database = db_path(h)
-    for fault in ("result", "signature", "proof", "admission"):
+    for fault in ("result", "signature", "proof", "admission", "admission_evidence"):
         h.stop(kill=True)
         with closing(sqlite3.connect(database)) as db, db:
             original = db.execute("SELECT record FROM dec_intents WHERE intent_id=?", (iid,)).fetchone()[0]
@@ -1201,6 +1201,12 @@ def _():
                 db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (compact(corrupt).decode(), iid))
             elif fault == "proof":
                 db.execute("DELETE FROM dec_objects WHERE network_id=? AND proof_id=?", (f["net"], pid))
+            elif fault == "admission_evidence":
+                corrupt_admission = json.loads(admission[3])
+                check(sid in corrupt_admission["basis"]["evidence_ids"], "genuine admission lacks the actual required statement evidence")
+                corrupt_admission["basis"]["evidence_ids"] = [item for item in corrupt_admission["basis"]["evidence_ids"] if item != sid]
+                db.execute("UPDATE dec_admissions SET record=? WHERE network_id=? AND context_id=? AND statement_id=?",
+                           (compact(corrupt_admission).decode(), *admission[:3]))
             else:
                 db.execute("DELETE FROM dec_admissions WHERE network_id=? AND statement_id=?", (f["net"], sid))
         try:
@@ -1214,6 +1220,9 @@ def _():
                     db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
                 elif fault == "proof":
                     db.execute("INSERT INTO dec_objects VALUES (?,?,?,?,?)", proof)
+                elif fault == "admission_evidence":
+                    db.execute("UPDATE dec_admissions SET record=? WHERE network_id=? AND context_id=? AND statement_id=?",
+                               (admission[3], *admission[:3]))
                 else:
                     db.execute("INSERT INTO dec_admissions VALUES (?,?,?,?)", admission)
     h.start(); directory(f); stable(f)
