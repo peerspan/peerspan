@@ -3824,3 +3824,15 @@ The requester stays live and both hosts/files/carriers remain counted. Select
 explicit offline-owner coverage; discard claiming both-live worker attribution,
 requester/worker-flag/queue/authority edits or mid-snapshot shutdown. No service
 is needed to inspect its already retained finite signed authority.
+
+GU.impl45 corrected Rust398f4d47 passes fmt, existing155+2ignored, Clippy and
+fresh build. First independent six-case runtime passes6/6in70s (runner70.34),
+compiler-idle before/during/after, using hashed fresh binaries. Genuine remote
+device15 and configured original F, finite caps/fold, independent digest and
+strict both-host DB/files/bidirectional TCP/UDP measurements pass. Existing
+computer goes offline before measurement; requester stays live. No both-live
+worker attribution, fabricated grant or requester original. All65 old files/
+full native415 tree stay exact. Retain macro-size and formatter-edit failures,
+source/fault-only authority/expiry/privacy limits and prior unclassified history;
+no unrelated local rerun. Final combined-head34 suites+build/four checks/native
+415 and fresh bot/root review remain required on PR98.
