@@ -7182,6 +7182,12 @@ Copy only independently authored public helpers; preserve all old files. Cover:
    fixed changed-table/file categories and all carrier deltas. It adds no
    network/daemon operation, sleep, state mutation or extra sampling query,
    prints no raw identifiers/paths/records, and rethrows the original failure.
+   A mismatched expected transport observation may similarly print only its
+   expected/actual fixed result tags and numeric HTTP status, target process
+   running/exit category, counted-proxy thread liveness and fixed carrier counts.
+   It adds no daemon/network/SQL operation or changed assertion/action/timing;
+   the original failure remains a failure. These diagnostics establish no cause
+   when they do not trigger.
    Document public-fixture coverage limits.
 6. Closed malformed/duplicate/unknown/null/trailing/oversized/private stdin/argv,
    missing-daemon noncreation, wrong methods and owner-only isolation through
