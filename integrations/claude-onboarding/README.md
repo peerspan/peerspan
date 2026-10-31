@@ -543,7 +543,7 @@ Typing or pressing Enter does not submit a review or grant anything.
 **Machine request: publication recorded** is separate from machine approval,
 membership, agent access and readiness. **Check machine request progress** reads
 the actual recorded next participant without advancing it. Approval on the
-existing computer is still required; its guided controls are subsequent work.
+existing computer is still required; use **Review machine requests** there.
 The normal **Join a network** original-identity flow remains available separately.
 
 Refresh/reopen recover public state without publishing again. A pending review
@@ -552,6 +552,28 @@ invitation for this machine request** before Approve returns. Unknown outcomes
 require explicit reopening/lookup; no automatic retry. A replacement request
 does not revoke the previous one. Close, expiry and navigation clear private
 input; the invitation never enters agent chat or plugin storage.
+
+## Approve another computer
+
+On the existing computer, attach this project and choose **Review machine
+requests**, then choose the retained request. Review the host-verified person,
+actual target host/device keys, selected original/device authority, finite
+powers7 and deadlines. This public inspection does not test signer availability.
+**Review machine consent** prepares the exact unsigned review; **Approve machine
+consent** explicitly authorizes ordinary owner work. Background work may sign
+and publish after approval. It does not establish membership or readiness.
+
+**Sign machine owner offer** explicitly records only the exact approved initial
+2/3 signatures when currently eligible. **Check machine consent** reads the
+retained receipt and signing evidence without retrying a mutation. Historical
+consent/signatures stay separate from publication, admission, machine powers,
+requester selection/commit, agent access and connection readiness. Other-project
+receipts are view-only. No original key copying, native signer choice or native
+review replacement. Leave/reopen after advanced explicit replacement.
+
+Refresh, Leave and Close discard actionable native evidence. Unknown outcomes
+require explicit Check; fixed original windows never restart. The requester-side
+selection/completion and installed two-machine/model acceptance remain open.
 
 ## Verify
 

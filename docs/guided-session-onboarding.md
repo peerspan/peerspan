@@ -922,3 +922,19 @@ refusal, with requester DB/files unchanged. Its one diagnostic local run passes
 6/6in143s without triggering the observer; preserve the over-target duration and
 original unclassified cause. No runtime transport fix or weaker assertion is
 claimed. Full guided/installed/model/combined acceptance remains open.
+
+
+### Existing computer: native machine-owner controls
+
+Section44/GU.impl44 follows merged96 (`be198c5`). **Review machine requests**
+uses the existing attached project and retained incoming inventory. The native
+pane validates the closed host evidence, shows the actual target and selected
+public authority, and separates exact review preparation, approval and explicit
+initial signing. Pure **Check machine consent** recovers recorded receipt/status
+without mutation retry. Fixed windows, project attribution and view-only history
+remain authoritative; no key copying or signed-as-ready presentation.
+
+This composes sections41–43 without changing Rust/API/schema/protocol behavior.
+Independent native fixtures, root runtime validation, combined-head CI and fresh
+review are required before owner review. Requester completion, real terminal/
+reload, installed/two-machine/model and full #35 acceptance remain open.
