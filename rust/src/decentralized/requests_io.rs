@@ -657,9 +657,11 @@ pub(crate) async fn approver_worker(
                 // request of this machine as requester: its stages arrive by
                 // mailbox and advance without `link resume` (spec 8.4, 9.5).
                 let requester = p.record.roles.iter().any(|r| r == "requester");
+                let approved_owner = p.record.owner_intent_id != "-"
+                    && super::ceremony::owner_intent(&c, &p)
+                        .is_ok_and(|intent| intent.record.approved);
                 if p.record.terminal == "-"
-                    && (p.record.owner_intent_id != "-"
-                        || requester && p.record.commit_packet_base64 == "-")
+                    && (approved_owner || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
                     due.push(id);
