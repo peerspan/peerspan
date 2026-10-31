@@ -3337,3 +3337,9 @@ contract before implementation and use a separate contract-only native author.
 Preserve all312 existing native cases/all28 host suites; re-use unchanged Rust
 local gates and require full final-head CI/review. Hostless people and unsafe
 JS-u64 presentation remain explicit native limits; no second evaluator added.
+
+GU.impl34 clarification: ordinary membership lists machine labels independently
+of person-lease labels. Group choices by exact person key and show each distinct
+quoted machine label; inspection separately supplies the verified person label.
+Discard cross-label equality and treating one machine alias as person identity.
+This corrects the contract before any runtime execution.
