@@ -8795,6 +8795,14 @@ this slice adds one suite, making34 suites+build. Cases:
    independent corruption idiom only after genuine setup and an explicit snapshot;
    no trusted grant or positive authority is fabricated.
 
+The existing computer may use its exact configured original source and one
+explicit ordinary finalize after verified selection under its recorded owner
+consent. The requester never receives/loads that key. An isolated stopped-
+requester malformed retained catalog negative may restart and freshly attach
+BEFORE its unchanged-state snapshot; assert refusal/no repair and never reuse
+that corrupt fixture for positive authority. These are genuine setup/negative
+stimuli, not permission to fabricate grants or disable workers.
+
 Root owns all execution, serializes compiler/runtime gates, verifies fresh debug
 binary hashes and records every first compiler/no-start/local/CI outcome. Run
 Rust fmt, existing155pass/2ignored, Clippy/build and this new six-case suite;
