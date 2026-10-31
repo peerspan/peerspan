@@ -210,7 +210,7 @@ export function consentLines(v) {
     `Exact proposed grant: ${quoted(canonical(r.grant))}`, `Provider: ${quoted(canonical(r.provider))}`,
     `Policy statement: ${r.statement.id}; payload SHA256: ${r.statement.payload_sha256}`,
     `Proposed unsigned policy: ${quoted(canonical(r.statement.payload))}`, `Review created: ${r.created_at}; expires: ${r.expires_at}`,
-    'Approve authorizes the existing policy intent and later policy signing/publication. It does not sign or apply here.',
+    'Approve authorizes the existing policy intent and later signing and publishing of this exact policy. It does not sign or apply here.',
     'Other broader baseline permissions remain. Membership, delegation, files, conversation, capabilities and disconnected access: no new permission.',
     'Signing, local application, peer delivery and connection readiness: not verified here.',
     'Historical consent does not establish current access. Leaving does not revoke consent or retract prior or dispatched work.'].join('\n');
