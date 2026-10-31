@@ -506,7 +506,7 @@ def _():
 def _():
     (a,) = need("a")
     shown = show(a)
-    check(list(shown) == ["enabled", "socket", "runtime", "rule"] and shown["enabled"] is False
+    check(set(shown) == {"enabled", "socket", "runtime", "rule"} and shown["enabled"] is False
           and shown["rule"] is None, f"runtime show before enable: {shown}")
     status, body = peer_submit(raw_task())
     refused(status, body, 403, "runtime_disabled")
@@ -634,6 +634,13 @@ def sign_policy(mutate):
     now = a.now().replace(microsecond=0)
     until = now + timedelta(hours=23)
     body.update(version=body["version"] + 1, issued_at=rfc3339(now), valid_until=rfc3339(until))
+    # A content change is an edit: it names this host's next local edit number (spec 12.1, DEC-S16), which the
+    # read-only plan route gives (appendix 16.6).
+    status, plan = a.api("POST", f"/v2/networks/{state['net']}/policy-edits/plan",
+                         {"provider_id": state["alice_public"]})
+    check(status == 200, f"policy-edits/plan: {status} {plan}")
+    body["edits"] = sorted([e for e in body.get("edits", []) if e["host"] != a.id] + [{"host": a.id, "seq": plan["seq"]}],
+                           key=lambda e: e["host"])
     body = mutate(body)
     # Signed by alice's original key (a policy signer, wire appendix 5), whose only parent is her person grant.
     payload.update(sequence=payload["sequence"] + 1, predecessors=[statement_id], resolves=[],
@@ -734,7 +741,8 @@ def _():
         ("executor", raw_task(executor="vm")),
         ("target_agent_id", raw_task(target_agent_id="agent_" + "0" * 32)),
         ("grant_id", raw_task(grant_id="grant_" + "0" * 32)),
-        ("chain", raw_task(chain=[])),
+        ("delegation", raw_task(delegation=[])),
+        ("chain", raw_task(chain=[])),  # any field not listed is 400 naming it
         ("argv", raw_task(run={"argv": []})),
         ("argv", raw_task(run={"argv": ["a\u0000b"]})),
         ("argv", raw_task(run={"argv": ["x" * 4097]})),
@@ -1047,18 +1055,6 @@ def _():
           and "deleted.txt" not in saved, f"saved results {sorted(saved)}")
 
 
-@suite.case("small_bounds", "runtime Output events (max_output_bytes, output_truncated); Result artifacts (drops); "
-                            "Checks step 3 (input over max_artifact_bytes)")
-def _():
-    a, b = need("a", "b")
-    need("ready")
-    try:
-        small_bounds()
-        zero_bounds()
-    finally:
-        enable("--for", state["alice_principal"], "--for", state["bob_principal"])
-
-
 def small_bounds():
     b = state["b"]
     enable("--for", state["alice_principal"], "--for", state["bob_principal"], "--max-output-bytes", "100",
@@ -1106,6 +1102,18 @@ def zero_bounds():
     status, body = peer_submit(raw_task(run={"argv": ["echo"], "workspace": {"archive": entry["sha256"]}},
                                         artifacts=[entry]))
     check(status == 403, f"a workspace under max_artifact_bytes 0: {status} {body}")
+
+
+@suite.case("small_bounds", "runtime Output events (max_output_bytes, output_truncated); Result artifacts (drops); "
+                            "Checks step 3 (input over max_artifact_bytes)")
+def _():
+    a, b = need("a", "b")
+    need("ready")
+    try:
+        small_bounds()
+        zero_bounds()
+    finally:
+        enable("--for", state["alice_principal"], "--for", state["bob_principal"])
 
 
 # Peer events (runtime Submitter, Peer events).
