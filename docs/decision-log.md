@@ -3462,3 +3462,17 @@ plugin/conformance files stay identical. Earlier uninstrumented causes and the
 initial unchanged owner-finalization immutable-history CI failure remain
 unclassified. Final all30/four checks and fresh bot/root review run on one final
 head; native reachability controls and full-feature acceptance remain open.
+
+### GU.impl39 — Native explicit one-machine outbound connection check
+
+After merged89, choose explicit remote machine selection from a verified local
+status roster, followed by a separate Check outbound connection. Keep a fixed
+short roster/evidence lifetime and exact remote public-key pins around existing
+section38 CLI IO; validate current complete inspection rather than use consent
+history. Current metadata may change while the chosen key stays bound. Display
+transport status/direction separately from permissions/incoming/model evidence.
+Discard defaults, fanout, automatic probes/repair, direct sockets, new durable
+state, overall-ready badges and broader native runtime scope. Contract-first
+independent16 native cases preserve365 old cases/all30 host files; root serial
+gates and final all30/four checks/fresh review precede owner merge. Main PR35 and
+full-feature acceptance remain open.
