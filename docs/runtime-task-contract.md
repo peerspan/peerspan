@@ -306,8 +306,15 @@ The runtime guarantees that:
 
 The daemon copies each result file into its artifact store, verifying size and digest, then
 deletes the run. A restarted daemon reattaches to its runs by `run_id` and resumes from its
-last stored runtime event. A run the runtime does not know (404) while the task is `running`
-fails it with `error: "the runtime restarted"`.
+last stored runtime event.
+- **An unanswered start.** For each dispatched task still `queued`, a restarted daemon first
+  sends the identical `POST /v1/runs` again: 200 resumes a run the runtime already has, and
+  201 starts one it never received. Because the host had stored no `started`, the command
+  starts from the beginning, in a fresh VM without network. A 429 leaves the task dispatched
+  and is retried with backoff; a 422 ends it `rejected`, as at a first start.
+- **A lost run.** Otherwise, a run the runtime does not know (404) fails the task with
+  `error: "the runtime restarted"`: from `running` as above, and from a dispatched `queued`
+  task through `queued` to `failed`, with the run result of a run that never started.
 
 ## Persistence
 
@@ -372,8 +379,9 @@ The suite covers:
   stdout and stderr giving `results_same`; and `deleted.txt` left out when nothing was
   removed. A `changes.tar` over the per-artifact limit is a Rust test, not a suite case;
 - peer events with `wait`, returning early when an event arrives;
-- restarts: the daemon during a run, reattaching and finishing; the fake runtime during a
-  run, failing the task with `the runtime restarted`;
+- restarts: the daemon during a run, reattaching and finishing; the daemon after dispatch and
+  before `started`, resending the start and finishing; the fake runtime during a run, and
+  during its start delay, each failing the task with `the runtime restarted`;
 - `task run` exit codes and `--detach`; `runtime enable`, `disable` and `show`;
 - MCP `run_task` with a workspace path, output notification coalescing and `meta.output`;
 - opening a database of the previous schema version.
