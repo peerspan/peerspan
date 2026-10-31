@@ -1116,7 +1116,7 @@ def check_history_own_contact(f, *, cleanup=False):
         payload_bytes = base64.b64decode(contact['payload_base64'], validate=True)
         check(contact['host_public_key'] == h.public_key and contact['context_id'] == retained['context_id']
               and contact['sequence'] == sequence and contact['payload_base64'] == expected['payload_base64']
-              and json.loads(payload_bytes) == {'quic_addresses': [], 'bootstrap_addresses': [h.relay.address], 'relays': []}
+              and json.loads(payload_bytes) == {'quic_addresses': [h.peer_address], 'bootstrap_addresses': [h.relay.address], 'relays': []}
               and parse_time(contact['issued_at']) > parse_time(f['view']['expires_at'])
               and parse_time(contact['issued_at']) <= h.now()
               and max(h.now(), retained['cleanup_at']) + timedelta(seconds=60) <= parse_time(contact['expires_at']),
