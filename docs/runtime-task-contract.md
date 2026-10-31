@@ -180,7 +180,9 @@ of 1 to 16,384 bytes. Every other event has `chunk: null`. `output` events occur
   the first byte it holds, whichever is first.
 - Order is kept within each stream, not between them.
 - Once a task has streamed `max_output_bytes` in total, the host emits no more `output`
-  events for it. With `max_output_bytes` 0, it emits none.
+  events for it: it streams exactly that many bytes, cutting the last chunk, and
+  `output_truncated` is true when the command wrote more. With `max_output_bytes` 0, it emits
+  none, and `output_truncated` is true if the command wrote anything.
 - `output` events record no activity.
 
 ### The run result
@@ -213,14 +215,17 @@ The final event's `artifacts` lists, by `results`:
   `/workspace` that are new or whose content differs from the workspace archive, and
   `deleted.txt` (`text/plain`), one removed path per line, both relative to `/workspace`.
 
-The host attaches them in that order while the input and result sizes together fit the rule's
-`max_artifact_bytes`, and names the rest in `results_dropped`. A dropped result never fails
+The host takes them in that order and attaches each one whose size, added to the inputs and
+the results already attached, fits the rule's `max_artifact_bytes`; one that does not fit is
+named in `results_dropped`, and the later ones are still tried. A dropped result never fails
 the task.
 - **Per-artifact limit.** A `changes.tar` over 104,857,600 bytes, the artifact contract's
   limit for one file, is dropped.
 - **Together.** `deleted.txt` is never attached without `changes.tar`: when `changes.tar` is
   dropped, `deleted.txt` is dropped with it.
-- **Empty files.** An empty result file is never attached, and is not a drop. An empty log
+- **Empty files.** An empty result file is never attached, and is not a drop. The runtime always
+  makes `changes.tar` a valid tar, never an empty file, so it is attached even when no file
+  changed. An empty log
   shows as `stdout_bytes` or `stderr_bytes` 0, and `changes.tar` without `deleted.txt` means
   nothing was removed.
 - **Identical files.** Digests are unique within a manifest (artifact contract), so a result
@@ -244,7 +249,7 @@ schedule.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `task run --peer HOST [--workspace DIR] [--results none\|output\|changes] [--cpus N] [--memory-mib N] [--timeout DURATION] [--env NAME=VALUE ...] [--cwd PATH] [--input TEXT] [--deadline TIME] [--detach] -- COMMAND...` | `POST /v1/tasks` with `executor` and `run` | Packs the workspace (below), uploads it, cites the target's policy, and submits. `--input` defaults to the command line joined with spaces, cut at 65,536 bytes. Without `--detach` it follows the local events, writes each `output` chunk to its own stdout or stderr, saves result artifacts into `./peerspan-results/TASK_ID/` when `--results changes`, writing a name in `results_same` as a copy of the file it maps to, and exits with `exit_code`, 128 + `signal`, 124 for a timeout, or 125 when the task ended otherwise. With `--detach` it prints the local record. |
+| `task run --peer HOST [--workspace DIR] [--results none\|output\|changes] [--cpus N] [--memory-mib N] [--timeout DURATION] [--env NAME=VALUE ...] [--cwd PATH] [--input TEXT] [--deadline TIME] [--detach] -- COMMAND...` | `POST /v1/tasks` with `executor` and `run` | Packs the workspace (below), uploads it, cites the target's policy, and submits. `--input` defaults to the command line joined with spaces, cut at 65,536 bytes. Without `--detach` it follows the local events, writes each `output` chunk to its own stdout or stderr, saves result artifacts into `./peerspan-results/TASK_ID/` when `--results changes`, writing a name in `results_same` as a copy of the file it maps to, and exits with `exit_code`, 128 + `signal`, 124 for a timeout, or 125 when the task ended otherwise, `cancelled` included. With `--detach` it prints the local record. |
 | `task inspect`, `task events`, `task cancel`, `task artifact` | as today | Records and events show `executor`, `run` and `chunk`. |
 
 `POST /v1/tasks` takes `executor: "runtime"` and `run` in place of `target_agent_id`; the
@@ -282,8 +287,9 @@ and the result manifest.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `runtime enable --socket PATH [--for PRINCIPAL ...] [--max-cpus N] [--max-memory-mib N] [--max-seconds N] [--max-output-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--network ID]` | `PUT /v1/runtime` with `{socket}`, then the policy routes | Checks that `GET /v1/runtime` answers on `PATH`, stores the switch, then adds or replaces this host's runtime rule in the person's policy for the selected network and signs the next version through the network's provider, as a policy edit with a version check (spec section 12.1): a policy that changed meanwhile fails with `state_conflict` and the CLI reloads and starts again, and an unsettled edit refuses it. Before signing it states that hosts on software without runtime rules will stop accepting this person's policy (RUN-5). `--network` is optional when this host belongs to exactly one coordinator-free network. `--for` defaults to `person:` this host's person, the person its binding grant names. The maximums default to 2 vCPUs, 2,048 MiB, 3,600 seconds, 1,048,576 output bytes and 104,857,600 artifact bytes, and may not exceed what the runtime reports. |
-| `runtime disable [--network ID]` | `DELETE /v1/runtime`, then the policy routes | Clears the switch and removes this host's runtime rule, signing as for `runtime enable`. Running tasks finish; queued ones are rejected at start. |
+| `runtime enable --socket PATH [--person-key PATH] [--for PRINCIPAL ...] [--max-cpus N] [--max-memory-mib N] [--max-seconds N] [--max-output-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--network ID]` | `PUT /v1/runtime` with `{socket}`, then the policy routes | Checks that `GET /v1/runtime` answers on `PATH`, stores the switch, then adds or replaces this host's runtime rule in the person's policy for the selected network and signs the next version through the network's provider, as a policy edit with a version check (spec section 12.1): a policy that changed meanwhile fails with `state_conflict` and the CLI reloads and starts again, and an unsettled edit refuses it. Before signing it states that hosts on software without runtime rules will stop accepting this person's policy (RUN-5). `--network` is optional when this host belongs to exactly one coordinator-free network. `--for` defaults to `person:` this host's person, the person its binding grant names. The maximums default to 2 vCPUs, 2,048 MiB, 3,600 seconds, 1,048,576 output bytes and 104,857,600 artifact bytes, and may not exceed what the runtime reports. |
+| `runtime disable [--network ID] [--person-key PATH]` | `DELETE /v1/runtime`, then the policy routes | Clears the switch and removes this host's runtime rule, signing as for `runtime enable`. Running tasks finish; queued ones are rejected at start. |
+| `PUT /v1/runtime`, `DELETE /v1/runtime` | | Set or clear only the switch, never the policy. `PUT` takes `{socket}`, an absolute path whose runtime answers `GET /v1/runtime` (otherwise 503), and returns the runtime's report; `DELETE` returns `{"enabled": false}`. Both answer 200. |
 | `runtime show [--json]` | `GET /v1/runtime` | `{enabled, socket, runtime, rule}`: the switch, the runtime's own report or `{error}`, and this host's runtime rule with its `network_id` added, from the first coordinator-free network by ID whose current policy of this host's person has one, or null. |
 
 `run --runtime-socket PATH` sets the switch at start and overrides the stored value.
@@ -301,8 +307,13 @@ other than those below.
 | `POST /v1/runs` with `{run_id, argv, cwd, env, resources, workspace_archive, results}` | Starts a run. `resources` is complete; `workspace_archive` is an absolute path the daemon can read, or null. 201 with the run record `{run_id, state, created_at}`; 200 with the same record for an identical repeat; 409 for a reused `run_id` with different fields; 429 when every slot is busy; 422 when `resources` exceed the runtime's maximums. |
 | `GET /v1/runs/{run_id}/events?after=N&wait=S` | Events with `sequence` after `N`, waiting up to `S` (0 to 25) seconds for the first. Each is `{sequence, kind, ...}`: `started`; `stdout` or `stderr` with `data` (base64, 1 to 16,384 bytes); `exited` with `result`, the run result above without `output_truncated`, `results_dropped` and `results_same`; then `results` with `artifacts`, a list of `{name, path, size, sha256, media_type}` in the order above. `results` is last. |
 | `POST /v1/runs/{run_id}/cancel` | Stops the run. It then ends with `exited`, `signal` 9. A finished run is unchanged. |
-| `DELETE /v1/runs/{run_id}` | Deletes the run and its files. |
+| `DELETE /v1/runs/{run_id}` | Deletes the run and its files; 200 with `{}`. |
 | any unknown `run_id` | 404. |
+
+The run record's `state` is `running` until the run has exited, then `exited`. The events
+response is a JSON array of events. Error codes are `invalid` (400), `not_found` (404),
+`conflict` (409), `too_large` (422) and `busy` (429). A run that never started still ends
+with `exited` then `results`.
 
 `run_id` is `run_` followed by the lowercase hex SHA-256 of `<sender host ID>/<task_id>`.
 
