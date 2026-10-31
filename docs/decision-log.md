@@ -3646,3 +3646,16 @@ that noncompiling test wrapper while explicitly retaining its PID/activity in
 all local receipts. Discard killing others, pretending global idle or waiting
 indefinitely on the cargo process name. No tests/deadlines/counters change.
 Re-run Rust gates on the actual local-member product correction before suite.
+
+GU.impl41 corrected verification: fresh format, existing Rust155/2ignored, Clippy
+and build pass for tree4f9ac21c. First local six-case diagnostic suite passes6/6
+in36.19s on hashed fresh binaries, with no known compiler at before/during/after
+samples and no observer output. This does not recover the first CI case5
+status/code; preserve that unknown cause. All74 old conformance/native files and
+native393 stay exact; independent diagnostic removal restores prior bytes/AST.
+The verification record retains first CI0/6, all30 existing host suites/four
+checks passing, compile/resource/orchestration limits and every source/test/
+binary/log hash. No unchanged local suites are rerun for cleaner receipts.
+Final combined-head all31+build/four checks/fresh bot/root review follow. Exact
+existing-owner consent/signing/native controls/requester completion and all
+full-feature acceptance remain open.
