@@ -3284,3 +3284,11 @@ only these diagnostic corrections. Discard unknown-by-construction metadata,
 probing/mutating the bootstrap store, arbitrary error output or changing tests'
 verdicts/driver/waits. Preserve initial author bytes and correction provenance;
 this is pre-execution review with no new runtime/product change.
+
+### GU.impl33i — Recognize the displayed transport-code prefix
+
+Select fixed-category parsing of the existing attention prefix before its colon,
+without emitting or interpreting explanatory text. Exact bare-string comparison
+misses the supported displayed form. An independent metadata-only correction
+preserves all old behavior and the first local diagnostic's65222cc2 attribution.
+Discard copying raw attention/error text or changing protocol retries/waits.
