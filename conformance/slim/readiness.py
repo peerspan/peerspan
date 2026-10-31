@@ -45,7 +45,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address, peer_request
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address
 
 suite = Suite("readiness", __doc__)
 BASE = "/v1/onboarding/readiness"
@@ -334,7 +334,8 @@ def retired_transport(f):
 
 
 def unsigned_maintenance(h):
-    key = ssh_key(suite.work, "access-maintenance-" + h.name)
+    h.readiness_maintenance_pass = getattr(h, "readiness_maintenance_pass", 0) + 1
+    key = ssh_key(suite.work, "readiness-maintenance-" + h.name + "-" + str(h.readiness_maintenance_pass))
     status, spare = h.api("POST", "/v2/link/requests", {
         "mode": "new", "network_id": "-", "person_public_key": ssh_public_base64(key),
         "migration_proposal_id": "-", "contact_invitation": "-", "helpers": []})
@@ -488,13 +489,35 @@ def observe(f, parent=None, *, person=None, body=None, status=200, code=None):
     return value
 
 
+def directory_array(f):
+    """The public receiver-directory route returns an array, unlike contacts."""
+    args = [str(suite.probe_bin), "--state", str(f["a"].state), "--address", peer_address(f["b"]),
+            "--alpn", "peerspan-peer/1", "--path", "/peer/v1/networks/" + f["net"] + "/agents", "--method", "GET"]
+    try:
+        result = subprocess.run(args, input=b"", capture_output=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        check(False, "ordinary receiver directory probe failed: HTTP unknown, body unknown, transport_ok false")
+    try:
+        envelope = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        envelope = None
+    status = envelope.get("status") if type(envelope) is dict else None
+    body = envelope.get("body") if type(envelope) is dict else None
+    known_status = status if type(status) is int and 100 <= status <= 599 else "unknown"
+    body_type = ({dict: "object", list: "array", str: "string", int: "number", float: "number",
+                  bool: "boolean", type(None): "null"}.get(type(body), "unknown") if type(envelope) is dict else "unknown")
+    check(result.returncode == 0 and status == 200 and type(body) is list,
+          f"ordinary receiver directory probe failed: HTTP {known_status}, body {body_type}, transport_ok {result.returncode == 0}")
+    return body
+
+
 def auths(f, view=None, *, compare_peer=True):
     view = observe(f) if view is None else view
     peers = view["readiness"]["peers"]
     check(len(peers) == 1 and peers[0]["host_id"] == f["a"].id, "two-person fixture omitted exact remote machine")
     actual = peers[0]["authorizations"]
     if compare_peer:
-        ordinary = peer_request(suite, f["a"], f["b"], "GET", "/peer/v1/networks/" + f["net"] + "/agents")
+        ordinary = directory_array(f)
         check(type(ordinary) is list, "ordinary authenticated receiver projection is not an array")
         selected = [entry for entry in ordinary if entry["agent_id"] == f["pb"]["review"]["agent"]["id"]]
         check(len(selected) == (1 if actual else 0), "ordinary receiver and readiness disagree on agent presence")
