@@ -8643,7 +8643,168 @@ changes: unchanged Rust/host behavior is verified by combined-head CI. New cases
     machine/model receipt, requester completion and #35 combined acceptance
     remain open and cannot be inferred from passing fixtures.
 
-## 45. Remaining flow contract
+## 45. New-computer verified machine requester commit inspection
+
+GU.impl45 follows merged97. The new computer must review its actual received
+existing-person owner finalization without having that person's original key or
+a local new-original owner intent. This slice supplies the pure backend review;
+exact requester consent, bounded completion and native controls follow. It does
+not broaden sections16/24/27/28's new-original assumptions or spec8.4 selection.
+
+### Private request and strict eligibility
+
+Owner-local POST `/v1/onboarding/join-flows/{id}/machine-commit/inspect` accepts
+exactly `{context,join_review_id}`. Context is section5's five-field attached
+project context; flow IDs are flow_32hex, review IDs review_64hex. Advanced
+`peerspan onboarding join machine-commit inspect --stdin` accepts exactly those
+fields plus `flow_id`. Recursive duplicate/unknown/missing/null/type/canonical
+ID/context checks,65536-byte input cap, configured owner socket and fixed redacted
+CLI/argument failures. IDs/private payloads remain in stdin, never argv. Both API
+and CLI have5s bounds. No daemon startup, scoped adapter/peer/bootstrap route or
+model tool. Missing flow404 not_found; malformed400 invalid; changed exact
+context/join review or detached/replaced current parent409 review_changed;
+missing ordinary request409 request_unavailable; elapsed windows409 review_expired;
+other unsupported/corrupt/missing authority409 machine_requester_inspection_unavailable.
+
+One held read transaction binds the exact retained requested section12 join flow,
+its immutable invitation/network/context/person outcome and attached project agent
+to the actual ordinary request. Require the signed invitation's explicit person
+pin equal to that person, requester/new/nonmigration role, all signed request
+network/context/person pins exact, and this host's actual target key/device.
+The network must not already exist locally. No local owner intent or original
+possession offer qualifies. Require exact selected owner and signed requester
+selection, selection_approved true, received owner finalization and actual
+needs_commit state. Completed stages are request_created/owner_offered/
+owner_selected/owner_finalized, with administrator_offered between selection and
+finalization iff a separate administrator packet exists. Do not fabricate that
+stage or require it when the owner legitimately folded host admission.
+
+No commit approval/intent/template/signature/packet, manifest, activation or
+outcome may exist, including an unreferenced ordinary requester_commit intent.
+This first inspection does not adopt or repair advanced work. Current time must
+be at/after signed request creation and current stage_at and strictly before
+request expiry, stage_at+600s (creation+600s if absent) and proposed powers expiry.
+Use the existing guarded clock read without saving it; recheck the exact current
+attached parent at the verified effective observation time.
+
+Read retained signed packets/catalog only. Reuse ordinary exact offer/selection/
+optional administrator/finalization and Projection::prepare_finalization checks:
+actual descriptor/genesis/context/root, signature/parent/object IDs, proof
+completeness, P/H/B/D paths, restrictions/maxima/conflicts/migration and finite
+bounds. Selected offer must name an admitted existing person with a non-dash
+owner root/person lease, remote original_person or device provider, and a writer
+host different from this requester. No possession-only/new-original, network_root,
+first-candidate/default provider, local-original or private-signer fallback.
+This is evidence retained locally, never a claim that unseen remote revocations
+are known. Existing original/device authority remains valid only as the ordinary
+verified projection permits.
+
+Require signed owner scopes7, proposed binding scope2 and new device scope7 for
+the exact person/host/device. Administrator8 is excluded for the new machine.
+Powers not_after is the owner's actual signed finite deadline, no later than
+signed request creation+7days or verified provider's effective deadline. Validate
+the actual proposed binding/device IDs and parents against finalization; a
+legitimate already existing binding may be reused only as ordinary verification
+permits, with that distinction returned. Current F/root/person/host dependencies
+are actual verified IDs, never caller strings or reconstructed authority.
+
+### Closed public result and purity
+
+Return exactly `{version:1,host_id,context,flow_id,join_review_id,observed_at,
+request,review_id,review,next_action:"review_machine_requester_consent"}`.
+Request is the complete ordinary public LINK_VIEW at that same effective time.
+Review is exactly:
+
+- `version:1,kind:"inspect_existing_person_requester_commit",host_id,context,
+  agent,flow_id,join_review_id,request_id`;
+- `network:{id,name,context_id,genesis_root_public_key}`, current person `member`,
+  exact `person_public_key,host_public_key,device_public_key`;
+- `request_packet_id,owner_offer_id,selection_id,administrator_offer_id,
+  owner_finalization_id`; administrator ID dash iff folded;
+- `owner_root_state_id` from the verified owner packet, `root_state_id` from
+  actual verified finalization, `person_lease_id,host_lease_id,binding_lease_id,
+  device_lease_id` from its verified P/H/B/D components;
+- `owner_provider`, the ordinary complete closed public authority object
+  `{kind,person_public_key,host_public_key,device_public_key,lease_id,
+  root_state_id,scopes,not_after}`. This is the remote signer's verified public
+  path, not the requester's device and not private signer availability;
+- `host_admission:"folded_owner"|"separate_administrator"`, `reused_binding:bool`,
+  `scopes:7,binding_scopes:2,not_after`, signed request `created_at,expires_at`,
+  fixed current `request_stage_deadline`;
+- `effects:{verify_existing_owner:true,verify_requester_selection:true,
+  verify_host_admission:true,verify_owner_finalization:true,
+  prepare_commit_intent:false,approve_commit_intent:false,
+  sign_requester_commit:false,publish_requester_commit:false,
+  apply_network:false,grant_membership:false,grant_machine_powers:false,
+  grant_agent_access:false,share_files:false,share_conversation:false,
+  capability_calls:false}`.
+
+Review ID is review_+SHA256 of UTF8
+`peerspan-machine-requester-inspection-v1\n` plus recursively sorted compact
+canonical JSON of the entire review. Observation time stays outside it; unchanged
+terms keep their digest. A root/provider/packet/project/deadline change refuses
+or changes actual public terms; it never repairs an old review. This digest is
+not consent, a readiness token or proof of current remote reachability.
+
+At most2MiB safe closed public output. Reject unsafe control/private-prefixed
+labels/aggregates; never expose invitations, request codes/secrets, credentials,
+seeds, signatures/raw packets/templates/catalog, routes or signer diagnostics.
+No original inventory/import/copy/generation, private original/device resolver,
+file/SSH-agent availability probe or signer invocation. Ordinary retained-record
+and loaded host-identity validation stays intact. No intent/approval/template/
+key/clock save, journal/schema, queue/frame/contact/cache/event change, cleanup,
+fetch/observe/resume/publication, adoption or network IO. Unrelated already
+approved ordinary workers may progress independently; settle genuine carrier
+prerequisites before whole-state assertions. Read-only does not disable them.
+
+### Verification
+
+A separate contract-only author adds six compact `machine_requester_inspection`
+black-box cases using real distinct temporary hosts, signed pinned invitations,
+requester public-key-only publication, guided existing-owner consent and genuine
+ordinary owner/device/finalization evidence. Original person key stays only on
+the existing computer; no authority/queue/clock row edits, fabricated grants,
+worker disabling, eager suite imports or relaxed whole-state/carrier counters.
+Source is committed before root executes. Preserve the baseline33 host suites, all helpers and415 native cases (all65 tracked test files) exactly;
+this slice adds one suite, making34 suites+build. Cases:
+
+1. Genuine guided device-owner15/folded admission reaches needs_commit. Exact
+   API/CLI wrappers, independently computed digest, actual remote authority and
+   target keys, P/H/B/D/F references, finite7/2, no fake administrator stage.
+   Missing requester original identity/files/agent cannot prevent public review.
+2. Genuine original-person remote owner and effective cap when bounded fixture
+   permits; provider remains remote. A second identical read preserves digest.
+   Whole logical DB/schema/state/home and counted bidirectional TCP+UDP carriers
+   stay unchanged on repeated API/CLI inspection after settled ordinary work.
+   Document separate-admin/device7/reused-binding gaps if no genuine bounded
+   stimulus; do not fabricate evidence or claim unexecuted coverage.
+3. Closed nested input corpus, IDs/types/nulls/duplicates/size and fixed CLI
+   errors/argv privacy; unknown request/flow, stale context/review/agent and
+   restart/detachment refuse without mutation or daemon creation.
+4. Genuine wrong role/unpinned/renew/new-original/owner missing/selection missing/
+   finalization missing, already existing network or commit work refuse as
+   available through real public prerequisites. Do not overwrite protocol rows
+   just to construct unavailable states. Source-only exclusions are explicit.
+5. Real request/stage/powers expiry/cancellation and current verified authority
+   change refuse, preserving whole DB/files and all carriers; no expiry cleanup
+   or clock save. Retain the first actual crossing and limits if independent
+   workers prevent attribution. No unchanged rerun-to-green.
+6. Scoped adapter, peer and bootstrap absence; unsafe public labels/aggregate
+   and genuine invalid evidence refuse without raw/private material or repair.
+   Isolated malformed/corrupt-record storage stimulus may use the established
+   independent corruption idiom only after genuine setup and an explicit snapshot;
+   no trusted grant or positive authority is fabricated.
+
+Root owns all execution, serializes compiler/runtime gates, verifies fresh debug
+binary hashes and records every first compiler/no-start/local/CI outcome. Run
+Rust fmt, existing155pass/2ignored, Clippy/build and this new six-case suite;
+use unchanged prior native415 evidence and require final combined-head34-suite+
+build/four checks/native415/fresh bot/root review. No unrelated local host/native
+retries, old case/wait/default timeout edits or quota-refused model probes.
+Requester exact consent/bounded completion/native flow and terminal/reload/
+installed/physical/model/schema23→27/full-state/#35 acceptance remain separate.
+
+## 46. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
