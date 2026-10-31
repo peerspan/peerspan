@@ -659,7 +659,7 @@ pub(crate) async fn approver_worker(
                 let requester = p.record.roles.iter().any(|r| r == "requester");
                 let approved_owner = p.record.owner_intent_id != "-"
                     && super::ceremony::owner_intent(&c, &p)
-                        .is_ok_and(|intent| intent.record.approved);
+                        .is_ok_and(|intent| intent.record.approved && intent.record.terminal == "-");
                 if p.record.terminal == "-"
                     && (approved_owner || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
