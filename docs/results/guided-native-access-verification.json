@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "pr": "https://github.com/peerspan/peerspan/pull/82",
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "scope": "Native exact project access inspection, lookup-first nonsigning consent preparation/recovery and separate approval; no signing/application/readiness claim.",
+  "status": "Final exact-head isolated CI/PR checks/fresh bot+root review pending, recorded on PR82/35 after this evidence commit. All first failures and known overlap retained; no unchanged local retry.",
+  "base": "5dbc4a03a5944316eef3c4ac289fba4f57ec8d0f",
+  "contract_first": "b2bce32",
+  "clarifications": [
+    "67255ea",
+    "9caf76b",
+    "ce00619",
+    "8994841"
+  ],
+  "initial_frontend": "c7cf4c868bb0678ff89109013e38c56c057030d4",
+  "pre_execution_source_refinements": [
+    "a2e4942: refuse invalid Unicode",
+    "7f0911b: retain selected network context and quote machine labels individually",
+    "14bf4f6: validate frozen inspection at proposal creation",
+    "18c6561: name paging choices for networks or people"
+  ],
+  "prose_correction": "18321a1: later signing and publishing, no behavior change",
+  "verified_local_source": "84cfa1bedfe9bc59492d2ec2e7daefc250de4dc4",
+  "source_sha256": {
+    "integrations/claude-onboarding/hooks/access.mjs": "c8af5c05376acf3209ca38f82aed521c8668933dbc5cf8d6e012894bafd57db5",
+    "integrations/claude-onboarding/hooks/register.mjs": "19c078f4ec81b943d4e301475d8ba3208695121ba3d56fedc6348ba361c9a083",
+    "integrations/claude-onboarding/tests/access-review.test.ts": "d7631bf40ea8f24c52c557ddac5688842119a0ea9f78efbbaaa81440a020258d"
+  },
+  "rust_unchanged_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+  "rust_required_local_gates_reused": "Merged80 frozen4842404: Rust155passed/2ignored, fmt/Clippy/shipped binaries. This native-only slice changes no Rust/API/schema/protocol/host tests; required CI runs all Rust gates again.",
+  "required_native_runtime": "Claude Code2.1.303",
+  "independent_native_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-native-access-conformance",
+    "initial_source": "f290c59a25c52c823dd749c8bcee542398a72c1f",
+    "initial_integration": "0a205e0",
+    "pre_execution_privacy_correction": "2890ff9d2f0fa468ee820a14dffa12359a423b57",
+    "privacy_integration": "b97a517",
+    "pre_execution_baseline_correction": "4285bcc975fd8124230d4ec932cd509a583b4bfc",
+    "baseline_integration": "2494ddf",
+    "registration_correction": "0e83ceafc4a4afd2c41bd0e91ebd926ee29386ed",
+    "registration_integration": "0f27db1",
+    "parent_prerequisite_correction": "36437102f9ae43ab5965cbc2fe5cbfbdc91b4e22",
+    "parent_integration": "84cfa1bedfe9bc59492d2ec2e7daefc250de4dc4",
+    "cases": 20,
+    "declaration": "Author read contracts and independent tests only, never hooks/Rust/product diffs/helpers; no author runtime/build/process/network/inference. Root ran every native gate serially. Corrections preserve all20 cases/actions/assertions/delays/timeouts and exact private/outside boundaries."
+  },
+  "local_runs": [
+    {
+      "gate": "native_strict_validation",
+      "exit": 0,
+      "seconds": 0.66,
+      "head": "c7cf4c868bb0678ff89109013e38c56c057030d4",
+      "log": "/dev/shm/gu34/native-validation-first.log",
+      "log_sha256": "2db8be244ff17856b8c9656c77eb4cf1dcc248ad20c509c93ed32f6ece431f34"
+    },
+    {
+      "gate": "validation-combined-first",
+      "head": "2494ddf4539f9162a8f546e7caf1bef099638090",
+      "exit": 0,
+      "seconds": 0.73,
+      "log": "/dev/shm/gu34/validation-combined-first.log",
+      "log_sha256": "2db8be244ff17856b8c9656c77eb4cf1dcc248ad20c509c93ed32f6ece431f34"
+    },
+    {
+      "gate": "native-combined-first",
+      "head": "2494ddf4539f9162a8f546e7caf1bef099638090",
+      "exit": 1,
+      "seconds": 51.88,
+      "log": "/dev/shm/gu34/native-combined-first.log",
+      "log_sha256": "8511a03828787a3e6fb9d98facf87bedc7b147a076f26bbd6a76a4d010254932",
+      "result": "312 passed /1 file-load failure; new20 cases not executed",
+      "finding": "Configured test registered as test(name,body,options), but pinned public API requires test(name,options,body)."
+    },
+    {
+      "gate": "native-registration-corrected",
+      "head": "18c6561cf437fffa9fb9bb2a766a9b9c3df391bf",
+      "exit": 1,
+      "seconds": 57.55,
+      "log": "/dev/shm/gu34/native-registration-corrected.log",
+      "log_sha256": "8a914d5c3b261e928a05ebe48026a57d4f20200a99e08e392b2022ed24af005d",
+      "result": "325 passed /7 failed of332",
+      "findings": [
+        "All312 old cases passed.13 new cases passed.",
+        "Six cases stop at recorded() prose regex requiring publish; UI used signing/publication. Clarified later signing and publishing without changing behavior.",
+        "One new historical-expiry fixture calls receipt before attached parent exists; independent prerequisite correction preserves20 cases/assertions/time/delays."
+      ]
+    },
+    {
+      "gate": "native-parent-corrected",
+      "head": "84cfa1bedfe9bc59492d2ec2e7daefc250de4dc4",
+      "exit": 1,
+      "seconds": 111.9,
+      "log": "/dev/shm/gu34/native-parent-corrected.log",
+      "log_sha256": "1f38ff7a5beb5969a7d090aabc60115b53d57c083ae7d233432c60e8670e9d77",
+      "result": "317 passed /15 default5s timeouts of332",
+      "findings": [
+        "14/20 new cases pass, including both async expiry phases and established lease preservation; six new cases time out.",
+        "303/312 unchanged cases pass; nine old cases time out. No semantic mismatch reported in this run.",
+        "Observed external cargo build -q PID2613471 and multiple rustc/SQLite compilation processes overlap. Host loadavg25.50/17.07/10.21 at observation. Causal attribution unclassified. No test deadline/corpus/assertion changed and no unchanged local retry. Required final exact-head CI provides separate runner verification."
+      ]
+    }
+  ],
+  "initial_source_ci": {
+    "head": "340eb1adc6c5d78b62c081939d691e6a0c0958a5",
+    "pr_checks": {
+      "run_id": 41161842230,
+      "result": "all4 jobs success; old312 native cases only, independent20 not integrated yet"
+    },
+    "conformance": {
+      "run_id": 41161842324,
+      "result": "build success,26/28 suites success,2 unchanged suites fail",
+      "failures": [
+        {
+          "suite": "incoming_progress",
+          "job_id": 124421188635,
+          "result": "5/6 in74s",
+          "observation": "Existing final fetched-prefix/history check reports recreated work or changed ordinary administrator history; changed category/caller unclassified.",
+          "log": {
+            "path": "/tmp/gu82-initial-CI-124421188635.log",
+            "sha256": "027b1e1214c88d5387ffecdce38d1ad45069ca90fc4c3a4ad664470a00511d1f"
+          }
+        },
+        {
+          "suite": "requester_completion",
+          "job_id": 124421188648,
+          "result": "5/6 in84s",
+          "observation": "Existing detached API pure replay observes issuer UDP2 datagrams/2400bytes, returned0; timing projection unknown, exact caller unclassified.",
+          "log": {
+            "path": "/tmp/gu82-initial-CI-124421188648.log",
+            "sha256": "d77c74fa404553798fd6eca637228babc043556dfa0734fdd38102157aa181ad"
+          }
+        }
+      ]
+    }
+  },
+  "preservation": {
+    "base": "5dbc4a03a5944316eef3c4ac289fba4f57ec8d0f",
+    "original_slim_helper_native_test_files_byte_identical": 45,
+    "all312_prior_native_cases_and_all28_host_suites_unchanged": true,
+    "shared_helpers_counters_and_native_test_assertions_unchanged": true
+  },
+  "limits": [
+    "Frontend fixtures validate public projections/effects, not daemon signature/ancestry/evaluator/storage behavior; unchanged host suites supply their separate evidence.",
+    "Hostless people not listed. Unsafe JS-u64 presentation refuses rather than rounding. No native replacement/revocation or signing/application controls in this slice.",
+    "Obsolete rendered callbacks and microscopic final-check/dispatch races remain source/manual where pinned public kit cannot deliver them.",
+    "No real terminal/reload/installed/physical/model/schema23-to27/full-state/readiness/full-feature acceptance is claimed. Prior quota-refused probes not repeated.",
+    "Initial incoming-progress mutation category and requester-completion UDP caller remain unclassified; final passes do not retroactively identify them. Earlier PR79/80 failures remain retained in their original records.",
+    "Local final317/332 result is retained with15 default5s timeouts and observed external compiler overlap; no unclassified timeout is attributed to that overlap as established cause."
+  ],
+  "merge_policy": "Leave PR82 and tracking35 unmerged for owner review."
+}
