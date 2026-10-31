@@ -658,3 +658,13 @@ timeout follows. Final exact-head CI uses a separate runner and stays required.
 Initial draft CI separately retains two unchanged host history/purity failures;
 their callers remain unclassified. Final receipts are recorded on PR82/35 after
 the evidence commit. No full-feature readiness/acceptance gate is inferred.
+
+Combined03c05f4 CI passes all28 host suites and four PR checks, including
+native332/332in77.88s, then fresh review identifies P2: valid inherited matching
+actions may have reversed order. GU.impl34a precedes a set-comparison-only fix
+and independent21st regression. Raw inherited policy order, default fields,
+unrelated terms and digests stay intact; original20 case bodies remain exact.
+After observing the known external compiler completed, fixed-source full native
+333/333 passes in61.13s on its first run. Earlier timeouts remain unclassified;
+this pass does not establish their cause. Final corrected-head CI/review are
+recorded on PR82/35, with all full-feature acceptance gates still incomplete.
