@@ -8160,6 +8160,23 @@ all actual compilers. Discard killing another track, target-cache sharing,
 claiming global idle, weakening suite bounds or indefinitely serializing
 unrelated compilation. This changes scheduling, not test assertions or gates.
 
+### GU.impl42d: automatic owner work requires actual approval
+
+Corrected CI89a7531 (run41238950061, job124648967716) passes5/6in31s: catalog
+preservation and code mismatch pass. Case4 captures a new requester TCP
+connection with no TLS bytes, UDP, DB/file/schema/version change during a pure
+unapproved prepare replay. Preserve log SHA256
+62e77ae8d3860ed925045066f22ec01dce6991128a9fb3ad912e940a148f26d6.
+Source review identifies the ordinary background worker's approver condition
+checks owner_intent_id presence without checking approval, despite its documented
+approved-work boundary. Require a validated approved ordinary owner intent before
+automatic owner-side poll/resume/publication. Requester-side polling under its
+independent existing request publication remains unchanged. Neither an unsigned
+receipt nor prepared owner intent authorizes owner transport work. This fixes a
+product consent boundary; do not add a waiting/hold workaround or relax counters.
+Earlier standalone DB/file purity and requester-completion UDP causes remain
+unclassified; this source defect does not establish their causes.
+
 ## 43. Remaining flow contract
 
 Teammate/device admission, remaining
