@@ -1191,7 +1191,7 @@ A local delivery is one `conversation.message_sent` only. A repeat records nothi
   - Messages that become printable together print in display order, per conversation. So one author's messages print in `seq` order whenever the earlier ones arrive within the hold.
   - Messages of different authors that arrive in separate polls print as they arrive: nothing tells this host that an earlier one is on its way.
 - stdout is flushed after each line.
-- It posts the cursor after printing each batch (see above). A held message has not been printed, so the cursor does not count it, and it stays unread if watch ends first.
+- It posts the cursor after printing each batch (see above). A held message has not been printed, so the cursor does not count it, and it stays unread if watch ends first. The cursor is a single high-water mark, so while a conversation holds a message, watch posts nothing for that conversation: messages it printed meanwhile are posted once the hold ends, and stay unread if watch ends first.
 - SIGINT or SIGTERM ends it with exit 0. A daemon that cannot be reached exits 1 as for any command; a failure after it started is retried once a second until the daemon answers again.
 
 **Daemon stop.** A held `GET /v1/conversations/events` answers at once when the daemon gets SIGINT or SIGTERM, with what it has, possibly `events` `[]`, so a running `watch` does not delay the stop. The routes that wait up to 15 seconds for another host do not delay it either: `POST /v1/conversations` and C2's `add` answer at once as they do at 15 seconds, with the target `inviting`, and `POST /v1/conversations/{id}/join` answers at once with its 503 `unavailable`. See the [host service contract](host-service-contract.md) for the limits.
