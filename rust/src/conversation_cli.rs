@@ -658,14 +658,11 @@ async fn watch(
                         }
                     } else if view["earlier_missing"] == true {
                         let seq = m["seq"].as_i64().unwrap_or(0);
-                        // It waits no longer than an earlier held one of its author.
+                        // One limit for all of an author's held messages in a conversation,
+                        // so that no arrival can extend it for the others.
                         let since = held
                             .iter()
-                            .filter(|h| {
-                                h.conversation == id
-                                    && h.author == text(&m["author"])
-                                    && h.seq < seq
-                            })
+                            .filter(|h| h.conversation == id && h.author == text(&m["author"]))
                             .map(|h| h.since)
                             .min()
                             .unwrap_or_else(std::time::Instant::now);
