@@ -100,3 +100,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `readiness`: current exact-project membership, receiver-advertised access and
   exact-session adapter evidence, read purity and owner-router isolation
   (guided session contract section36). No peer/model readiness inference.
+
+- `peer_reachability`: explicit one-machine pinned outbound peer observation,
+  current project/authority guards around IO, no contact-learning sync or
+  durable observation, privacy and owner-router isolation (section38).
