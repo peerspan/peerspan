@@ -977,6 +977,75 @@ def _():
                   "absent signer or elapsed window changed approved original consent")
 
 
+def input_case_startup(f):
+    """Real startup observations within the first normal periodic-sync window."""
+    hosts = (f["a"], f["b"])
+    settings = {id(local): (local.id, local.public_key, dict(local.extra_env), list(local.extra_args),
+                local.clock, local.clock.offset, local.relay, local.counted_peer) for local in hosts}
+    started = time.monotonic()
+    for local in hosts:
+        local.restart()
+        check((local.id, local.public_key, local.extra_env, local.extra_args, local.clock,
+               local.clock.offset, local.relay, local.counted_peer) == settings[id(local)],
+              "fresh input restart changed identity, configuration, clock or counted carrier")
+    for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
+        status, result = local.api("POST", "/v2/networks/" + f["net"] + "/sync", {}, timeout=35)
+        check(status == 200 and type(result) is dict
+              and set(result) == {"network", "attempted", "learned_proof_ids", "unavailable"},
+              "fresh input explicit sync did not return its closed ordinary result")
+        attempted, learned = result["attempted"], result["learned_proof_ids"]
+        check(type(attempted) is list and all(type(key) is str for key in attempted)
+              and attempted == sorted(set(attempted)) and remote.public_key in attempted
+              and type(learned) is list and all(type(key) is str and re.fullmatch(r"dp_[0-9a-f]{64}", key) for key in learned)
+              and learned == sorted(set(learned)) and result["unavailable"] == [],
+              "fresh input explicit sync lacks the known other participant or has unavailable targets")
+        check(type(result["network"]) is dict and result["network"].get("id") == f["net"],
+              "fresh input explicit sync returned a different network")
+    for local in hosts:
+        remaining = 60 - (time.monotonic() - started)
+        check(remaining > 0, "fresh input prerequisites exhausted the first periodic-sync window")
+        window_end = local.now() + timedelta(seconds=remaining)
+        view = get(local, "/v2/networks/" + f["net"])
+        check(view["id"] == f["net"] and view["host_public_key"] == local.public_key
+              and view["authority"]["state"] == "usable" and parse_time(view["authority"]["not_after"]) > window_end,
+              "fresh input startup lacks current usable own membership")
+        members = get(local, "/v2/networks/" + f["net"] + "/members")
+        check(members["context_id"] == view["context_id"], "fresh input current membership changed context")
+        for participant, person in ((f["a"], f["alice"]), (f["b"], f["bob"])):
+            selected = [member for member in members["members"] if member["host_public_key"] == participant.public_key]
+            check(len(selected) == 1 and selected[0]["person_public_key"] == person
+                  and selected[0]["binding_lease_id"] != "-" and parse_time(selected[0]["not_after"]) > window_end,
+                  "fresh input startup lacks an actual current bound participant")
+            with closing(sqlite3.connect(f"file:{db_path(local)}?mode=ro", uri=True)) as db:
+                row = db.execute("SELECT sequence,record FROM dec_contacts WHERE network_id=? AND context_id=? AND host_key=?",
+                                 (f["net"], view["context_id"], participant.public_key)).fetchone()
+            check(row is not None, "fresh input startup lacks a retained bound participant hint")
+            sequence = int.from_bytes(row[0], "big") if type(row[0]) is bytes else row[0]
+            record = json.loads(row[1])
+            check(set(record) == {"format", "message_hashes", "conflicted", "contacts_base64"}
+                  and record["format"] == 1 and record["conflicted"] is False
+                  and record["contacts_base64"], "fresh input bound participant hint is unavailable or conflicted")
+            for encoded in record["contacts_base64"]:
+                contact = json.loads(base64.b64decode(encoded, validate=True))
+                payload = base64.b64decode(contact["payload_base64"], validate=True)
+                check(contact["format"] == 1 and contact["host_public_key"] == participant.public_key
+                      and contact["context_id"] == view["context_id"] and contact["sequence"] == sequence
+                      and parse_time(contact["issued_at"]) <= local.now() + timedelta(seconds=30)
+                      and window_end < parse_time(contact["expires_at"])
+                      and json.loads(payload) == {"quic_addresses": [peer_address(participant)],
+                          "bootstrap_addresses": [participant.relay.address], "relays": []},
+                      "fresh input bound contact is not current or exposes an uncounted path")
+                message = "\n".join(("peerspan-decentralized-contact-v1", contact["context_id"], contact["host_public_key"],
+                    str(contact["sequence"]), contact["issued_at"], contact["expires_at"], hashlib.sha256(payload).hexdigest()))
+                check(hashlib.sha256(message.encode()).hexdigest() in record["message_hashes"]
+                      and len(base64.b64decode(contact["signature"], validate=True)) == 64,
+                      "fresh input contact does not match the retained signed-message guard")
+    directory(f)
+    stable(f)
+    check(time.monotonic() - started < 60, "fresh input startup exhausted the first periodic-sync window")
+    return started
+
+
 @suite.case("strict_private_input_cli_routers_schema_nonsigning_kind_and_corruption_fail_closed", "guided31 verification6")
 def _():
     f, prepared = main_prepared()
@@ -984,7 +1053,9 @@ def _():
     if "approved" not in f:
         f["approved"] = op(h, parent, net, f["alice"], "approve", prepared)
     approved = f["approved"]
+    input_started = input_case_startup(f)
     stable(f)
+    check(time.monotonic() - input_started < 60, "fresh input baseline exhausted the first periodic-sync window")
     before, counters = whole(f), traffic(f)
     for command in ("lookup", "prepare", "approve"):
         data = key_body(parent, net, f["alice"])
@@ -1140,6 +1211,7 @@ def _():
         h.stop(kill=True)
         with closing(sqlite3.connect(database)) as db, db:
             db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
+    check(time.monotonic() - input_started < 60, "standalone input case exceeded the first periodic-sync window")
     print("LIMIT unexecuted_bounds: aggregate256/16MiB receipts,4096 intents,64 unsigned actions,1MiB valid output and deterministic first-action collision not constructed", flush=True)
     print("LIMIT unsafe_projection: no genuine section30 digest for an unsafe/oversized public review; strict private-input refusal is exercised instead", flush=True)
 
