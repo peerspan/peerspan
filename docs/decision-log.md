@@ -3350,3 +3350,25 @@ Legacy history is not a grant choice. Quoted project root belongs in the private
 human review, while remaining absent from model/log/outside-UI/argv; internal
 transport IDs remain undisplayed. Independent fixture privacy expectations must
 respect this boundary rather than forbid the required human project review.
+
+GU.impl34 verification: retain first load failure (old312 pass), executable
+325/332 (six wording assertions, one missing parent prerequisite), and corrected
+317/332 (15 default5s timeouts, nine old), plus draft CI's two unchanged host
+purity failures. An external Cargo status-fix build overlaps the timeout run;
+this is not established cause. Choose required final exact-head CI on a separate
+runner to verify current source. Discard an unchanged local retry-to-green,
+increasing deadlines, stopping another track or editing old tests. Public kit
+argument order, genuine baseline/parent prerequisites and private human-root
+classification are independently corrected; all20 cases/assertions/delays stay.
+
+### GU.impl34a — Preserve inherited policy action ordering
+
+Fresh03c05f4 bot review P2 identifies native order-sensitive matching of the
+ordinary fixed-profile rule. The backend compares action sets and preserves raw
+inherited order. Select set equality only at this matching check, preserving
+complete policy bytes/digests/display and fixed grant actions. Discard sorting
+public JSON, new duplicate rules or treating additional actions as the profile.
+Independent fixture semantics plus one positive reverse-order regression precede
+root verification. Retain all previous failures; wait for the observed external
+compiler to finish before the corrected-source run, without stopping that track
+or changing test bounds. Final exact-head CI/review remains required.
