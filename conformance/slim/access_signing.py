@@ -283,12 +283,48 @@ def unsigned(h, value):
     raw = base64.b64decode(envelope["payload_base64"], validate=True)
     return action, envelope, raw, json.loads(raw)
 
+def startup_directory_diagnostic(f, local, remote, status, view, known):
+    """GU.impl40b: captured prerequisite response only; no new operation."""
+    try:
+        if len(known) == 1 and known[0].get("state") == "ok":
+            return
+        summary = {"local_role": "unknown", "remote_role": "unknown", "http_status": "unknown",
+                   "network_matches": "unknown", "known_row_count": "unknown",
+                   "host_state": "unknown", "refreshed_at_present": "unknown"}
+        for field, host in (("local_role", local), ("remote_role", remote)):
+            roles = [role for role in ("a", "b") if f.get(role) is host]
+            if len(roles) == 1:
+                summary[field] = roles[0]
+        if type(status) is int and 100 <= status <= 599:
+            summary["http_status"] = status
+        if (type(view) is dict and isinstance(view.get("network_id"), str)
+                and re.fullmatch(r"net_[0-9a-f]{64}", view["network_id"])
+                and isinstance(f.get("net"), str) and re.fullmatch(r"net_[0-9a-f]{64}", f["net"])):
+            summary["network_matches"] = view["network_id"] == f["net"]
+        if type(known) is list and all(type(row) is dict for row in known):
+            summary["known_row_count"] = len(known)
+            if len(known) == 1 and known[0].get("state") in ("ok", "error", "unsupported", "pending"):
+                row = known[0]
+                summary["host_state"] = row["state"]
+                if "refreshed_at" in row and row["refreshed_at"] is None:
+                    summary["refreshed_at_present"] = False
+                elif isinstance(row.get("refreshed_at"), str):
+                    try:
+                        summary["refreshed_at_present"] = rfc3339(parse_time(row["refreshed_at"])) == row["refreshed_at"] or "unknown"
+                    except (ValueError, TypeError):
+                        pass
+        print("startup_directory_failure_public=" + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass  # Preserve the original assertion without disclosing diagnostic errors.
+
+
 def directory(f):
     for local, remote in ((f["a"], f["b"]), (f["b"], f["a"])):
         check(get(local, "/v2/networks/" + f["net"])["authority"]["state"] == "usable", "startup authority prerequisite")
         status, view = local.api("POST", "/v1/directory/refresh?network=" + f["net"], {}, timeout=12)
         check(status == 200 and view.get("network_id") == f["net"] and isinstance(view.get("agents"), list), "bounded actual startup directory result")
         known = [entry for entry in view["hosts"] if entry["host_id"] == remote.id]
+        startup_directory_diagnostic(f, local, remote, status, view, known)
         check(len(known) == 1 and known[0]["state"] == "ok", "current genuine peer startup query has not completed")
 
 def stable(f):
