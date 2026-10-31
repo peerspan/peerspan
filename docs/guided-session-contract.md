@@ -7258,7 +7258,191 @@ new public ping/admin route, mandatory hosted helper, remote body as permission
 proof, interpreting reverse reachability as incoming delivery, messages/model
 turns as an implicit probe and a combined overall-ready flag.
 
-## 39. Remaining flow contract
+## 39. Native selected-machine outbound connection check
+
+After merged89 (`9ca61f5`), expose section38 through the existing human native
+connection-status pane. Rust/schema/protocol/provider/authority and authorized
+adapter/message/task/model behavior remain unchanged. Preserve all365 existing
+native cases and all30 host suites/helpers byte-for-byte. This adds an explicit
+outbound transport observation, not incoming work or complete connection proof.
+
+### Explicit machine choice and dispatch
+
+A verified, live section37 status pane offers **Check a machine connection**.
+Normal entry, status reads, approvals, Finish, recovery, details and reload
+never dispatch reachability. The action opens **Choose a remote machine** from
+that verified snapshot's selected-person remote roster. Entry/choice/pagination
+use volatile public data plus existing native-context guards only; no additional
+host command, status refresh, provider or network work. Exclude this host and
+show every remote label quoted beside its derived host ID. Duplicate labels
+remain distinct by key/ID. Ten choices per page use **Previous machines** and
+**More machines**. An empty roster says no remote machines were observed and
+offers Check connection status/Leave. Even a single machine needs an explicit
+**Choose machine LABEL (HOST_ID)** press; never infer or default a target.
+
+Selection opens **Outbound connection**, showing project/agent/network/person,
+that exact selected public machine label, host ID and public host key. It says
+no outbound check has been performed until **Check outbound connection** is
+pressed. **Choose another machine** clears the result and returns to the same
+bounded roster without IO. **Check connection status** explicitly returns through
+section37's ordinary fresh local read; **Leave machine connection** returns to
+the project. Neither navigation revokes consent or stops an authorized runtime.
+No new command/model tool/storage or direct socket implementation is added.
+
+Only Check outbound connection starts one single-flight request. Clear the old
+outbound result/details immediately; while busy, show a bounded checking state
+and Leave. Capture the exact attached parent, native context, host, network/
+context/person and selected host ID/public key. Recheck current root/project/
+conversation/terminal and the authoritative attached project/host/network before
+dispatch and after IO, after asynchronous validation and at final display.
+Use existing pure project inspect/onboarding guards, not access mutation,
+directory refresh, membership sync, provider inventory or model inference.
+
+Use configured executable/literal --state argv with private stdin and15s bound:
+
+```
+onboarding reachability --stdin
+{context,network_id,person_public_key,peer_host_id}
+```
+
+No addresses/keys/provider options or shell interpolation enter argv; the
+captured host key is a local validation pin, never a request override. One
+explicit press sends at most one such command, with no automatic retry, fanout
+or action after an uncertain reply. Backend cached-connection retry remains
+section38's own transport behavior, without UI attribution. Leaving or timing
+out cannot retract already dispatched peer IO; late results are discarded.
+
+### Closed validation and truthful human evidence
+
+Validate the entire <=2MiB section38 DTO with the existing recursive public
+privacy/safe-number gate. Require its exact closed wrapper and reachability
+fields, version/host/context, canonical time and complete section30 inspection/
+digest for the captured parent/network/context/person. Require the selected
+remote host key still occurs in the current inspected person, its derived ID
+equals the captured selected ID, and returned ID/key equal those captured pins.
+Never accept another key/target, this host, missing/unknown/null fields or a
+private/unsafe aggregate, or substitute an empty success for unavailable data.
+The backend may supply a newer current inspection with changed policy/membership
+metadata while the same selected key remains current; show only the returned
+observation's own terms. Do not merge its current policy with old status facts,
+compare it as consent or turn it into a frontend permission evaluator.
+
+Require direction project_host_to_participant_host, exactly
+`authenticated_response` with a safe integer HTTP200..599, or exactly
+`not_verified` with null status. The incoming_delivery/model_receipt/
+connection_readiness flags must all remain not_verified. A negative observation
+is a valid result, distinct from command/validation failure. Accept403/404/500
+as authenticated transport responses and say their status does not establish
+permission. HTTP200, an empty directory or any other response proves only the
+outbound authenticated exchange; no remote body is supplied to the UI.
+
+The result shows **Outbound authenticated response observed** and numeric HTTP
+status, or **Outbound connection: not verified** for a valid negative, plus
+observed time, exact selected ID/key and direction **from this project's host
+to the selected person's machine**. Incoming agent delivery, model receipt from
+this observation and overall connection readiness remain explicitly **not
+verified**. The previous local permissions/adapter snapshot is cleared when
+entering this separate pane; this check never overwrites its readiness flags
+or borrows its model/adapter evidence. Existing live runtime checks remain
+separate and are not started by this action.
+
+**Show outbound connection details** / **Hide outbound connection details**
+is local-only. Include the complete public current agent/network/root/owner/
+participant membership, raw signed and separately enforced policy, proof refs,
+selected machine, direction/status and display deadline. Use canonical JSON
+escaped once. Hide internal native/project/consent/session plumbing IDs and
+private context/diagnostics from routine output/model/prompts/logs/argv; the
+quoted project path stays confined to the human pane. Do not use a consent
+footer or imply missing signatures from this read. No addresses/raw remote
+body/exception/return material are presented or retained.
+
+### Bounded selection, evidence and recovery
+
+The roster's fixed deadline is the earliest of its original observed_at+30s
+and section30 owner/participant/machine/policy finite ends. Entry requires the
+original section37 snapshot still live; after navigation only roster membership
+is displayed, so old adapter-lease/grant facts are not extended or reused.
+Selection/dispatch require the captured roster still live. Keep that same
+fixed timer authoritative during preflight, request and async validation; its
+expiry clears roster/selection/result/details and invalidates pending work.
+A result never extends that captured roster window. Its own display deadline
+is additionally bounded by returned observed_at+30s and every current section30
+membership/policy end. Recheck time after every awaited preflight/validation
+before dispatch/display. Reject future evidence beyond30s or already30s old.
+No timer performs IO; old timers cannot clear another selection or new read.
+On expiry say **Machine connection observation expired. Check connection status
+again.** and offer fresh Check connection status/Leave only.
+
+A malformed, denied, nonzero, timed-out, mismatched or elapsed reply removes
+old outbound evidence and shows a fixed **Outbound connection unavailable**
+message, never raw output or fabricated successful negative. A still-live
+selection may be checked again only by another explicit press or changed by
+Choose another machine. No action continues automatically. Back/Close/Refresh/
+root/conversation/host/parent/surface/end invalidate callbacks, timers and late
+results, without revoking prior consent, cancelling a peer request or changing
+an existing authorized runtime beyond its existing lifecycle rules.
+
+### Verification
+
+A separate contract-only native author adds16 compact runtime cases from public
+sections30/36/38/39 and pinned303 SDK/independent fixture source, with no product/
+Rust/hook imports/reads or process/host/network/model execution. Commit before
+root executes. All365 old native cases/all30 host suites/helpers remain exact;
+new corpora fit the unchanged default5s individual limit. Actual pending stimuli
+signal real dispatch and virtual-sleep registration. Cover:
+
+1. Existing actions inert; explicit status entry, literal configured argv/private
+   input and15s reachability bound, only ordinary pure parent/host guards.
+2. Explicit no-default one/many/empty machine choices, derived IDs/keys,
+   duplicate quoted labels, self exclusion, ten-item pagination; local choice.
+3. Authenticated200 with no adapter/permission claim; precise outbound direction,
+   exact selected key and distinct incoming/model/overall evidence.
+4. Authenticated403/404/500 remain transport facts with numeric status, no
+   permission or incoming-ready inference; valid negative is not command error.
+5. Pure complete public details, original signed/enforced order and bounded
+   human metadata; no new model tools/prompts/storage/direct networking.
+6. Recheck clears old results; single-flight repeated press and actual delayed
+   dispatch; no hidden retry or endpoint call from choice/details/navigation.
+7. Closed wrapper/reachability/version/direction/flag/status/type/count corpus;
+   malformed and unsafe JS integer data fail without empty-success substitution.
+8. Exact selected machine/key/current membership, owner/network/person/agent/
+   project pins, full inspection digest; changed labels/policy may be fresh
+   current evidence for the same exact target, without blending old terms.
+9. Aggregate private prefixes/decorated values/controls/oversized output and
+   raw/nonzero/denied/missing replies clear old terms with fixed diagnostics.
+10. Original roster deadline and returned earliest30s/membership/policy bounds;
+    expiry removes all evidence/choices without IO and requires new local read.
+11. Deadline crossing during actual preflight sends no reachability command;
+    actual delayed response/async validation cannot resurrect elapsed selection.
+12. Changing chosen machine clears previous facts; no ID/key/default rebind,
+    and old result/timer cannot affect a fresh status/roster/target.
+13. Root/conversation/host/network/parent changes during actual preflight or
+    pending IO discard late evidence, without next mutation or automatic probe.
+14. Leave/Back/Close/Refresh/end/surface changes while pending clear volatile
+    state; reentry/reload starts without a selected target or saved result.
+15. Unavailable/negative recovery needs explicit Check; Check connection status
+    returns via the existing local read and never retries outbound work.
+16. Existing authorized adapter lease/message/task lifecycle survives local
+    choice/check/negative/unavailable/details/Leave, without extra model work.
+
+Root serializes runtime/build/host work, checks known compiler activity,
+records every first outcome and source/test/log hashes, runs strict pinned303
+validation/full381 suite plus unchanged peer_reachability locally. Reuse merged89
+Rust treeeac511ee/local required fmt/test155+2ignored/Clippy/shipped-bin gates and
+old readiness6/6; final exact-head all30 suites/four PR checks/fresh bot/root
+review run again, including all31 conformance jobs with pagination. No unchanged
+retry-to-green, old-test edits or raised timeouts. Earlier unclassified native/
+transport/history failures remain recorded. Actual terminal/reload/installed/
+physical/model/other-computer/schema23-to27/full-state/final combined/full-feature
+acceptance stay open; do not repeat quota-refused model probes.
+
+Selected: explicit current remote-key choice and one bounded outbound check
+with separate short-lived human evidence. Discarded: an implicit/default machine,
+fanout, automatic probe on status/approval, conflating reverse transport with
+incoming work, a combined ready badge, durable observations, frontend permission
+inference, direct sockets and broader existing runtime scopes.
+
+## 40. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
