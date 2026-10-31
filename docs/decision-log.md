@@ -3601,3 +3601,14 @@ device15 and the existing narrowly bounded creator renewal exception; preserve
 older exact original-provider historical results. No runtime creation change
 or new owner choice is introduced. Discard encoding the stale no-device claim
 as a new conformance prerequisite or fabricating a creator-device fixture.
+
+GU.impl41 local verification resource boundary: corrected Rust tests/Clippy/build
+pass. A later corrected-format gate cannot save its receipt: errno28 no space
+left on device in shared /dev/shm; child outcome was not retained. Immediately
+following unchanged join_onboarding exits120 in2.01s with an empty log, so its
+case progress/outcomes are unknown. Preserve both attempts. Known disk capacity
+then recovers, but choose a concrete fixture-environment correction: relocate
+only this task's artifacts/TMPDIR to regular disk /tmp/gu41-runtime (125GiB free),
+keep frozen binary hashes, test source/actions/bounds and product unchanged.
+Run the affected gates once in that corrected environment; this is not evidence
+of a product fix or classification of earlier unrelated suite failures.
