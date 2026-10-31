@@ -3696,3 +3696,18 @@ language-only separate-target overlap, all CI/local first outcomes, original
 requester-completion UDP failure and source/coverage limits. No claim that later
 passing samples diagnose earlier failures. Final evidence-only head requires
 fresh full CI/review on PR94; leave94/35 unmerged for owner review.
+
+
+### GU.impl43: bounded existing-computer initial owner signing
+
+After merged94, select private signing/sign endpoints and stdin commands under
+the exact section42 receipt. Original and owned-device first packet plus reviewed
+fold issuer use ordinary typed slots; configured exact source only,90s bounded
+phases and atomic ordinary signature/pending/catalog/clock storage. Keep original
+receipt deadlines and current public eligibility, pure completed-history replay,
+no new approval/attribution/schema or explicit publication/F/commit driver. Test
+the guided-only device proof-retention path and the original safe file/agent
+paths independently. Discard caller signer/material inputs, client device seeds,
+broad resume, root fallback and proofless/readiness claims. Section43 settles
+all behavior and six independent cases before product code; native controls and
+requester completion remain separate. Recommended under delegated GU-OWN1.
