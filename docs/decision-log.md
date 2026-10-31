@@ -3790,3 +3790,16 @@ No source/test/timeout edit or unchanged local retry follows. Prior combined
 bcc2 CI414/415in78.62s fails only the now-corrected wording case; old393 pass.
 All64 preexisting test/conformance files and Rust105e8c54 remain exact. Final
 combined-head CI and fresh bot/root review must establish the review candidate.
+
+
+### GU.impl45: pure verified new-computer requester commit review
+
+After merged97, select a private join-flow-bound inspection of received remote
+existing-person owner/selection/admission/F evidence. Reuse ordinary verification
+and fixed finite7/2 bounds; retain folded admission's absent administrator stage,
+actual provider/P/H/B/D and original stage deadline. No local original owner
+receipt/key is a requester prerequisite. Discard new-original consent reuse,
+pretending a folded admin packet exists, key copying, broad resume as lookup,
+implicit commit/adoption and a new schema. Section45 settles the exact closed
+public contract and independent six-case suite before product code. Requester
+consent, bounded completion and native controls follow as small feature PRs.
