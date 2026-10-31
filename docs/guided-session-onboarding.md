@@ -570,7 +570,7 @@ the historical policy is current. Peer delivery and connection readiness stay
 flow and installed/physical/actual-model/schema23-to27/full-state/final combined
 acceptance remain separate. The [verification record](results/guided-access-application-verification.json)
 records exact source/binary/log provenance and required gates. All original27
-host suites/shared helpers/harness/native stay unchanged; PR79's earlier UDP/
+host suite assertions/actions/delays/timeouts and shared helpers/native remain; PR79's earlier UDP/
 contact purity failures remain unclassified. Tracking PR35 stays unmerged.
 
 Initial production `a8ccff3` passed Rust and local application6/6in109.01s,
@@ -589,3 +589,13 @@ The record retains every first failure, contract-first independent fixture
 correction and byte-preservation audit. Those setup corrections did not change
 production; the later review fix changes the admission-reference check. Every
 full-feature acceptance gate remains incomplete.
+
+First fixed-head78df456 CI passes application6/6in78s and26 other host suites,
+all PR checks (native312/312in65.78s) and clean review. Existing section25 F
+history fails5/6in102s with only dec_contacts changed. One independent
+failure-only bounded contact observer preserves the original entire source
+when removed by bytes/AST; the other60 old slim/helper/native files are exact.
+One local diagnostic run passes6/6in147.75s without triggering. This exceeds
+the120s target and leaves the CI row/caller unclassified; no product/setup
+correction or global fence is inferred. Final diagnostic-head gates and review
+are recorded separately on PR80/35, with this failure and duration retained.
