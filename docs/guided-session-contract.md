@@ -6630,7 +6630,10 @@ state unsigned/signed/locally_applied, proof '-' only when unsigned and canonica
 dp_ otherwise; both delivery/readiness stay not_verified. Once a signed proof ID
 is observed, later application/Check replies must retain it. Retained state must
 not regress within a captured completion view (unsigned→signed→locally_applied
-only). A successful Apply reply must specifically be locally_applied; a bare
+only), including Check after unknown outcomes. Retain the last verified public
+state/proof as a volatile comparison guard when clearing actionable terms; reset
+it only on leaving/navigation/new explicit selection. Signature-recorded prose
+may be semantic; Local application: recorded remains the exact human literal. A successful Apply reply must specifically be locally_applied; a bare
 consent/signature response never establishes local application. No frontend
 cryptographic/evaluator substitute or omitted signature/payload reconstruction.
 
