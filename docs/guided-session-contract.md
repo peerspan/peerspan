@@ -7823,6 +7823,13 @@ independently observed free capacity; keep exact binaries, sources and deadlines
 One affected-gate execution in this corrected environment is allowed, with no
 product fix or old unrelated-failure classification inferred.
 
+The corrected-environment local join_onboarding finishes14/14in75.64s, but root
+erroneously starts ordinary join before it exits. Preserve that overlap limit
+and interrupt the newer join (exit130/28.18s; three cases passed). No complete
+local ordinary join claim. Correct the local runner with a task-owned exclusive
+nonblocking gate lock. Do not rerun unchanged local suites for a cleaner receipt;
+final exact-head CI independently runs both unchanged suites in isolated jobs.
+
 Selected: pure current existing-owner review, persisted public signer selection,
 explicit finite profile7 capped by current authority, concrete public dependencies.
 Discarded: seed/key/agent probes, root fallback, original-key copying, label/pin

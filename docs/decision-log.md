@@ -3612,3 +3612,13 @@ only this task's artifacts/TMPDIR to regular disk /tmp/gu41-runtime (125GiB free
 keep frozen binary hashes, test source/actions/bounds and product unchanged.
 Run the affected gates once in that corrected environment; this is not evidence
 of a product fix or classification of earlier unrelated suite failures.
+
+GU.impl41 root orchestration error: the corrected-environment join_onboarding
+run was still active when root started ordinary join. Stop the newer join with
+SIGINT (exit130,28.18s; three completed cases pass), retain its partial first log,
+and make no complete local join claim. Join_onboarding finishes14/14in75.64s;
+the overlap is a limitation of that receipt. Add a task-owned nonblocking gate
+lock to the local runner before further runtime execution. Do not retry these
+unchanged suites locally for a cleaner receipt; the required final exact-head
+CI must independently run both in its existing isolated matrix jobs. No tests,
+product, assertion or bound changes.
