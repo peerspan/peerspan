@@ -3205,3 +3205,18 @@ short invitation secrets have expired. Carry every real invitation deadline
 into the later shared cleanup before any strict history baseline. Discard
 assuming a manual address proves a current signed contact or forcing an
 intermediate whole-transport claim while a genuine invitation window is live.
+
+### GU.impl33c — Close retained admission references before historical success
+
+Fresh review on52b1958 findsP2: private admission shape validation accepts a
+still well-formed evidence_ids array with required references removed. The
+normal signed historical result proves signature/consent closure but does not
+validate those local admission references. Select checking the exact signed
+statement/root/direct-parent IDs before returning any locally_applied history
+marker; both pure observation and explicit applied replay must refuse a damaged
+record without repair. An independent restored negative admission-evidence
+case must expose the initial behavior and verify the correction. Discard
+treating private schema validity as complete provenance, silently reconstructing
+missing evidence, or weakening the historical state/carrier comparisons. Keep
+the first six-pass baseline and prior failures; source changes require fresh
+Rust/affected conformance/final-head CI and review.

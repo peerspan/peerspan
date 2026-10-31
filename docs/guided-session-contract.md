@@ -6084,7 +6084,11 @@ queue fabrication. Document unsupported prerequisites as limits honestly.
    state/home and all enabled TCP/UDP counters after observed ordinary startup
    work. Historical marker does not assert today's grant. Offline negative
    corruption may alter only an already genuine result/signature/proof/admission
-   and restore exact bytes; missing evidence refuses without repair.
+   and restore exact bytes; missing evidence refuses without repair. In
+   particular, removing an actual required statement/root/direct-parent ID from
+   a genuine admission's still well-formed basis.evidence_ids must make BOTH
+   observation and explicit replay refuse409access_application_unavailable
+   purely. Restore the original entire admission record exactly afterward.
 6. Closed input/error/argv privacy corpus,64KiB bound, duplicate/null/trailing/
    decision rejection, unknown/missing daemon/method/router isolation, no public
    signed bytes/key material/paths, actual retained-reference corruption fails
