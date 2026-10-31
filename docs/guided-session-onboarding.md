@@ -633,3 +633,15 @@ waits remain; removing additions from the three modified old suites restores
 their entire original bytes/AST, with58 other old files byte-identical. Earlier
 PR79/directory/relay callers and full-feature acceptance remain open. Final new
 combined-head CI and review are recorded on PR80/35 after the evidence commit.
+
+### Native access inspection and exact approval
+
+Merged80 (`5dbc4a0`) supplies exact signed-policy application. Section34 /
+GU.impl34 adds native explicit network/person selection, complete read-only
+inspection and separate lookup-first proposed-grant review/approval. It preserves
+public keys as identity and distinguishes machine aliases from person labels.
+The exact message/task grant discloses the ordinary owner-agent-name scope.
+No native signing/application, provider fallback, automatic replacement, model
+action or readiness claim is added; these remain later slices. Contract-first
+independent native tests and final combined-head gates are recorded with the PR.
+All312 old native tests/all28 host suites and frozen Rust remain unchanged.
