@@ -8098,6 +8098,21 @@ frontend, key copying, root fallback, template/time replacement, new schema,
 implicit requester consent and overall readiness claims. Recommended under
 GU-OWN1; no new choice is attributed to the owner.
 
+### GU.impl42a: retain the first consent failures before diagnosis
+
+First draft CI atfec1a09 (run41237964718, job124645992068) passes4/6 in27s.
+Case1 observes pending evidence changed beyond roles/owner_intent_id but has not
+classified the fields. Case4 observes an unexpected controlled refusal code but
+has not retained the actual code/phase. Preserve the original log SHA256
+3024b647301d32aa35ecf8395af47e7655a79db8960155e4742eb0a557cf0a09.
+A separate contract-only author may add failure-only diagnostics from those
+already captured values: case1 prints changed pending field names and the secret
+unchanged boolean; the existing API wrapper prints operation, public HTTP/code
+and expected public code when its code assertion fails. No raw values, paths,
+keys, messages or IDs, no extra IO/actions/retries, no changed assertions/setup/
+counters/deadlines/allowed fields. Run this diagnostic version once against the
+same product tree before attributing either failure or changing behavior.
+
 ## 43. Remaining flow contract
 
 Teammate/device admission, remaining
