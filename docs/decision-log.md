@@ -3449,3 +3449,16 @@ timeouts that exclude existing helper fallback, new ping/admin protocol, remote
 permission inference, implicit model/work probes and a combined ready badge.
 Independent six-case real-host source precedes root execution; all365 old native/
 29 old host suites stay exact and final all30/four checks/fresh review run.
+
+GU.impl38 verification: preserve all15 local first gate outcomes and initial
+CI failures. New conformance6/6in53.07s passes on frozen1e78059 after contract-
+first independent public setup and new-selector corrections. The latest failed
+recovery has actual target-thread upstream_receive blocking, zero counted IO,
+and a failed independent fresh probe despite exact hint match. Choose only a
+nonblocking new proxy; discard a guessed production transport/cache fix,
+shared-helper changes, relaxed checks or larger waits. All6 ordered case ASTs
+remain exact after the pre-execution permitted error alternative; all78 old
+plugin/conformance files stay identical. Earlier uninstrumented causes and the
+initial unchanged owner-finalization immutable-history CI failure remain
+unclassified. Final all30/four checks and fresh bot/root review run on one final
+head; native reachability controls and full-feature acceptance remain open.

@@ -751,3 +751,19 @@ frozen1e78059. The unchanged readiness suite passes6/6 in45.60s. Independent
 new peer-reachability conformance and final exact-head all30/four CI checks/fresh
 review follow. The entire native plugin remains unchanged from merged87; its
 strict validation/CI365 and retained local timeout history are reused locally.
+
+Independent peer reachability now passes6/6 in53.07s on exactly those frozen
+binaries. All six ordered case ASTs/assertions/actions/delays/timeouts are exact
+since the pre-execution error-alternative clarification; all78 prior plugin/
+conformance files are byte-identical. Public counted proof drain, authenticated
+newer empty-contact withdrawal, actual reference expiry and bootstrap-only
+restart establish genuine no-route purity. A measured live target proxy blocked
+in upstream receive explains the latest recovery diagnostic; independently
+making only this new selector helper nonblocking restores the full check. No
+production transport fix is claimed. Earlier uninstrumented outcomes remain
+unclassified. The [verification record](results/guided-peer-reachability-verification.json)
+retains every local first outcome, source/binary/log hash and initial draft CI:
+all four PR jobs pass (native365/365), while new reachability and unchanged owner
+finalization fail. The latter immutable-history cause remains unclassified.
+Corrected-source final all30/four CI and fresh exact-head bot/root review follow
+on PR89/35. No unchanged local rerun or old assertion/deadline edit is used.
