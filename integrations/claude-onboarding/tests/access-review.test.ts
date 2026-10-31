@@ -124,7 +124,7 @@ function member(person = PERSON, key = DEVICE, n = 20, label = 'Participant "Ã©æ
 }
 function baseline(w: World) {
   return { format: 2, network_id: w.selected.id, person_public_key: OWNER, version: 4,
-    issued_at: stamp(NOW - 60_000), valid_until: stamp(w.policyEnd),
+    issued_at: stamp(NOW - 600_000), valid_until: stamp(w.policyEnd),
     rules: [{ agent: w.parent.review.agent.name, principals: ['network'], actions: ['message.append', 'task.submit'],
       max_message_bytes: 65536, max_artifact_bytes: 0, allow_disconnected: false },
     { agent: 'Other "retained" agent', principals: ['network'], actions: ['message.append'],
