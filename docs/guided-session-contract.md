@@ -7633,8 +7633,9 @@ Section28: only after the original captured carrier mismatch, perform at most
 one pure owner-local GET /v1/directory?network=EXACT_KNOWN_NETWORK with2s bound.
 No directory refresh, peer/probe/resume request, retry or waiting. Print only
 HTTP status (or unknown), network_matches boolean, known issuer row count,
-whitelisted host state ok/error/unsupported/pending/unknown, refreshed_at-present
-and refreshed_at-at-or-before-current-time booleans. Unknown/unsafe/ambiguous
+whitelisted host state ok/error/unsupported/pending/unknown, known issuer host-
+row refreshed_at-present and refreshed_at-at-or-before-current-time booleans.
+The top-level directory timestamp is not a substitute. Unknown/unsafe/ambiguous
 data stays unknown; no raw directory error/agent/key/ID/time/body or exception.
 All diagnostic failures are swallowed, returning the original captured carrier
 tuple so the original failing assertion/verdict is identical. A pending cache
