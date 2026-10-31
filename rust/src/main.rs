@@ -101,6 +101,13 @@ async fn main() {
             // This selects only error redaction; typed parsing still owns dispatch.
             if e.use_stderr()
                 && raw.iter().any(|arg| arg == "onboarding")
+                && raw.iter().any(|arg| arg == "reachability")
+            {
+                eprintln!("error: invalid project reachability arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw.iter().any(|arg| arg == "onboarding")
                 && raw.iter().any(|arg| arg == "readiness")
             {
                 eprintln!("error: invalid project readiness arguments");

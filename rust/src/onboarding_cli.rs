@@ -20,6 +20,11 @@ pub struct OnboardingArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum OnboardingCommand {
+    /// Explicitly check the pinned outbound peer transport to one selected machine
+    Reachability {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read current project-bound membership, advertised access and session evidence
     Readiness {
         #[arg(long, required = true)]
@@ -334,6 +339,12 @@ fn input() -> Result<Value> {
 }
 pub async fn command(command: &Command, socket: &Path) -> Result<Option<Value>> {
     if let Command::Onboarding(OnboardingArgs {
+        command: Some(OnboardingCommand::Reachability { .. }),
+    }) = command
+    {
+        return reachability(socket).await.map(Some);
+    }
+    if let Command::Onboarding(OnboardingArgs {
         command: Some(OnboardingCommand::Readiness { .. }),
     }) = command
     {
@@ -451,6 +462,27 @@ async fn access_consent(socket: &Path, operation: &str) -> Result<Value> {
     .map_err(|_| unavailable())?
     .map_err(|_| unavailable())
 }
+async fn reachability(socket: &Path) -> Result<Value> {
+    let invalid = || anyhow::anyhow!("invalid project reachability input");
+    let mut bytes = Vec::new();
+    io::stdin()
+        .lock()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid())?;
+    let input =
+        peerspan_host::onboarding_reachability::decode_input(&bytes).map_err(|_| invalid())?;
+    let payload = serde_json::to_value(input).map_err(|_| invalid())?;
+    let unavailable = || anyhow::anyhow!("project reachability unavailable");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        Local(socket).post("/v1/onboarding/reachability".into(), payload),
+    )
+    .await
+    .map_err(|_| unavailable())?
+    .map_err(|_| unavailable())
+}
+
 async fn readiness(socket: &Path) -> Result<Value> {
     let invalid = || anyhow::anyhow!("invalid project readiness input");
     let mut bytes = Vec::new();
