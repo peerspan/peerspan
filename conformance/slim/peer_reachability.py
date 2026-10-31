@@ -593,6 +593,25 @@ def observe(f, *, parent=None, body=None, status=200, code=None, outcome=None):
     if status == 200:
         verify(f, parent, body, value, (began, ended))
         if outcome:
+            if value["reachability"]["result"] != outcome:
+                try:
+                    allowed = {"authenticated_response", "not_verified"}
+                    process = f["a"].process
+                    poll = process.poll() if process is not None else "absent"
+                    process_status = "running" if poll is None else "absent" if poll == "absent" else (
+                        "exited_zero" if poll == 0 else "exited_nonzero" if type(poll) is int else "unknown")
+                    observed_status = value["reachability"]["http_status"]
+                    print("reachability_outcome_public=" + json.dumps({
+                        "expected": outcome if outcome in allowed else "unknown",
+                        "actual": value["reachability"]["result"] if value["reachability"]["result"] in allowed else "unknown",
+                        "http_status": observed_status if observed_status is None or type(observed_status) is int and 200 <= observed_status <= 599 else "unknown",
+                        "target_process_running": process is not None and poll is None,
+                        "target_process_status": process_status,
+                        "target_udp_thread_alive": f["a"].counted_peer.thread.is_alive(),
+                        "project_udp_thread_alive": f["b"].counted_peer.thread.is_alive(),
+                        "carriers": traffic(f)}, sort_keys=True), flush=True)
+                except Exception:
+                    pass
             check(value["reachability"]["result"] == outcome, "unexpected explicit transport observation")
     else:
         check(type(value) is dict and (code is None or value.get("code") == code)
