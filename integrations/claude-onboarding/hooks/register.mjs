@@ -25,6 +25,10 @@ import { inventory as admissionInventory, consent as parseAdmission, progress as
   inspection as parseAdmissionInspection, sameRequest, early as earlyAdmission, matchesInspection,
   choiceLabel as admissionChoiceLabel, reviewLines as admissionReviewLines } from './admission.mjs';
 
+import { inventory as accessNetworks, people as accessPeople, inspection as parseAccessInspection,
+  consent as parseAccessConsent, liveInspection as accessInspectionLive, approvable as accessApprovable,
+  deadline as accessDeadline, inspectionLines as accessInspectionLines, consentLines as accessConsentLines } from './access.mjs';
+
 let options;
 let hostId = null;
 let project = { stage: 'inactive', busy: false };
@@ -45,6 +49,8 @@ let joining = { stage: 'inactive', busy: false };
 let joiningExpiry = null;
 let admitting = { stage: 'inactive', busy: false };
 let admissionExpiry = null;
+let accessing = { stage: 'inactive', busy: false };
+let accessExpiry = null;
 let runtime = null;
 let runtimeNotice = null;
 let registeredMessageTools = new Set();
@@ -89,6 +95,7 @@ function summary() {
 }
 
 async function refresh($) {
+  clearAccess();
   clearAdmission();
   const previousJoining = joining;
   clearJoining();
@@ -186,6 +193,7 @@ async function close($) {
 
 // All native effects stay in this module; imported project helpers are pure.
 function clearProject() {
+  clearAccess();
   clearAdmission();
   clearJoining();
   clearRecipient();
@@ -255,6 +263,8 @@ async function projectView($, running, epoch, context, agents, flow) {
       joining.parent?.review_id !== flow.review_id || !same(joining.parent?.review, flow.review))) clearJoining();
   if (admitting.stage !== 'inactive' && (stage !== 'attached' || admitting.parent?.flow_id !== flow.flow_id ||
       admitting.parent?.review_id !== flow.review_id || !same(admitting.parent?.review, flow.review))) clearAdmission();
+  if (accessing.stage !== 'inactive' && (stage !== 'attached' || accessing.parent?.flow_id !== flow.flow_id ||
+      accessing.parent?.review_id !== flow.review_id || !same(accessing.parent?.review, flow.review))) clearAccess();
   const view = { stage, context, host: hostId, agents, flow, busy: false, page: 0,
     name: running.name ?? defaultName(context.project_root), owner: running.owner ?? 'local owner' };
   project = view;
@@ -885,6 +895,242 @@ async function connectAdapter($, previous, epoch) {
     $.ui.invalidate('ui.render');
   }
 }
+function clearAccess() {
+  accessExpiry?.cancel(); accessExpiry = null;
+  accessing = { stage: 'inactive', busy: false };
+}
+function accessStart($, previous, epoch) {
+  if (accessing !== previous || previous.busy || epoch !== generation || project.stage !== 'attached' || project.busy) return null;
+  accessExpiry?.cancel(); accessExpiry = null;
+  accessing = { ...previous, busy: true, value: null, inspected: null, canApprove: false, message: null,
+    parent: project.flow, context: project.context, host: hostId };
+  $.ui.invalidate('ui.render');
+  return accessing;
+}
+async function accessCurrent($, running, epoch) {
+  if (accessing !== running || epoch !== generation || project.stage !== 'attached' || project.busy ||
+      project.flow.flow_id !== running.parent.flow_id || project.flow.review_id !== running.parent.review_id ||
+      !same(project.flow.review, running.parent.review)) return false;
+  const current = await projectContext($), surfaces = await $.session.surfaces();
+  if (accessing !== running || epoch !== generation) return false;
+  if (!same(current, running.context) || current.native_session_id !== session || running.host !== hostId || !surfaces.includes('terminal')) {
+    if (runtime) stopRuntime('Adapter: stopped after project, conversation or surface change.');
+    clearProject();
+    $.ui.invalidate('ui.render');
+    return false;
+  }
+  return true;
+}
+async function accessProcess($, argv, payload) {
+  if (typeof options.executable !== 'string' || !options.executable || typeof options.state !== 'string') throw new Error('Unavailable access configuration');
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []), ...argv],
+    { timeoutMs: 5000, ...(payload ? { stdin: JSON.stringify(payload) } : {}) });
+  if (result.exitCode !== 0) throw new Error('Unavailable access response');
+  return result.stdout;
+}
+async function accessParent($, running, epoch) {
+  if (!await accessCurrent($, running, epoch)) return null;
+  const raw = await projectRun($, ['inspect', running.parent.flow_id]);
+  if (!await accessCurrent($, running, epoch)) return null;
+  const parent = parseProjectFlow(JSON.parse(raw), running.context, running.host);
+  if (parent.state !== 'attached' || parent.flow_id !== running.parent.flow_id || parent.review_id !== running.parent.review_id ||
+      !same(parent.review, running.parent.review)) throw new Error('Changed access project');
+  const observed = await accessProcess($, ['onboarding']);
+  if (!await accessCurrent($, running, epoch)) return null;
+  const networks = accessNetworks(observed, running.host);
+  if (running.network && !networks.some(n => same(n, running.network))) throw new Error('Changed access network');
+  return networks;
+}
+function accessPayload(running, extra = {}) {
+  return { context: adapterContext(running.parent), network_id: running.network.id,
+    person_public_key: running.selected.person_public_key, ...extra };
+}
+async function accessRun($, command, running, extra = {}) {
+  return accessProcess($, ['onboarding', 'access', command, '--stdin'], accessPayload(running, extra));
+}
+function accessFailure($, running, epoch, uncertain = false) {
+  if (accessing !== running || epoch !== generation) return;
+  accessExpiry?.cancel(); accessExpiry = null;
+  accessing = { ...running, stage: running.selected ? 'selected' : 'unavailable', busy: false, value: null, inspected: null, canApprove: false,
+    message: uncertain ? 'Agent-access outcome unknown. Check agent access for recorded consent; no automatic retry. Leaving cannot retract prior or dispatched work.'
+      : 'Agent-access review unavailable. Check agent access or leave and reopen; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function accessView($, running, epoch, extra) {
+  if (!await accessParent($, running, epoch) || !await accessCurrent($, running, epoch)) return;
+  const now = await $.clock.now();
+  if (accessing !== running || epoch !== generation) return;
+  if (!Number.isFinite(now)) throw new Error('Unavailable access time');
+  const value = extra.value ?? null, inspected = extra.inspected ?? null;
+  if (inspected && !accessInspectionLive(inspected, now) || value && Date.parse(value.observed_at) > now + 30000) throw new Error('Elapsed access evidence');
+  const canApprove = value && accessApprovable(value, now), token = {};
+  accessing = { ...running, ...extra, busy: false, canApprove, message: null, expiryAuthority: token };
+  accessExpiry?.cancel(); accessExpiry = null;
+  if (canApprove) accessExpiry = $.clock.after(accessDeadline(value) - now, () => {
+    if (epoch === generation && accessing.expiryAuthority === token) {
+      accessing = { ...accessing, canApprove: false, expiryAuthority: null,
+        message: 'Agent-access review deadline elapsed. Check recorded consent; no automatic retry.' };
+      $.ui.invalidate('ui.render');
+    }
+  });
+  $.ui.invalidate('ui.render');
+}
+async function openAccess($, previous, epoch) {
+  const running = accessStart($, previous, epoch);
+  if (!running) return;
+  clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); clearAdapter();
+  try {
+    const networks = await accessParent($, running, epoch);
+    if (!networks) return;
+    await accessView($, running, epoch, { stage: 'networks', networks, network: null, selected: null, page: 0 });
+  } catch { accessFailure($, running, epoch); }
+}
+async function chooseAccessNetwork($, previous, epoch, network) {
+  if (previous.stage !== 'networks' || !previous.networks.includes(network)) return;
+  const running = accessStart($, previous, epoch);
+  if (!running) return;
+  running.network = network;
+  try {
+    if (!await accessParent($, running, epoch)) return;
+    const raw = await accessProcess($, ['network', 'members', network.id]);
+    if (!await accessCurrent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    const people = accessPeople(raw, now);
+    await accessView($, running, epoch, { stage: 'people', people, selected: null, page: 0 });
+  } catch { accessFailure($, running, epoch); }
+}
+async function readAccess($, previous, epoch, selected = previous.selected) {
+  if (!selected || previous.stage === 'people' && !previous.people.includes(selected)) return;
+  const running = accessStart($, previous, epoch);
+  if (!running) return;
+  running.selected = selected;
+  try {
+    if (!await accessParent($, running, epoch)) return;
+    if (previous.mode === 'consent') {
+      const raw = await accessRun($, 'lookup', running);
+      if (!await accessCurrent($, running, epoch)) return;
+      const value = await parseAccessConsent(raw, running.parent, running.host, running.network, selected);
+      await accessView($, running, epoch, { stage: 'selected', mode: 'consent', value, inspected: null });
+    } else {
+      const raw = await accessRun($, 'inspect', running);
+      if (!await accessCurrent($, running, epoch)) return;
+      const now = await $.clock.now();
+      if (accessing !== running || epoch !== generation) return;
+      const inspected = await parseAccessInspection(raw, running.parent, running.host, running.network, selected, now);
+      await accessView($, running, epoch, { stage: 'selected', mode: 'inspection', inspected, value: null });
+    }
+  } catch { accessFailure($, running, epoch); }
+}
+async function prepareAccess($, previous, epoch) {
+  if (!previous.selected || !previous.inspected) return;
+  const running = accessStart($, previous, epoch);
+  if (!running) return;
+  running.mode = 'consent';
+  let sent = false;
+  try {
+    if (!await accessParent($, running, epoch)) return;
+    const raw = await accessRun($, 'lookup', running);
+    if (!await accessCurrent($, running, epoch)) return;
+    let value = await parseAccessConsent(raw, running.parent, running.host, running.network, running.selected);
+    if (!await accessCurrent($, running, epoch)) return;
+    if (value.access === null) {
+      const current = await accessRun($, 'inspect', running);
+      if (!await accessCurrent($, running, epoch)) return;
+      const now = await $.clock.now();
+      if (accessing !== running || epoch !== generation) return;
+      const inspected = await parseAccessInspection(current, running.parent, running.host, running.network, running.selected, now);
+      if (inspected.review_id !== previous.inspected.review_id || !same(inspected.review, previous.inspected.review)) throw new Error('Changed displayed inspection');
+      if (!await accessParent($, running, epoch) || !await accessCurrent($, running, epoch)) return;
+      const dispatchNow = await $.clock.now();
+      if (accessing !== running || epoch !== generation) return;
+      if (!accessInspectionLive(inspected, dispatchNow)) throw new Error('Elapsed grant preparation');
+      sent = true;
+      const prepared = await accessRun($, 'prepare', running, { inspection_review_id: inspected.review_id });
+      if (!await accessCurrent($, running, epoch)) return;
+      value = await parseAccessConsent(prepared, running.parent, running.host, running.network, running.selected);
+      if (!value.access || value.access.review.inspection_review_id !== inspected.review_id || !same(value.access.review.inspection, inspected.review) ||
+          value.access.review.replaces_access_id !== '-') throw new Error('Changed prepared grant');
+    }
+    await accessView($, running, epoch, { stage: 'selected', mode: 'consent', value, inspected: null });
+  } catch { accessFailure($, running, epoch, sent); }
+}
+async function approveAccess($, previous, epoch) {
+  if (!previous.canApprove || !previous.value?.access) return;
+  const captured = previous.value, running = accessStart($, previous, epoch);
+  if (!running) return;
+  let sent = false;
+  try {
+    if (!await accessParent($, running, epoch)) return;
+    const raw = await accessRun($, 'lookup', running);
+    if (!await accessCurrent($, running, epoch)) return;
+    const fresh = await parseAccessConsent(raw, running.parent, running.host, running.network, running.selected);
+    if (!fresh.access || fresh.access.access_id !== captured.access.access_id || fresh.access.review_id !== captured.access.review_id ||
+        !same(fresh.access.review, captured.access.review)) throw new Error('Changed displayed grant');
+    if (!await accessCurrent($, running, epoch)) return;
+    if (fresh.access.state === 'approved') {
+      await accessView($, running, epoch, { stage: 'selected', mode: 'consent', value: fresh, inspected: null });
+      return;
+    }
+    const current = await accessRun($, 'inspect', running);
+    if (!await accessCurrent($, running, epoch)) return;
+    const now = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    const inspected = await parseAccessInspection(current, running.parent, running.host, running.network, running.selected, now);
+    if (inspected.review_id !== fresh.access.review.inspection_review_id || !same(inspected.review, fresh.access.review.inspection)) throw new Error('Changed grant authority');
+    if (!await accessParent($, running, epoch) || !await accessCurrent($, running, epoch)) return;
+    const dispatchNow = await $.clock.now();
+    if (accessing !== running || epoch !== generation) return;
+    if (!accessApprovable(fresh, dispatchNow) || !accessInspectionLive(inspected, dispatchNow)) throw new Error('Elapsed grant approval');
+    sent = true;
+    const approved = await accessRun($, 'approve', running, { access_id: captured.access.access_id, access_review_id: captured.access.review_id });
+    if (!await accessCurrent($, running, epoch)) return;
+    const outcome = await parseAccessConsent(approved, running.parent, running.host, running.network, running.selected);
+    if (outcome.access?.state !== 'approved' || outcome.access.access_id !== captured.access.access_id ||
+        outcome.access.review_id !== captured.access.review_id || !same(outcome.access.review, captured.access.review)) throw new Error('Changed approval result');
+    await accessView($, running, epoch, { stage: 'selected', mode: 'consent', value: outcome, inspected: null });
+  } catch { accessFailure($, running, epoch, sent); }
+}
+function accessPage($, previous, epoch, page) {
+  const values = previous.stage === 'networks' ? previous.networks : previous.people;
+  if (accessing !== previous || previous.busy || epoch !== generation || !['networks', 'people'].includes(previous.stage) ||
+      page < 0 || page * 10 >= values.length) return;
+  accessing = { ...previous, page };
+  $.ui.invalidate('ui.render');
+}
+function accessControls($, { Text, Button }, epoch) {
+  if (project.stage !== 'attached' || project.busy) return [];
+  const previous = accessing, button = (key, label, onPress) => Button({ key, label, onPress });
+  if (previous.stage === 'inactive') return admitting.stage === 'inactive' && joining.stage === 'inactive' &&
+    recipient.stage === 'inactive' && invitation.stage === 'inactive' && adapter.stage === 'inactive'
+    ? [button('access-open', 'Review agent access', () => openAccess($, previous, epoch))] : [];
+  const leave = button('access-leave', 'Leave agent access', () => {
+    if (accessing === previous && epoch === generation) { clearAccess(); $.ui.invalidate('ui.render'); }
+  });
+  if (previous.busy) return [Text({ children: ['Agent access: working…'] }), leave];
+  if (['networks', 'people'].includes(previous.stage)) {
+    const network = previous.stage === 'networks', values = network ? previous.networks : previous.people, page = previous.page;
+    return [Text({ children: [network ? 'Agent access: choose a network' : `Agent access: choose a person in ${quoted(previous.network.name)} (${previous.network.id})`,
+      '\nMembership and labels do not establish agent access. People without a current bound machine are not listed.',
+      values.length ? '' : '\nNo current choices. Leave and reopen after membership is available.'] }),
+      ...values.slice(page * 10, page * 10 + 10).map(v => network
+        ? button('access-network-' + v.id, `Choose access network ${quoted(v.name)} (${v.id})`, () => chooseAccessNetwork($, previous, epoch, v))
+        : button('access-person-' + v.person_public_key, `Review person ${v.person_public_key} (machines: ${v.labels.map(quoted).join(', ')})`, () => readAccess($, previous, epoch, v))),
+      ...(page > 0 ? [button('access-prev', 'Previous access choices', () => accessPage($, previous, epoch, page - 1))] : []),
+      ...(values.length > (page + 1) * 10 ? [button('access-next', 'More access choices', () => accessPage($, previous, epoch, page + 1))] : []), leave];
+  }
+  return [
+    ...(previous.inspected ? [Text({ children: [accessInspectionLines(previous.inspected)] }),
+      button('access-prepare', 'Review proposed grant', () => prepareAccess($, previous, epoch))] : []),
+    ...(previous.value ? [Text({ children: [accessConsentLines(previous.value)] })] : []),
+    ...(previous.canApprove ? [button('access-approve', 'Approve agent access', () => approveAccess($, previous, epoch))] : []),
+    ...(previous.message ? [Text({ children: [previous.message] })] : []),
+    ...(previous.value?.access && ['expired', 'invalidated'].includes(previous.value.access.state)
+      ? [Text({ children: ['Existing terms require separate advanced review. No replacement or signing is automatic.'] })] : []),
+    ...(previous.selected ? [button('access-check', 'Check agent access', () => readAccess($, previous, epoch))] : []), leave,
+  ];
+}
+
 function clearAdmission() {
   admissionExpiry?.cancel();
   admissionExpiry = null;
@@ -1074,6 +1320,7 @@ async function approveAdmission($, previous, epoch) {
   } catch { admissionFailure($, running, epoch, sent); }
 }
 function admissionControls($, { Text, Button }, epoch) {
+  if (accessing.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = admitting, button = (key, label, onPress) => Button({ key, label, onPress });
   if (previous.stage === 'inactive') return [joining, recipient, invitation, adapter].every(v => v.stage === 'inactive')
@@ -1814,6 +2061,7 @@ function joinPage($, previous, epoch, page) {
   $.ui.invalidate('ui.render');
 }
 function joiningControls($, { Text, Button, Input }, epoch) {
+  if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = joining, button = (key, label, onPress) => Button({ key, label, onPress });
@@ -1977,6 +2225,7 @@ async function inspectRecipient($, previous, epoch) {
   } catch { recipientFailure($, running, epoch); }
 }
 function recipientControls($, { Text, Button, Input }, epoch) {
+  if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = recipient;
@@ -2189,6 +2438,7 @@ async function replaceInvitation($, previous, epoch) {
   } catch { invitationFailure($, running, epoch); }
 }
 function invitationControls($, { Text, Button, Input }, epoch) {
+  if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy) return [];
   const previous = invitation;
@@ -2234,6 +2484,7 @@ function invitationControls($, { Text, Button, Input }, epoch) {
 }
 
 function adapterControls($, { Text, Button }, epoch) {
+  if (accessing.stage !== 'inactive') return [];
   if (admitting.stage !== 'inactive') return [];
   if (project.stage !== 'attached' || project.busy || invitation.stage !== 'inactive' || recipient.stage !== 'inactive' || joining.stage !== 'inactive') return [];
   const previous = adapter;
@@ -2263,7 +2514,7 @@ function projectControls($, { Text, Button, Input }, epoch) {
   const back = button('project-back', 'Back to Peerspan', () => {
     if (project === previous && epoch === generation) { clearProject(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.stage === 'attached' && (admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
+  if (previous.stage === 'attached' && (accessing.stage !== 'inactive' || admitting.stage !== 'inactive' || joining.stage !== 'inactive' || recipient.stage !== 'inactive' || invitation.stage !== 'inactive' || adapter.stage !== 'inactive' || runtime?.parent.flow_id === previous.flow.flow_id)) {
     return [Text({ children: ['Project: attachment recorded'] }), back];
   }
   if (previous.stage === 'unavailable') return [Text({ children: [previous.message] }), back];
@@ -2317,8 +2568,13 @@ export function register(on, configured = {}) {
   });
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== 'peerspan') return next(e);
-    if (e.surface !== 'terminal') { clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
+    if (e.surface !== 'terminal') { clearAccess(); clearAdmission(); clearJoining(); clearRecipient(); clearInvitation(); return next(e); }
     const epoch = generation;
+    if (accessing.stage !== 'inactive') {
+      const captured = accessing;
+      try { if (!await accessCurrent($, captured, epoch) && accessing === captured) clearAccess(); }
+      catch { if (accessing === captured) clearAccess(); }
+    }
     if (admitting.stage !== 'inactive') {
       const captured = admitting;
       try { if (!await admissionCurrent($, captured, epoch) && admitting === captured) clearAdmission(); }
@@ -2354,6 +2610,7 @@ export function register(on, configured = {}) {
       ...recipientControls($, { Text, Button, Input }, epoch),
       ...joiningControls($, { Text, Button, Input }, epoch),
       ...admissionControls($, { Text, Button }, epoch),
+      ...accessControls($, { Text, Button }, epoch),
       ...(runtime?.phase === 'connected' && !['starting', 'waiting', 'ready'].includes(runtime.messages?.state) ? [
         Text({ children: ['Enable incoming messages starts a model turn using this conversation’s normal model allowance.'] }),
         Button({ key: 'message-enable', label: runtime.messages ? 'Retry incoming messages' : 'Enable incoming messages',
