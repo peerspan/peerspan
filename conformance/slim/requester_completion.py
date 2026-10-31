@@ -619,6 +619,52 @@ def terminal_timing_diagnostic(actual, expected, phase, mode, offsets):
     return actual
 
 
+def terminal_directory_diagnostic(actual, expected, h, issuer, network_id):
+    """GU.impl40a: one failure-only local cache read, never a refresh/fence."""
+    if actual == expected:
+        return actual
+    summary = {'http_status': 'unknown', 'network_matches': 'unknown',
+               'issuer_row_count': 'unknown', 'host_state': 'unknown',
+               'refreshed_at_present': 'unknown',
+               'refreshed_at_at_or_before_current_time': 'unknown'}
+    try:
+        if not (isinstance(network_id, str) and re.fullmatch(r'net_[0-9a-f]{64}', network_id)
+                and isinstance(issuer.id, str) and re.fullmatch(r'host_[0-9a-f]{64}', issuer.id)):
+            raise ValueError('unknown diagnostic binding')
+        status, value = h.api('GET', '/v1/directory?network=' + network_id, timeout=2)
+        if type(status) is int and 100 <= status <= 599:
+            summary['http_status'] = status
+        if (status == 200 and type(value) is dict and isinstance(value.get('network_id'), str)
+                and re.fullmatch(r'net_[0-9a-f]{64}', value['network_id'])):
+            summary['network_matches'] = value['network_id'] == network_id
+            hosts = value.get('hosts')
+            if (summary['network_matches'] and type(hosts) is list and len(hosts) <= 1024
+                    and all(type(row) is dict and isinstance(row.get('host_id'), str)
+                            and re.fullmatch(r'host_[0-9a-f]{64}', row['host_id']) for row in hosts)):
+                known = [row for row in hosts if row['host_id'] == issuer.id]
+                summary['issuer_row_count'] = len(known)
+                if len(known) == 1 and known[0].get('state') in ('ok', 'error', 'unsupported', 'pending'):
+                    row = known[0]
+                    if 'refreshed_at' in row and row['refreshed_at'] is None:
+                        summary['host_state'] = row['state']
+                        summary['refreshed_at_present'] = False
+                    elif (isinstance(row.get('refreshed_at'), str) and re.fullmatch(
+                            r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+                            r'(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})', row['refreshed_at'])):
+                        refreshed = datetime.fromisoformat(row['refreshed_at'].replace('Z', '+00:00'))
+                        not_future = refreshed <= h.now()
+                        summary['host_state'] = row['state']
+                        summary['refreshed_at_present'] = True
+                        summary['refreshed_at_at_or_before_current_time'] = not_future
+    except Exception:
+        pass  # No body/error/exception text may replace or disclose the verdict.
+    try:
+        print('terminal_directory_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+    except Exception:
+        pass
+    return actual
+
+
 def quiet(f):
     h = f['h']; relays = [v.relay for v in (f['a'], h) if v.relay]
     record, _ = pending(h, f['rid'])
@@ -1550,7 +1596,7 @@ def _():
             check(value['completion'] == baseline['completion'] and value['commit'] == baseline['commit'], 'history changed exact completion/consent')
             after = snapshot(h)
             check(after == before, f'{phase} completed{mode} replay changed DB/state/home: {differences(before, after)}')
-            check(terminal_timing_diagnostic(terminal_carrier_diagnostic(traffic(f), network, phase, mode), network, phase, mode, timing_offsets) == network, f'{phase} completed{mode} replay performed carrier IO')
+            check(terminal_directory_diagnostic(terminal_timing_diagnostic(terminal_carrier_diagnostic(traffic(f), network, phase, mode), network, phase, mode, timing_offsets), network, h, a, f['network']['id']) == network, f'{phase} completed{mode} replay performed carrier IO')
         complete(f, approved, status=409, code='review_changed', pure=True,
                  data={**completion_body(f, approved), 'commit_review_id': 'review_' + 'f' * 64})
     application_proof(f, baseline)
