@@ -1,5 +1,5 @@
 // Closed public projections only. Native effects stay in register.mjs.
-import { same, quoted, validContext } from './project.mjs';
+import { same, quoted, validContext, bytes } from './project.mjs';
 import { context } from './adapter.mjs';
 import { publicKey, publicLabel, canonical, freeze } from './invitation.mjs';
 import { decodePublic } from './access.mjs';
@@ -38,7 +38,8 @@ async function hostFor(key) {
 }
 function validAgent(a) {
   return exact(a, 'id name owner capabilities') && id(a.id, 'agent', 32) && publicLabel(a.name) &&
-    publicLabel(a.owner) && Array.isArray(a.capabilities) && a.capabilities.every(publicLabel);
+    publicLabel(a.owner) && Array.isArray(a.capabilities) && a.capabilities.length <= 100 &&
+    a.capabilities.every(c => typeof c === 'string' && c.trim().length > 0 && bytes(c) <= 256);
 }
 function validParent(c) {
   return exact(c, 'project_flow_id project_review_id project_root native_session_id integration') &&
@@ -146,7 +147,7 @@ export async function snapshot(raw, selected, parent, host, previous = null, wit
 export function lines(v, selected, parent, expired = false) {
   const c = v?.consent, r = c?.review, i = r?.inspection ?? v?.inspection?.review;
   return [
-    `Machine request: ${selected.request_id}`,
+    `Machine request: ${selected.request_id}`, `Review host: ${parent.review.host_id}`,
     'Inventory claims require host verification; public authority does not probe private signer availability.',
     ...(i ? [
       `Network: ${quoted(i.network.name)} (${i.network.id})`, `Context: ${i.network.context_id}`, `Root: ${i.root_state_id}`,
@@ -161,12 +162,17 @@ export function lines(v, selected, parent, expired = false) {
       'Proposed powers: 7 (1 policy editing, 2 host binding, 4 own-device approval/renewal/revocation). No administrator 8.',
       `Powers deadline: ${i.not_after}`, `Host admission: ${i.host_admission}`,
       `Request window: ${i.created_at} to ${i.expires_at}`,
+      `Reviewed project: ${quoted(i.context.project_root)}; conversation: ${quoted(i.context.native_session_id)}; ${i.context.integration}`,
+      `Project flow/review: ${i.context.project_flow_id} / ${i.context.project_review_id}`,
+      `Reviewed agent: ${quoted(i.agent.name)} (${i.agent.id}); owner: ${quoted(i.agent.owner)}; capabilities: ${i.agent.capabilities.map(quoted).join(', ')}`,
+      `Inspection effects: ${canonical(i.effects)}`,
     ] : ['Machine owner authority: unavailable. No consent inferred.']),
     ...(r ? [
       `Machine consent: ${c.state}; ${c.consent_id}; ${c.review_id}`, `Inspection review: ${r.inspection_review_id}`,
       `Owner intent: ${r.intent_id}; proposed offer: ${r.proposed_owner_offer_id}; replaces: ${r.replaces_consent_id}`,
-      `Recorded project: ${quoted(r.context.project_root)}; conversation: ${quoted(r.context.native_session_id)}`,
-      `Recorded agent: ${quoted(r.agent.name)} (${r.agent.id}); owner: ${quoted(r.agent.owner)}`,
+      `Recorded project: ${quoted(r.context.project_root)}; conversation: ${quoted(r.context.native_session_id)}; ${r.context.integration}`,
+      `Recorded project flow/review: ${r.context.project_flow_id} / ${r.context.project_review_id}`,
+      `Recorded agent: ${quoted(r.agent.name)} (${r.agent.id}); owner: ${quoted(r.agent.owner)}; capabilities: ${r.agent.capabilities.map(quoted).join(', ')}`,
       `Receipt window: ${r.created_at} to ${r.expires_at}; original stage deadline: ${r.request_stage_deadline}`,
       `Consent effects: ${canonical(r.effects)}`,
       own(v, parent) ? 'Exact recorded project consent; retained facts do not attribute signing to this interface.'
