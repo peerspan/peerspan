@@ -6539,7 +6539,174 @@ Selected: semantic ordinary action-set equality with immutable presentation and
 digests. Discarded: array-order equality, rewriting signed/raw policy JSON,
 appending a duplicate replacement rule or broadening the fixed grant actions.
 
-## 35. Remaining flow contract
+## 35. Native completion of exact approved agent access
+
+This human-only native slice composes sections32/33 after section34's exact
+nonsigning approval. No Rust/API/schema/protocol/provider/evaluator/storage,
+original approval, model/tool/prompt or adapter/message/task/lease change.
+Preserve all333 existing native cases/files and all28 host suites unchanged.
+The UI uses the existing exact approved action, never another grant generation.
+
+### Explicit completion and pure recovery
+
+An exact approved consent pane offers **Finish agent access** while its fresh
+work remains live, and **Check application** for retained history at any time.
+Finish performs the remaining authorized signing and local application in one
+bounded explicit action. There are no separate technical Sign/Apply decisions.
+Before pressing, show that Finish signs the exact approved policy with its
+already selected provider and applies it locally; ordinary proof delivery may
+follow, but receipt/connection readiness must be observed separately.
+
+Approval, Review proposed grant, Check agent access, normal entry/Refresh/reload
+and lookup recovery retain section34 semantics: none implicitly signs/applies.
+An already approved record found by a read does not automatically continue.
+The existing Check agent access stays lookup-only in the consent pane.
+This preserves its explicit nonsigning approval boundary and existing333 tests.
+
+Both new actions synchronously enter a busy completion pane, invalidating old
+presses while keeping **Leave agent access** available. Capture the exact
+approved receipt, review/digest, parent, host, network/context and selected
+person. Require current terminal/root/conversation and exact authoritative
+attached parent/host before/after IO and after asynchronous public validation.
+
+First perform pure section31 lookup; require the exact captured approved access
+ID/review/digest/complete immutable terms. Then perform pure section33 application
+observation with `{context,network_id,person_public_key,access_id,access_review_id}`.
+Read commands use5s and private stdin. A retained locally_applied marker is
+read-only recovery, zero signing/application calls, including after expiry.
+Check application always stops after these reads, never inspection/preparation/
+approval/sign/apply/progress/resume/retry/provider/key discovery or peer IO.
+A missing/changed/unapproved receipt or malformed marker clears actionable terms.
+
+Finish may continue only from a verified unsigned/signed approved snapshot while
+still live. Recheck pure lookup for the same approval, current section30
+inspection/digest/complete terms, authoritative parent/host/native context and
+native time after all asynchronous preflight, immediately before each mutation.
+Use the fixed receipt creation/review expiry/proposed policy end and all current
+inspection bounds; no raw time before creation or future observation beyond30s.
+Do not adopt changed provider/root/person/host/binding/device/policy/agent terms,
+refresh timestamps, replace consent, choose a fallback or open keys in frontend.
+The daemon still enforces all final ordinary authority/clock/budget guards.
+
+If unsigned, dispatch one configured executable/literal --state command,
+timeoutMs95000, exact private stdin:
+
+```
+onboarding access sign --stdin
+{context,network_id,person_public_key,access_id,access_review_id,
+ decision:"sign_project_agent_access"}
+```
+
+Accept only the complete section32 wrapper plus exact signed marker: same
+approved receipt/digest/action/intent/statement, state signed, count1/required1,
+application/delivery/readiness all not_verified. Recheck native/parent/host display
+guards and future time after IO. Elapsed window after dispatch may retain valid
+historical signing, but forbids any subsequent fresh application.
+
+After a valid signing reply, repeat pure lookup/application for this exact
+receipt. An already recorded application is read-only recovery. Otherwise
+require signed, repeat all fresh preflight and dispatch one configured95s call:
+
+```
+onboarding access apply --stdin
+{context,network_id,person_public_key,access_id,access_review_id,
+ decision:"apply_project_agent_access"}
+```
+
+A verified already-signed first observation skips signing and proceeds only to
+that fresh guarded apply. At most one sign and one apply dispatch per Finish;
+no loop, retry, polling, broad ordinary action command or new consent. Each
+existing daemon mutation has90s bound; two sequential operations have separate
+95s client bounds, not one misleading shared95s total. Do not launch work in
+parallel or extend the fixed five-minute consent deadline.
+
+### Exact evidence, lifecycle and uncertainty
+
+Validate full closed section32/33 outer wrappers and markers, <=1MiB raw output,
+canonical dates/typed IDs/private-value/safe-number boundaries, unchanged section31
+receipt/digest and exact marker action/intent/statement references. Null markers
+are invalid for captured approved consent. Application marker must have exact
+state unsigned/signed/locally_applied, proof '-' only when unsigned and canonical
+dp_ otherwise; both delivery/readiness stay not_verified. Once a signed proof ID
+is observed, later application/Check replies must retain it. Retained state must
+not regress within a captured completion view (unsigned→signed→locally_applied
+only). A successful Apply reply must specifically be locally_applied; a bare
+consent/signature response never establishes local application. No frontend
+cryptographic/evaluator substitute or omitted signature/payload reconstruction.
+
+Show signature recorded only for a validated signed signing reply or a verified
+signed/applied application marker. Show **Local application: recorded** only for
+the exact locally_applied marker and its public proof/statement references.
+These are global retained historical facts, without attributing which interface
+performed work. State clearly that current permission, peer delivery, connection
+and actual model receipt are not verified. Do not render the consent-only footer
+as if signatures/application remain absent after verified completion. Complete
+approved project/person/name-wide grant/provider/finite terms remain available
+in the private human pane; internal consent/native IDs and raw private outputs
+stay undisplayed. Preserve inherited policy JSON/order/defaults and all old terms.
+
+A timer removes Finish at the earliest live bound without IO. Retained approved/
+applied history remains readable after old bounds. Recheck clock after awaited
+preflight before dispatch; a late already-sent result may show exact historical
+evidence but cannot authorize another operation. A malformed/denied/nonzero/
+timed-out/mismatched reply or guarded pipeline failure clears actionable terms,
+shows fixed outcome unknown/unavailable and offers Check application only until
+fresh terms are displayed. No automatic continuation after uncertainty, even
+when the host may have signed/applied. Check is the first recovery step and may
+show unsigned, signed or applied; a new Finish requires a new explicit press.
+The existing underlying work cannot be retracted by UI leave or client timeout.
+
+Leave/Back/Close/Refresh/root/conversation/host/parent/surface/session changes
+clear volatile completion state, callbacks and timer. Late replies/old timers
+cannot resurrect a departed pane or alter a newer selection. Never cancel/
+revoke consent or disable an established authorized runtime merely by leaving.
+No new persistence, credentials, model action or direct peer request is added.
+
+### Verification
+
+A separate contract-only native author supplies a compact independent suite
+using section32/33 public projections and pinned303 effects, no product imports/
+hooks/Rust reads, real process/transport/inference or self-authored unit tests.
+Preserve original333 cases/actions/assertions/delays/timeouts and all28 host suites.
+Actual delayed stimuli signal real dispatch plus virtual sleep registration.
+Cover:
+
+1. Inert section34 entry/approval/Check/reload, approved-only new controls,
+   explicit Finish unsigned→sign→fresh reads/preflight→apply; literal configured
+   argv, closed private stdin and5s/95s bounds; double press is single-flight.
+2. Signed state skips signer; applied state recovers purely, including expired
+   history. Check/reentry never resumes, signs/applies or creates another action.
+   Full exact provider/grant/policy terms remain visible and no ready claim.
+3. Closed signature/application wrappers/count/state/reference/proof/private/
+   date/safe-number corpus; null/bare/changed replies cannot confirm. Preserve
+   observed proof and monotone historical state on Check and apply success.
+4. Changed immutable consent/inspection/provider/root/parent/host/person/agent/
+   native context or deadline crossing during actual preflight sends no next
+   mutation; timer removes Finish, old timers cannot disable another selection.
+5. Sign failure/lost reply stops before apply; valid sign followed by failed
+   apply becomes unknown with pure Check first, then explicit continuation of
+   retained signed state. Expiry after signing dispatch prevents fresh apply;
+   exact post-apply expiry permits historical success, without current authority.
+6. Leave/navigation/context/end during preflight/sign/apply discards late work
+   without consent revocation or interface attribution. Existing authorized
+   lease/message/task behavior and all333 original cases remain intact.
+
+Commit before root runs. Root serializes native/runtime/build work and checks
+known external compiler activity before one retained first run; record any new
+overlap and every failure/correction. Use strict native validation/full suite,
+unchanged merged82 Rust local gates and final all28 CI/four PR checks/fresh bot+
+root review on one final head. No unchanged retry-to-green, increased deadlines,
+old-test edits or fabricated host evidence. Real terminal/reload/installed/
+physical/model/schema23-to27/full-state/observed-readiness/full-feature acceptance
+remain separate open gates. Do not repeat earlier quota-refused model probes.
+
+Selected: one explicit Finish composes the approved signer/application backends,
+with read-only Check and exact recovery. Discarded: two technical Sign/Apply UI
+buttons, implicit work on reads/approval, new consent/provider/flow storage,
+auto retry/repair, treating historical local application as current permission
+or connection readiness, and widening existing333 tests' allowed effects.
+
+## 36. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
