@@ -1,0 +1,342 @@
+{
+  "slice": "GU.impl40 / guided contract section40",
+  "base_merged_pr": 90,
+  "base_merge": "a0e546bb5f5ce7bf3fe845c3b4da85693d196e84",
+  "contract_commit": "80f0356",
+  "frozen_production_head": "8b18a09619ca12d341f081337317fe7db651d8e7",
+  "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+  "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+  "scope": "Explicit pinned existing-person machine-request lane; no original-key inventory or copy. Existing preview/review/publication/progress backend; no API/schema/runtime-scope change.",
+  "independent_author": {
+    "branch": "codex/gu-native-machine-request-tests",
+    "initial_commit": "395a11416debb45a9d2fd0b473b644d391420a9e",
+    "static_wording_correction": "5605aa0acd2212e0af0cd00d8e94311d5b7c653f",
+    "cases": 12,
+    "file": "integrations/claude-onboarding/tests/machine-request.test.ts",
+    "sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+    "basis": "Public sections11/12/15/40, pinned303 SDK and independent fixture source only; no product/Rust/hooks reads/imports or author runtime/process/host/network/model execution.",
+    "correction": "Before execution, accept semantically equivalent neither in the negative ownership/authority assertion; header only otherwise. All cases/actions/deadlines retained."
+  },
+  "preservation": {
+    "base": "a0e546bb5f5ce7bf3fe845c3b4da85693d196e84",
+    "prior_native_cases": 381,
+    "prior_host_suites": 30,
+    "prior_native_conformance_helper_files": 60,
+    "byte_identical": true,
+    "old_assertions_stimuli_delays_deadlines_unchanged": true
+  },
+  "native_runtime": {
+    "version": "2.1.303",
+    "path": "/root/.local/share/claude/versions/2.1.303",
+    "sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450",
+    "environment": {
+      "DISABLE_UPDATES": "1",
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+      "CLAUDE_CONFIG_DIR": "/dev/shm/gu40/claude-config",
+      "TMPDIR": "/dev/shm/gu40/t"
+    }
+  },
+  "local_gates": [
+    {
+      "gate": "native-validate-first",
+      "head": "17eb326e4ff64af54c7b4bdbcf5c9f9a7754c082",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 0.76,
+      "log": "/dev/shm/gu40/native-validate-first.log",
+      "sha256": "e30a4ffad52ea18050e8d26c3228588f295752d13f2abe7ac14eecefce7c3e22",
+      "preflight_active": [],
+      "postflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "c2b29e6fc7397853418827a5d394b653dab33e79",
+      "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+    },
+    {
+      "gate": "native-all-first",
+      "head": "17eb326e4ff64af54c7b4bdbcf5c9f9a7754c082",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 72.71,
+      "log": "/dev/shm/gu40/native-all-first.log",
+      "sha256": "fe952148ae10e44c1bd63a40991c8b5b75568b8b64276f0c784b36df1fcf0795",
+      "preflight_active": [],
+      "postflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "c2b29e6fc7397853418827a5d394b653dab33e79",
+      "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+    },
+    {
+      "gate": "native-new-corrected-first",
+      "head": "8b18a09619ca12d341f081337317fe7db651d8e7",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "/dev/shm/gu40/native-new-corrected-first-plugin"
+      ],
+      "exit": 0,
+      "seconds": 6.18,
+      "log": "/dev/shm/gu40/native-new-corrected-first.log",
+      "sha256": "56968e0f51440a2c1814028836bd103fdb31a5466524974ff45e4acf0f294a0c",
+      "preflight_active": [],
+      "postflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+      "artifact": "/dev/shm/gu40/native-new-corrected-first-plugin",
+      "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+    },
+    {
+      "gate": "join-onboarding-first",
+      "head": "8b18a09619ca12d341f081337317fe7db651d8e7",
+      "command": [
+        "python3",
+        "conformance/slim/join_onboarding.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 50.53,
+      "log": "/dev/shm/gu40/join-onboarding-first.log",
+      "sha256": "8c45f041cd91ae58c7c72540d7bc746588b7828af044f3bb74ee177c0677d28f",
+      "preflight_active": [],
+      "postflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "6a322f95e4ac37142d298011d30ea848a72c112c",
+      "artifact": null,
+      "test_sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+    }
+  ],
+  "first_full_native_result": {
+    "passed": 390,
+    "failed": 3,
+    "total": 393,
+    "new_passed": 11,
+    "new_failed": 1,
+    "seconds": 72.71,
+    "new_failure": "The unpinned-invitation recovery assertion required pinned invitation; the guidance said invitation that pins. Changed to the clearer explicit pinned invitation wording; no authority or test change.",
+    "old_timeout_failures": [
+      {
+        "name": "closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing",
+        "milliseconds": 5020.37
+      },
+      {
+        "name": "late preflight signer application and old timers cannot resurrect a departed or newer selected completion view",
+        "milliseconds": 5002.34
+      }
+    ],
+    "old_timeout_limit_ms": 5000,
+    "old_timeout_cause": "unclassified",
+    "no_semantic_mismatch_reported_in_old_failures": true,
+    "unchanged_old_cases_not_retried_locally": true
+  },
+  "corrected_native_result": {
+    "passed": 12,
+    "failed": 0,
+    "seconds": 6.18,
+    "scope": "Affected new suite only; pinned CLI has no test-file selector.",
+    "artifact": "/dev/shm/gu40/native-new-corrected-first-plugin",
+    "artifact_manifest": "/dev/shm/gu40/native-new-corrected-first-artifact.json",
+    "manifest_sha256": "92434e56d13f9ea4c7afcfb04801d1745a11ecefc60b5500e1ea1c850803f9e8",
+    "recipe": "Copy the exact tracked plugin, retaining only machine-request.test.ts in its tests directory; compare every copied file byte hash against frozen source before execution.",
+    "files": [
+      {
+        "path": ".claude-plugin/plugin.json",
+        "sha256": "16bbadf9b91a998ca48e75087ab1112b6d3bf25784cc92de69b1fb8e8f72f375"
+      },
+      {
+        "path": "README.md",
+        "sha256": "ffc83a6bcca156ef5ce2a88f2393fa8deacff4452afd4c8ab5dfce1a4cec01e4"
+      },
+      {
+        "path": "hooks/access-completion.mjs",
+        "sha256": "55c26521f9c57fd6c021e58c8c1ff6e5ff1c4f96ba8ec47cf52f68cb11eaf846"
+      },
+      {
+        "path": "hooks/access.mjs",
+        "sha256": "e2d283acc89380e354913fdef04722aa1056bbf3280b621fc2baa64aeb7b274d"
+      },
+      {
+        "path": "hooks/adapter.mjs",
+        "sha256": "9634a67d35695a96b5da56e2bab6e584fb2ae15a7a6cf53ab84c50b067bc12c1"
+      },
+      {
+        "path": "hooks/admission.mjs",
+        "sha256": "5fd15e59cc38edbe5c5369a41b591dc9bf37d1b0446f6ef1825e4069b7e1dfc6"
+      },
+      {
+        "path": "hooks/finalization.mjs",
+        "sha256": "77b962a88e8cd66469be596485e0e6e7c66603619889d7ab96c59d79cad1f963"
+      },
+      {
+        "path": "hooks/hooks.json",
+        "sha256": "1904a49f867a79aaf912847121ee4f4b1865e6aeb73c70f32a9a7353de5cffcb"
+      },
+      {
+        "path": "hooks/invitation.mjs",
+        "sha256": "ccfed722fd5bf31d3e55b94728adc7436732dc3a621b2a539a99baa7032dc1b2"
+      },
+      {
+        "path": "hooks/join-progress.mjs",
+        "sha256": "5447a498518340a2fe9406bc3e67e4bf4c42d9676ceefb9d94e0e6bc31c69c68"
+      },
+      {
+        "path": "hooks/join.mjs",
+        "sha256": "c79b1bb195fc2f4417f61ad6836fb1c1199d13f84ce32df4468a61725e480cfd"
+      },
+      {
+        "path": "hooks/machine-request.mjs",
+        "sha256": "8e882f38e53ac91c62596f42fe999ccd12a187bf603921291506ea73945c2632"
+      },
+      {
+        "path": "hooks/messages.mjs",
+        "sha256": "b1bb434390f484c7d2f0793d181bee148f0854f9fcebb53dddc488059d125ad4"
+      },
+      {
+        "path": "hooks/observation.mjs",
+        "sha256": "c57ca58198b7f8a9c82caeaa1d63ed08c1b26db8e136a4099576e11289c699f0"
+      },
+      {
+        "path": "hooks/owner.mjs",
+        "sha256": "d6f0fbb76f5fda1d2b611b029fe77cc177ce6c0e9af10f91101032342dfa6150"
+      },
+      {
+        "path": "hooks/project.mjs",
+        "sha256": "91ea554bf6a273870baef8237402f456d21d19cb1b2438050ebf346fda1deb63"
+      },
+      {
+        "path": "hooks/reachability.mjs",
+        "sha256": "761684852f41567d155ddcdc13ccda09a8edde2075060238566d5ecc6e822273"
+      },
+      {
+        "path": "hooks/readiness.mjs",
+        "sha256": "23d35a42c633b0d983e8a02c6656caa670e8cb2866b6f90101e02d1e97d0a035"
+      },
+      {
+        "path": "hooks/recipient.mjs",
+        "sha256": "d9ff8d4695239e9d6887220b86c939bbdb3b5f41d9bc6a02757fb2603b59778d"
+      },
+      {
+        "path": "hooks/register.mjs",
+        "sha256": "24a4030787141852d779d643e2324e7ee7bc8493394bc2283c3102f9d7476d1d"
+      },
+      {
+        "path": "hooks/requester-commit.mjs",
+        "sha256": "ac891ce12a35ee74719c4d6d27c5f8b90254e1e5ce1d5487e464222f93d63a15"
+      },
+      {
+        "path": "hooks/tasks.mjs",
+        "sha256": "5e6e41bbc25142383ed06735e39a177869587de0d3469399efa2b01ec8ccbbfb"
+      },
+      {
+        "path": "tests/machine-request.test.ts",
+        "sha256": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219"
+      }
+    ]
+  },
+  "real_host_backend_result": {
+    "suite": "join_onboarding",
+    "passed": 14,
+    "failed": 0,
+    "seconds": 50.53,
+    "source_unchanged": true,
+    "limits": "Temporary local real hosts/backend authority behavior; no physical-machine, actual native terminal, real-model or completed guided same-person acceptance claim."
+  },
+  "reused_rust_evidence": {
+    "source": "Merged #89 and exact-head #90 CI",
+    "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+    "binary_source": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+    "directory": "/dev/shm/gu38/final-bin",
+    "binary_sha256": {
+      "peerspan-host": "43c79e423530fb5da21f34e177fdeb1c674e2ea24deee47141d38a817bf0b0d5",
+      "peerspan-peer-probe": "e3c5f355ce7d61ff6a9f69a725a8447b7b0566e431ef4269785808bb81de4ec8",
+      "peerspan-helper": "c42d8859549df2dbf38d186e3200a9810b91b174af0d572da3ccb549dc34d60c"
+    },
+    "gates": "155 passed/2 ignored, fmt, Clippy, shipped binaries; Rust tree unchanged.",
+    "pr90_checks": "https://github.com/peerspan/peerspan/actions/runs/41187361469"
+  },
+  "resource_observation": {
+    "serialized_root_gates": true,
+    "midrun_sample": "/dev/shm/gu40/native-midrun-sample.json",
+    "midrun_sha256": "fe385d08c0578550a9d91365ee0fb91c3fbe6374fc4ac2e1117144eca0c3aafe",
+    "sample": {
+      "known_compilers": [],
+      "native_test_processes": [
+        [
+          "242908",
+          "242786",
+          "2.1.303"
+        ],
+        [
+          "242917",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242918",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242919",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242920",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242921",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242922",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242923",
+          "242908",
+          "2.1.303"
+        ],
+        [
+          "242924",
+          "242908",
+          "2.1.303"
+        ]
+      ]
+    },
+    "no_known_compiler_in_pre_mid_post_samples": true,
+    "inference": "These samples establish no cause for old default-timeout failures."
+  },
+  "source_review": [
+    "Private invitation retained only through its explicit volatile machine identity/publication review; timers retain authority during guards/IO.",
+    "Exact non-dash signed invitation pin, full review/digest/parent/native/host guards, no local original inventory or substitute generation.",
+    "Public outcome fields and pin-versus-ownership explanation remain visible; no original-owner signing controls in the remote-original lane.",
+    "No new tools/prompts/credentials/runtime permissions or direct network IO. Existing authorized lease/message/task lifecycle preserved."
+  ],
+  "final_required_gates": {
+    "status": "Recorded on slice PR and tracking #35 after this evidence commit.",
+    "requirements": "One exact final head: all30 conformance suites+build (31 paginated jobs), four PR checks/full393 native, fresh bot/root review; leave slice/#35 unmerged for owner."
+  },
+  "acceptance_limits": [
+    "SDK fixtures do not verify signatures, actual device/private-key generation, real publication authority or physical/model delivery.",
+    "Actual obsolete drawn callback closures and microscopic digest-validation/final synchronous dispatch boundaries remain source/manual limits.",
+    "Guided existing-computer machine approval/owner selection/final consent and complete other-computer flow remain subsequent work.",
+    "Actual terminal/reload/installed/physical/model/schema23-to27/full-state upgrade/recovery/final combined/full-feature acceptance remains incomplete.",
+    "Earlier unclassified native/transport/history results remain preserved; no unchanged local retries, raised deadlines or old-test edits."
+  ]
+}

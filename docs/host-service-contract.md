@@ -215,6 +215,13 @@ authority and readiness remain separate. Outcome recovery never automatically
 retries publication.
 
 
+[Native existing-person machine requests](guided-session-contract.md#40-native-request-to-connect-this-computer-to-an-existing-person)
+reuse the same public-key-only join backend through a separate explicit
+**Connect this computer** lane. A verified invitation must pin the existing
+person; no original-key inventory, import or copy occurs. Publication and pure
+progress remain separate from machine approval, membership and readiness.
+Guided approval on the existing computer follows separately; no new API/schema.
+
 [Explicit local original creation](guided-session-contract.md#14-explicit-new-original-identity-creation)
 adds owner-invoked `onboarding join create-identity --stdin` and separate native
 creation consent for empty, unpinned identity choices. Local private filesystem
