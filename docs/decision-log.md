@@ -4194,3 +4194,10 @@ access is denied and claiming GUI/installed/physical/model/upgrade acceptance.
 Three compact independent contract-derived cases,74 prior files unchanged,
 first-run evidence and full final-head CI/review. Actual automatic-F stalls
 remain blockers to fix with evidence, without a fallback driver or longer wait.
+
+Execution choice: serialize this stream's compiler/host/native gates and record
+existing unrelated processes. Initial preflight twice refused an unrelated
+Cargo parent before compiling anything; normal-process inspection identifies
+its long-running Rust test child in another track, not a shared-target build.
+Leave it untouched. Discard treating a restricted PID view as global exit or
+requiring all independent tracks to become idle; no global idle/causal claim.
