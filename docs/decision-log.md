@@ -3951,3 +3951,9 @@ missing/mismatched F; discard arbitrary ignored errors, signing retries and
 broader timeouts. Explicitly permit only that setup-guard replacement in new46
 and old45 progress helpers under independent authorship/restoration audit. All
 other65 prior files and native415 stay exact. Earlier causes remain unclassified.
+
+GU.impl46 setup strengthening keeps the first subject inspection inside its
+original whole-state/carrier baseline. Select independent retained-envelope
+checks before measurement; discard an unmeasured preliminary subject-API read
+that could mask a first-use mutation. Existing full inspection checks stay in
+place. Only the copied setup guard/read-only exact-F prerequisites may change.
