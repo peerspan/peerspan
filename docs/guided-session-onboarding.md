@@ -988,3 +988,11 @@ detached and restarted reads, while external approval has only state evidence.
 All66 old conformance/native files and native415 remain exact. Final-head CI and
 fresh bot/root review receipts follow on the PR without another evidence-only
 commit. Bounded completion and native controls remain separate.
+
+The [clock-recovery follow-up](results/guided-machine-requester-consent-clock-verification.json)
+records the bot's P2 fix in both flow binding and receipt recovery, genuine
+>300s rollback history/refusal regression, fresh31c7e5fa gates and6/6in127s.
+The local two-minute target overrun and first CI finalization/TCP-only failures
+remain explicit; the passing diagnostic run does not classify those failures.
+Fresh authorization still enforces its guarded clock. Final combined-head CI/
+review receipts are on PR99; no full-feature readiness claim is made.

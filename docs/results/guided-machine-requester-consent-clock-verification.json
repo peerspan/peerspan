@@ -1,0 +1,625 @@
+{
+  "milestone": "GU.impl46.clock",
+  "source_head": "21978b2c16a9178a3c27d656b7c0290ad213c3d0",
+  "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+  "base": "19ae9bb6ae1ce765e77bb718744b4b4badde1632",
+  "initial_record": "guided-machine-requester-consent-verification.json",
+  "bot_finding": {
+    "comment_id": 4434192881,
+    "thread_id": "PRRT_kwDOVZ-Tss6yWybO",
+    "reviewed_head": "b558cbcefc95124f32f18ed8d870a1cbec67beca",
+    "priority": 2,
+    "correction": "Pure retained-clock observation in flow binding and consent receipt loading; fresh raw/guarded eligibility remains required."
+  },
+  "gates": [
+    {
+      "gate": "machine-requester-consent-final-clock-first",
+      "head": "21978b2c16a9178a3c27d656b7c0290ad213c3d0",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_consent.py",
+        "--bin",
+        "/tmp/gu46-runtime/final-bin-rust-build-final-clock-first"
+      ],
+      "exit": 0,
+      "seconds": 128.64,
+      "log": "/tmp/gu46-runtime/machine-requester-consent-final-clock-first.log",
+      "sha256": "3c6905031ff98949dbd1a89a9030a741d3226dd1b29e88598d7c0771e4a2802d",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.22,
+          "active": []
+        },
+        {
+          "seconds": 75.29,
+          "active": []
+        },
+        {
+          "seconds": 90.43,
+          "active": []
+        },
+        {
+          "seconds": 105.5,
+          "active": []
+        },
+        {
+          "seconds": 120.57,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "a0439ba6c4d863c83e85609e12889e2028d13eae44fdaf0feb1dd988e85bd93d"
+    },
+    {
+      "gate": "rust-build-final-clock-first",
+      "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 71.27,
+      "log": "/tmp/gu46-runtime/rust-build-final-clock-first.log",
+      "sha256": "af287164d013418654284bb3623724659d3e99a7dc955c603f4ec165813bce10",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "255582",
+              "cargo"
+            ],
+            [
+              "255601",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "255582",
+              "cargo"
+            ],
+            [
+              "255601",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.13,
+          "active": [
+            [
+              "255582",
+              "cargo"
+            ],
+            [
+              "255601",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "255582",
+              "cargo"
+            ],
+            [
+              "255601",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-final-clock-first",
+      "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 36.16,
+      "log": "/tmp/gu46-runtime/rust-clippy-final-clock-first.log",
+      "sha256": "9ba6cafcf16ccdbf5da3ab9b25acb0dec1844839cd2960e4c79e857565bcbd63",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "251295",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "251295",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-final-clock-first",
+      "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu46-runtime/rust-fmt-final-clock-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-clock-first",
+      "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 100.57,
+      "log": "/tmp/gu46-runtime/rust-test-final-clock-first.log",
+      "sha256": "6d1ce092e026ca270db35530ac03ac4188b5833e299b993aa01dedd19d72ba39",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ],
+            [
+              "239194",
+              "rustc"
+            ],
+            [
+              "239198",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ],
+            [
+              "239194",
+              "rustc"
+            ],
+            [
+              "239198",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.13,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ],
+            [
+              "239194",
+              "rustc"
+            ],
+            [
+              "239198",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.2,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ],
+            [
+              "239194",
+              "rustc"
+            ],
+            [
+              "239198",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.36,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ],
+            [
+              "239194",
+              "rustc"
+            ],
+            [
+              "247039",
+              "rustc"
+            ],
+            [
+              "247342",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.45,
+          "active": [
+            [
+              "239181",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    }
+  ],
+  "binaries": {
+    "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+    "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+    "directory": "/tmp/gu46-runtime/final-bin-rust-build-final-clock-first",
+    "sha256": {
+      "peerspan-host": "e7f0c1f32adef5059678b70a3631054a0ce5fa78dc2082e973858e4293ef0d46",
+      "peerspan-peer-probe": "a4df83916be9b01b9ee51228857da8cd1063548023da16b9ae172fa823a5940d",
+      "peerspan-helper": "63055e3363d31590fc5ceeae7418191ddde4b28c8afe4d70a093925660db96f0"
+    }
+  },
+  "independent_suite": {
+    "author_commit": "b9d0e85ee15b55c08241d68b141a71fa79fc7158",
+    "sha256": "a0439ba6c4d863c83e85609e12889e2028d13eae44fdaf0feb1dd988e85bd93d",
+    "cases": 6,
+    "no_author_runtime_or_product_access": true,
+    "extension": "Actual >300s public-clock rollback; strict full-state/carrier approved API/CLI history and fresh refusal. Failure-only finalize observer preserves original assertion/action/timeout."
+  },
+  "first_ci": {
+    "conformance": {
+      "id": 41267039660,
+      "head_sha": "b558cbcefc95124f32f18ed8d870a1cbec67beca",
+      "run_attempt": 1,
+      "conclusion": "failure",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41267039660",
+      "jobs": [
+        {
+          "id": 124731888729,
+          "name": "Build host, peer probe and helper",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143360,
+          "name": "join",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143374,
+          "name": "work",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143383,
+          "name": "project_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143385,
+          "name": "capabilities",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143388,
+          "name": "live",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143399,
+          "name": "renewal",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143410,
+          "name": "policy",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143412,
+          "name": "onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143420,
+          "name": "basics",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143449,
+          "name": "root",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143511,
+          "name": "sync",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143512,
+          "name": "access_consent",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143516,
+          "name": "owner_finalization",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143551,
+          "name": "machine_owner_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143552,
+          "name": "machine_requester_inspection",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124732143557,
+          "name": "peer_reachability",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143577,
+          "name": "requester_completion",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143585,
+          "name": "owner_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143598,
+          "name": "incoming_progress",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143604,
+          "name": "admission_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143605,
+          "name": "machine_owner_consent",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124732143610,
+          "name": "adapter_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143616,
+          "name": "join_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143637,
+          "name": "access_application",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143649,
+          "name": "machine_requester_consent",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124732143659,
+          "name": "machine_owner",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143666,
+          "name": "invitation_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143669,
+          "name": "access_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143680,
+          "name": "readiness",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143685,
+          "name": "admission_consent",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143689,
+          "name": "owner_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143696,
+          "name": "requester_commit",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143704,
+          "name": "owner_finalization_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143768,
+          "name": "access_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124732143911,
+          "name": "delivery",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "checks": {
+      "id": 41267039647,
+      "head_sha": "b558cbcefc95124f32f18ed8d870a1cbec67beca",
+      "run_attempt": 1,
+      "conclusion": "success",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41267039647",
+      "jobs": [
+        {
+          "id": 124731888737,
+          "name": "Rust Clippy",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124731888918,
+          "name": "Claude onboarding runtime",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124731888934,
+          "name": "Rust tests and build",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124731889008,
+          "name": "Rust format",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "log_sha256": {
+      "ci-first-inspection.log": "02415f4e42562abe586344e73f65365895bd29a6109043137af53f91dd0c4a65",
+      "ci-first-owner-consent.log": "88cff44d5356bab3aa90cd360cd4117089f251102044a462d7949ee160eec365",
+      "ci-first-consent.log": "8c348e2679b1938371e4c3040b084799ed56606cd9052d8ed697a901eb553d2a",
+      "ci-first-rust.log": "e88564a12162745a1d30163fe0d90c7cad5b51d34058fb85a508f6737ad0941e",
+      "ci-final-native.log": "4dcb8d89f2e10374a97ebfc0c47feae99fb2d9cf291b458e2c3e67bc5b932e2a"
+    }
+  },
+  "limits": [
+    "Corrected clock runtime6/6 in127s (runner128.64), exceeding local two-minute target; no unchanged retry or timeout increase.",
+    "First CI finalization failures and old requester TCP-only crossing remain unclassified; passing local diagnostic run does not classify them.",
+    "Original source record and every first compiler/formatter/runtime/setup outcome remain preserved.",
+    "All66 existing conformance/native files and native415 tree remain exact; only existing Rust vector fixture uses fixed decode_at AT, preserving assertions/production behavior.",
+    "Existing computer offline for strict retained history; later outside advanced approval is state-only with real reachable carriers. No global worker attribution.",
+    "Complex authority/corruption/key-syscall/private5s boundaries remain source/fault-only; completion/native/full35 acceptance remain open."
+  ]
+}
