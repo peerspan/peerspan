@@ -56,6 +56,8 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
   recipient signed-invitation inspection and privacy boundaries (section11).
 - `join_onboarding`: exact recipient public-key/publication consent, atomic
   ordinary join-request creation, replay/privacy and additive schema27 (section12).
+  Its launcher observes genuine own-request publication before the unchanged
+  section15 strict read-only progress baseline (section49).
 
 - `owner_onboarding`: exact new-original owner review, ordinary-intent atomic
   approval, rollback/history and consent boundaries (guided session contract section16).

@@ -269,5 +269,15 @@
     "original_value_exception_argv_verdict_restoration_audits": true,
     "prior75_exact": true,
     "product_reads_or_runtime_by_author": false
+  },
+  "prerequisite_author": {
+    "commit": "ab3808e8d6fd2736406bb52b962fcb7c8962992d",
+    "source_sha256": "4d5afd35e1f94d2458f16db34d484707ff80694681b41d380ff3e6167a9aeec8",
+    "contract_commit": "79018779d51ff391cac08546efaa32aa5d6bc7fb",
+    "readonly_observation_bound_seconds": 5,
+    "all_prior76_files_exact": true,
+    "unchanged_forwarding_and_negative_witness_audits": true,
+    "new_send_api_clock_row_mutation_or_worker_stop": false,
+    "product_reads_or_runtime_by_author": false
   }
 }

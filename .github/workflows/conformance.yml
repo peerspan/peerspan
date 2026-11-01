@@ -71,6 +71,8 @@ jobs:
           chmod +x bin/*
           if [ '${{ matrix.suite }}' = 'machine_requester_inspection' ]; then
             python3 conformance/slim/inspection_finalization_diagnostic.py --bin bin
+          elif [ '${{ matrix.suite }}' = 'join_onboarding' ]; then
+            python3 conformance/slim/join_onboarding_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'requester_completion' ]; then
             python3 conformance/slim/requester_completion_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then
