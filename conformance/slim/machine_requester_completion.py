@@ -1354,6 +1354,7 @@ def _():
     with closing(sqlite3.connect(db_path(b))) as db, db:
         db.execute("CREATE TRIGGER machine_completion_abort BEFORE INSERT ON dec_operations WHEN NEW.request_id='" +
                    f['rid'] + "' BEGIN SELECT RAISE(ABORT,'PRIVATE_MACHINE_COMPLETION_ABORT'); END")
+    f['secrets'].append('PRIVATE_MACHINE_COMPLETION_ABORT')
     try:
         complete(f, status=409, code='machine_commit_completion_unavailable')
     finally:
