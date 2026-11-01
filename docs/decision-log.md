@@ -4118,3 +4118,17 @@ Only captured2b05ea9 proof_required is classified; missing proof/phase and
 earlier causes remain unknown. Context preserves cause/nonzero, no success
 claim or authority/IO change. All67/new47/native415 exact; no final RSA/key
 dependency. Select exact pushed-head complete CI/bot/root gate; discard waiver.
+
+
+## GU.impl48 — native machine requester controls
+
+Selected: compose the existing45–47 public review, immutable receipt and bounded
+completion in the pinned terminal pane. Separate explicit Review/Prepare/Approve/
+Complete and pure Check preserve human consent and uncertain-outcome recovery.
+The original remains on the existing computer; local application stays distinct
+from access/delivery/readiness. Conservative native stage bounds leave advanced
+signed-work completion available. Discarded: new host APIs/schema/consent,
+new-original owner fallback, automatic retries/protocol driving, key copying,
+frontend persisted authority and success badges inferred from publication.
+Separate contract-only tests precede root execution; full feature acceptance
+remains open.
