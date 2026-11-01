@@ -148,6 +148,50 @@
       "passed": 13,
       "failed": 1,
       "classification": "section15 whole-state/home purity after approval; exact changed rows/caller not yet classified"
+    },
+    {
+      "head": "68feeb9e072af2247ee08e917ce1b7ddf9d6759d",
+      "source_sha256": "02a14286ef222df063dc05b1d24ba9218c9f56ba222cd2169ed8ca2ccaca3140",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 57.34,
+      "log_sha256": "cae336688f1782c4a51a1a365cfa2235b9e8688172ca4cda471f622d497edd11",
+      "gate": "join-onboarding-captured-diagnostic",
+      "passed": 13,
+      "failed": 1,
+      "classification": "captured-only original failure: one dec_pending row, only record.outbound_frames changed; schema/version unchanged; home comparison not executed",
+      "captured_difference": {
+        "databases": [
+          {
+            "capture_count": 2,
+            "schema_changed": false,
+            "tables": [
+              {
+                "after_count": 1,
+                "before_count": 1,
+                "changed_columns": [
+                  "record"
+                ],
+                "changed_record_fields": [
+                  "outbound_frames"
+                ],
+                "record_layout_unknown": false,
+                "table": "dec_pending"
+              }
+            ],
+            "version_changed": false
+          }
+        ],
+        "files": [
+          {
+            "capture_count": 1,
+            "category": "home",
+            "changed": null,
+            "file_categories": null
+          }
+        ]
+      }
     }
   ],
   "correction": {
@@ -218,5 +262,12 @@
       "seconds": 35.32,
       "log_sha256": "e18cfc829cefb5ff327fde07d4f7c99bc308ef696e1b5bfb3468156206325ecf"
     }
-  ]
+  ],
+  "diagnostic_author": {
+    "commit": "ff21fbaea5a520eabedd065d899e9173538bcd55",
+    "source_sha256": "02a14286ef222df063dc05b1d24ba9218c9f56ba222cd2169ed8ca2ccaca3140",
+    "original_value_exception_argv_verdict_restoration_audits": true,
+    "prior75_exact": true,
+    "product_reads_or_runtime_by_author": false
+  }
 }

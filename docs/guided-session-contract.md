@@ -9912,6 +9912,32 @@ wait, clock, row edit, filtered comparison, altered assertion or retry. Emit no
 raw rows/values/IDs/keys/packets/paths/native references. Root executes once on
 a committed changed diagnostic source; retain original and diagnostic results
 separately. This identifies differences, not their actor without evidence.
+The captured older progress failure changes only dec_pending.record.outbound_frames
+(one row before/after); home comparison short-circuits and is unobserved. The
+fixture has real own/inviter carrier addresses despite empty hints. Fresh
+authorized delivery can acknowledge its request after approval returns, so
+choose a separate source-only prerequisite launcher for join_onboarding. Only
+in its exact `published_progress_exact_read_only_snapshot_cli_bounds_and_owner_routes`
+case, wrap the original decide call: invoke it once unchanged, then before
+returning its identical result and before ANY original progress/baseline,
+observe the exact real saved requester request via read-only SQLite for at most
+5 real seconds. Require its unfinished request/no owner-selection-commit stages,
+one saved own request frame, nonempty own participant carrier set, and durable
+acknowledgment of that exact request frame at every own participant endpoint.
+No requirement on the offline inviter and no vacuous empty-set success.
+
+No API call, new send/sync/resume, clock write, DB/file mutation, fabricated ACK,
+sleep beyond this bounded observation or original timeout/assertion/comparison
+change. Do not stop/disable workers; the genuine publication must finish itself.
+Restore decide and Suite.case in finally, preserve exact arguments/return/exception
+and every original case/verdict, and keep the complete original logical DB/
+schema/files/home guards. A missing witness fails this prerequisite, not a skip
+or filtered pass. Print only a closed prerequisite boolean/count summary. The
+standalone capture diagnostic remains independently available. CI runs this
+launcher for join_onboarding;37 suites plus build remain38 jobs. Root executes
+first changed source once, preserving earlier13/14 failures and no actor claim
+beyond captured differences and ordinary publication's authority.
+
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
 claim global zero-IO/full-database purity while authorized work is advancing;
