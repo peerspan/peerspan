@@ -3856,3 +3856,7 @@ preparation/approval, advanced-work adoption, receipt replacement/rebinding,
 original copying and signing/applying inside consent. Frozen flow attribution
 makes replacement unnecessary here. Section46 settles the public contract and
 six independent cases before product. Completion and native controls follow.
+
+GU.impl46 first formatter invocation stopped before compilation: the new nested
+requester module needed the same explicit requester_commit path as the existing
+consent module. Correct the module path; no compiler/runtime execution occurred.

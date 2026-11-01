@@ -121,3 +121,7 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `machine_requester_inspection`: pure exact join-flow-bound received existing-
   owner/selection/admission/finalization evidence on the new computer, finite7/2,
   folded admission, fixed windows and no consent/adoption (guided section45).
+
+- `machine_requester_consent`: exact frozen remote machine inspection, unsigned
+  project receipt, atomic ordinary/pending/receipt approval and pure history
+  (guided section46). No signing/application.

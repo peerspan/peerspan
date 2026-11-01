@@ -8856,6 +8856,10 @@ advanced requester_commit intent may be adopted by first preparation.
 Create one ordinary unsigned unapproved requester_commit intent and one unsigned
 `machine_requester_review` metadata record bound uniquely to this request.
 Ordinary intent/templates/provider/reference/quota rules stay authoritative.
+All successful actions return HTTP200. Metadata operation_id is request_id;
+network/context and requester provider/person/host/device/root/scopes/not_after
+copy the ordinary intent. Created_at copies its creation; expires_at is the
+public consent expiry; review_base64 freezes the full canonical consent review.
 Metadata has no templates/signatures/secret, completed=true, terminal dash and
 no result; it is not a protocol signing job. Pending commit_intent_id stays dash
 until approval. Freeze the complete verified section45 public review.
@@ -8904,7 +8908,10 @@ State is approved only if receipt and ordinary approval agree, including
 approved_at; advanced approval alone is invalidated and cannot gain attribution.
 Otherwise cancelled for cancellation, expired for request/stage/receipt/powers
 expiry, invalidated for detached/changed/ineligible scope or conflicting work,
-else review. Next action: approved follow_machine_link, review
+else review. Exact guided Approve after advanced-only approval refuses
+review_changed; raw time before request/stage/intent creation refuses
+machine_requester_consent_unavailable, including inside the300s clock clamp.
+Next action: approved follow_machine_link, review
 approve_machine_requester_commit, otherwise inspect_machine_link. Historical
 approval is a past decision, not current powers/application/readiness. Ordinary
 approved workers may sign/publish afterward; this route never invokes them.
