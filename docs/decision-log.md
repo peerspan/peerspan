@@ -4258,3 +4258,16 @@ original progress action. No additional transport/consent, stopped worker,
 fabricated ACK or altered original assertion/timeout. Discard changing product
 response timing merely to isolate this read-only fixture or masking its strict
 whole-state guard. All75 earlier files plus standalone diagnostic stay exact.
+
+First own-publication prerequisite04fdeff passes original join14/14 in64s
+(runner64.02), with one actual saved request/own endpoint/ACK and every old
+comparison intact. First fullCI7901877 passes35/38 conformance jobs; join
+pre-fix guard and two old owner live-history LINK_VIEW equalities fail (5/6
+each, before signing). Capture their existing response/GET differences before
+a conditional read-only all-participant initial-publication prerequisite; no
+assumed field/actor or changed original guard. All other35 jobs passed,
+including combined guided3/3. PR checks3/4 pass; native439/440in119.34s fails
+one unchanged signed-result corpus at5000ms (5097.74ms recorded). Preserve
+this unclassified timing sample; no native deadline change/retry-to-green.
+Full final-head CI and fresh review remain required. Bot P2 on the known join
+prerequisite is addressed in04fdeff; receipt/thread resolution follows push.

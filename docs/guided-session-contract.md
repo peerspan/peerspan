@@ -9938,6 +9938,37 @@ launcher for join_onboarding;37 suites plus build remain38 jobs. Root executes
 first changed source once, preserving earlier13/14 failures and no actor claim
 beyond captured differences and ordinary publication's authority.
 
+The first fullCI also fails the original owner_onboarding section16 live-history
+case and owner_signing section18 live-history case at exact ordinary LINK_VIEW
+equality. Their first errors alone do not identify the changed fields. A
+separate contract-only diagnostic may select only these literal suite/case
+pairs, wrap their existing validate/get calls, compare the already supplied
+request view with the one existing follow-up GET result, and emit only closed
+public LINK_VIEW field names/counts/states on a difference. Invoke each original
+function once with identical arguments/results/exceptions, preserve every
+assertion and finally restore globals/Suite.case/argv. No extra API/DB/transport
+call, wait, mutation, filtered value or altered verdict. Delegate the selected
+suite through runpy without eager imports; all other cases remain untouched.
+Root executes both changed diagnostic entries serially and retains each result.
+
+If the captured difference is solely publication attention before any owner
+offer/selection/commit, select a second separate prerequisite launcher for these
+two live-history cases. Wrap ONLY their original join call, once unchanged;
+before returning the identical result and before original owner operations,
+observe the same exact genuine saved requester frame/pins/unfinished state via
+read-only SQLite for at most5 real seconds. Require nonempty actual participant
+carriers including its own host and a distinct live inviter, no helpers in
+this chosen fixture, and durable ACK of that exact frame at EVERY participant
+endpoint. The two participants are already live in these cases; do not send,
+stop/disable a worker, synthesize an ACK, mutate clocks/files/rows, or skip a
+missing witness. Offline fixtures and all other cases are unchanged. Preserve
+every original compare/timeout/verdict and exact join/argv/exception/global
+restoration; emit only fixed witness booleans/counts. Keep the passing own-only
+join prerequisite and all prior files exact. CI may wire this launcher only
+after the captured difference matches this boundary. A different difference
+requires fresh evidence and contract correction. Native440 is unchanged: retain
+its first5s timeout as unclassified; no raised native deadline or retry-to-green.
+
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
 claim global zero-IO/full-database purity while authorized work is advancing;

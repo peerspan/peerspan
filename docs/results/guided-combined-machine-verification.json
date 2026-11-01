@@ -192,6 +192,19 @@
           }
         ]
       }
+    },
+    {
+      "head": "04fdeffc2c7c1129d46021e5f8e0f0a452cc07fe",
+      "source_sha256": "4d5afd35e1f94d2458f16db34d484707ff80694681b41d380ff3e6167a9aeec8",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 0,
+      "seconds": 64.02,
+      "log_sha256": "00548b94f69315189c52131c171868d9ec3649cc6028f4f92d2dab8995bce540",
+      "gate": "join-onboarding-publication-prerequisite",
+      "passed": 14,
+      "failed": 0,
+      "classification": "first changed setup observes real own request publication before unchanged strict progress baseline"
     }
   ],
   "correction": {
@@ -279,5 +292,431 @@
     "unchanged_forwarding_and_negative_witness_audits": true,
     "new_send_api_clock_row_mutation_or_worker_stop": false,
     "product_reads_or_runtime_by_author": false
+  },
+  "first_ci": {
+    "head": "79018779d51ff391cac08546efaa32aa5d6bc7fb",
+    "conformance_run": 41363663085,
+    "checks_run": 41363663021,
+    "attempt": 1,
+    "conformance": {
+      "conclusion": "failure",
+      "headSha": "79018779d51ff391cac08546efaa32aa5d6bc7fb",
+      "jobs": [
+        {
+          "completedAt": "2026-11-01T23:47:11Z",
+          "conclusion": "success",
+          "databaseId": 125019185948,
+          "name": "Build host, peer probe and helper",
+          "startedAt": "2026-11-01T23:45:42Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019185948"
+        },
+        {
+          "completedAt": "2026-11-01T23:47:45Z",
+          "conclusion": "success",
+          "databaseId": 125019552196,
+          "name": "root",
+          "startedAt": "2026-11-01T23:47:13Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552196"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:13Z",
+          "conclusion": "success",
+          "databaseId": 125019552208,
+          "name": "join",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552208"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:16Z",
+          "conclusion": "success",
+          "databaseId": 125019552211,
+          "name": "access_onboarding",
+          "startedAt": "2026-11-01T23:47:16Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552211"
+        },
+        {
+          "completedAt": "2026-11-01T23:47:42Z",
+          "conclusion": "success",
+          "databaseId": 125019552213,
+          "name": "policy",
+          "startedAt": "2026-11-01T23:47:13Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552213"
+        },
+        {
+          "completedAt": "2026-11-01T23:47:28Z",
+          "conclusion": "failure",
+          "databaseId": 125019552220,
+          "name": "owner_onboarding",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552220"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:47Z",
+          "conclusion": "success",
+          "databaseId": 125019552228,
+          "name": "incoming_progress",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552228"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:53Z",
+          "conclusion": "success",
+          "databaseId": 125019552230,
+          "name": "requester_commit",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552230"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:05Z",
+          "conclusion": "success",
+          "databaseId": 125019552234,
+          "name": "owner_finalization_signing",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552234"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:24Z",
+          "conclusion": "success",
+          "databaseId": 125019552236,
+          "name": "owner_finalization",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552236"
+        },
+        {
+          "completedAt": "2026-11-01T23:47:54Z",
+          "conclusion": "success",
+          "databaseId": 125019552239,
+          "name": "basics",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552239"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:14Z",
+          "conclusion": "success",
+          "databaseId": 125019552246,
+          "name": "sync",
+          "startedAt": "2026-11-01T23:47:44Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552246"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:34Z",
+          "conclusion": "success",
+          "databaseId": 125019552250,
+          "name": "access_consent",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552250"
+        },
+        {
+          "completedAt": "2026-11-01T23:47:58Z",
+          "conclusion": "success",
+          "databaseId": 125019552253,
+          "name": "work",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552253"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:55Z",
+          "conclusion": "success",
+          "databaseId": 125019552256,
+          "name": "machine_requester_completion",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552256"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:22Z",
+          "conclusion": "success",
+          "databaseId": 125019552257,
+          "name": "delivery",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552257"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:42Z",
+          "conclusion": "failure",
+          "databaseId": 125019552258,
+          "name": "join_onboarding",
+          "startedAt": "2026-11-01T23:48:00Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552258"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:33Z",
+          "conclusion": "success",
+          "databaseId": 125019552261,
+          "name": "renewal",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552261"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:43Z",
+          "conclusion": "success",
+          "databaseId": 125019552270,
+          "name": "access_signing",
+          "startedAt": "2026-11-01T23:47:14Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552270"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:04Z",
+          "conclusion": "success",
+          "databaseId": 125019552271,
+          "name": "adapter_onboarding",
+          "startedAt": "2026-11-01T23:47:47Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552271"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:21Z",
+          "conclusion": "success",
+          "databaseId": 125019552285,
+          "name": "access_application",
+          "startedAt": "2026-11-01T23:47:13Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552285"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:01Z",
+          "conclusion": "success",
+          "databaseId": 125019552291,
+          "name": "requester_completion",
+          "startedAt": "2026-11-01T23:47:13Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552291"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:51Z",
+          "conclusion": "success",
+          "databaseId": 125019552295,
+          "name": "live",
+          "startedAt": "2026-11-01T23:48:18Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552295"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:40Z",
+          "conclusion": "success",
+          "databaseId": 125019552298,
+          "name": "invitation_onboarding",
+          "startedAt": "2026-11-01T23:48:19Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552298"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:08Z",
+          "conclusion": "success",
+          "databaseId": 125019552299,
+          "name": "machine_owner",
+          "startedAt": "2026-11-01T23:47:30Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552299"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:29Z",
+          "conclusion": "success",
+          "databaseId": 125019552301,
+          "name": "readiness",
+          "startedAt": "2026-11-01T23:47:54Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552301"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:16Z",
+          "conclusion": "success",
+          "databaseId": 125019552307,
+          "name": "onboarding",
+          "startedAt": "2026-11-01T23:47:55Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552307"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:59Z",
+          "conclusion": "success",
+          "databaseId": 125019552315,
+          "name": "machine_requester_consent",
+          "startedAt": "2026-11-01T23:48:10Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552315"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:56Z",
+          "conclusion": "success",
+          "databaseId": 125019552326,
+          "name": "admission_onboarding",
+          "startedAt": "2026-11-01T23:48:15Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552326"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:59Z",
+          "conclusion": "success",
+          "databaseId": 125019552331,
+          "name": "machine_requester_inspection",
+          "startedAt": "2026-11-01T23:48:06Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552331"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:42Z",
+          "conclusion": "success",
+          "databaseId": 125019552341,
+          "name": "project_onboarding",
+          "startedAt": "2026-11-01T23:48:18Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552341"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:27Z",
+          "conclusion": "success",
+          "databaseId": 125019552346,
+          "name": "capabilities",
+          "startedAt": "2026-11-01T23:48:41Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552346"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:26Z",
+          "conclusion": "success",
+          "databaseId": 125019552364,
+          "name": "machine_owner_signing",
+          "startedAt": "2026-11-01T23:48:22Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552364"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:20Z",
+          "conclusion": "success",
+          "databaseId": 125019552373,
+          "name": "admission_consent",
+          "startedAt": "2026-11-01T23:48:31Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552373"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:55Z",
+          "conclusion": "success",
+          "databaseId": 125019552385,
+          "name": "peer_reachability",
+          "startedAt": "2026-11-01T23:48:23Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552385"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:47Z",
+          "conclusion": "failure",
+          "databaseId": 125019552398,
+          "name": "owner_signing",
+          "startedAt": "2026-11-01T23:48:26Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552398"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:03Z",
+          "conclusion": "success",
+          "databaseId": 125019552423,
+          "name": "guided_machine",
+          "startedAt": "2026-11-01T23:48:35Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552423"
+        },
+        {
+          "completedAt": "2026-11-01T23:49:39Z",
+          "conclusion": "success",
+          "databaseId": 125019552514,
+          "name": "machine_owner_consent",
+          "startedAt": "2026-11-01T23:48:44Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663085/job/125019552514"
+        }
+      ],
+      "status": "completed"
+    },
+    "checks": {
+      "conclusion": "failure",
+      "headSha": "79018779d51ff391cac08546efaa32aa5d6bc7fb",
+      "jobs": [
+        {
+          "completedAt": "2026-11-01T23:47:52Z",
+          "conclusion": "failure",
+          "databaseId": 125019186171,
+          "name": "Claude onboarding runtime",
+          "startedAt": "2026-11-01T23:45:42Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663021/job/125019186171"
+        },
+        {
+          "completedAt": "2026-11-01T23:48:17Z",
+          "conclusion": "success",
+          "databaseId": 125019186365,
+          "name": "Rust tests and build",
+          "startedAt": "2026-11-01T23:45:42Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663021/job/125019186365"
+        },
+        {
+          "completedAt": "2026-11-01T23:46:27Z",
+          "conclusion": "success",
+          "databaseId": 125019186490,
+          "name": "Rust Clippy",
+          "startedAt": "2026-11-01T23:45:43Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663021/job/125019186490"
+        },
+        {
+          "completedAt": "2026-11-01T23:45:54Z",
+          "conclusion": "success",
+          "databaseId": 125019186547,
+          "name": "Rust format",
+          "startedAt": "2026-11-01T23:45:43Z",
+          "status": "completed",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41363663021/job/125019186547"
+        }
+      ],
+      "status": "completed"
+    },
+    "native": {
+      "passed": 439,
+      "failed": 1,
+      "total": 440,
+      "seconds": 119.34,
+      "case": "closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing",
+      "failure": "test timeout5000ms; recorded5097.74ms",
+      "cause": "unclassified; product hooks/tests unchanged",
+      "log_sha256": "9870b2c020e960b921f31b5f6ad608d3111821837cb75248de016e998e4bb4f8"
+    },
+    "owner_failures": [
+      {
+        "suite": "owner_onboarding",
+        "passed": 5,
+        "failed": 1,
+        "error": "owner response is not exact ordinary LINK_VIEW",
+        "changed_fields": "unclassified until captured existing follow-up GET",
+        "log_sha256": "f8bc12d9c6c6adc9b06824179fe8829eca19fe13d64021fb1e1467616cfa7d13"
+      },
+      {
+        "suite": "owner_signing",
+        "passed": 5,
+        "failed": 1,
+        "error": "owner response is not exact ordinary LINK_VIEW",
+        "changed_fields": "unclassified until captured existing follow-up GET",
+        "log_sha256": "7046260b6ad27d886f5c0db7261e76759675d6be06e53389074c03d875a3a857"
+      }
+    ]
   }
 }
