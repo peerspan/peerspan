@@ -6,7 +6,11 @@
     "source_sha256": "c18383457994a156cb072064408d4dee91c739870247414f7c3024379d0edfc6",
     "product_reads": false,
     "runtime_executed": false,
-    "prior_files_preserved": 74
+    "prior_files_preserved": 74,
+    "correction_commit": "a5d787c2bba7e248eaef8aaced5a9095c9bb0c71",
+    "corrected_source_sha256": "678561e169f4ac1250e412eca2913e25005fac6fb757225d85c3fc65d6a47ef5",
+    "correction_basis": "section42 public LINK_VIEW.expires_at; exact original minimum deadline assertion preserved; closed public diagnostic states corrected",
+    "corrected_ast_sha256": "318370974209c827bf2177937c9156efdc355a3ece57dae941724ca2d715fb15"
   },
   "preflight_no_starts": {
     "count": 2,
@@ -74,6 +78,76 @@
       "passed": 0,
       "failed": 3,
       "dependent_cases_exercised": false
+    },
+    {
+      "head": "6db9bbdf4019d0e18cf57a97f81ae60daac433e1",
+      "source_sha256": "678561e169f4ac1250e412eca2913e25005fac6fb757225d85c3fc65d6a47ef5",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 0,
+      "seconds": 27.28,
+      "log_sha256": "2e1cc2fbe33f7c1c7e334c93a008624ad6f8cfafa3546e0063c8bd20aa8ae735",
+      "gate": "guided-machine-correct-public-deadline",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "classification": "first changed independent source run passes complete ceremony",
+      "suite_seconds": 27,
+      "public_result": {
+        "adapter_verified": false,
+        "binding_scopes": 2,
+        "carrier_counts": [
+          [
+            36,
+            213708,
+            556484
+          ],
+          [
+            135,
+            112832,
+            106,
+            100499
+          ],
+          [
+            21,
+            131648,
+            410362
+          ],
+          [
+            73,
+            54063,
+            64,
+            52853
+          ]
+        ],
+        "finite_device_scopes": 7,
+        "folded": true,
+        "hosts": 2,
+        "model_verified": false,
+        "new_agent_grants": 0,
+        "operations": 2,
+        "original_unchanged": true,
+        "overall_verified": false,
+        "peer_verified": false,
+        "requester_has_original": false,
+        "requester_receipts": 1,
+        "requests": 1
+      }
+    },
+    {
+      "head": "6db9bbdf4019d0e18cf57a97f81ae60daac433e1",
+      "source_sha256": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 56.07,
+      "log_sha256": "68537f9b5c76a95a5682b0eab2b6d2b774614ed4ac9fbdb179d294131adb91ab",
+      "gate": "join-onboarding-after-dispatch",
+      "passed": 13,
+      "failed": 1,
+      "classification": "section15 whole-state/home purity after approval; exact changed rows/caller not yet classified"
     }
   ],
   "correction": {
@@ -85,7 +159,64 @@
   "limits": [
     "temporary two-host backend fixture on one machine",
     "no GUI/reload/installed/physical/model or schema23-to27/full-state upgrade/recovery acceptance",
-    "no automatic F or requester completion result yet",
-    "first failed source/run retained; no unchanged retry-to-green; no original timeout/assertion weakening"
+    "first failed source/run retained; no unchanged retry-to-green; no original timeout/assertion weakening",
+    "same-person self access is separate from new grants",
+    "all old isolated purity/route tests remain authoritative; no global zero-IO claim while workers advance",
+    "original-provider/separate-admin/reused-binding/expiry races remain separate coverage limits"
+  ],
+  "local_language_checks": [
+    {
+      "gate": "format",
+      "head": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 3.22,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "gate": "tests",
+      "head": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 96.25,
+      "log_sha256": "30e7842f1f012df5fb5846ad5984b91ccc216b52ab6916d62835bc78f49d7aa8",
+      "passed": 155,
+      "ignored": 2
+    },
+    {
+      "gate": "clippy",
+      "head": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 35.32,
+      "log_sha256": "e18cfc829cefb5ff327fde07d4f7c99bc308ef696e1b5bfb3468156206325ecf"
+    }
   ]
 }

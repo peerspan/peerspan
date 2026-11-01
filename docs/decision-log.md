@@ -4234,3 +4234,14 @@ assertion, changed wait or extra driver. All74 older files remain exact; source
 changes to678561e1. Original run and binary/log hashes are retained in
 `docs/results/guided-combined-machine-verification.json`. Format, existing Rust
 tests and Clippy pass on the product change before this fixture correction.
+
+First corrected new-suite run6db9bbd passes3/3 in27s (27.28runner), including
+automatic selection/F, real lost Complete reply/Lookup and both applications.
+Existing join_onboarding then fails13/14 in56.07s at its unchanged section15
+whole-state/home purity guard. Retained progress pending state has two carrier
+endpoints and one acknowledged endpoint despite the fixture's empty hints;
+this alone cannot identify the before/after difference or actor. Preserve the
+first failure and choose a contract-only independent diagnostic wrapper around
+existing capture calls before another execution. No changed old verdict, wait,
+comparison, transport or mutation driver. Discard masking authorized work or
+assuming it caused this failure without a captured difference.

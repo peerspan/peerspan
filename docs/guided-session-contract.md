@@ -9902,6 +9902,16 @@ source/binary/log hashes and any duration overrun; no unchanged retry-to-green
 or larger waits. Root runs a committed suite once with fresh verified Rust918d
 binaries, serially with compiler/native/manual gates. A failure requires actual
 bounded evidence before a product correction, with the original failure kept.
+For a failing older join-progress purity case, an independent source-only
+diagnostic launcher may wrap its existing records/private_files capture calls
+only during that case, retaining first/latest capture and emitting a closed
+failure summary of changed table names/counts/record field names and file
+categories. Forward every complete original return and exception, restore
+wrappers in finally, and preserve its original verdict. No extra API/IO driver,
+wait, clock, row edit, filtered comparison, altered assertion or retry. Emit no
+raw rows/values/IDs/keys/packets/paths/native references. Root executes once on
+a committed changed diagnostic source; retain original and diagnostic results
+separately. This identifies differences, not their actor without evidence.
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
 claim global zero-IO/full-database purity while authorized work is advancing;
