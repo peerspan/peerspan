@@ -3913,3 +3913,18 @@ without project attribution or global worker claims. First failures and narrow
 unit-vector/calendar fix remain recorded. Final35suites+build/four checks/
 native415 and fresh bot/root review are required on the PR; fullfeature35 and
 requester completion/native/installed/physical/model acceptance remain open.
+
+GU.impl46 first combined CI b558: all4 checks/native415 pass;33/36 conformance
+jobs succeed. Old inspection3/6 and new consent5/6 fail at exact existing-owner
+finalization setup; old owner-consent5/6 records a requester TCP connection-only
+crossing, DB/files/all other carriers unchanged. Causes remain unclassified;
+no old66 file edit or unchanged rerun follows. New-suite failure-only closed
+diagnostics retain the original finalize assertion and its bounded action.
+
+Bot P2 finds history recovery reaching the fresh300s clock-rollback guard before
+loading its receipt, through both owner binding and consent dispatch. Separate
+validated retained-clock observation (max raw/retained, no save) from fresh
+authorization in both paths. Old callers keep guarded binding; fresh consent
+continues full raw/guarded checks. Extend independent new-suite history coverage
+to actual >300s rollback, using public clocks only; retain all prior categories.
+No policy/runtime authority or timeout weakening is selected.

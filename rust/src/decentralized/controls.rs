@@ -20,7 +20,7 @@ fn enabled() -> bool {
 }
 /// A network's local guard also applies while its reviewed ceremony is still
 /// private pending state. Peers and helpers never supply this anchor.
-pub(crate) fn guarded_decision(c: &Connection, network: &str, local: &str) -> Result<String> {
+fn retained_clock(c: &Connection, network: &str) -> Result<Option<String>> {
     check(ident(network, "net_"))?;
     let record: Option<String> = c
         .query_row(
@@ -42,7 +42,20 @@ pub(crate) fn guarded_decision(c: &Connection, network: &str, local: &str) -> Re
         })
         .transpose()
         .map_err(|_| Error::new("state_conflict"))?;
-    decision_clock(local, guard.as_deref().unwrap_or("-"))
+    Ok(guard)
+}
+pub(crate) fn guarded_decision(c: &Connection, network: &str, local: &str) -> Result<String> {
+    decision_clock(local, retained_clock(c, network)?.as_deref().unwrap_or("-"))
+}
+/// Observation of retained history is not a new authorization decision. Keep
+/// its last known clock without making recovery depend on live rollback limits.
+/// Callers must still use guarded_decision before any fresh authorized work.
+pub(crate) fn historical_decision(c: &Connection, network: &str, local: &str) -> Result<String> {
+    let raw = stamp(local)?;
+    match retained_clock(c, network)? {
+        Some(saved) if stamp(&saved)? > raw => Ok(saved),
+        _ => Ok(local.into()),
+    }
 }
 pub(crate) fn remember_decision(c: &Connection, network: &str, decision: &str) -> Result<()> {
     let actual = guarded_decision(c, network, decision)?;

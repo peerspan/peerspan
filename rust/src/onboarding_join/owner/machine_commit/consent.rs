@@ -75,7 +75,7 @@ impl Store {
         let tx = c
             .transaction()
             .map_err(|_| domain(codec::Error::new("internal")))?;
-        let (f, mut p, _, _) = bind(self, &tx, id, &input).map_err(|e| match e {
+        let (f, mut p, _, _) = bind_history(self, &tx, id, &input).map_err(|e| match e {
             Error::NotFound | Error::Invalid(_) => e,
             Error::Coded {
                 code: "review_changed" | "request_unavailable",

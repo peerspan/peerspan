@@ -8921,7 +8921,11 @@ eligibility or owned-device/key resolution, including expiry/cancel/detach/
 restart/progress/application. Wrong digest still refuses. Validate closed
 receipt structure, immutable flow/request/ordinary intent references and frozen
 public evidence. Pruned/corrupt records refuse without recreating anything;
-unavailable live authority is not a historical prerequisite. History saves no
+unavailable live authority is not a historical prerequisite. Historical binding
+and receipt recovery observe max(raw time, validated retained clock anchor)
+without applying the fresh300s rollback limit or saving a clock. An actual
+rollback greater than300s cannot hide retained Lookup/Prepare/approved replay;
+fresh work still uses the ordinary guarded clock and raw-before-created checks. History saves no
 clock/intent/queue/event/file/network work. Safe closed output at most2MiB;
 no invitation/code/seed/private path/original inventory/templates/signatures/raw
 packet/catalog/transport or signer diagnostics. No original/device signing,
@@ -8963,6 +8967,12 @@ fabricated positive authority or unchanged retry-to-green.
    DB/schema/state/home and bidirectional TCP/UDP. Existing computer may go
    offline after F before baselines; requester stays live. No both-live worker
    attribution or disabling authorized work. Record live postapproval limits.
+   With genuine debug time more than300s behind the documented saved anchor,
+   approved Lookup/Prepare/Approve still return exact pure history; unapproved
+   fresh consent refuses. Advance/restore only public debug clocks outside
+   baselines, never edit clock rows. A failure-only finalized-setup observer may
+   emit only exitcode, fixed public error categories and status booleans, never
+   IDs/paths/raw error/packets; retain the original failure and assertion.
 6. Nested JSON/IDs/64KiB/private argv/no-startup/method/adapter/peer/bootstrap
    isolation and safe public projection. Pruned/corrupt/unsafe/complex separate-
    admin/reused-binding cases without real bounded stimulus stay source-only.
