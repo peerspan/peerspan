@@ -9420,6 +9420,34 @@ round-trip with synthetic text locally, audits old67 exact and runs one changed
 suite before full CI. Discard further blind phrase enumeration, public raw
 stderr, any private-key commit and waiver of the original failure.
 
+GU.impl47 encrypted CI41281099921 identifies the finalization CLI's daemon
+proof_required refusal. No raw error is published; retain ciphertext provenance
+and fixed cause class. This does not identify the missing proof, the specific
+failed phase or any earlier unclassified failure.
+
+Select a narrow ordinary `link finalize` CLI error-context correction: when
+its existing consent continuation returns a structured DaemonError with exact
+code proof_required, retain that same error/cause and nonzero exit, adding fixed
+`linking is incomplete; required proof is unavailable; inspect the same request
+before resuming` context. No returned pending/approved/signed/ready success or
+new stdout/state claim, proof fetch, retry, signer selection, API/schema or
+authority change. Other error codes and other commands keep existing behavior.
+This truthfully describes staged work while preserving the daemon refusal.
+Discard suppressing the error, inventing completed state, retrying the failed
+mutation, guessing a proof/provider fix or changing the old45 success guard.
+Existing unchanged old45 independently verifies subsequent genuine F; all67
+prior files/new47/native415 remain byte-exact. Required new Rust gates/fresh
+hashed binaries and affected old45/new47 runs precede final full CI/review.
+
+The temporary RSA capture has served its diagnostic purpose. Separate author
+removes only that capture block/import/header changes/public PEM, restoring the
+prior finite-observer source c002f829 byte-exact. Root removes only its upload
+step. Keep encrypted artifact/hash and prior first outcomes; private key stays
+root temporary and no plaintext enters repo/PR/chat. Final candidate has no
+RSA/private-key dependency. No new tests or assertion changes are needed: the
+existing finalization fixture already accepts nonzero incomplete and requires
+actual signed F before its subject inspection.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining

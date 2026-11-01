@@ -4100,3 +4100,12 @@ changed diagnostic6/6in70s, runner70.32, compiler-idle, no ciphertext/observer.
 Earlier unknown failures remain; c0e8d12all4/bot plus35/37 and old24contact
 phase diagnostics stay committed. Select full fresh CI with bounded encrypted
 error capture for concrete root diagnosis; discard guessed fixes or waivers.
+
+GU.impl47 encrypted first2b05ea9 old45failure identifies daemon proof_required.
+Select ordinary finalize-only truthful incomplete/error context, preserving
+structured cause/nonzero exit and adding no IO/retry/success claim; all other
+commands/errors unchanged. Missing proof/failed phase and earlier causes remain
+unclassified. Discard a guessed authority fix, hidden retry, success invention
+or test edit. Existing old45requires actual subsequent F. Remove temporary RSA
+capture/publicfixture/upload by independent exact restoration; retain encrypted
+provenance only. New Rust/freshbins/old45/new47/fullCI/review required.
