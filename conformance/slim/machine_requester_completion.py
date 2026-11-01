@@ -1319,7 +1319,7 @@ def exchange_contacts_observed(f):
     """Failure-only metadata from the existing bounded normal-peer probe."""
     original_run = subprocess.run
     hosts = (f['a'], f['b'])
-    def emit(result, view, before, timed_out=False):
+    def emit(result, view, before, argv, timed_out=False):
         try:
             text = '' if result is None else result.stderr
             text = text.decode(errors='replace') if isinstance(text, bytes) else str(text or '')
@@ -1332,28 +1332,42 @@ def exchange_contacts_observed(f):
                 if any(term in text for term in terms)]
             code = result.returncode if result is not None else None
             status = view.get('status') if type(view) is dict else None
+            argv = argv if isinstance(argv, (list, tuple)) else ()
+            supplied = {flag: argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
+                        for flag in ('--method', '--path', '--address')}
+            prefix = '/peer/v2/networks/' + f['network']['id']
+            operations = {('POST', prefix + '/contact'): 'contactPOST', ('GET', prefix + '/contacts'): 'contactsGET',
+                          ('GET', prefix + '/catalog'): 'catalogGET'}
+            address = supplied['--address']
+            targets = {'counted_existing': address == hosts[0].counted_peer.address,
+                       'counted_requester': address == hosts[1].counted_peer.address,
+                       'direct_existing': address == hosts[0].peer_address, 'direct_requester': address == hosts[1].peer_address}
+            targets['other'] = not any(targets.values())
             summary = {'exit_code': code if type(code) is int else 'unknown',
                 'status': status if type(status) is int and 100 <= status <= 599 else 'unknown',
                 'stderr_classes': ['timeout'] if timed_out else classes or ['other'],
-                'carriers': [{'side': side, 'thread_alive': h.counted_peer.thread.is_alive(),
-                    'before': counts, 'after': h.counted_peer.counts()}
-                    for side, h, counts in zip(('existing', 'requester'), hosts, before)]}
+                'program': 'probe' if argv and argv[0] == str(suite.probe_bin) else 'other',
+                'operation': operations.get((supplied['--method'], supplied['--path']), 'other'), 'target_matches': targets,
+                'carriers': [{'side': side, 'thread_alive_before': captured[1], 'thread_alive_after': h.counted_peer.thread.is_alive(),
+                    'before': captured[0], 'after': h.counted_peer.counts()}
+                    for side, h, captured in zip(('existing', 'requester'), hosts, before)]}
             print('machine_completion_contact_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
         except Exception:
             pass  # Diagnostic failure cannot alter the original result/assertion.
     def observed_run(*args, **kwargs):
-        before = tuple(h.counted_peer.counts() for h in hosts)
+        before = tuple((h.counted_peer.counts(), h.counted_peer.thread.is_alive()) for h in hosts)
+        argv = args[0] if args else kwargs.get('args', ())
         try:
             result = original_run(*args, **kwargs)
         except subprocess.TimeoutExpired:
-            emit(None, None, before, timed_out=True)
+            emit(None, None, before, argv, timed_out=True)
             raise
         try:
             view = json.loads(result.stdout)
         except (ValueError, TypeError):
             view = None
         if result.returncode != 0 or type(view) is not dict or view.get('status') != 200 or not isinstance(view.get('body'), dict):
-            emit(result, view, before)
+            emit(result, view, before, argv)
         return result
     try:
         subprocess.run = observed_run
