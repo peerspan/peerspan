@@ -1100,3 +1100,13 @@ forwarding/privacy/restoration checks and fresh identical binary hashes pass.
 Its first affected local run passes6/6in146s, exceeding the120s target; it emits
 no failure metadata and diagnoses no earlier crossing. Final fullCI and fresh
 review receipts follow on PR101; full-feature acceptance stays open.
+
+The same [CI verification record](results/guided-native-machine-requester-ci-verification.json)
+retains second449c800:35/37 and all4checks/native440. Separate independent
+phase prerequisites keep all71 prior files exact: completed actual outbox
+attempts before the single original retry alignment, and a genuine current
+signed contact/expired temporary-ref cleanup before old owner-history snapshots.
+Their first committed-source local runs pass6/6in142s (runner143.62; above120s)
+and6/6in82s (runner82.4), with unchanged original5s/whole-state/carrier checks.
+No Rust/native product change or earlier-caller diagnosis is claimed. Final
+combined-head CI and fresh review receipts follow on PR101.

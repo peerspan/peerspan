@@ -4151,3 +4151,11 @@ Pre-execution independent public-shape review: last_error_detail permits empty
 bounded text. Select recorded non-dash failure code plus positive attempts and
 strictly future canonical retry in the same record, allowing empty/dash detail.
 Discard the unsupported nonempty-detail witness before author source/runtime.
+
+GU.impl48a result: independent57fb58c adds only two launchers; root static/fake
+forwarding/restoration and all71 protected-file hashes pass. First committed
+5c4255b frozen-Rust918d runs pass old28six/sixin142s/runner143.62 and old24
+six/sixin82s/runner82.4. Retain old28's120s target overrun, every prior failure
+and unknown caller. Original actions/assertions/5s wait/full DB/files/TCP/UDP
+remain exact; no product change or general transport fix. Final combined-head
+CI and fresh bot/root review must still pass before the slice is ready.
