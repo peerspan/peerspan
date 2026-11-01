@@ -3957,3 +3957,11 @@ original whole-state/carrier baseline. Select independent retained-envelope
 checks before measurement; discard an unmeasured preliminary subject-API read
 that could mask a first-use mutation. Existing full inspection checks stay in
 place. Only the copied setup guard/read-only exact-F prerequisites may change.
+
+Automatic approval review rejects integrating75eee5 because its proposed old45
+setup edit conflicts with the standing byte-exact prior-suite requirement.
+Discard that two-file integration; preserve75eee5 as unintegrated author history.
+Select the safer new46-only correction, independently committed from b9d0e85,
+with all66 prior files and native415 exact. No denied prior-suite mutation or
+indirect workaround is performed. No prior-suite local run is needed; final
+combined-head CI still checks the complete tree.
