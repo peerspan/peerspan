@@ -4056,3 +4056,14 @@ a separate independently authored failure-only launcher around the exact
 existing Host.cli finalization result/exception. Preserve all67 files/native
 415, args/kwargs, calls/assertions/timeouts and exit. Discard old-suite edits,
 new diagnostic IO, guessed product fixes, ignored errors or unchanged retry.
+
+GU.impl47 CI41c5d66 completes36/37, sole old45setup3/6in38s. New47six/six
+in93s, old28six/sixin103s, fourchecks/native415/Rust155+2ignored and bot clean.
+Independent launcher31a7261 integrates9ffc177 with only CI conditional wiring;
+all67/new47/native415/Rust0047 exact. Root fake forwarding/privacy/exception/
+SystemExit checks pass. Temporary runner first dispatch splits inside the word
+finalization and never starts runtime; correct only that temporary dispatch.
+First actual diagnostic runtime passes6/6in70s (runner70.26), compiler-idle,
+no observer output. Preserve unknown first finalization cause and prior unknown
+carrier causes; no production fix inferred. Select fresh complete final-head
+CI/review, discard old-suite edits, verdict/timeout relaxation or waiver.

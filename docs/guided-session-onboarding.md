@@ -1032,3 +1032,13 @@ retains all old/new counted UDP paths; unapplied privacy precedes activation.
 Earlier contact/UDP/TCP causes remain unclassified. All67 files/native415 stay
 exact. Full final-head CI and fresh review receipts follow on PR100; native
 controls and full-feature acceptance remain separate.
+
+The [CI diagnostic follow-up](results/guided-machine-requester-completion-ci-verification.json)
+retains candidate41c5d66:36/37 conformance jobs pass, all4checks/native415 and
+fresh bot pass; unchanged old45 original-finalization setup fails before its
+subject inspection. New47passes6/6in93s and old28passes6/6in103s. A separate
+independent failure-only launcher preserves the entire old suite; its first
+local diagnostic run passes6/6in70s without observer output. The earlier cause
+remains unclassified. All67 files/new47/fullnative415 and Rust0047 stay exact;
+no product fix or unchanged retry is claimed. Fresh full CI/review is required
+on the final pushed candidate; receipt belongs on PR100.
