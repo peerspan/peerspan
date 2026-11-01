@@ -9183,6 +9183,36 @@ ceremony solely to duplicate those boundaries. Establish quiet/live consumed
 transport holds at actual time-barrier entry before its original full baseline,
 with unchanged waits/timeouts. No executed failure is reclassified or hidden.
 
+GU.impl47 first runtime:0/6in73s, with two setup failures and four dependent
+prerequisite failures. After actual late SQL fault, device setup waits for an
+unsigned requester ClientHello despite already signed/framed work. Retained
+state has no requester network/operation/outcome, exact approved completed
+intent, no outbox, and all four outbound frames ACKed by both actual carriers.
+The fault trigger was removed. Original fresh-clock comparison changes only
+requester helper mailboxes/frames, with no schema/files/carrier crossing;
+retained helper is expired/zero ciphertext/frames while peer helper is active.
+Exact earlier subcase timing is not captured. Preserve these facts and limits.
+
+For signed/framed live fixtures only, before a pure baseline establish genuine
+publication drain with original carriers reachable: every retained outbound
+frame must have ACKs for every actual carrier endpoint address/public_key
+(storage schema749–757), no outbox or journals. Use the existing5s prerequisite
+bound, no protocol mutation retry, frame/ACK edit or new driver. Stop the old
+host only after this genuine observation. Signed/drained work is not an
+unsigned mailbox poller; do not fabricate a new ClientHello or claim a TLS hold
+there. Validate that signed/ACK prerequisite and retain the complete both-host
+DB/schema/state/home/all bidirectional TCP/UDP equality checks. Unsigned live
+readers keep actual consumed live ClientHello generation guards. Actual signed
+time/parent barriers use truthful drained prerequisites, not nonexistent
+unsigned polling. No scope/category exclusion or ordinary worker disablement.
+
+For raw/signed-expiry tests, apply genuine fixture clock stimulus and observe
+actual helper expiry/ciphertext retirement before baseline, using the existing
+bounded retirement helper. Preserve the exact API refusal and full purity
+checks, restoring clocks only afterward. Do not measure independent expiry
+collection as reader work, or remove it from snapshots. The corrected separate
+author source must precede one new run on frozen Rust0047; no unchanged retry.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining

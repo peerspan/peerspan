@@ -4003,3 +4003,13 @@ time/parent barriers and exact detached refusal. Mark cancellation and remote
 original positive completion source/fault-only; discard a third fresh ceremony
 for duplicate coverage. Confirm genuine transport holds before time-barrier
 baseline, preserving every full purity category and fixed wait. No old67 edit.
+
+GU.impl47 first runtime45c39f7/fea76e95 fails0/6in73s, runner73.35. Device
+post-SQL-fault setup cannot observe a new unsigned TLS poll despite retained
+fully signed/ACKed work; original clock-refusal full snapshot crosses helper
+mailboxes/frames only. Preserve all four dependent failures and captured state.
+Select stronger actual signed publication-drain/ACK prerequisites and helper
+retirement outside measured expiry baselines; keep all full purity assertions
+and fixed waits, real holds for unsigned readers. Discard fabricated live
+holds, counter/table exclusions, worker disabling and unchanged retries.
+No production change is inferred; exact earlier subcase timing remains unknown.
