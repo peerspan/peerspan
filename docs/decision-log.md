@@ -4074,3 +4074,11 @@ projection from the same stderr; no raw text, new IO or causal inference.
 Independent launcher-only extension precedes one meaningful new run; retain
 all67/new47/native415 and every original verdict/assertion/timeout. No guessed
 product fix follows from this insufficient first diagnostic.
+
+GU.impl47 independent3b984d0 integratesf3d78ea; original launcher guard/
+forwarding/exception/emit/main bytes exact and inverse restores659eb85e. Root
+finite-pattern privacy/forwarding/restoration checks pass. First local diagnostic
+6/6in70s (runner70.27), compiler-idle, emits no observer. No product fix/cause
+is inferred; d13b3a9 first36/37+all4/bot and its closed unknown-class failure
+remain committed. All67/new47/native415/Rust0047 unchanged. Fresh complete CI
+and exact-head review remain required; discard relaxing failure or readiness.
