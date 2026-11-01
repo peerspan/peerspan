@@ -430,3 +430,12 @@ terms for the exact published project flow, including a genuinely folded host
 grant with no administrator packet. It requires no requester original key or
 local original-owner receipt. It creates no consent/signature/network adoption
 and does no fetch, publication, clock save or other durable work.
+
+### New-computer exact requester consent
+
+[Guided section46](guided-session-contract.md#46-exact-existing-person-machine-requester-consent)
+adds owner-local `.../machine-commit/lookup|prepare|approve` and matching private
+stdin CLI. One immutable unsigned receipt freezes section45's verified remote
+evidence alongside the ordinary requester intent. Exact approval atomically
+authorizes that intent/pending request and the receipt; history is read-only.
+No requester original, signing, publication, application or new schema.

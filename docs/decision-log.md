@@ -3844,3 +3844,15 @@ already binds every non-root issuer to the owner path, so preserve all typed
 checks and the public shape. The genuine reused-root-key negative remains
 source/fault-only; verify normal original/device folds on fresh binaries, keep
 independent source unchanged and require new final-head CI/review.
+
+### GU.impl46: exact machine requester consent
+
+Select one immutable unsigned project receipt alongside the ordinary requester
+commit intent, freezing section45's remote evidence and finite deadlines.
+Separate Prepare and exact approval; recover history read-only. Reuse dec_intents
+and ordinary templates/device/budget checks without schema changes. Discard live
+authority as a historical prerequisite, new-original owner consent reuse, implicit
+preparation/approval, advanced-work adoption, receipt replacement/rebinding,
+original copying and signing/applying inside consent. Frozen flow attribution
+makes replacement unnecessary here. Section46 settles the public contract and
+six independent cases before product. Completion and native controls follow.

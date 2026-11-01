@@ -8823,7 +8823,145 @@ retries, old case/wait/default timeout edits or quota-refused model probes.
 Requester exact consent/bounded completion/native flow and terminal/reload/
 installed/physical/model/schema23→27/full-state/#35 acceptance remain separate.
 
-## 46. Remaining flow contract
+## 46. Exact existing-person machine requester consent
+
+GU.impl46 follows section45. Select one immutable project-bound unsigned
+receipt alongside the ordinary requester_commit intent in dec_intents; no new
+schema or journal. The original stays on the existing computer. Bounded
+completion and native controls follow separately from this consent backend.
+
+### Private actions and exact public review
+
+Owner-local POST `/v1/onboarding/join-flows/{id}/machine-commit/lookup`,
+`/prepare`, `/approve` accept respectively exactly `{context,join_review_id}`,
+`{context,join_review_id,inspection_review_id}` and
+`{context,join_review_id,consent_review_id}`. Private CLI
+`onboarding join machine-commit lookup|prepare|approve --stdin` adds exactly
+`flow_id`. Section45's recursive strict JSON, canonical IDs/context,64KiB input,
+fixed private diagnostics, configured socket,5s single call and no startup apply.
+Keep Inspect's diagnostics. No adapter/peer/bootstrap/native/model surface.
+Invalid400 invalid; missing flow404 not_found; changed scope/digest409
+review_changed; missing ordinary request409 request_unavailable; elapsed fresh
+windows409 review_expired; other missing/incompatible/corrupt work409
+machine_requester_consent_unavailable. Timeout/lost response needs explicit
+Lookup; it does not prove rollback or authorize an automatic mutation retry.
+
+Bind the exact requested section45 flow/outcome/person pin/host/device/agent.
+First Prepare requires the attached exact parent and current inspection digest;
+reverify all remote owner/selection/admission/F, finite7/2 and original windows.
+Keep folded admission and actual binding reuse; no local original-owner receipt
+or key availability. No existing network/terminal/commit artifact or unrelated
+advanced requester_commit intent may be adopted by first preparation.
+
+Create one ordinary unsigned unapproved requester_commit intent and one unsigned
+`machine_requester_review` metadata record bound uniquely to this request.
+Ordinary intent/templates/provider/reference/quota rules stay authoritative.
+Metadata has no templates/signatures/secret, completed=true, terminal dash and
+no result; it is not a protocol signing job. Pending commit_intent_id stays dash
+until approval. Freeze the complete verified section45 public review.
+
+Return exactly `{version:1,host_id,context,flow_id,join_review_id,observed_at,
+request,consent}`. Request is LINK_VIEW; consent null before preparation,
+including missing F. Otherwise exactly
+`{consent_id,review_id,review,state,next_action}`. Review is exactly:
+
+```
+{version:1,kind:"approve_existing_person_requester_commit",consent_id,
+ host_id,context,agent,flow_id,join_review_id,request_id,intent_id,
+ inspection_review_id,inspection,created_at,expires_at,effects}
+```
+
+Inspection is the frozen section45 review with its original false effects and
+domain-separated digest. Consent ID is dint_32hex. Created_at is ordinary
+intent.created_at; expires_at is the minimum of that+15min, signed request
+deadline, frozen stage deadline and powers end. No replay restarts any window.
+Review ID is review_+SHA256 of UTF8
+`peerspan-machine-requester-consent-v1\n` + canonical(review). Effects exactly:
+
+```
+{approve_commit_intent:true,authorize_binding_host_signature:true,
+ authorize_requester_commit_signatures:true,authorize_commit_publication:true,
+ authorize_local_application:true,grant_agent_access:false,share_files:false,
+ share_conversation:false,capability_calls:false}
+```
+
+### Atomic approval and read-only history
+
+Lookup never prepares/repairs. Prepare replay with the same inspection digest
+returns the existing receipt purely, including history. Changed digest refuses;
+no replacement/rebind/refresh or advanced-work adoption. Flow attribution stays
+immutable. Approve requires a retained exact consent_review_id, never implicitly
+prepares. Revalidate current exact parent/agent, full received authority/frozen
+inspection, ordinary intent/templates/selection, actual owned device, ordinary
+publication budget and raw/guarded request/stage/powers/receipt windows before
+fresh approval and again immediately before commit. Atomically save ordinary
+intent approval, pending approval/reference, receipt approval at the same
+effective time and ordinary guarded-clock anchor. All fresh prepare/approve
+writes roll back on fault/refusal. Ordinary total4096/active64 quotas apply;
+at most256 machine requester receipts and8MiB aggregate receipt records.
+
+State is approved only if receipt and ordinary approval agree, including
+approved_at; advanced approval alone is invalidated and cannot gain attribution.
+Otherwise cancelled for cancellation, expired for request/stage/receipt/powers
+expiry, invalidated for detached/changed/ineligible scope or conflicting work,
+else review. Next action: approved follow_machine_link, review
+approve_machine_requester_commit, otherwise inspect_machine_link. Historical
+approval is a past decision, not current powers/application/readiness. Ordinary
+approved workers may sign/publish afterward; this route never invokes them.
+
+Exact approved replay and recorded Lookup/Prepare return history before fresh
+eligibility or owned-device/key resolution, including expiry/cancel/detach/
+restart/progress/application. Wrong digest still refuses. Validate closed
+receipt structure, immutable flow/request/ordinary intent references and frozen
+public evidence. Pruned/corrupt records refuse without recreating anything;
+unavailable live authority is not a historical prerequisite. History saves no
+clock/intent/queue/event/file/network work. Safe closed output at most2MiB;
+no invitation/code/seed/private path/original inventory/templates/signatures/raw
+packet/catalog/transport or signer diagnostics. No original/device signing,
+original availability probe, implicit selection, commit publication/application,
+access/capabilities/readiness/schema. Fresh owned-device validation is not signing.
+
+### Verification
+
+A separate contract-only author adds six `machine_requester_consent` black-box
+cases from genuine distinct-host pinned invitations and remote machine/F
+evidence, never reading product or running hosts/processes/models. Root runs
+committed source with fresh hashed binaries. Keep all66 prior test/conformance
+files and native415 tree exact, including every helper/counter/wait/timeout;
+add one suite (35suites+build). No grant/queue/clock-row edits, worker disabling,
+fabricated positive authority or unchanged retry-to-green.
+
+1. Genuine remote device15 folded-F: independent exact API/CLI review/digests,
+   finite7/2, exactly one ordinary unsigned intent and receipt, no requester
+   original/network/commit/adoption; stable pure Prepare replay. Genuine remote
+   original/capped deadline as bounded fixture permits.
+2. Explicit approval: ordinary+pending+receipt matching atomic consent. Missing
+   receipt/wrong digest/advanced approval cannot implicitly prepare or gain
+   attribution. Do not assert postapproval workers cannot advance.
+3. Temporary schema-only INSERT/UPDATE ABORT triggers over genuine ordinary or
+   receipt writes prove full fresh Prepare/Approve rollback, including clock
+   and references. Remove triggers before complete DB/files comparisons; never
+   fabricate rows or edit authority/signatures to manufacture setup.
+4. Real missing-prefix/context/digest/detachment/cancel and raw/stage/request/
+   receipt expiry refusals/history. Preserve first crossings; record unavailable
+   powers-expiry/changed-authority cases as source/fault limits.
+5. Lookup/null/history, identical Prepare and approved replay are pure after
+   detach/restart/expiry and absent original sources. Count complete both-host
+   DB/schema/state/home and bidirectional TCP/UDP. Existing computer may go
+   offline after F before baselines; requester stays live. No both-live worker
+   attribution or disabling authorized work. Record live postapproval limits.
+6. Nested JSON/IDs/64KiB/private argv/no-startup/method/adapter/peer/bootstrap
+   isolation and safe public projection. Pruned/corrupt/unsafe/complex separate-
+   admin/reused-binding cases without real bounded stimulus stay source-only.
+
+Root serializes Rust fmt/existing155+2ignored/Clippy/build and this new suite;
+no unrelated local native/old host retries. Retain all first failures/corrections
+and exact source/binary/test/log receipts. Final-head35suites+build/four checks/
+native415 and fresh bot/root review required. Bounded completion/native controls
+and full #35 terminal/reload/installed/physical/model/schema23→27/full-state/final
+acceptance stay open.
+
+## 47. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete

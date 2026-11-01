@@ -970,3 +970,12 @@ device/original folded-F and strict measured purity from the explicitly offline
 existing computer, source-only complex authority/corruption boundaries, and
 unexecuted native/full-feature acceptance. Final exact-head CI/review receipts
 are retained on PR98 without an evidence-only CI commit loop.
+
+### New computer: exact requester consent
+
+Section46/GU.impl46 follows merged98 (`19ae9bb`). Prepare freezes the verified
+remote machine terms in an unsigned project receipt; Approve records only the
+exact retained consent alongside ordinary requester approval. Lookup and exact
+replay preserve history without keys, clock saves or transport. Completion and
+native controls remain separate. Contract-first independent conformance and
+final combined-head CI/review are required before owner review.
