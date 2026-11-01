@@ -4038,3 +4038,13 @@ and malformed corpus before application with both successful history reads
 relocated intact to settled terminal history. Discard retries at failedaddress,
 worker flags/counter exclusions, claimed rootcause, larger waits or dropped
 assertions. New-suite independent correction precedes next run; old67 exact.
+
+GU.impl47 independent7d044aa integrates6208987:6/6in116s, runner119.54 on
+unchanged Rust0047. Actual terminal endpoints/state/identity verification and
+phase-specific unapplied privacy/time/parent prerequisites preserve every old
+protocol call/assertion/timeout, full DB/schema/files/all old+new TCP/UDP
+counters. Root inverse restores095670c2 bytes/fullAST; all67/native415 exact.
+This passing sample does not identify earlier timeout/carrier causes. Retain
+first CI35/37 plus all4 checks and all local0/5/4/3 outcomes in phase follow-up.
+Select final exact-head complete CI/review before owner review; discard
+unchanged reruns, old-suite edits, cause attribution or broader readiness claims.

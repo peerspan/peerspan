@@ -1,0 +1,724 @@
+{
+  "milestone": "GU.impl47",
+  "source_head": "62089872ed1ea266072d67db13b3ce406b28cfdd",
+  "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+  "base": "a025f289e6c2628d9006924b2400d335f740a4a3",
+  "suite_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+  "author": {
+    "contract_only_base": "e1a410ddb4167c148c3d0fb40d35ba7cb541634c",
+    "latest_commit": "7d044aa7de7e1175eeee33c1edf72300f9dd8b62",
+    "earlier_corrections": [
+      "c443848b47eda3dbab7a26d938d1419d686c9430",
+      "404f1e3d83194623373ef4c7198e209d40a8b9bb",
+      "0ed1c659d57462471ece13f34472da8d24009c1b"
+    ],
+    "product_read": false,
+    "runtime_executed": false
+  },
+  "binaries": {
+    "head": "92b8e971e40785717a381edc3870084f8dd55c80",
+    "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+    "directory": "/tmp/gu47-runtime/final-bin-rust-build-corrected-first",
+    "sha256": {
+      "peerspan-host": "41e8b21a53012f351f01362866deba7afd6e25c4771b0d7e63b8e906b1267ffb",
+      "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+      "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+    }
+  },
+  "gates": [
+    {
+      "gate": "machine-requester-completion-first",
+      "head": "45c39f7c065466dde0296e1ce4c5c95c4e59cf06",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 1,
+      "seconds": 73.35,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-first.log",
+      "sha256": "e9958636ab413f3d1e8e8c7ef695ec5e55ee51598fb67e2b05f87f6cc28b90f6",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.14,
+          "active": []
+        },
+        {
+          "seconds": 60.27,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "fea76e957c38addb9babf3e212f5eb3f81a6d3424ed5856084dcd6ef0db8b64a"
+    },
+    {
+      "gate": "machine-requester-completion-corrected-first",
+      "head": "643d165505548fe50a21de0e2f06d4fd8807bb5e",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 1,
+      "seconds": 96.51,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-corrected-first.log",
+      "sha256": "e0abf5b9453e7bbb3bed7552a6ef16b13f5d0a62442dcf74065aaeeec3ae1c66",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.24,
+          "active": []
+        },
+        {
+          "seconds": 75.29,
+          "active": []
+        },
+        {
+          "seconds": 90.36,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "865a1ad972f02c6128fe4b65664521c87fddffd2837192f230cc1dcda1521186"
+    },
+    {
+      "gate": "machine-requester-completion-final-observer-first",
+      "head": "22703b52cc891dc30e40f47f3554904c74b6496c",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 1,
+      "seconds": 102.47,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-final-observer-first.log",
+      "sha256": "adb9f178dbdb0aec8103a49e7bc52a769ae1cd57d7de0c609a05ca9fb92afa6a",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.26,
+          "active": []
+        },
+        {
+          "seconds": 75.32,
+          "active": []
+        },
+        {
+          "seconds": 90.39,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "1ed57823c7d42d19796f0fc0e9c296ee7b52eefd330461c1fd7bb18cf707f5da"
+    },
+    {
+      "gate": "machine-requester-completion-final-target-first",
+      "head": "92c5393b7a7abfbe2d20068426a3729a706e31bc",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 1,
+      "seconds": 91.48,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-final-target-first.log",
+      "sha256": "0f6d900bb2abe90942c61e82ea7975bd4f64990a8d62ae8840f85f6c6ab1de05",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.15,
+          "active": []
+        },
+        {
+          "seconds": 60.26,
+          "active": []
+        },
+        {
+          "seconds": 75.34,
+          "active": []
+        },
+        {
+          "seconds": 90.4,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "095670c2f4bb03dd449adfc79b9142129a00e3f6fd3ff70798ebfa49b7224228"
+    },
+    {
+      "gate": "machine-requester-completion-final-phase-first",
+      "head": "62089872ed1ea266072d67db13b3ce406b28cfdd",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 0,
+      "seconds": 119.54,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-final-phase-first.log",
+      "sha256": "3fd7554d6173d36fca2d6895d192c3229c1c0faa1435aa405fff7337ba2714ce",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.14,
+          "active": []
+        },
+        {
+          "seconds": 60.2,
+          "active": []
+        },
+        {
+          "seconds": 75.27,
+          "active": []
+        },
+        {
+          "seconds": 90.37,
+          "active": []
+        },
+        {
+          "seconds": 105.45,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166"
+    }
+  ],
+  "first_ci": [
+    {
+      "kind": "conformance",
+      "id": 41276870375,
+      "head_sha": "b056f5351d8a30c4cbb9f9bfa11d5a688685c29f",
+      "attempt": 1,
+      "jobs": [
+        {
+          "id": 124760705917,
+          "name": "Build host, peer probe and helper",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760705917"
+        },
+        {
+          "id": 124760889249,
+          "name": "policy",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889249"
+        },
+        {
+          "id": 124760889268,
+          "name": "basics",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889268"
+        },
+        {
+          "id": 124760889273,
+          "name": "sync",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889273"
+        },
+        {
+          "id": 124760889275,
+          "name": "live",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889275"
+        },
+        {
+          "id": 124760889282,
+          "name": "work",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889282"
+        },
+        {
+          "id": 124760889285,
+          "name": "renewal",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889285"
+        },
+        {
+          "id": 124760889287,
+          "name": "capabilities",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889287"
+        },
+        {
+          "id": 124760889315,
+          "name": "delivery",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889315"
+        },
+        {
+          "id": 124760889327,
+          "name": "root",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889327"
+        },
+        {
+          "id": 124760889331,
+          "name": "join",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889331"
+        },
+        {
+          "id": 124760889358,
+          "name": "peer_reachability",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889358"
+        },
+        {
+          "id": 124760889372,
+          "name": "join_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889372"
+        },
+        {
+          "id": 124760889375,
+          "name": "admission_consent",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889375"
+        },
+        {
+          "id": 124760889384,
+          "name": "owner_signing",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889384"
+        },
+        {
+          "id": 124760889393,
+          "name": "access_signing",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889393"
+        },
+        {
+          "id": 124760889396,
+          "name": "admission_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889396"
+        },
+        {
+          "id": 124760889404,
+          "name": "machine_requester_consent",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889404"
+        },
+        {
+          "id": 124760889406,
+          "name": "machine_requester_completion",
+          "conclusion": "failure",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889406"
+        },
+        {
+          "id": 124760889408,
+          "name": "owner_finalization",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889408"
+        },
+        {
+          "id": 124760889412,
+          "name": "requester_commit",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889412"
+        },
+        {
+          "id": 124760889416,
+          "name": "access_consent",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889416"
+        },
+        {
+          "id": 124760889418,
+          "name": "requester_completion",
+          "conclusion": "failure",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889418"
+        },
+        {
+          "id": 124760889426,
+          "name": "owner_finalization_signing",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889426"
+        },
+        {
+          "id": 124760889428,
+          "name": "access_application",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889428"
+        },
+        {
+          "id": 124760889429,
+          "name": "project_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889429"
+        },
+        {
+          "id": 124760889432,
+          "name": "owner_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889432"
+        },
+        {
+          "id": 124760889435,
+          "name": "readiness",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889435"
+        },
+        {
+          "id": 124760889441,
+          "name": "machine_owner_consent",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889441"
+        },
+        {
+          "id": 124760889445,
+          "name": "machine_owner_signing",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889445"
+        },
+        {
+          "id": 124760889459,
+          "name": "incoming_progress",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889459"
+        },
+        {
+          "id": 124760889465,
+          "name": "machine_requester_inspection",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889465"
+        },
+        {
+          "id": 124760889468,
+          "name": "machine_owner",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889468"
+        },
+        {
+          "id": 124760889490,
+          "name": "adapter_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889490"
+        },
+        {
+          "id": 124760889504,
+          "name": "onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889504"
+        },
+        {
+          "id": 124760889540,
+          "name": "access_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889540"
+        },
+        {
+          "id": 124760889549,
+          "name": "invitation_onboarding",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870375/job/124760889549"
+        }
+      ],
+      "successes": 35,
+      "job_count": 37
+    },
+    {
+      "kind": "checks",
+      "id": 41276870293,
+      "head_sha": "b056f5351d8a30c4cbb9f9bfa11d5a688685c29f",
+      "attempt": 1,
+      "jobs": [
+        {
+          "id": 124760705649,
+          "name": "Claude onboarding runtime",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870293/job/124760705649"
+        },
+        {
+          "id": 124760705688,
+          "name": "Rust Clippy",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870293/job/124760705688"
+        },
+        {
+          "id": 124760705692,
+          "name": "Rust tests and build",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870293/job/124760705692"
+        },
+        {
+          "id": 124760705703,
+          "name": "Rust format",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41276870293/job/124760705703"
+        }
+      ],
+      "successes": 4,
+      "job_count": 4
+    }
+  ],
+  "logs": {
+    "ci-first-machine-completion": {
+      "sha256": "ddc33117d0e66a4c545af79a0add25b105ccc229d3aae5628d5e0f77464efcaa",
+      "text": "\ufeff2026-11-01T05:27:06.2985168Z Current runner version: '2.338.2'\n2026-11-01T05:27:06.3024050Z ##[group]Runner Image Provisioner\n2026-11-01T05:27:06.3025698Z Hosted Compute Agent\n2026-11-01T05:27:06.3026861Z Version: 20261021.618\n2026-11-01T05:27:06.3028029Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e\n2026-11-01T05:27:06.3029764Z Build Date: 2026-10-21T00:45:21Z\n2026-11-01T05:27:06.3031075Z Worker ID: {56e52c47-bd57-4c00-b2b6-6aabfbeaea2d}\n2026-11-01T05:27:06.3032347Z Region: eastus\n2026-11-01T05:27:06.3033549Z Cloud: Azure\n2026-11-01T05:27:06.3034690Z ##[endgroup]\n2026-11-01T05:27:06.3038058Z ##[group]Operating System\n2026-11-01T05:27:06.3039498Z Ubuntu\n2026-11-01T05:27:06.3040441Z 22.04.5\n2026-11-01T05:27:06.3041392Z LTS\n2026-11-01T05:27:06.3042288Z ##[endgroup]\n2026-11-01T05:27:06.3043423Z ##[group]Runner Image\n2026-11-01T05:27:06.3044506Z Image: ubuntu-22.04\n2026-11-01T05:27:06.3045470Z Version: 20261025.340.1\n2026-11-01T05:27:06.3047705Z Included Software: https://github.com/actions/runner-images/blob/ubuntu22/20261025.340/images/ubuntu/Ubuntu2204-Readme.md\n2026-11-01T05:27:06.3050879Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu22%2F20261025.340\n2026-11-01T05:27:06.3052605Z ##[endgroup]\n2026-11-01T05:27:06.3054770Z ##[group]GITHUB_TOKEN Permissions\n2026-11-01T05:27:06.3057680Z Contents: read\n2026-11-01T05:27:06.3059204Z Metadata: read\n2026-11-01T05:27:06.3060320Z ##[endgroup]\n2026-11-01T05:27:06.3063205Z Secret source: Actions\n2026-11-01T05:27:06.3064931Z Cache mode: write\n2026-11-01T05:27:06.3066100Z Prepare workflow directory\n2026-11-01T05:27:06.3549659Z Prepare all required actions\n2026-11-01T05:27:06.3621047Z Getting action download info\n2026-11-01T05:27:06.5721192Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)\n2026-11-01T05:27:06.7551135Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)\n2026-11-01T05:27:06.8526584Z Download action repository 'actions/download-artifact@v4' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)\n2026-11-01T05:27:07.1342032Z Complete job name: machine_requester_completion\n2026-11-01T05:27:07.2174134Z ##[group]Run actions/checkout@v4\n2026-11-01T05:27:07.2175021Z with:\n2026-11-01T05:27:07.2175485Z   persist-credentials: false\n2026-11-01T05:27:07.2176030Z   repository: peerspan/peerspan\n2026-11-01T05:27:07.2180355Z   token: ***\n2026-11-01T05:27:07.2180819Z   ssh-strict: true\n2026-11-01T05:27:07.2181279Z   ssh-user: git\n2026-11-01T05:27:07.2181708Z   clean: true\n2026-11-01T05:27:07.2182158Z   sparse-checkout-cone-mode: true\n2026-11-01T05:27:07.2182690Z   fetch-depth: 1\n2026-11-01T05:27:07.2183124Z   fetch-tags: false\n2026-11-01T05:27:07.2183576Z   show-progress: true\n2026-11-01T05:27:07.2184056Z   lfs: false\n2026-11-01T05:27:07.2184488Z   submodules: false\n2026-11-01T05:27:07.2184943Z   set-safe-directory: true\n2026-11-01T05:27:07.2185483Z   allow-unsafe-pr-checkout: false\n2026-11-01T05:27:07.2186352Z ##[endgroup]\n2026-11-01T05:27:07.4788231Z Syncing repository: peerspan/peerspan\n2026-11-01T05:27:07.4791573Z ##[group]Getting Git version info\n2026-11-01T05:27:07.4792960Z Working directory is '/home/runner/work/peerspan/peerspan'\n2026-11-01T05:27:07.4794811Z [command]/usr/bin/git version\n2026-11-01T05:27:07.4876226Z git version 2.56.0\n2026-11-01T05:27:07.4899697Z ##[endgroup]\n2026-11-01T05:27:07.4916763Z Temporarily overriding HOME='/home/runner/work/_temp/ef23628a-ad1e-4918-ba76-e3b0a88a6776' before making global git config changes\n2026-11-01T05:27:07.4919389Z Adding repository directory to the temporary git global config as a safe directory\n2026-11-01T05:27:07.4921933Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/peerspan/peerspan\n2026-11-01T05:27:07.4981095Z Deleting the contents of '/home/runner/work/peerspan/peerspan'\n2026-11-01T05:27:07.4986767Z ##[group]Initializing the repository\n2026-11-01T05:27:07.4991822Z [command]/usr/bin/git init /home/runner/work/peerspan/peerspan\n2026-11-01T05:27:07.5105027Z hint: Using 'master' as the name for the initial branch. This default branch name\n2026-11-01T05:27:07.5107305Z hint: will change to \"main\" in Git 3.0. To configure the initial branch name\n2026-11-01T05:27:07.5109417Z hint: to use in all of your new repositories, which will suppress this warning,\n2026-11-01T05:27:07.5110869Z hint: call:\n2026-11-01T05:27:07.5111674Z hint:\n2026-11-01T05:27:07.5112669Z hint: \tgit config --global init.defaultBranch <name>\n2026-11-01T05:27:07.5113964Z hint:\n2026-11-01T05:27:07.5115168Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and\n2026-11-01T05:27:07.5117042Z hint: 'development'. The just-created branch can be renamed via this command:\n2026-11-01T05:27:07.5118698Z hint:\n2026-11-01T05:27:07.5119761Z hint: \tgit branch -m <name>\n2026-11-01T05:27:07.5120778Z hint:\n2026-11-01T05:27:07.5123367Z hint: Disable this message with \"git config set advice.defaultBranchName false\"\n2026-11-01T05:27:07.5125335Z Initialized empty Git repository in /home/runner/work/peerspan/peerspan/.git/\n2026-11-01T05:27:07.5129083Z [command]/usr/bin/git remote add origin https://github.com/peerspan/peerspan\n2026-11-01T05:27:07.5166752Z ##[endgroup]\n2026-11-01T05:27:07.5168123Z ##[group]Disabling automatic garbage collection\n2026-11-01T05:27:07.5172930Z [command]/usr/bin/git config --local gc.auto 0\n2026-11-01T05:27:07.5210248Z ##[endgroup]\n2026-11-01T05:27:07.5210989Z ##[group]Setting up auth\n2026-11-01T05:27:07.5219933Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:27:07.5272249Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:27:07.5696756Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:27:07.5743150Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:27:07.6011830Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:27:07.6054915Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:27:07.6317940Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***\n2026-11-01T05:27:07.6365692Z ##[endgroup]\n2026-11-01T05:27:07.6367355Z ##[group]Fetching the repository\n2026-11-01T05:27:07.6378833Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +ac50ed0a1b7b7a91f488a1151ec2466179540cd6:refs/remotes/pull/100/merge\n2026-11-01T05:27:08.6919305Z From https://github.com/peerspan/peerspan\n2026-11-01T05:27:08.6922358Z  * [new ref]         ac50ed0a1b7b7a91f488a1151ec2466179540cd6 -> pull/100/merge\n2026-11-01T05:27:08.6928878Z ##[endgroup]\n2026-11-01T05:27:08.6931217Z ##[group]Determining the checkout info\n2026-11-01T05:27:08.6934092Z ##[endgroup]\n2026-11-01T05:27:08.6935930Z [command]/usr/bin/git sparse-checkout disable\n2026-11-01T05:27:08.7024630Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig\n2026-11-01T05:27:08.7060714Z ##[group]Checking out the ref\n2026-11-01T05:27:08.7063931Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/100/merge\n2026-11-01T05:27:08.7921709Z Note: switching to 'refs/remotes/pull/100/merge'.\n2026-11-01T05:27:08.7923047Z \n2026-11-01T05:27:08.7924091Z You are in 'detached HEAD' state. You can look around, make experimental\n2026-11-01T05:27:08.7926740Z changes and commit them, and you can discard any commits you make in this\n2026-11-01T05:27:08.7929345Z state without impacting any branches by switching back to a branch.\n2026-11-01T05:27:08.7930667Z \n2026-11-01T05:27:08.7931702Z If you want to create a new branch to retain commits you create, you may\n2026-11-01T05:27:08.7933651Z do so (now or later) by using -c with the switch command. Example:\n2026-11-01T05:27:08.7934951Z \n2026-11-01T05:27:08.7935363Z   git switch -c <new-branch-name>\n2026-11-01T05:27:08.7936048Z \n2026-11-01T05:27:08.7936596Z Or undo this operation with:\n2026-11-01T05:27:08.7937427Z \n2026-11-01T05:27:08.7937850Z   git switch -\n2026-11-01T05:27:08.7938732Z \n2026-11-01T05:27:08.7939683Z Turn off this advice by setting config variable advice.detachedHead to false\n2026-11-01T05:27:08.7940954Z \n2026-11-01T05:27:08.7942485Z HEAD is now at ac50ed0 Merge b056f5351d8a30c4cbb9f9bfa11d5a688685c29f into a025f289e6c2628d9006924b2400d335f740a4a3\n2026-11-01T05:27:08.7947049Z ##[endgroup]\n2026-11-01T05:27:08.7982177Z [command]/usr/bin/git log -1 --format=%H\n2026-11-01T05:27:08.8013789Z ac50ed0a1b7b7a91f488a1151ec2466179540cd6\n2026-11-01T05:27:08.8024336Z ##[group]Removing auth\n2026-11-01T05:27:08.8027694Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:27:08.8066611Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:27:08.8328799Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:27:08.8358005Z http.https://github.com/.extraheader\n2026-11-01T05:27:08.8366813Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader\n2026-11-01T05:27:08.8409186Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:27:08.8672461Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:27:08.8713704Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:27:08.8983062Z ##[endgroup]\n2026-11-01T05:27:08.9466356Z ##[group]Run actions/setup-python@v5\n2026-11-01T05:27:08.9467561Z with:\n2026-11-01T05:27:08.9468609Z   python-version: 3.12\n2026-11-01T05:27:08.9469647Z   check-latest: false\n2026-11-01T05:27:08.9478624Z   token: ***\n2026-11-01T05:27:08.9479578Z   update-environment: true\n2026-11-01T05:27:08.9480651Z   allow-prereleases: false\n2026-11-01T05:27:08.9481711Z   freethreaded: false\n2026-11-01T05:27:08.9482671Z ##[endgroup]\n2026-11-01T05:27:09.0972848Z ##[group]Installed versions\n2026-11-01T05:27:09.1134894Z (node:2105) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.\n2026-11-01T05:27:09.1139168Z (Use `node --trace-deprecation ...` to show where the warning was created)\n2026-11-01T05:27:09.1141580Z Successfully set up CPython (3.12.15)\n2026-11-01T05:27:09.1144503Z ##[endgroup]\n2026-11-01T05:27:09.1618623Z ##[group]Run actions/download-artifact@v4\n2026-11-01T05:27:09.1620491Z with:\n2026-11-01T05:27:09.1621862Z   name: conformance-binaries\n2026-11-01T05:27:09.1623552Z   path: bin\n2026-11-01T05:27:09.1624987Z   merge-multiple: false\n2026-11-01T05:27:09.1626595Z   repository: peerspan/peerspan\n2026-11-01T05:27:09.1628254Z   run-id: 41276870375\n2026-11-01T05:27:09.1629921Z env:\n2026-11-01T05:27:09.1631545Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:09.1634174Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig\n2026-11-01T05:27:09.1636776Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:09.1639351Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:09.1641785Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:09.1644270Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib\n2026-11-01T05:27:09.1646408Z ##[endgroup]\n2026-11-01T05:27:09.3453845Z Downloading single artifact\n2026-11-01T05:27:09.3691569Z (node:2118) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.\n2026-11-01T05:27:09.3694827Z (Use `node --trace-deprecation ...` to show where the warning was created)\n2026-11-01T05:27:09.4502013Z Preparing to download the following artifacts:\n2026-11-01T05:27:09.4503868Z - conformance-binaries (ID: 13071865668, Size: 32562631, Expected Digest: sha256:7efa5911fc98fce87229b97a34cca4cecbe57ec0461715617e94e5b43e7bdfaf)\n2026-11-01T05:27:09.5865602Z Redirecting to blob download url: https://productionresultssa30.blob.core.windows.net/actions-results/3d693e36-9784-885e-9738-056aad822eda/workflow-job-run-bb026b9b-b773-5b95-895f-71682fd343bd/artifacts/fb52e7b7976baec806f954ebd70f8acb576b73c0c324cf2e0a9f26f61b474d2f.zip\n2026-11-01T05:27:09.5868890Z Starting download of artifact to: /home/runner/work/peerspan/peerspan/bin\n2026-11-01T05:27:09.6961536Z (node:2118) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.\n2026-11-01T05:27:10.7157615Z SHA256 digest of downloaded artifact is 7efa5911fc98fce87229b97a34cca4cecbe57ec0461715617e94e5b43e7bdfaf\n2026-11-01T05:27:10.7160004Z Artifact download completed successfully.\n2026-11-01T05:27:10.7160774Z Total of 1 artifact(s) downloaded\n2026-11-01T05:27:10.7164968Z Download artifact has finished successfully\n2026-11-01T05:27:10.7339824Z ##[group]Run set -euo pipefail\n2026-11-01T05:27:10.7340269Z \u001b[36;1mset -euo pipefail\u001b[0m\n2026-11-01T05:27:10.7340591Z \u001b[36;1mchmod +x bin/*\u001b[0m\n2026-11-01T05:27:10.7341019Z \u001b[36;1mpython3 conformance/slim/machine_requester_completion.py --bin bin\u001b[0m\n2026-11-01T05:27:10.7475323Z shell: /usr/bin/bash -e {0}\n2026-11-01T05:27:10.7475668Z env:\n2026-11-01T05:27:10.7476001Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:10.7476520Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig\n2026-11-01T05:27:10.7477042Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:10.7477489Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:10.7477970Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:27:10.7478672Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib\n2026-11-01T05:27:10.7479069Z ##[endgroup]\n2026-11-01T05:27:37.0803089Z PASS genuine_device15_missing_unapproved_exact_receipt_and_late_application_abort [guided47 verification1/2/4] (25.3s)\n2026-11-01T05:27:39.4688215Z PASS actual_finite_folded_application_after_review_expiry_lost_reply_then_lookup [guided47 verification1/5] (2.4s)\n2026-11-01T05:27:40.0861852Z machine_requester_purity_public={\"carrier_changed_positions\": [[], [], [0, 1], []], \"phase\": \"malformed-completion\", \"sides\": [{\"database_set_changed\": false, \"home_changed\": false, \"schema_changed\": false, \"side\": \"existing\", \"state_changed\": false, \"tables\": [], \"version_changed\": false}, {\"database_set_changed\": false, \"home_changed\": false, \"schema_changed\": false, \"side\": \"requester\", \"state_changed\": false, \"tables\": [], \"version_changed\": false}]}\n2026-11-01T05:27:40.0865676Z FAIL strict_private_JSON_64KiB_ID_method_scoped_peer_bootstrap_and_no_startup [guided47 verification5] (0.6s): inspection performed counted bidirectional TCP/UDP IO\n2026-11-01T05:28:08.0665573Z PASS genuine_remote_original_cap_signed_raw_expiry_and_actual_apply_time_guard [guided47 verification2/3] (28.0s)\n2026-11-01T05:28:09.8395210Z LIMIT machine_requester_completion: advanced-only without guided receipt covered46/source-only here; cancellation and original-provider positive Complete not executed; actual original cap/signed/raw/time/parent refusals covered; isolated unsigned-stage/powers expiry, complex grants, key/commit/90s races and global worker attribution remain unexecuted\n2026-11-01T05:28:09.8399116Z PASS actual_unapplied_parent_barrier_and_detached_refusal_preserve_consent [guided47 verification2/3] (1.8s)\n2026-11-01T05:28:18.4991359Z FAIL verified_completed_replay_pure_after_expiry_detach_restart_and_anchor_rollback [guided47 verification6] (8.7s): genuine normal peer setup transport failed\n2026-11-01T05:28:18.4993406Z machine_requester_completion: 4 passed, 2 failed, 0 expected failures, 0 unexpected passes, 0 skipped in 67s\n2026-11-01T05:28:18.4994272Z work directory kept: /tmp/slim-machine_requester_completion-v0x_ynld\n2026-11-01T05:28:19.5869416Z ##[error]Process completed with exit code 1.\n2026-11-01T05:28:19.6021678Z Post job cleanup.\n2026-11-01T05:28:19.6946471Z [command]/usr/bin/git version\n2026-11-01T05:28:19.6992515Z git version 2.56.0\n2026-11-01T05:28:19.7067033Z Temporarily overriding HOME='/home/runner/work/_temp/8488acb1-f25f-407f-9e8f-1527678c095a' before making global git config changes\n2026-11-01T05:28:19.7068740Z Adding repository directory to the temporary git global config as a safe directory\n2026-11-01T05:28:19.7072426Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/peerspan/peerspan\n2026-11-01T05:28:19.7117753Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:28:19.7159343Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:28:19.7460405Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:28:19.7504210Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:28:19.7816144Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:28:19.7884523Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:28:19.8333868Z Cleaning up orphan processes\n2026-11-01T05:28:19.8853415Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/download-artifact@v4, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/\n"
+    },
+    "ci-first-old-completion": {
+      "sha256": "73959f7ab2ec064688368cbd0807c84cf1e4f9dff4987db4e27d31e4469e0fba",
+      "text": "\ufeff2026-11-01T05:26:41.0233783Z Current runner version: '2.338.2'\n2026-11-01T05:26:41.0254709Z ##[group]Runner Image Provisioner\n2026-11-01T05:26:41.0255754Z Hosted Compute Agent\n2026-11-01T05:26:41.0256267Z Version: 20261021.618\n2026-11-01T05:26:41.0256885Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e\n2026-11-01T05:26:41.0257499Z Build Date: 2026-10-21T00:45:21Z\n2026-11-01T05:26:41.0258060Z Worker ID: {76ddfad9-263e-4541-8b3d-b27597b2c712}\n2026-11-01T05:26:41.0258732Z Region: westus2\n2026-11-01T05:26:41.0259222Z Cloud: Azure\n2026-11-01T05:26:41.0259795Z ##[endgroup]\n2026-11-01T05:26:41.0261166Z ##[group]Operating System\n2026-11-01T05:26:41.0261690Z Ubuntu\n2026-11-01T05:26:41.0262248Z 22.04.5\n2026-11-01T05:26:41.0262701Z LTS\n2026-11-01T05:26:41.0263197Z ##[endgroup]\n2026-11-01T05:26:41.0263707Z ##[group]Runner Image\n2026-11-01T05:26:41.0264212Z Image: ubuntu-22.04\n2026-11-01T05:26:41.0264762Z Version: 20261025.340.1\n2026-11-01T05:26:41.0266153Z Included Software: https://github.com/actions/runner-images/blob/ubuntu22/20261025.340/images/ubuntu/Ubuntu2204-Readme.md\n2026-11-01T05:26:41.0267478Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu22%2F20261025.340\n2026-11-01T05:26:41.0268288Z ##[endgroup]\n2026-11-01T05:26:41.0269308Z ##[group]GITHUB_TOKEN Permissions\n2026-11-01T05:26:41.0270857Z Contents: read\n2026-11-01T05:26:41.0271518Z Metadata: read\n2026-11-01T05:26:41.0272010Z ##[endgroup]\n2026-11-01T05:26:41.0273852Z Secret source: Actions\n2026-11-01T05:26:41.0274682Z Cache mode: write\n2026-11-01T05:26:41.0275542Z Prepare workflow directory\n2026-11-01T05:26:41.0536181Z Prepare all required actions\n2026-11-01T05:26:41.0574644Z Getting action download info\n2026-11-01T05:26:41.3841695Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)\n2026-11-01T05:26:41.5252729Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)\n2026-11-01T05:26:41.6274393Z Download action repository 'actions/download-artifact@v4' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)\n2026-11-01T05:26:41.9874162Z Complete job name: requester_completion\n2026-11-01T05:26:42.0517844Z ##[group]Run actions/checkout@v4\n2026-11-01T05:26:42.0518507Z with:\n2026-11-01T05:26:42.0518863Z   persist-credentials: false\n2026-11-01T05:26:42.0519289Z   repository: peerspan/peerspan\n2026-11-01T05:26:42.0522233Z   token: ***\n2026-11-01T05:26:42.0522579Z   ssh-strict: true\n2026-11-01T05:26:42.0522925Z   ssh-user: git\n2026-11-01T05:26:42.0523266Z   clean: true\n2026-11-01T05:26:42.0523626Z   sparse-checkout-cone-mode: true\n2026-11-01T05:26:42.0524046Z   fetch-depth: 1\n2026-11-01T05:26:42.0524383Z   fetch-tags: false\n2026-11-01T05:26:42.0524732Z   show-progress: true\n2026-11-01T05:26:42.0525228Z   lfs: false\n2026-11-01T05:26:42.0525558Z   submodules: false\n2026-11-01T05:26:42.0525920Z   set-safe-directory: true\n2026-11-01T05:26:42.0526364Z   allow-unsafe-pr-checkout: false\n2026-11-01T05:26:42.0526945Z ##[endgroup]\n2026-11-01T05:26:42.2084356Z Syncing repository: peerspan/peerspan\n2026-11-01T05:26:42.2086018Z ##[group]Getting Git version info\n2026-11-01T05:26:42.2086646Z Working directory is '/home/runner/work/peerspan/peerspan'\n2026-11-01T05:26:42.2087493Z [command]/usr/bin/git version\n2026-11-01T05:26:42.2117864Z git version 2.56.0\n2026-11-01T05:26:42.2134184Z ##[endgroup]\n2026-11-01T05:26:42.2147669Z Temporarily overriding HOME='/home/runner/work/_temp/426c9be3-967c-4200-a70a-752950a69307' before making global git config changes\n2026-11-01T05:26:42.2149526Z Adding repository directory to the temporary git global config as a safe directory\n2026-11-01T05:26:42.2151772Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/peerspan/peerspan\n2026-11-01T05:26:42.2185015Z Deleting the contents of '/home/runner/work/peerspan/peerspan'\n2026-11-01T05:26:42.2189541Z ##[group]Initializing the repository\n2026-11-01T05:26:42.2193472Z [command]/usr/bin/git init /home/runner/work/peerspan/peerspan\n2026-11-01T05:26:42.2299200Z hint: Using 'master' as the name for the initial branch. This default branch name\n2026-11-01T05:26:42.2310532Z hint: will change to \"main\" in Git 3.0. To configure the initial branch name\n2026-11-01T05:26:42.2315803Z hint: to use in all of your new repositories, which will suppress this warning,\n2026-11-01T05:26:42.2319248Z hint: call:\n2026-11-01T05:26:42.2319705Z hint:\n2026-11-01T05:26:42.2320160Z hint: \tgit config --global init.defaultBranch <name>\n2026-11-01T05:26:42.2320686Z hint:\n2026-11-01T05:26:42.2321179Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and\n2026-11-01T05:26:42.2322252Z hint: 'development'. The just-created branch can be renamed via this command:\n2026-11-01T05:26:42.2323061Z hint:\n2026-11-01T05:26:42.2323636Z hint: \tgit branch -m <name>\n2026-11-01T05:26:42.2324240Z hint:\n2026-11-01T05:26:42.2325195Z hint: Disable this message with \"git config set advice.defaultBranchName false\"\n2026-11-01T05:26:42.2326291Z Initialized empty Git repository in /home/runner/work/peerspan/peerspan/.git/\n2026-11-01T05:26:42.2327690Z [command]/usr/bin/git remote add origin https://github.com/peerspan/peerspan\n2026-11-01T05:26:42.2375479Z ##[endgroup]\n2026-11-01T05:26:42.2376480Z ##[group]Disabling automatic garbage collection\n2026-11-01T05:26:42.2379417Z [command]/usr/bin/git config --local gc.auto 0\n2026-11-01T05:26:42.2411899Z ##[endgroup]\n2026-11-01T05:26:42.2412967Z ##[group]Setting up auth\n2026-11-01T05:26:42.2419579Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:26:42.2450979Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:26:42.2757120Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:26:42.2797057Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:26:42.3010818Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:26:42.3046518Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:26:42.3265189Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***\n2026-11-01T05:26:42.3303188Z ##[endgroup]\n2026-11-01T05:26:42.3304150Z ##[group]Fetching the repository\n2026-11-01T05:26:42.3311630Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +ac50ed0a1b7b7a91f488a1151ec2466179540cd6:refs/remotes/pull/100/merge\n2026-11-01T05:26:43.5180020Z From https://github.com/peerspan/peerspan\n2026-11-01T05:26:43.5180935Z  * [new ref]         ac50ed0a1b7b7a91f488a1151ec2466179540cd6 -> pull/100/merge\n2026-11-01T05:26:43.5182908Z ##[endgroup]\n2026-11-01T05:26:43.5183656Z ##[group]Determining the checkout info\n2026-11-01T05:26:43.5185207Z ##[endgroup]\n2026-11-01T05:26:43.5189971Z [command]/usr/bin/git sparse-checkout disable\n2026-11-01T05:26:43.5237105Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig\n2026-11-01T05:26:43.5269193Z ##[group]Checking out the ref\n2026-11-01T05:26:43.5269671Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/100/merge\n2026-11-01T05:26:43.5959880Z Note: switching to 'refs/remotes/pull/100/merge'.\n2026-11-01T05:26:43.5960583Z \n2026-11-01T05:26:43.5961151Z You are in 'detached HEAD' state. You can look around, make experimental\n2026-11-01T05:26:43.5961921Z changes and commit them, and you can discard any commits you make in this\n2026-11-01T05:26:43.5962827Z state without impacting any branches by switching back to a branch.\n2026-11-01T05:26:43.5963381Z \n2026-11-01T05:26:43.5963794Z If you want to create a new branch to retain commits you create, you may\n2026-11-01T05:26:43.5964525Z do so (now or later) by using -c with the switch command. Example:\n2026-11-01T05:26:43.5965424Z \n2026-11-01T05:26:43.5965639Z   git switch -c <new-branch-name>\n2026-11-01T05:26:43.5966045Z \n2026-11-01T05:26:43.5966433Z Or undo this operation with:\n2026-11-01T05:26:43.5966689Z \n2026-11-01T05:26:43.5966865Z   git switch -\n2026-11-01T05:26:43.5967188Z \n2026-11-01T05:26:43.5967614Z Turn off this advice by setting config variable advice.detachedHead to false\n2026-11-01T05:26:43.5967972Z \n2026-11-01T05:26:43.5968426Z HEAD is now at ac50ed0 Merge b056f5351d8a30c4cbb9f9bfa11d5a688685c29f into a025f289e6c2628d9006924b2400d335f740a4a3\n2026-11-01T05:26:43.5970162Z ##[endgroup]\n2026-11-01T05:26:43.6009207Z [command]/usr/bin/git log -1 --format=%H\n2026-11-01T05:26:43.6035188Z ac50ed0a1b7b7a91f488a1151ec2466179540cd6\n2026-11-01T05:26:43.6043929Z ##[group]Removing auth\n2026-11-01T05:26:43.6047460Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:26:43.6078645Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:26:43.6295469Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:26:43.6319871Z http.https://github.com/.extraheader\n2026-11-01T05:26:43.6357970Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader\n2026-11-01T05:26:43.6391359Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:26:43.6604192Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:26:43.6636257Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:26:43.6846366Z ##[endgroup]\n2026-11-01T05:26:43.7146256Z ##[group]Run actions/setup-python@v5\n2026-11-01T05:26:43.7146687Z with:\n2026-11-01T05:26:43.7147006Z   python-version: 3.12\n2026-11-01T05:26:43.7147336Z   check-latest: false\n2026-11-01T05:26:43.7149540Z   token: ***\n2026-11-01T05:26:43.7149867Z   update-environment: true\n2026-11-01T05:26:43.7150230Z   allow-prereleases: false\n2026-11-01T05:26:43.7150572Z   freethreaded: false\n2026-11-01T05:26:43.7150892Z ##[endgroup]\n2026-11-01T05:26:43.8225491Z ##[group]Installed versions\n2026-11-01T05:26:43.8308019Z (node:2134) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.\n2026-11-01T05:26:43.8308979Z (Use `node --trace-deprecation ...` to show where the warning was created)\n2026-11-01T05:26:43.8309746Z Successfully set up CPython (3.12.15)\n2026-11-01T05:26:43.8310707Z ##[endgroup]\n2026-11-01T05:26:43.8549504Z ##[group]Run actions/download-artifact@v4\n2026-11-01T05:26:43.8550214Z with:\n2026-11-01T05:26:43.8550736Z   name: conformance-binaries\n2026-11-01T05:26:43.8551330Z   path: bin\n2026-11-01T05:26:43.8551862Z   merge-multiple: false\n2026-11-01T05:26:43.8552446Z   repository: peerspan/peerspan\n2026-11-01T05:26:43.8553031Z   run-id: 41276870375\n2026-11-01T05:26:43.8553565Z env:\n2026-11-01T05:26:43.8554171Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:43.8555271Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig\n2026-11-01T05:26:43.8556163Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:43.8556966Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:43.8557730Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:43.8558545Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib\n2026-11-01T05:26:43.8559237Z ##[endgroup]\n2026-11-01T05:26:43.9798887Z Downloading single artifact\n2026-11-01T05:26:43.9919027Z (node:2143) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.\n2026-11-01T05:26:43.9920081Z (Use `node --trace-deprecation ...` to show where the warning was created)\n2026-11-01T05:26:44.2458672Z Preparing to download the following artifacts:\n2026-11-01T05:26:44.2459958Z - conformance-binaries (ID: 13071865668, Size: 32562631, Expected Digest: sha256:7efa5911fc98fce87229b97a34cca4cecbe57ec0461715617e94e5b43e7bdfaf)\n2026-11-01T05:26:44.4690904Z Redirecting to blob download url: https://productionresultssa30.blob.core.windows.net/actions-results/3d693e36-9784-885e-9738-056aad822eda/workflow-job-run-bb026b9b-b773-5b95-895f-71682fd343bd/artifacts/fb52e7b7976baec806f954ebd70f8acb576b73c0c324cf2e0a9f26f61b474d2f.zip\n2026-11-01T05:26:44.4692790Z Starting download of artifact to: /home/runner/work/peerspan/peerspan/bin\n2026-11-01T05:26:44.8255954Z (node:2143) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.\n2026-11-01T05:26:46.4836784Z SHA256 digest of downloaded artifact is 7efa5911fc98fce87229b97a34cca4cecbe57ec0461715617e94e5b43e7bdfaf\n2026-11-01T05:26:46.4837764Z Artifact download completed successfully.\n2026-11-01T05:26:46.4838177Z Total of 1 artifact(s) downloaded\n2026-11-01T05:26:46.4842238Z Download artifact has finished successfully\n2026-11-01T05:26:46.5000405Z ##[group]Run set -euo pipefail\n2026-11-01T05:26:46.5000709Z \u001b[36;1mset -euo pipefail\u001b[0m\n2026-11-01T05:26:46.5000945Z \u001b[36;1mchmod +x bin/*\u001b[0m\n2026-11-01T05:26:46.5001237Z \u001b[36;1mpython3 conformance/slim/requester_completion.py --bin bin\u001b[0m\n2026-11-01T05:26:46.5077709Z shell: /usr/bin/bash -e {0}\n2026-11-01T05:26:46.5077962Z env:\n2026-11-01T05:26:46.5078223Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:46.5078596Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig\n2026-11-01T05:26:46.5078967Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:46.5079295Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:46.5079620Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64\n2026-11-01T05:26:46.5079963Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib\n2026-11-01T05:26:46.5080244Z ##[endgroup]\n2026-11-01T05:27:06.3856392Z PASS missing_unapproved_F_binding_cancellation_and_unknown_flow_refuse_without_new_consent [guided28 verification2] (19.6s)\n2026-11-01T05:27:27.4834263Z PASS strict_private_stdin_JSON_64KiB_methods_credential_and_no_startup_boundaries [guided28 verification5] (21.1s)\n2026-11-01T05:27:31.8930031Z PASS genuine_owned_signed_work_time_guards_lost_response_and_verified_exact_completion [guided28 verification1/2] (4.4s)\n2026-11-01T05:27:55.4413027Z PASS late_application_INSERT_abort_rolls_back_adoption_provider_outcome_event_and_secret_retirement [guided28 verification4] (23.5s)\n2026-11-01T05:28:06.7236090Z PASS actual_pre_application_barrier_rechecks_changed_parent_before_the_final_transaction [guided28 verification3] (11.3s)\n2026-11-01T05:28:09.4908692Z terminal_carrier_failure_public={\"carriers\": [{\"kind\": \"UDP\", \"participant\": \"issuer\", \"received_bytes_delta\": 1200, \"received_datagrams_delta\": 1, \"returned_bytes_delta\": 0, \"returned_datagrams_delta\": 0}], \"mode\": \"API\", \"phase\": \"expired\"}\n2026-11-01T05:28:09.4915225Z terminal_timing_failure_public={\"mode\": \"API\", \"participants\": [{\"completion_serving_count\": \"unknown\", \"participant\": \"issuer\", \"peer_spans\": \"unknown\", \"read_limit_reached\": false, \"state\": \"unknown\", \"unrecognized_count\": 0}, {\"completion_serving_count\": \"unknown\", \"participant\": \"requester\", \"peer_spans\": \"unknown\", \"read_limit_reached\": false, \"state\": \"observed\", \"unrecognized_count\": 0}], \"phase\": \"expired\"}\n2026-11-01T05:28:09.4964729Z terminal_directory_failure_public={\"host_state\": \"ok\", \"http_status\": 200, \"issuer_row_count\": 1, \"network_matches\": true, \"refreshed_at_at_or_before_current_time\": true, \"refreshed_at_present\": true}\n2026-11-01T05:28:09.4967291Z FAIL pure_verified_completed_API_CLI_replay_after_detach_restart_expiry_with_original_sources_absent [guided28 verification6] (2.8s): expired completedAPI replay performed carrier IO\n2026-11-01T05:28:09.4968909Z requester_completion: 5 passed, 1 failed, 0 expected failures, 0 unexpected passes, 0 skipped in 83s\n2026-11-01T05:28:09.4970557Z work directory kept: /tmp/slim-requester_completion-kf_a4vw4\n2026-11-01T05:28:09.6065622Z ##[error]Process completed with exit code 1.\n2026-11-01T05:28:09.6192532Z Post job cleanup.\n2026-11-01T05:28:09.6946914Z [command]/usr/bin/git version\n2026-11-01T05:28:09.6986909Z git version 2.56.0\n2026-11-01T05:28:09.7018605Z Temporarily overriding HOME='/home/runner/work/_temp/0158dce8-5301-42a8-bb72-7668806614e4' before making global git config changes\n2026-11-01T05:28:09.7019659Z Adding repository directory to the temporary git global config as a safe directory\n2026-11-01T05:28:09.7022984Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/peerspan/peerspan\n2026-11-01T05:28:09.7061220Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\n2026-11-01T05:28:09.7094767Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\n2026-11-01T05:28:09.7358373Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\n2026-11-01T05:28:09.7375504Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\n2026-11-01T05:28:09.7630000Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\n2026-11-01T05:28:09.7665974Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\n2026-11-01T05:28:09.8032167Z Cleaning up orphan processes\n2026-11-01T05:28:09.8365553Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/download-artifact@v4, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/\n"
+    },
+    "machine-requester-completion-final-phase-first": {
+      "sha256": "3fd7554d6173d36fca2d6895d192c3229c1c0faa1435aa405fff7337ba2714ce",
+      "text": "PASS genuine_device15_missing_unapproved_exact_receipt_and_late_application_abort [guided47 verification1/2/4] (37.8s)\nPASS strict_private_JSON_64KiB_ID_method_scoped_peer_bootstrap_and_no_startup [guided47 verification5] (8.9s)\nPASS actual_finite_folded_application_after_review_expiry_lost_reply_then_lookup [guided47 verification1/5] (4.5s)\nPASS genuine_remote_original_cap_signed_raw_expiry_and_actual_apply_time_guard [guided47 verification2/3] (36.0s)\nLIMIT machine_requester_completion: advanced-only without guided receipt covered46/source-only here; cancellation and original-provider positive Complete not executed; actual original cap/signed/raw/time/parent refusals covered; isolated unsigned-stage/powers expiry, complex grants, key/commit/90s races and global worker attribution remain unexecuted\nPASS actual_unapplied_parent_barrier_and_detached_refusal_preserve_consent [guided47 verification2/3] (3.0s)\nPASS verified_completed_replay_pure_after_expiry_detach_restart_and_anchor_rollback [guided47 verification6] (26.2s)\nmachine_requester_completion: 6 passed, 0 failed, 0 expected failures, 0 unexpected passes, 0 skipped in 116s\n"
+    }
+  },
+  "static_inverse_audits": [
+    {
+      "file": "gu47-machine-requester-completion-static-audit.json",
+      "sha256": "31ff591899def734b123651341a2ad1de982e5859c496ed535e94ab8383c9634",
+      "record": {
+        "source_sha256": "fea76e957c38addb9babf3e212f5eb3f81a6d3424ed5856084dcd6ef0db8b64a",
+        "case_count": 6,
+        "compile_only": true,
+        "global_reference_check": true,
+        "imports_only_stdlib_and_independent_harness": true,
+        "all_prior_conformance_native_files_byte_exact": true,
+        "only_new_suite_changed": true,
+        "runtime_executed": false,
+        "protected_tracked_paths_checked": 68,
+        "head": "5e27e52588c1125990a7d43a72e28d7ec8ad7265",
+        "prior_test_helper_files_exact": 67,
+        "corrections": [
+          "unsupported persisted-commit cancellation removed before execution",
+          "actual reader hold before time-barrier baseline",
+          "SQL sentinel included in private corpus"
+        ]
+      }
+    },
+    {
+      "file": "gu47-signed-drain-static-audit.json",
+      "sha256": "a2cd8ed1998a8ce334366bbb66e87ae40ac857e810aaf6e4af9c38177a8d88e7",
+      "record": {
+        "base": "5e27e52588c1125990a7d43a72e28d7ec8ad7265",
+        "source_sha256": "865a1ad972f02c6128fe4b65664521c87fddffd2837192f230cc1dcda1521186",
+        "inverse_sha256": "fea76e957c38addb9babf3e212f5eb3f81a6d3424ed5856084dcd6ef0db8b64a",
+        "inverse_full_ast_sha256": "3420b7f27238882e304a27cf68eb8786ffdc55b0fa12ba100d464863aeda472d",
+        "cases": 6,
+        "five_case_asts_exact": true,
+        "time_case_only_authorized_setup_hunk": true,
+        "strict_counters_api_crypto_and_other_helpers_exact": true,
+        "prior_test_helper_files_exact": 67,
+        "runtime_executed": false
+      }
+    },
+    {
+      "file": "gu47-contact-observer-static-audit.json",
+      "sha256": "a72043415d390abf0f025b7244c307c4a4e13af61fd40bba65331728ba253bf8",
+      "record": {
+        "source_sha256": "1ed57823c7d42d19796f0fc0e9c296ee7b52eefd330461c1fd7bb18cf707f5da",
+        "inverse_sha256": "865a1ad972f02c6128fe4b65664521c87fddffd2837192f230cc1dcda1521186",
+        "inverse_full_ast_sha256": "f81445f32f9a87d65d2a626769ab8d06b4c3ea429feb3edfa79018bf2cc3a165",
+        "six_case_asts_exact": true,
+        "all67_prior_files_exact": true,
+        "original_probe_returned_unchanged": true,
+        "runtime_executed": false
+      }
+    },
+    {
+      "file": "gu47-contact-target-observer-static-audit.json",
+      "sha256": "60bde63e7f98a8c6aa783ab9233101a5035897d62599c2ef8c081c5bfb00a74f",
+      "record": {
+        "source_sha256": "095670c2f4bb03dd449adfc79b9142129a00e3f6fd3ff70798ebfa49b7224228",
+        "inverse_sha256": "1ed57823c7d42d19796f0fc0e9c296ee7b52eefd330461c1fd7bb18cf707f5da",
+        "inverse_full_ast_sha256": "dd7ee6b3bd9ef00396e900248384109e96d901a087d89bef57aebbc283ea248b",
+        "six_case_asts_exact": true,
+        "all67_prior_files_exact": true,
+        "only_existing_observer_changed": true,
+        "runtime_executed": false
+      }
+    },
+    {
+      "file": "gu47-terminal-phase-static-audit.json",
+      "sha256": "cd681ad511fb1dfa52c7f7c6b65ea3f08458b14054c6404d8c76df841072e1ba",
+      "record": {
+        "source_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+        "inverse_sha256": "095670c2f4bb03dd449adfc79b9142129a00e3f6fd3ff70798ebfa49b7224228",
+        "inverse_full_ast_sha256": "9ff70b7d4185b2639a2b5227eb3b0c0838379eca78fbbac843f71f47721225a5",
+        "cases": 6,
+        "all_original_protocol_calls_and_explicit_timeouts_retained": true,
+        "original_and_appended_udp_paths_accounted": true,
+        "all67_prior_files_exact": true,
+        "strict_state_schema_files_crypto_helpers_exact": true,
+        "runtime_executed": false
+      }
+    },
+    {
+      "file": "root-terminal-phase-audit.json",
+      "sha256": "24633c214a6be5fb217bec0d7a0f846822502f2497c8841bd5d5fe20173bab05",
+      "record": {
+        "root_source_head": "62089872ed1ea266072d67db13b3ce406b28cfdd",
+        "suite_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+        "inverse_sha256": "095670c2f4bb03dd449adfc79b9142129a00e3f6fd3ff70798ebfa49b7224228",
+        "inverse_exact_previous_bytes": true,
+        "all_original_protocol_call_ast_multiset_retained": true,
+        "added_call_ast_count": 0,
+        "old67_exact": true,
+        "native_tree_exact": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+        "runtime_unchanged_rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+        "root_diff_review": "Original four carrier positions retained; all new UDP paths appended. Fresh config/restart only after actual applications. Strict full schema/DB/files/counters and all original calls/assertions/timeouts retained; privacy before application and 64KiB successful replay in settled terminal phase. Barrier old-host stop retains stopped host snapshots and all counters. No traffic caller/cause inferred."
+      }
+    }
+  ],
+  "old67_preservation": {
+    "base": "a025f289e6c2628d9006924b2400d335f740a4a3",
+    "files": 67,
+    "sha256": {
+      "conformance/agent_adapter.py": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
+      "conformance/claude_setup.py": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+      "conformance/fixtures/gh/gh.py": "4afd0f0505e0d2fbf89d6af91aa00c39200c2e19d1a858b7f24480f0c47a2d81",
+      "conformance/fixtures/mcp/server.py": "3e24b43f4b8f2bb713dfa32518d35cd9e36362e2f2cb929eaf1cc2339a1f1da6",
+      "conformance/fixtures/remote/remote.py": "2be308e4bf93ccd58113b59e30bb7aec686f5c1470b7227fa2af127c174d3550",
+      "conformance/host_service.py": "2b7aae580c610fe7270b837b76be4acead89e72555d7964b4a069974c88e01af",
+      "conformance/installed_bundle.py": "1f61d9c11c13649a5e5157fe659a5c318f049556b7fe98c947cc64f852ff6f9a",
+      "conformance/peer_messaging.py": "ed735dcc9360997add4abfa3ddd6da430110b0d7757ff57acbced297b61722a4",
+      "conformance/slim/access_application.py": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+      "conformance/slim/access_consent.py": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+      "conformance/slim/access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "conformance/slim/access_signing.py": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "conformance/slim/adapter_onboarding.py": "d07d1ed9b7088b71ce0af54db50ecfcbbb2cd32d5c48200c511a736e4b2a5714",
+      "conformance/slim/admission_consent.py": "bb1e4a1a9513beaca28621b57eb1c0688c112fb453a38d5fa160566de787f8c6",
+      "conformance/slim/admission_onboarding.py": "e3fa6b749a5225135c23cf5799291d7598b99066434640d403a77da5c9888e08",
+      "conformance/slim/basics.py": "55828ce8de9efeb01c5b83a07574ea31d4374e3a00c10cadb146eb5b23ad0185",
+      "conformance/slim/capabilities.py": "7c07428b7da068866fa65541913fa915cce27498cd8bcd32c4262aa003435b81",
+      "conformance/slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+      "conformance/slim/delivery.py": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "conformance/slim/harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "conformance/slim/incoming_progress.py": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc",
+      "conformance/slim/invitation_onboarding.py": "819425617254996c02bc2825c971ef31e156c24b4584e9f5529190f16ecd6286",
+      "conformance/slim/join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+      "conformance/slim/join_onboarding.py": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+      "conformance/slim/live.py": "6a3296a8ee3f6a2d6a0cd3777b59417620362e55540ae6d34078cfcc3bc3ec0b",
+      "conformance/slim/machine_owner.py": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+      "conformance/slim/machine_owner_consent.py": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+      "conformance/slim/machine_owner_signing.py": "0cd90eeb046ae54f67371806f0c32ea384184aa07bcd6d10422834a18487f8ae",
+      "conformance/slim/onboarding.py": "25a5a8d0f4dc9aebff038b4a212d7db854bb479a5fb9d1d762c61d4642fbbfe1",
+      "conformance/slim/owner_finalization.py": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+      "conformance/slim/owner_finalization_signing.py": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+      "conformance/slim/owner_onboarding.py": "beb06d9a6194bf617ac20d941803c753bf2eed7663bd0079a9558c0eefa6b668",
+      "conformance/slim/owner_signing.py": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0",
+      "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+      "conformance/slim/policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "conformance/slim/project_onboarding.py": "9990241a3a5f7f23c6887aa03293f10bcdcfcb21c0ef9dc0a0718c01c2aa1b5e",
+      "conformance/slim/readiness.py": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "conformance/slim/renewal.py": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+      "conformance/slim/requester_completion.py": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "conformance/slim/root.py": "58cdb05b0cfef63504b24e2a0a8fc918662153320919cd31e6cc26c4ac89bf29",
+      "conformance/slim/sync.py": "dcf42dd76b6f238f4a6089412e0afe66c737b88a7c8b8f071e086711aaf254b3",
+      "conformance/slim/work.py": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af",
+      "conformance/test_package_release.py": "fd3e1045836ecf687498cf14b6a09b324f39030a69cf286ac207659d932ca10b",
+      "integrations/claude-onboarding/tests/access-completion.test.ts": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0",
+      "integrations/claude-onboarding/tests/access-review.test.ts": "65d903019d7bfabb6086d7725d1925fdc020103d4c82e52bda8e011bc4c0bc98",
+      "integrations/claude-onboarding/tests/adapter-review.test.ts": "bebb2ba5d8703e63fbbb5781f2adbe318d40101766a05d50e224158feb229941",
+      "integrations/claude-onboarding/tests/admission-review.test.ts": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts": "7e1b662a12b5190e578a7b4be77793a823d9cb7a979af056249d2caa42adda31",
+      "integrations/claude-onboarding/tests/invitation-review.test.ts": "d7d0dc37392844df4a2b1873a6718769ad2239b3a640bed6e2bcc699a8e87f39",
+      "integrations/claude-onboarding/tests/join-progress.test.ts": "21db445cf0421adfc6e4e9951b00d4d56b189c51b45eeae5afb964af30e9cecb",
+      "integrations/claude-onboarding/tests/join-review.test.ts": "09e2d5d546711bc60d1ec55ffac2f1e359e6cc4163ca45f827a7eb591839b982",
+      "integrations/claude-onboarding/tests/machine-owner.test.ts": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f",
+      "integrations/claude-onboarding/tests/machine-request.test.ts": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+      "integrations/claude-onboarding/tests/native-entry.test.ts": "6a71c73a641247870a9b2a8a7c6e987cfea57eb981b7b4f80d2ae675cf0acfbf",
+      "integrations/claude-onboarding/tests/native-message.test.ts": "58fde146a5e31e661c83c95cb4573d7f2ed965ffb2c1e24fc3a19334053f51da",
+      "integrations/claude-onboarding/tests/native-task.test.ts": "becc4f8f1e41ea708166bb9f7eca6b46154b657dd1cd27f80f77a72a90fa9518",
+      "integrations/claude-onboarding/tests/new-identity.test.ts": "a24abf5a887c6eb63aae1dd007233482c1658ce9635ce12f496946af7988faf2",
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+      "integrations/claude-onboarding/tests/owner-review.test.ts": "2083ea5e72369e22df2bf5a345065b5cda8f3e9cbd7378c124a81277b8336aa7",
+      "integrations/claude-onboarding/tests/owner-signing.test.ts": "5efae8ad77d509e842cdc1d642ec1699f35ecb49796a48ade179d85fbf39bdf1",
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "integrations/claude-onboarding/tests/project-review.test.ts": "f9430f52ddc0f0c5b7da5833a3e923df29ae4ba55bfd481504b2c820c9b2c330",
+      "integrations/claude-onboarding/tests/readiness.test.ts": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a",
+      "integrations/claude-onboarding/tests/requester-commit.test.ts": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653",
+      "conformance/slim/machine_requester_inspection.py": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+      "conformance/slim/machine_requester_consent.py": "c75244caa9c75d5e635c036bd748dee7fbec0ce9843e04c67ded9f47a1c8aaad"
+    },
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "all_byte_identical": true
+  },
+  "decision": "Actual phase-specific prerequisites: malformed/unapproved refusal corpus before application; successful64KiB replay in settled terminal history; actual offline existing host after time/parent application barrier; fresh terminal configured counted endpoints after both real applications, retaining every old/new path and identity/state. No dropped assertion/call/timeout or runtime change.",
+  "retained_outcomes": [
+    "First compile9206593 exit101 on nonexistent exported alias, corrected92b8e97; first draft44603a7 never executed, unsupported cancellation removed before first runtime. Initial verification record retains language gates and all hashes.",
+    "First runtime0/6in73s: new unsigned TLS poll absent on fully signed/ACKed work; helper frames/mailboxes only crossing in original expiry. Exact raw-vs-expiry earlier subcase not captured.",
+    "Signed-drain correction5/6in95s: history setup contact fails before baseline. Observer4/6in101s: both TCP paths cross parent barrier; contact timeout with alive threads and no UDPdelta. Target observer3/6in90s: issuer UDP malformed crossing, both TCP parent crossing, exact counted-existing contactPOST times out with zero counter delta and both threads alive before/after. Causes/callers remain unclassified.",
+    "First CI b056:35/37 conformance jobs succeed, all4 checks succeed and bot clean. New47 malformed issuerUDP crossing/contact setup timeout; old28 expiredAPIhistory issuerUDPone datagram1200bytes/zero return, DB/files exact and directoryhost_state ok. Old67 unchanged. No unchanged retry.",
+    "Final corrected local suite6/6in116s (runner119.54), Rust0047 unchanged and no known compiler before/during/after. Passing phase-correct prerequisites do not classify prior failures."
+  ],
+  "limits": [
+    "No global worker absence/traffic caller attribution; counted whole DB/schema/files/allTCP+UDP strict where measured. Existing host intentionally offline in refusal and historical baselines.",
+    "Advanced-only/no metadata, cancellation, original-provider positive completion, isolated unsigned-stage/fixed powers expiry, complex authority/corrupt/pruned/reused binding/separate admin, exact signer/key/commit/90s races remain source/fault-only or unexecuted.",
+    "Native controls and full35 terminal/reload/installed/physical/model/schema23through27 backup/recovery/final acceptance remain open. Applied history is not current authority, participant delivery, agent access or connection readiness."
+  ],
+  "final_exact_head_ci": "All36suites+build37jobs, all4checks/native415/Rust155+2ignored and fresh bot/root review required on final pushed head. Final receipts on PR100; do not waive prior failure or create evidence-only CI loop."
+}

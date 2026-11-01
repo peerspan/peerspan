@@ -1021,3 +1021,14 @@ Corrected5/6in95s verifies actual application, lost-response lookup recovery,
 SQL rollback and exact expiry/parent guards; historical setup remains pending
 a bounded normal-peer diagnostic. All67 prior files/native415 remain exact.
 Final exact-head CI and fresh review receipts will follow on the slice PR.
+
+The [phase-specific verification follow-up](results/guided-machine-requester-completion-phase-verification.json)
+retains every local and first CI outcome, closed probe diagnostics and independent
+inverse audit. All6 cases now pass locally in116s (runner119.54) on unchanged
+Rust0047: genuine finite machine application, SQL rollback, lost response recovery,
+strict private corpus, actual time/parent refusal and completed history through
+expiry/detach/restart/>300s rollback. Supported terminal endpoint replacement
+retains all old/new counted UDP paths; unapplied privacy precedes activation.
+Earlier contact/UDP/TCP causes remain unclassified. All67 files/native415 stay
+exact. Full final-head CI and fresh review receipts follow on PR100; native
+controls and full-feature acceptance remain separate.
