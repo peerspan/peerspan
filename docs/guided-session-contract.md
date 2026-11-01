@@ -9384,6 +9384,37 @@ grant_parent_changed plus only person_lease_id/host_lease_id/binding_lease_id/
 device_lease_id. Exact finite replacement strings only, no captured suffix or
 untrusted regular-expression fragment. Preserve prior public-code metadata.
 
+GU.impl47 finite-classifier candidate c0e8d12 still captures old45 exit1/no
+JSON/unknown code/English class before inspection. Preserve that failure and
+separate old24 after-expiry contact-row sequence/message refresh failure.
+The finite classifier is insufficient to diagnose the CLI message. Select one
+bounded encrypted failure artifact, retaining all old67/new47/native415.
+
+Only inside the EXISTING failed `link finalize` guard, and only when English
+class remains unknown, the separate launcher may encrypt the final nonempty
+line of the already captured/redacted stderr (UTF-8 max256bytes) using a fixed
+4096-bit RSA diagnostic public PEM and OpenSSL pkeyutl OAEP/SHA256. The private
+key exists only in root's temporary directory, never repo/CI/artifact/log/model
+context. Public PEM is a new diagnostic fixture, unrelated to product identity
+or authority. One subprocess max, timeout2s, no retry, network or daemon/API/DB
+read. Plaintext only on subprocess stdin, never argv/file/output; suppress and
+never log encryption stderr/stdout. On success write only <=512byte ciphertext
+to fixed `diagnostic-artifacts/inspection-finalize-error.rsa` under repo cwd,
+mode0600. Do not write plaintext; no timestamps/IDs/paths/keys in artifact name.
+On capture/encryption failure emit only fixed capture-unavailable and preserve
+the same original Result/exception/verdict; no broadened test timeout or retry.
+
+CI may upload this fixed ciphertext file only after failed old45, retention1day,
+no-error on absence, no raw state/worktree/artifact upload. Root downloads and
+decrypts privately to diagnose the actual error; no raw decrypted line is copied
+to repository, PR or chat. Preserve provenance/hash/outcome and report only the
+necessary fixed cause after inspection. Independent author writes launcher-only
+capture against this contract with fake encryptor/private-canary/forwarding
+checks, no actual suite/host/product/runtime access. Root verifies real RSA
+round-trip with synthetic text locally, audits old67 exact and runs one changed
+suite before full CI. Discard further blind phrase enumeration, public raw
+stderr, any private-key commit and waiver of the original failure.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
