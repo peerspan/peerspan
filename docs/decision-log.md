@@ -3877,3 +3877,21 @@ explicit advanced approval. Do not infer global no-signature/traffic behavior
 from that live state-only observation. Strict complete DB/files/BOTH-carrier
 purity remains on readers with genuine settled prerequisites; no worker flags,
 queue edits or category exclusions manufacture it.
+
+GU.impl46 first independent runtime4/6in107s (runner108.6): exact Prepare/replay,
+original finite cap, both INSERT faults, late dual-approval UPDATE rollback,
+atomic approval, strict private/router corpus and approved expiry/detach/restart
+whole-state/carrier history pass. The cancelled-request fixture tries to prepare
+a second join on an immutable already-requested project flow (HTTP409); the
+advanced-approval mutation times out20s while reader transport holds remain.
+Retain both setup failures without attributing the timeout to product behavior.
+Independent correction must use a genuine new parent for the fresh attempt and
+release genuine carrier holds before external mutation, without larger waits,
+row edits, assertion changes or worker disabling.
+
+GU.impl46 root source review separately corrects approval-refusal ordering. An
+ordinary approval without matching project approval invalidates the receipt
+before lifetime/progress checks, and exact guided Approve refuses review_changed
+before consulting live evidence. Otherwise independent worker progress could
+change that refusal to unavailable. Preserve the receipt and all prior windows;
+no new consent is adopted and approved project history remains pure.
