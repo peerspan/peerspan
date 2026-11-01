@@ -3995,3 +3995,11 @@ late SQL ABORT and one forwarded lost-response completion. Advanced-only
 without guided metadata remains47 source/fault-only, already tested46; discard
 a third duplicate ceremony. Terminal setup uses existing real delivery and
 retirement rules without unmeasured completion warmup or counter exclusions.
+
+GU.impl47 independent draft44603a7 is committed but never executed. Focused
+contract-only audit finds unsupported cancel200 after commit persistence.
+Select removing that invalid stimulus before first runtime, retaining actual
+time/parent barriers and exact detached refusal. Mark cancellation and remote
+original positive completion source/fault-only; discard a third fresh ceremony
+for duplicate coverage. Confirm genuine transport holds before time-barrier
+baseline, preserving every full purity category and fixed wait. No old67 edit.
