@@ -9231,6 +9231,26 @@ causal classification. Removing observer/wrappers restores exact prior source/
 AST and every original case/action/wait/timeout/full purity category. Commit
 before one diagnostic execution on unchanged binaries, no unchanged retry.
 
+GU.impl47 diagnostic22703b5 passes4/6in101s. Parent-boundary comparison
+crosses both TCP connection/byte/return counters only, with complete DB/files/
+UDP unchanged; preserve without route attribution. Contact observer captures
+exit1/unknown status/timeout category, both UDP threads alive and no counted
+UDP change during that subprocess. No dead-proxy diagnosis follows. First CI
+b056 additionally retains unchanged old28 expired-history issuer UDP crossing
+(1datagram/1200bytes, DB/files unchanged, directory entry ok) and new47 malformed
+issuer UDP crossing plus the same prebaseline contact failure. All four checks
+and fresh bot review pass; failed conformance remains unready.
+
+Extend only the new failure observer using its already supplied argv in memory:
+fixed program category probe/other; fixed operation contactPOST/contactsGET/
+catalogGET/other from exact known paths; booleans for address matching each
+actual counted endpoint, each direct peer endpoint or other; before/after UDP
+thread-alive booleans and existing counters. Never print the argv, endpoint,
+IDs/path/error detail or add IO/calls/retries/timeouts. Preserve exact original
+result/exception/assertion and all six case ASTs; inverse restores prior1ed578
+source/AST. One committed diagnostic run follows on frozen0047. Do not add a
+proxy fix or old-host-offline setup before this bounded diagnostic is captured.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
