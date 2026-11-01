@@ -9013,7 +9013,146 @@ bytes/AST. No prior-suite exception is selected.
 Retain both CI failures and unknown earlier timing causes; no claim that a
 passing fixture diagnoses them or that arbitrary CLI errors imply success.
 
-## 47. Remaining flow contract
+## 47. Bounded existing-person machine requester completion
+
+GU.impl47 follows section46. Select the existing ordinary requester signing,
+pinned publication and participant application pipeline, guarded by the exact
+approved machine receipt. No schema, new consent, provider fallback, local
+original-person key, capability/access grant or native control is added.
+
+### Explicit private action and retained result
+
+Owner-local POST `/v1/onboarding/join-flows/{id}/machine-commit/complete`
+accepts exactly `{context,join_review_id,consent_review_id,decision}`; decision
+is exactly `complete_machine_requester_commit`. Private CLI `onboarding join
+machine-commit complete --stdin` adds exactly `flow_id`. Section46 recursive
+strict JSON/typed IDs/context/private-prefix/64KiB/fixed diagnostics/no-startup
+and router isolation apply. One daemon call, CLI95s/server90s monotonic bounds.
+No supplied terms/provider/keys/mutation IDs in argv or automatic retry.
+
+Bind the exact requested flow/outcome, pinned existing person, actual requester
+host/device and immutable section46 receipt. Require matching approved
+metadata/ordinary/pending IDs, approval flags and approved_at. Advanced ordinary
+approval alone, a missing/unapproved receipt or a changed digest cannot authorize
+completion. Never prepare/approve/replace/extend consent. Section46 Lookup is
+the read-only recovery path after uncertainty.
+
+HTTP200 requires an independently verified retained local application, never
+only a signature, approval, carrier ACK or pending progress. Return section46's
+exact closed wrapper with consent plus exactly `completion`:
+
+```
+{state:"locally_applied",review_id:consent_review_id,manifest_id,activation_id,
+ outcome_id,participant_delivery:"not_verified",agent_access:"not_verified",
+ connection_readiness:"not_verified"}
+```
+
+References equal the returned request and verified ordinary application.
+Consent review/digest/approval remain immutable. Safe public output <=2MiB;
+no keys/codes/private paths/templates/signatures/catalog/raw packet or signer,
+transport, SQL diagnostics. Local application does not establish current
+powers, remote application, agent access, messages, capabilities or readiness.
+
+### Pure history and guarded fresh work
+
+Exact already-applied replay verifies immutable operation/catalog/activation/
+outcome at its saved application time and returns purely before fresh parent,
+expiry, clock-rollback or key availability checks. Section46's validated
+max(raw,retained) historical clock applies; wrong digest still refuses. No
+signing/publication/repair/cleanup or clock write on replay, including after
+detach/restart/expiry and >300s rollback. Pruned/corrupt application refuses.
+
+Fresh work requires the same attached project/agent and approved machine
+receipt, matching received remote owner/selection/admission/F, finite7 machine
+powers/binding2, genuine inherited end, exact root/P/H/B/D and ordinary full
+cryptographic projection. Folded admission has no separate administrator packet
+or completed stage; actual binding reuse follows ordinary projection. A newly
+linked host never resolves the person's original key. Partial/already signed
+or sealed work reuses exact retained intent/templates/signatures/frames.
+
+Raw time must be >= request/stage/ordinary-intent creation; raw and guarded
+effective time must remain before signed request deadline and frozen powers
+end. Unsigned work also obeys600s stage inactivity. The human review expiry
+does not revoke an approval already recorded. Cancellation, incompatible local
+network adoption, changed authority or conflicting work refuses. Guard parent,
+exact receipt/digest, ordinary approval/projection and times in every signing
+transaction before key work and before commit; at most four changing phases.
+No broad resume, extra owner/admin signing, mailbox GET or automatic consent.
+
+Reuse section28's bounded sequence: one exact-request publication pass <=30s
+before guarded local application and one <=30s afterward, with no hidden retry
+or new addresses/providers. Carrier failure alone does not prevent otherwise
+valid local application. Recheck fresh guards before/after first IO and inside
+application before outcome-key work and final commit. Only the same verified
+operation applied in that transaction may pass its final installed-network
+check. Application transaction rolls back all network/proof/outbox/operation/
+event/device/outcome/secret-retirement changes on failure; earlier committed
+signatures/frames/IO remain. After application, changed scope/time can suppress
+second IO; retained application remains historical evidence.
+
+No new phase starts after90s monotonic deadline. Timeout/cancellation cannot
+retract dispatched IO/blocking work or independently authorized workers. Report
+controlled uncertainty and use Lookup before another explicit action. No
+persistent attempt/job. Microscopic final-check/key/commit races and global
+worker attribution remain source limits.
+
+Malformed400 invalid; unknown404; nonrequested409 state_conflict; wrong scope/
+digest/changed fresh parent409 review_changed; missing request409
+request_unavailable; fresh signed/fixed/unsigned-stage expiry409 review_expired;
+missing/unapproved/unsupported/corrupt/incomplete/early raw/timeout409
+machine_commit_completion_unavailable. Other methods405. CLI errors fixed,
+nonzero, private and never echo supplied values/raw response.
+
+### Verification
+
+Separate contract-only author adds six `machine_requester_completion` cases
+and the36th suite. Preserve all67 prior conformance/native files and complete
+native415 tree byte-exact, with original helpers/counters/waits/timeouts. Author
+reads contracts/test fixtures only and executes no host/runtime/model. Root
+runs committed tests on fresh hashed binaries, serializing compiler/runtime
+gates. No grant/approval/signature/queue/clock-row fabrication, key copying,
+worker disabling, exclusions or unchanged retry-to-green.
+
+1. Genuine two-host existing-person remote device15 folded-F and finite7/2
+   approval reaches actual local application via exact API/CLI. Independently
+   verify application packet/manifest/outcome references, unchanged consent,
+   exact ordinary intent reuse, finite inherited end and no new schema/consent.
+   Exercise original-person capped provider as bounded setup permits.
+2. Missing/unapproved/advanced-only receipt, wrong digest/context, cancellation,
+   fresh detachment and actual raw/signed/fixed/unsigned-stage expiry refuse
+   without adopting consent. Strict full DB/schema/state/home and BOTH complete
+   bidirectional TCP/UDP comparisons where pure settled stimuli are genuine;
+   authorized worker progress has no route attribution or global absence claim.
+3. Genuine existing public debug protocol barriers permit parent/time changes
+   before application and final transaction checks. Prior competing application
+   may return historical success; never fabricate an unapplied fixture. Partial
+   signature barriers do not prove live transport holds. Unavailable narrow
+   unsigned interval/key/commit races remain explicit source limits.
+4. Temporary schema-only BEFORE INSERT ON dec_operations ABORT for the genuine
+   request proves full application transaction rollback, including proof outbox
+   and secret retirement. Earlier valid signatures/frames/transport may persist;
+   retain exact immutable consent/approval. Remove trigger before comparisons.
+5. Strict recursive JSON/typed IDs/64KiB/CLI/private prefixes/no-startup/method/
+   scoped/peer/bootstrap isolation, closed public privacy and one bounded action.
+   Corrupt/pruned/unsafe/key-syscall/exact deadlines/complex separate-admin or
+   reused-binding variants without genuine stimulus remain source/fault limits.
+6. Verified completed API/CLI replay is pure with stable consent/completion
+   after detach/restart/expiry and genuine >300s rollback, no external original.
+   Wrong digest still refuses. Whole both-host DB/schema/state/home and all
+   bidirectional TCP/UDP categories remain. Genuine actual carrier settlement
+   may precede baseline using existing documented section28 fixture rules;
+   do not hide reader mutation with an unmeasured completion call. Installed,
+   physical/model and fullfeature35 acceptance remain unexecuted.
+
+Retain all first failures/no-starts, unknown causes and exact source/binary/
+fixture/log provenance. Root fmt/existing Rust155+2ignored/Clippy/build and new
+suite locally; no unrelated old/native retries. Final exact-head all36suites+
+build (37jobs), all4 checks/native415 and fresh bot/root review required.
+Owner merges this slice into #35; #35 main acceptance and native controls stay
+open. Discard new completion receipts, a new journal, person-key copying,
+broad resume and treating local application as connection readiness.
+
+## 48. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
