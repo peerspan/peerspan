@@ -1042,3 +1042,11 @@ local diagnostic run passes6/6in70s without observer output. The earlier cause
 remains unclassified. All67 files/new47/fullnative415 and Rust0047 stay exact;
 no product fix or unchanged retry is claimed. Fresh full CI/review is required
 on the final pushed candidate; receipt belongs on PR100.
+
+The [finite diagnostic follow-up](results/guided-machine-requester-completion-english-verification.json)
+retains d13b3a9:36/37, all4checks/native415/bot pass; old45 repeats original
+finalization setup failure with exit1/no JSON/no known public code. New finite
+English/field observation uses the same captured stderr and changes no verdict,
+call, timeout or state. Its first local6/6in70s emits no failure diagnostic, so
+the prior cause remains unknown. All67/new47/native415/Rust0047 remain exact.
+Fresh final complete CI/review is required; native/full-feature gates stay open.

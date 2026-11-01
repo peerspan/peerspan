@@ -1,0 +1,321 @@
+{
+  "milestone": "GU.impl47",
+  "source_head": "f3d78eab7bafe35c12e591f09a163453a95afd2d",
+  "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+  "prior_candidate_ci": [
+    {
+      "kind": "conformance",
+      "id": 41279280990,
+      "head_sha": "d13b3a9f386ca30530e5bfe49162c6ff2c54510f",
+      "attempt": 1,
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "id": 124767687274,
+          "name": "Build host, peer probe and helper",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877133,
+          "name": "policy",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877142,
+          "name": "sync",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877148,
+          "name": "work",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877193,
+          "name": "capabilities",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877202,
+          "name": "live",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877206,
+          "name": "renewal",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877215,
+          "name": "join",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877222,
+          "name": "machine_requester_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877229,
+          "name": "delivery",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877241,
+          "name": "onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877256,
+          "name": "machine_requester_completion",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877257,
+          "name": "owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877258,
+          "name": "basics",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877264,
+          "name": "adapter_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877266,
+          "name": "access_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877272,
+          "name": "incoming_progress",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877280,
+          "name": "owner_finalization",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877281,
+          "name": "root",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877294,
+          "name": "join_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877295,
+          "name": "machine_owner",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877297,
+          "name": "admission_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877305,
+          "name": "requester_completion",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877312,
+          "name": "access_application",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877314,
+          "name": "invitation_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877323,
+          "name": "owner_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877328,
+          "name": "readiness",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877330,
+          "name": "access_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877335,
+          "name": "machine_owner_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877342,
+          "name": "owner_finalization_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877355,
+          "name": "access_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877359,
+          "name": "machine_requester_inspection",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124767877361,
+          "name": "project_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877366,
+          "name": "machine_owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877378,
+          "name": "requester_commit",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877381,
+          "name": "peer_reachability",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767877419,
+          "name": "admission_consent",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "kind": "checks",
+      "id": 41279281061,
+      "head_sha": "d13b3a9f386ca30530e5bfe49162c6ff2c54510f",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 124767687327,
+          "name": "Claude onboarding runtime",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767687370,
+          "name": "Rust tests and build",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767687402,
+          "name": "Rust format",
+          "conclusion": "success"
+        },
+        {
+          "id": 124767687464,
+          "name": "Rust Clippy",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "failure_log_sha256": "c9fdc3f3897a275a6b20cdbf3a4f9ad28b8a5f5cad44d6ea0e1dd684641b99f4",
+  "captured_failure": {
+    "exit_code": 1,
+    "exception_kind": "none",
+    "stdout_object": false,
+    "stderr_categories": [],
+    "request_state": "unknown",
+    "reference_presence": "unknown",
+    "cause": "unknown; no raw stderr or English class was captured on d13b3a9"
+  },
+  "independent_classifier": {
+    "author_commit": "3b984d053eae8698307138e9cdfb01c35e23b3cf",
+    "root_cherry_pick": "f3d78eab7bafe35c12e591f09a163453a95afd2d",
+    "contract": [
+      "4cd943d",
+      "a5e13a1"
+    ],
+    "product_read": false,
+    "runtime_by_author": false,
+    "author_audit": {
+      "source_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e",
+      "inverse_sha256": "659eb85e4c222929291d8ce15bf5741c25b91e2cd4e469cd9ef86aad3bbfca5a",
+      "inverse_full_ast_sha256": "e4fb135816d4cd011776bf86fb1c1c9e184d2d5d841461965ce01f250033fc9f",
+      "guard_forwarding_main_exception_implementation_exact": true,
+      "all67_old_files_plus_new47_exact": true,
+      "no_host_fake_checks": "/tmp/gu47-inspection-english-static-check.py",
+      "actual_suite_runtime_executed": false
+    },
+    "root_audit": {
+      "source_head": "f3d78eab7bafe35c12e591f09a163453a95afd2d",
+      "author_commit": "3b984d053eae8698307138e9cdfb01c35e23b3cf",
+      "suite_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e",
+      "inverse_sha256": "659eb85e4c222929291d8ce15bf5741c25b91e2cd4e469cd9ef86aad3bbfca5a",
+      "inverse_exact": true,
+      "root_fake_no_host_checks": "pass",
+      "old67_new47_native415_exact": true,
+      "root_review": "Finite literal/field enums from contract only. Original forwarding/guard/emit/exception/main unchanged, zero extra IO, no raw text or dynamic suffix output. Observed class does not establish cause."
+    }
+  },
+  "one_local_diagnostic": {
+    "gate": "inspection-finalization-diagnostic-final-english-first",
+    "head": "f3d78eab7bafe35c12e591f09a163453a95afd2d",
+    "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+    "command": [
+      "python3",
+      "conformance/slim/inspection_finalization_diagnostic.py",
+      "--bin",
+      "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+    ],
+    "exit": 0,
+    "seconds": 70.27,
+    "log": "/tmp/gu47-runtime/inspection-finalization-diagnostic-final-english-first.log",
+    "sha256": "947496ced19e7dde6aec7264ec19d21a81e15b1e717963a2dc8fa6c875acd7a6",
+    "preflight_active": [],
+    "noncompiling_other_cargo_test_pids": [],
+    "parallel_external_compile": [],
+    "compiler_samples": [
+      {
+        "seconds": 15.0,
+        "active": []
+      },
+      {
+        "seconds": 30.07,
+        "active": []
+      },
+      {
+        "seconds": 45.13,
+        "active": []
+      },
+      {
+        "seconds": 60.2,
+        "active": []
+      }
+    ],
+    "postflight_active": [],
+    "test_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e"
+  },
+  "local_failure_observer_emitted": false,
+  "local_result": "6/6in70s (runner70.27), compiler-idle throughout; no failure observer emitted. Passing sample does not classify prior finalization failures or prove a product fix.",
+  "preservation": {
+    "old_files_exact": 67,
+    "new47_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6"
+  },
+  "selection": "Extend only finite fixed-English/allowlisted-field projection of the SAME already captured stderr. Original guard/forwarding/emit/exception/main bytes exact, inverse659eb85e exact. No new API/DB/file/network reads, retries/timeouts, raw output or verdict change.",
+  "retained_limits": [
+    "All earlier failed compile/runtime/CI/no-starts and unclassified TCP/UDP/contact/finalization causes remain in preceding verification records.",
+    "Advanced-only/no-guided-metadata, cancellation/original-positive completion, isolated unsigned/fixed expiry/complex authority/corruption/pruned/reused/separate admin/exactkey/commit/90s races/global worker attribution remain source/fault-only or unexecuted.",
+    "Native requester controls and full35 terminal/reload/installed/physical/model/schema23through27/full-state backup/recovery/final acceptance remain open."
+  ],
+  "next_gate": "All36suites+build37jobs, all4checks/native415/Rust155+2ignored, fresh exact-head bot/root review. Receipt on PR100 without evidence-only CI loop."
+}
