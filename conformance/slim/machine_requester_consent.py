@@ -18,7 +18,8 @@ History is not current powers, application, delivery, access or readiness.
 Limits: source/fault-only complex separate-admin/device7/reused-binding,
 corrupt/pruned/unsafe authority, private key-resolution syscalls/exact5s cutoff,
 isolated powers expiry and postapproval worker attribution. No completion or
-installed/native/model/physical acceptance. All66 old files/native415 unchanged.
+installed/native/model/physical acceptance. Only old45 Finalize setup shares
+the stronger verified-F prerequisite; other65 old files/native415 unchanged.
 Root alone executes this committed suite; all author checks are static.
 """
 import base64
@@ -635,6 +636,7 @@ def progress(f):
     view = wait_for(lambda: (v if v['selection_id'] != '-' and v['selection_approved'] else None)
         if (v := link_view(b, rid)) else None, timeout=10, interval=.1, message='ordinary single-offer requester selection')
     check(view['administrator_offer_id'] == '-' and 'administrator_offered' not in view['completed'], 'folded owner acquired fake administrator stage')
+    selected = dict(view)  # Capture pins before the one Finalize action.
     # A single explicit existing-computer driver may fetch genuine selection;
     # neither this inspection nor the requester performs a protocol driver.
     a.cli('link', 'resume', rid, timeout=15)
@@ -648,12 +650,12 @@ def progress(f):
         if f['provider']['kind'] == 'original_person':
             args += ['--person-key', a.root / 'absent-person-key']
         result = a.cli(*args, timeout=20)
-        if not (result.ok or (result.code == 1 and 'linking is incomplete' in result.stderr)):
+        if not (type(result.code) is int and result.code in (0, 1)):
             try:
                 finalize_failure_diagnostic(f, result)
             except Exception:
                 pass  # Preserve the original failure even if the observer fails.
-        check(result.ok or (result.code == 1 and 'linking is incomplete' in result.stderr), 'exact existing-computer finalization failed')
+        check(type(result.code) is int and result.code in (0, 1), 'exact existing-computer finalization failed')
     view = wait_for(lambda: v if (v := link_view(b, rid))['owner_finalization_id'] != '-' else None,
         timeout=15, interval=.1, message='actual requester received existing-person F')
     check(view['state'] == 'needs_commit' and not view['commit_approved'] and view['selection_approved']
@@ -663,6 +665,7 @@ def progress(f):
     record, _ = pending(b, rid); f['packet_evidence'] = record
     stage = record.get('stage_at', '-')
     f['stage_deadline'] = rfc3339(parse_time(view['created_at'] if stage == '-' else stage) + timedelta(seconds=600))
+    verify_finalized_setup(f, selected)
     # Isolate subsequent pure reads from approved remote work. The stopped peer's
     # complete DB/files remain in every snapshot; requester stays live/held.
     a.stop()
@@ -716,6 +719,78 @@ def evidence(f):
           and owner['host_public_key'] == f['b'].public_key and owner['device_public_key'] == f['view']['device_public_key'],
           'owner offer is not existing-person exact7 authority')
     return record, packets, owner, final, statements
+
+
+def verify_finalized_setup(f, selected):
+    """Verify retained F before baseline; never pre-call the inspection API."""
+    a, b, rid = f['a'], f['b'], f['rid']
+    status, existing = a.api('GET', '/v2/link/requests/' + rid, timeout=5)
+    requester = f['view']
+    check(status == 200 and type(existing) is dict and set(existing) == LINK
+          and set(requester) == LINK, 'exact existing/requester finalization status prerequisite')
+    pins = ('request_id', 'network_id', 'context_id', 'person_public_key', 'host_public_key',
+            'device_public_key', 'request_packet_id', 'owner_offer_id', 'selection_id', 'administrator_offer_id')
+    check(selected['request_id'] == rid and selected['network_id'] == f['network']['id']
+          and selected['context_id'] == f['network']['context_id'] and selected['person_public_key'] == f['person']
+          and selected['host_public_key'] == b.public_key and selected['administrator_offer_id'] == '-',
+          'captured selection does not bind the genuine folded machine request')
+    check(all(view[key] == selected[key] for view in (existing, requester) for key in pins),
+          'two-host finalization changed captured request/network/context/person/host/device/stage pins')
+    check(re.fullmatch(r'dpk_[0-9a-f]{64}', requester['owner_finalization_id'])
+          and existing['owner_finalization_id'] == requester['owner_finalization_id'],
+          'two hosts did not retain the same canonical signed F')
+    record, packets, owner, final, statements = evidence(f)
+    check(packets['request']['context_id'] == packets['request']['person_public_key'] == packets['request']['issuer_id'] == '-'
+          and all(packets[role]['context_id'] == selected['context_id'] for role in ('owner', 'selection', 'owner_finalization')),
+          'retained signed packet context/authority domain mismatch')
+    selection = json.loads(base64.b64decode(packets['selection']['payload_base64'], validate=True))
+    check(all(selection[key] == selected[key] for key in ('request_packet_id', 'owner_offer_id', 'context_id',
+          'person_public_key', 'host_public_key', 'device_public_key'))
+          and owner['request_packet_id'] == selected['request_packet_id']
+          and final['selection_id'] == selected['selection_id'] and final['administrator_offer_id'] == '-',
+          'signed owner/selection/F payloads changed captured pins')
+    check(owner['descriptor'] == {'format': 1, 'protocol': 'peerspan-decentralized-v1',
+          'network_id': selected['network_id'], 'name': f['network']['name'],
+          'genesis_root_public_key': f['network']['genesis_root_public_key']}, 'owner descriptor changed actual network')
+    refs = {owner['root_state_id'], final['root_state_id'], final['person_lease_id'], final['host_lease_id']}
+    check(all(re.fullmatch(r'ds_[0-9a-f]{64}', ref) for ref in refs) and refs <= statements,
+          'retained F root/P/H semantic dependencies missing from verified proof catalog')
+    cap = min(parse_time(selected['created_at']) + timedelta(days=7), parse_time(f['provider']['not_after']))
+    check(parse_time(owner['not_after']) == cap and max(a.now(), b.now()) < cap,
+          'retained signed owner powers do not have the exact finite inherited cap')
+    catalog = json.loads(base64.b64decode(record['catalog_base64'], validate=True))
+    envelopes = [json.loads(base64.b64decode(item['body_base64'], validate=True)) for item in catalog['objects']]
+    by_id = {statement_id(value): value for value in envelopes
+             if type(value) is dict and {'kind', 'context_id', 'payload_base64'} <= set(value)}
+    grants = {}
+    for kind, envelope in (('person_lease', by_id[final['person_lease_id']]),
+                           ('host_lease', by_id[final['host_lease_id']]),
+                           ('binding_lease', final['binding_lease']), ('device_lease', final['device_lease'])):
+        check(type(envelope) is dict and envelope['kind'] == kind and envelope['context_id'] == selected['context_id'],
+              'genuine new-machine F grant kind/context prerequisite')
+        payload = json.loads(base64.b64decode(envelope['payload_base64'], validate=True)); grants[kind] = payload
+        check(payload['root_state_id'] == final['root_state_id'], 'F grant changed actual root dependency')
+        check(any(s['role'] == 'issuer' and s['signature'] != '-' for s in envelope['signatures']),
+              'retained F grant lacks an actual issuer signature')
+        for signature in envelope['signatures']:
+            if signature['signature'] != '-':
+                message = '\n'.join(('peerspan-decentralized-signature-v1', statement_id(envelope),
+                                      signature['role'], signature['public_key'])).encode()
+                verify_signature(signature['format'], signature['public_key'], signature['signature'], message,
+                                 b.name + '-setup-' + kind + '-' + signature['role'])
+    check(grants['person_lease']['subject']['person_public_key'] == selected['person_public_key']
+          and grants['host_lease']['subject']['host_public_key'] == selected['host_public_key']
+          and grants['host_lease']['issuer']['kind'] != 'root', 'actual existing-person P/folded H target prerequisite')
+    binding_id = statement_id(final['binding_lease'])
+    for kind, scopes in (('binding_lease', 2), ('device_lease', 7)):
+        payload = grants[kind]; subject = payload['subject']; parents = {p['role']: p['id'] for p in payload['parents']}
+        check(payload['operation_id'] == rid and subject['person_public_key'] == selected['person_public_key']
+              and subject['host_public_key'] == selected['host_public_key'] and subject['scopes'] == scopes
+              and subject['device_public_key'] == (selected['device_public_key'] if kind == 'device_lease' else '-')
+              and payload['not_after'] == owner['not_after'] and parents['subject_person'] == final['person_lease_id']
+              and parents['subject_host'] == final['host_lease_id']
+              and (kind != 'device_lease' or parents['subject_binding'] == binding_id),
+              'actual signed F B/D target/profile/deadline/parent prerequisite')
 
 
 def validate_inspection(f, value):
