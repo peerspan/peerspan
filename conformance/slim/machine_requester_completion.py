@@ -245,6 +245,8 @@ def host(name):
     h = suite.host(name, start=False, clock=Clock(suite.work / (name + '.clock')))
     h.relay = Relay(('127.0.0.1', h.bootstrap_port))
     h.counted_peer = CountedUDP(('127.0.0.1', h.peer_port))
+    h.initial_counted_peer = h.counted_peer
+    h.terminal_counted_peers = []
     config = h.root / 'transport.json'
     config.write_bytes(compact({'format': 1, 'advertise_bootstrap': [h.relay.address],
         'advertise_quic': [h.counted_peer.address], 'rendezvous': [], 'relays': [], 'publish_contacts': False}))
@@ -425,8 +427,9 @@ def whole(f):
 
 
 def traffic(f):
-    return (f['a'].relay.counts(), f['b'].relay.counts(),
-            f['a'].counted_peer.counts(), f['b'].counted_peer.counts())
+    original = (f['a'].relay.counts(), f['b'].relay.counts(),
+                f['a'].initial_counted_peer.counts(), f['b'].initial_counted_peer.counts())
+    return original + tuple(proxy.counts() for h in (f['a'], f['b']) for proxy in h.terminal_counted_peers)
 
 
 def no_original(f):
@@ -1376,12 +1379,32 @@ def exchange_contacts_observed(f):
         subprocess.run = original_run
 
 
+def configure_terminal_paths(f):
+    """Supported terminal restart; retain every old and new counted path."""
+    check(all(operation(h, f['rid']) is not None and operation(h, f['rid'])['locally_applied'] == 1
+              for h in (f['a'], f['b'])), 'fresh terminal paths require both genuine applications')
+    check(not any(h.terminal_counted_peers for h in (f['a'], f['b'])), 'terminal paths were already replaced')
+    for h in (f['b'], f['a']):
+        identity = h.id, h.public_key
+        h.counted_peer = CountedUDP(('127.0.0.1', h.peer_port))
+        h.terminal_counted_peers.append(h.counted_peer)
+        index = h.extra_args.index('--transport-config') + 1
+        config = json.loads(h.extra_args[index].read_text())
+        config['advertise_quic'] = [h.counted_peer.address]
+        path = h.root / 'terminal-transport.json'
+        path.write_bytes(compact(config)); path.chmod(0o600)
+        h.extra_args[index] = path
+        h.restart(kill=True)
+        check((h.id, h.public_key) == identity, 'terminal transport restart changed actual identity')
+
+
 def terminal_baseline(f):
     """Genuine public delivery/expiry setup, never an unmeasured Complete."""
     a, b = f['a'], f['b']; release_reader_holds(f)
     status, repaired = b.api('POST', '/v2/link/requests/' + f['rid'] + '/resume', {}, timeout=35)
     check(status == 200 and repaired['state'] == 'linked', 'one genuine completed-requester repair failed')
     wait_linked(a, f['rid'], timeout=25)
+    configure_terminal_paths(f)
     for local, remote in ((a, b), (b, a)):
         local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', peer_address(remote))
     exchange_contacts_observed(f)
@@ -1481,47 +1504,10 @@ def _():
     f['fault_verified'] = True
 
 
-@suite.case('actual_finite_folded_application_after_review_expiry_lost_reply_then_lookup', 'guided47 verification1/5')
-def _():
-    f = shared.get('device'); check(f and f.get('fault_verified'), 'genuine late application rollback prerequisite failed')
-    b = f['b']; signed_fixture(f)
-    after_review = parse_time(f['approved']['consent']['review']['expires_at']) + timedelta(seconds=1)
-    check(max(f['a'].now(), b.now()) < after_review < min(parse_time(f['view']['expires_at']), parse_time(f['inspection']['review']['not_after'])),
-          'genuine signed work has no post-review/pre-protocol-deadline interval')
-    for h in (f['a'], b):
-        advance_to(h, after_review)
-    before, counters = whole(f), traffic(f)
-    release_reader_holds(f)
-    with CompletionProxy(b) as proxy:
-        proxy.lost = True
-        raw = compact({'flow_id': f['flow']['flow_id'], **completion_body(f)})
-        result = subprocess.run([str(suite.host_bin), '--state', str(proxy.state), 'onboarding', 'join', 'machine-commit', 'complete', '--stdin'],
-            input=raw, capture_output=True, env=b.env, cwd=str(b.root), timeout=100)
-        check(result.returncode != 0 and not proxy.failure and proxy.calls == [('POST', endpoint(f, 'complete'), completion_body(f))],
-              'lost genuine response retried/changed private bounded action')
-        public(result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'), str(proxy.state), str(b.root), *f['secrets'])
-        status, value = proxy.result
-        check(status == 200, f'actual completion before response loss HTTP {status}')
-        validate_completion(f, value); f['completion'] = value
-    application_proof(f, value)
-    after = whole(f); current = load_intent(b, f['approved']['consent']['review']['intent_id'])['record']
-    check(current == {**f['signed_intent'], 'terminal': 'applied'} and pending(b, f['rid'])[0]['commit_packet_base64'] == f['signed_packet'],
-          'completion replaced prior exact templates/signatures/packet instead of reusing them')
-    remaining = commit_frames(b, f['rid'])
-    check(set(remaining) <= set(f['signed_frames']) and all(remaining[key] == f['signed_frames'][key] for key in remaining), 'completion replaced retained sealed frame bytes')
-    for side in (0, 1):
-        check(set(after[side][0]) == set(before[side][0]) and after[side][2] == before[side][2], 'completion added a DB or original/private home source')
-        for name, database in before[side][0].items():
-            check(after[side][0][name]['$schema'] == database['$schema'] and after[side][0][name]['$version'] == database['$version'], 'completion changed schema/version')
-    check(all(y >= x for old, new in zip(counters, traffic(f)) for x, y in zip(old, new)), 'completion reset counted TCP/UDP paths')
-    release_reader_holds(f); f['a'].stop(); observe_stopped_directory(f); quiet(f)
-    recovered = op(f, 'lookup', pure=True)
-    check(recovered['consent'] == f['approved']['consent'] and recovered['request']['state'] == 'linked', 'pure Lookup failed actual application recovery after lost response')
-
-
 @suite.case('strict_private_JSON_64KiB_ID_method_scoped_peer_bootstrap_and_no_startup', 'guided47 verification5')
 def _():
-    f = shared.get('device'); check(f and f.get('completion'), 'actual device application prerequisite failed')
+    f = shared.get('device'); check(f and f.get('fault_verified'), 'signed/unapplied device fault prerequisite failed')
+    check(operation(f['b'], f['rid']) is None, 'privacy corpus began after local application')
     b = f['b']; body = completion_body(f); raw = compact(body); encoded_context = compact(body['context'])
     malformed = [b'null', b'[]', b'{', raw + b'{}', raw + b' ' * (65537 - len(raw)),
         b'{"context":' + encoded_context + b',"context":' + encoded_context + b',"join_review_id":' + compact(body['join_review_id']) +
@@ -1541,12 +1527,6 @@ def _():
         check(not result.ok, 'malformed private completion CLI accepted')
         public(result.stdout + result.stderr, 'PRIVATE_MACHINE_COMPLETE', str(b.root), *f['secrets'])
         strict(f, before, counters, 'malformed-completion')
-    maximum = raw + b' ' * (65536 - len(raw))
-    quiet(f); before, counters = whole(f), traffic(f)
-    status, value = raw_post(b, endpoint(f, 'complete'), maximum)
-    check(status == 200, 'exact64KiB completed API replay refused'); validate_completion(f, value)
-    strict(f, before, counters, 'maximum-completion')
-    complete(f, pure=True, cli=True)
     for patch in ({'consent_review_id': 'review_' + '0' * 64}, {'join_review_id': 'review_' + '0' * 64},
                   {'context': {**body['context'], 'native_session_id': 'different-machine-conversation'}}):
         complete(f, pure=True, status=409, code='review_changed', override={**body, **patch})
@@ -1606,6 +1586,44 @@ def _():
     public(result.stdout + result.stderr, str(absent.root), *f['secrets'])
 
 
+@suite.case('actual_finite_folded_application_after_review_expiry_lost_reply_then_lookup', 'guided47 verification1/5')
+def _():
+    f = shared.get('device'); check(f and f.get('fault_verified'), 'genuine late application rollback prerequisite failed')
+    b = f['b']; signed_fixture(f)
+    after_review = parse_time(f['approved']['consent']['review']['expires_at']) + timedelta(seconds=1)
+    check(max(f['a'].now(), b.now()) < after_review < min(parse_time(f['view']['expires_at']), parse_time(f['inspection']['review']['not_after'])),
+          'genuine signed work has no post-review/pre-protocol-deadline interval')
+    for h in (f['a'], b):
+        advance_to(h, after_review)
+    before, counters = whole(f), traffic(f)
+    release_reader_holds(f)
+    with CompletionProxy(b) as proxy:
+        proxy.lost = True
+        raw = compact({'flow_id': f['flow']['flow_id'], **completion_body(f)})
+        result = subprocess.run([str(suite.host_bin), '--state', str(proxy.state), 'onboarding', 'join', 'machine-commit', 'complete', '--stdin'],
+            input=raw, capture_output=True, env=b.env, cwd=str(b.root), timeout=100)
+        check(result.returncode != 0 and not proxy.failure and proxy.calls == [('POST', endpoint(f, 'complete'), completion_body(f))],
+              'lost genuine response retried/changed private bounded action')
+        public(result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'), str(proxy.state), str(b.root), *f['secrets'])
+        status, value = proxy.result
+        check(status == 200, f'actual completion before response loss HTTP {status}')
+        validate_completion(f, value); f['completion'] = value
+    application_proof(f, value)
+    after = whole(f); current = load_intent(b, f['approved']['consent']['review']['intent_id'])['record']
+    check(current == {**f['signed_intent'], 'terminal': 'applied'} and pending(b, f['rid'])[0]['commit_packet_base64'] == f['signed_packet'],
+          'completion replaced prior exact templates/signatures/packet instead of reusing them')
+    remaining = commit_frames(b, f['rid'])
+    check(set(remaining) <= set(f['signed_frames']) and all(remaining[key] == f['signed_frames'][key] for key in remaining), 'completion replaced retained sealed frame bytes')
+    for side in (0, 1):
+        check(set(after[side][0]) == set(before[side][0]) and after[side][2] == before[side][2], 'completion added a DB or original/private home source')
+        for name, database in before[side][0].items():
+            check(after[side][0][name]['$schema'] == database['$schema'] and after[side][0][name]['$version'] == database['$version'], 'completion changed schema/version')
+    check(all(y >= x for old, new in zip(counters, traffic(f)) for x, y in zip(old, new)), 'completion reset counted TCP/UDP paths')
+    release_reader_holds(f); f['a'].stop(); observe_stopped_directory(f); quiet(f)
+    recovered = op(f, 'lookup', pure=True)
+    check(recovered['consent'] == f['approved']['consent'] and recovered['request']['state'] == 'linked', 'pure Lookup failed actual application recovery after lost response')
+
+
 @suite.case('genuine_remote_original_cap_signed_raw_expiry_and_actual_apply_time_guard', 'guided47 verification2/3')
 def _():
     f = prepared_fixture('original')
@@ -1620,9 +1638,11 @@ def _():
         future = pool.submit(f['b'].api, 'POST', endpoint(f, 'complete'), completion_body(f), timeout=95)
         try:
             reached(f, paths); check(operation(f['b'], f['rid']) is None, 'independent application preceded actual time barrier')
+            f['a'].stop()
             for h in (f['a'], f['b']):
                 advance_to(h, parse_time(f['view']['expires_at']) + timedelta(seconds=1))
-                retired_expired_helper(h)
+                if h.process is not None:
+                    retired_expired_helper(h)
             quiet(f)
             check(signed_drained(f), 'actual time-barrier baseline lacks signed publication drain')
             before, counters = whole(f), traffic(f)
@@ -1646,6 +1666,7 @@ def _():
         future = pool.submit(f['b'].api, 'POST', endpoint(f, 'complete'), completion_body(f), timeout=95)
         try:
             reached(f, paths); check(operation(f['b'], f['rid']) is None, 'application preceded captured parent stimulus')
+            f['a'].stop()
             f['b'].ok('session', 'detach', f['parent']['review']['session_id'])
             quiet(f); before, counters = whole(f), traffic(f)
             release(paths); status, denied = future.result(timeout=5)
@@ -1664,6 +1685,13 @@ def _():
 def _():
     f = shared.get('device'); check(f and f.get('completion'), 'genuine completed-device prerequisite failed')
     baseline = f['completion']['completion']; terminal_baseline(f)
+    b = f['b']; raw = compact(completion_body(f))
+    maximum = raw + b' ' * (65536 - len(raw))
+    quiet(f); before, counters = whole(f), traffic(f)
+    status, value = raw_post(b, endpoint(f, 'complete'), maximum)
+    check(status == 200, 'exact64KiB completed API replay refused'); validate_completion(f, value)
+    strict(f, before, counters, 'maximum-completion')
+    complete(f, pure=True, cli=True)
     receipt = load_intent(f['b'], f['approved']['consent']['consent_id'])
     ordinary = load_intent(f['b'], f['approved']['consent']['review']['intent_id'])
     application = operation(f['b'], f['rid'])
