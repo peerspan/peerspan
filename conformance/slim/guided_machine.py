@@ -665,8 +665,9 @@ def checkpoint(f, predicate, *, seconds, message):
         return wait_for(observed, timeout=seconds, interval=.1, message=message)
     except Exception:
         try:
-            states = {'pending', 'needs_owner', 'needs_selection', 'needs_administrator', 'needs_finalization',
-                      'needs_commit', 'linked', 'expired', 'cancelled', 'invalidated'}
+            states = {'pending', 'needs_selection', 'needs_administrator', 'needs_owner_finalization',
+                      'needs_commit', 'finalizing', 'linked', 'migration_prepared', 'migration_adopted',
+                      'cancelled', 'expired', 'blocked'}
             codes = {'not_found', 'request_unavailable', 'proof_required', 'expired', 'state_conflict', 'invalid'}
             report = []
             for role, (status, value) in last.items():
@@ -716,7 +717,7 @@ def owner_consent(f, value, state):
         'signature_format': 'ed25519', 'lease_id': f['provider']['lease_id']}
         and all(m[key] == o[key] for key in ('provider', 'root_state_id', 'person_public_key', 'host_public_key', 'device_public_key', 'scopes', 'not_after'))
         and o['scopes'] == 7 and o['not_after'] == inspected['review']['not_after'], 'ordinary owner changed selected finite device authority')
-    request, _secret = pending(f['a'], f['rid'])
+    request = value['request']  # Section42 wrapper supplies the public LINK_VIEW.
     check(review['created_at'] == m['created_at'] and review['expires_at'] == m['expires_at']
           and parse_time(review['expires_at']) == min(parse_time(o['created_at']) + timedelta(seconds=300),
               parse_time(request['expires_at']), parse_time(review['request_stage_deadline']), parse_time(o['not_after'])),
