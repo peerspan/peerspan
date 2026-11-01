@@ -17,7 +17,9 @@ never partial adoption/proof outbox/outcome/secret retirement. Actual retained
 signature/template/packet/frame bytes remain exact.
 
 Limits: advanced-only approval without guided metadata is already covered46,
-not newly executed47. Isolated unsigned-stage/fixed-powers expiry, reused
+not newly executed47. Cancellation and positive original-provider completion
+are source/fault-only here; original finite-cap/signing/refusal barriers are real.
+Isolated unsigned-stage/fixed-powers expiry, reused
 binding/separate admin/corrupt-pruned authority, exact key/commit/deadline races
 and global worker attribution stay source/fault-only. No model/native/installed
 or physical readiness claim. All67 prior files/full native415 stay unchanged.
@@ -1520,6 +1522,8 @@ def _():
         future = pool.submit(f['b'].api, 'POST', endpoint(f, 'complete'), completion_body(f), timeout=95)
         try:
             reached(f, paths); check(operation(f['b'], f['rid']) is None, 'independent application preceded actual time barrier')
+            quiet(f)
+            check(f.get('_guard') is not None, 'actual time-barrier baseline lacks a consumed live reader hold')
             before, counters = whole(f), traffic(f)
             for h in (f['a'], f['b']):
                 advance_to(h, parse_time(f['view']['expires_at']) + timedelta(seconds=1))
@@ -1534,7 +1538,7 @@ def _():
     f['time_guards_verified'] = True
 
 
-@suite.case('actual_unapplied_parent_barrier_refuses_then_genuine_cancellation', 'guided47 verification2/3')
+@suite.case('actual_unapplied_parent_barrier_and_detached_refusal_preserve_consent', 'guided47 verification2/3')
 def _():
     f = shared.get('original'); check(f and f.get('time_guards_verified'), 'original actual time-guard fixture failed')
     release_reader_holds(f); check(operation(f['b'], f['rid']) is None, 'detachment began after prior application')
@@ -1552,11 +1556,9 @@ def _():
         finally:
             release(paths)
     check(op(f, 'lookup', pure=True)['consent'] == f['approved']['consent'], 'parent change erased approved immutable consent')
-    status, cancelled = f['b'].api('POST', '/v2/link/requests/' + f['rid'] + '/cancel', {})
-    check(status == 200 and cancelled['state'] == 'cancelled', 'genuine un-applied signed request cancellation failed')
     complete(f, pure=True, status=409, code='review_changed')
     f['b'].stop(); f['a'].stop()
-    print('LIMIT machine_requester_completion: advanced-only without guided receipt covered46/source-only here; isolated unsigned-stage/powers expiry, complex grants, exact key/commit/90s races and concurrent worker attribution remain unexecuted', flush=True)
+    print('LIMIT machine_requester_completion: advanced-only without guided receipt covered46/source-only here; cancellation and original-provider positive Complete not executed; actual original cap/signed/raw/time/parent refusals covered; isolated unsigned-stage/powers expiry, complex grants, key/commit/90s races and global worker attribution remain unexecuted', flush=True)
 
 
 @suite.case('verified_completed_replay_pure_after_expiry_detach_restart_and_anchor_rollback', 'guided47 verification6')
