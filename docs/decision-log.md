@@ -3895,3 +3895,10 @@ before lifetime/progress checks, and exact guided Approve refuses review_changed
 before consulting live evidence. Otherwise independent worker progress could
 change that refusal to unavailable. Preserve the receipt and all prior windows;
 no new consent is adopted and approved project history remains pure.
+
+GU.impl46 independent correction ece2ee8 adds only genuine fresh project setup
+and release_reader_holds before outside mutation, restarting the original old
+host with unchanged identity and passing the real carriers. Removing that helper,
+one call and one fresh-parent assignment restores prior test bytes and AST. All
+six original cases/assertions/counters/timeouts and66 old files remain exact.
+Fresh2f374215 Rust gates and hashed build pass; one corrected six-case run follows.
