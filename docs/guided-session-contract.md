@@ -9616,6 +9616,66 @@ that outcome. An independent new negative case may exercise this closed
 state/reference consistency alongside its valid persisted positive fixture.
 No new backend behavior or relaxed native deadline is selected.
 
+### GU.impl48 retained old requester-completion failure diagnostic
+
+First exact-head CI41326223098 onbf76635 passes36/37 jobs; unchanged old28
+fails5/6in84s at expired/API/wrong-review purity. Its existing counter evidence
+shows issuer UDP+2datagrams/+2400bytes, no returned UDP and no TCP delta; the
+existing directory observer reports current row/stateok. All4 PR checks pass,
+native440/440in71.85s, Rust155+2ignored and fresh bot/root review are clean.
+No native/backend regression or caller is established; preserve the failure.
+
+Select one new independent failure-only launcher for unchanged old28. Preserve
+all70 current native/conformance/helper files byte-exact, Rust918d and native
+hooks/tests exact. Do not edit old case ASTs/assertions/actions/delays/timeouts,
+shut down hosts earlier, disable workers, exclude UDP/state, force ACKs, retry
+mutations or infer a fix from another passing sample. This is a concrete
+remaining-gate diagnostic, not an unchanged retry-to-green.
+
+Launch requester_completion.py via runpy with identical argv and original
+SystemExit/verdict. Observe only bytes/client already returned by existing
+CountedUDP socket.recvfrom; one original call, exact same result/exception, no
+additional read/send/IO/API/DB/subprocess/key work. A transparent socket.socket
+subclass may intercept recvfrom; register the existing CountedUDP socket after
+its original constructor. Other socket methods/constructors/forwarding remain
+unchanged. A missed registration/startup event is unknown, never invented data.
+Bound metadata to32 events per endpoint and256 endpoint entries. Each event
+holds original receive ordinal, numeric length, source address privately for
+role equality only, existing-route boolean, and public QUIC header class only:
+long_v1_initial/long_v1_other/long_other_version/short/unknown. No raw bytes,
+connection IDs, payload/header hex, public/private keys, source ports/addresses,
+paths, native context or timestamps are printed or persisted.
+
+Existing traffic(f) and terminal_carrier_diagnostic helpers may be wrapped at
+original Suite.case registration before executing the unchanged case function;
+forward original decorators/arguments/results exactly. Keep the last f reference
+privately, using only its already-held issuer/requester peer ports/counting
+objects. On an actual existing carrier comparison failure only, first preserve
+the original diagnostic, then emit bounded closed metadata for crossed UDP
+endpoints from events whose receive ordinals are within the original before/
+after counters: fixed participant/phase/mode, <=8 events, length/header class,
+source_matches_requester_peer and source_matches_issuer_peer booleans,
+route_previously_present, observer_buffer_truncated, forwarder-thread-alive and
+issuer/requester_process_running (using the existing process object's poll
+state is permitted; no new API/process launch). Role absence is unknown. Do not
+attribute a daemon task/route solely from source-port or QUIC class. No success
+output; unavailable observation emits only one fixed unavailable marker. Swallow
+only observer failures, never original Result/exception/assertion. Restore
+socket constructor, CountedUDP constructor, Suite.case and wrapped globals in
+finally, including SystemExit. No altered teardown or added runtime test cases.
+
+Separate contract-only author writes only the new launcher from this paragraph
+and unchanged public fixtures (no implementation reads, host/model/runtime).
+Static/fake-socket forwarding/failure/private-canary and exact restoration audit
+must preserve original call count/result/exception and all protected bytes.
+Root runs those non-host checks, a fresh hashed build of identical Rust918d,
+and one affected old28 diagnostic execution with normal process/network access;
+no unrelated local host/native reruns. Retain first failures/no-starts and exact
+source/binary/log hashes. Wire CI to the launcher only for requester_completion;
+all other suite commands and tests stay exact. Final complete CI and fresh bot/
+root review on the new candidate are required. Earlier unknown causes remain
+unknown if the observer does not catch them; no product correction is claimed.
+
 ## 49. Remaining flow contract
 
 Teammate/device admission, remaining
