@@ -1315,6 +1315,53 @@ def terminal_rows_retired(f):
     return True
 
 
+def exchange_contacts_observed(f):
+    """Failure-only metadata from the existing bounded normal-peer probe."""
+    original_run = subprocess.run
+    hosts = (f['a'], f['b'])
+    def emit(result, view, before, timed_out=False):
+        try:
+            text = '' if result is None else result.stderr
+            text = text.decode(errors='replace') if isinstance(text, bytes) else str(text or '')
+            text = text.lower()
+            classes = [name for name, terms in (
+                ('timeout', ('timeout', 'timed out', 'deadline')),
+                ('certificate', ('certificate', 'x509', 'x.509')),
+                ('pin', ('pin',)), ('TLS', ('tls', 'handshake')),
+                ('connection', ('connect', 'connection', 'refused', 'reset')))
+                if any(term in text for term in terms)]
+            code = result.returncode if result is not None else None
+            status = view.get('status') if type(view) is dict else None
+            summary = {'exit_code': code if type(code) is int else 'unknown',
+                'status': status if type(status) is int and 100 <= status <= 599 else 'unknown',
+                'stderr_classes': ['timeout'] if timed_out else classes or ['other'],
+                'carriers': [{'side': side, 'thread_alive': h.counted_peer.thread.is_alive(),
+                    'before': counts, 'after': h.counted_peer.counts()}
+                    for side, h, counts in zip(('existing', 'requester'), hosts, before)]}
+            print('machine_completion_contact_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+        except Exception:
+            pass  # Diagnostic failure cannot alter the original result/assertion.
+    def observed_run(*args, **kwargs):
+        before = tuple(h.counted_peer.counts() for h in hosts)
+        try:
+            result = original_run(*args, **kwargs)
+        except subprocess.TimeoutExpired:
+            emit(None, None, before, timed_out=True)
+            raise
+        try:
+            view = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            view = None
+        if result.returncode != 0 or type(view) is not dict or view.get('status') != 200 or not isinstance(view.get('body'), dict):
+            emit(result, view, before)
+        return result
+    try:
+        subprocess.run = observed_run
+        return exchange_current_contacts(suite, f['b'], f['a'], f['network']['id'], f['view']['expires_at'])
+    finally:
+        subprocess.run = original_run
+
+
 def terminal_baseline(f):
     """Genuine public delivery/expiry setup, never an unmeasured Complete."""
     a, b = f['a'], f['b']; release_reader_holds(f)
@@ -1323,7 +1370,7 @@ def terminal_baseline(f):
     wait_linked(a, f['rid'], timeout=25)
     for local, remote in ((a, b), (b, a)):
         local.ok('peer', 'add', '--id', remote.id, '--public-key', remote.public_key, '--address', peer_address(remote))
-    exchange_current_contacts(suite, b, a, f['network']['id'], f['view']['expires_at'])
+    exchange_contacts_observed(f)
     bounds = [parse_time(f['view']['expires_at']), parse_time(f['inspection']['review']['not_after'])]
     for local in (a, b):
         status, synced = local.api('POST', '/v2/networks/' + f['network']['id'] + '/sync', {}, timeout=35)
