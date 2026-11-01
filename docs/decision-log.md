@@ -4222,3 +4222,15 @@ historical recovery, longer conformance waits, manual return-code import and
 advanced resume/F drivers. Section12 already authorizes post-commit transport;
 section49's independent unchanged suite is the regression gate. Preserve the
 first failure and all74 earlier files. No unchanged rerun-to-green.
+
+Fresh corrected-product build at e836b98 passes; unchanged source c1838345
+now receives the real automatic return and reaches owner Prepare, then fails
+0/3 in2.79s on a new-suite reference mismatch before owner approval. Its
+expiry assertion used the pending JSON rather than section42's complete public
+LINK_VIEW. Independent author correction a5d787c uses that existing public
+expires_at with the identical exact minimum-deadline assertion, and aligns
+failure-only diagnostic states with the closed public runtime enum. No weakened
+assertion, changed wait or extra driver. All74 older files remain exact; source
+changes to678561e1. Original run and binary/log hashes are retained in
+`docs/results/guided-combined-machine-verification.json`. Format, existing Rust
+tests and Clippy pass on the product change before this fixture correction.

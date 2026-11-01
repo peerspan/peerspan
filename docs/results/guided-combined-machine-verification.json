@@ -1,0 +1,91 @@
+{
+  "slice": "GU.impl49",
+  "base_merge": "4f6ca8fb983fe95a5a07e5d6b465c83130b53cf3",
+  "independent_author": {
+    "commit": "b888e2cbe792563c3d9b9f94c8e1c99b4bdb45fa",
+    "source_sha256": "c18383457994a156cb072064408d4dee91c739870247414f7c3024379d0edfc6",
+    "product_reads": false,
+    "runtime_executed": false,
+    "prior_files_preserved": 74
+  },
+  "preflight_no_starts": {
+    "count": 2,
+    "compiler_or_test_started": false,
+    "reason": "unrelated Cargo parent; later normal-process inspection showed another track long-running test child, no shared-target compilation",
+    "global_idle_claim": false
+  },
+  "builds": [
+    {
+      "head": "f1dd8bc8fb3ed5fc81a6fd0c5e2c9439c388984a",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "exit": 0,
+      "seconds": 74.89,
+      "sha256": "6b605d03e85223e6b3835e5c306b674f409ec857a2b3e216749bb7656917234a",
+      "binaries": {
+        "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+      }
+    },
+    {
+      "head": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "exit": 0,
+      "seconds": 72.6,
+      "sha256": "035f17425fbebaee65248d8e0eea9eb040109ea87c934fff7e76ff76c716c9a2",
+      "binaries": {
+        "peerspan-host": "7395b7fb27c401986b0efc3d96094952a620eb3f680506edaeb9d47500b9ad97",
+        "peerspan-peer-probe": "fff787357e757961c8e07a2c50c7666b64b433ddda111c517867de864293a557",
+        "peerspan-helper": "e8cdade773bb9258d81b9069ce453e72e3e3478378d9101fa100e040bf4cca47"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "head": "de3e65437bd9eaeb07b9c4474ef972f2de6c9750",
+      "source_sha256": "c18383457994a156cb072064408d4dee91c739870247414f7c3024379d0edfc6",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 16.3,
+      "log_sha256": "fabf0032d62bc0cae23686e7c9abe61b499746a47e157b83cb9405bace54f8bc",
+      "gate": "guided-machine-first",
+      "classification": "missing fresh guided post-commit publication and invitation return; retained A invitation row only, B one request frame with zero acknowledgments, both mailbox tables empty",
+      "reached": "guided publication consent; automatic incoming return timed out15s",
+      "passed": 0,
+      "failed": 3,
+      "dependent_cases_exercised": false
+    },
+    {
+      "head": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+      "source_sha256": "c18383457994a156cb072064408d4dee91c739870247414f7c3024379d0edfc6",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 2.79,
+      "log_sha256": "23417a5d5a05c25fb9d8f812821c21fe6ad24688408af3c48726a2782f60f172",
+      "gate": "guided-machine-after-dispatch",
+      "classification": "new suite reference mismatch: reads expires_at from a pending record; independent contract-only correction required",
+      "reached": "actual automatic return and exact machine-owner inspection/prepare; stopped before approval",
+      "passed": 0,
+      "failed": 3,
+      "dependent_cases_exercised": false
+    }
+  ],
+  "correction": {
+    "contract_commit": "98bf80a",
+    "product_commit": "e836b9855c95094a3f1b21ec4a8631bb666077a1",
+    "behavior": "only fresh committed creation schedules existing encrypted publication and invitation return; independent30s bounds, no remote wait in guided response; historical decision replay/Inspect/Lookup remain pure",
+    "new_approval_or_original_key_io": false
+  },
+  "limits": [
+    "temporary two-host backend fixture on one machine",
+    "no GUI/reload/installed/physical/model or schema23-to27/full-state upgrade/recovery acceptance",
+    "no automatic F or requester completion result yet",
+    "first failed source/run retained; no unchanged retry-to-green; no original timeout/assertion weakening"
+  ]
+}
