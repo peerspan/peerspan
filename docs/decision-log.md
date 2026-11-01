@@ -4159,3 +4159,15 @@ six/sixin82s/runner82.4. Retain old28's120s target overrun, every prior failure
 and unknown caller. Original actions/assertions/5s wait/full DB/files/TCP/UDP
 remain exact; no product change or general transport fix. Final combined-head
 CI and fresh bot/root review must still pass before the slice is ready.
+
+### GU.impl48b — Observe machine-history delivery phase before alignment
+
+Third8f7349f CI36/37 and all4checks/native440in107.06/clean bot retain only
+old47 pre-measurement5s outbox/journal retirement failure (5/6in65s). Exact
+row/attempt/caller remains unknown; old24/28 now pass. Select one independent
+new launcher reusing the existing read-only completed-attempt witness after
+old47's one existing requester sync, before its inline retry timestamps.
+Preserve all73 current files and every original guard/action/5s wait/full
+comparison. Discard extra syncs/retries, assumed old28 attribution, replaced
+case bodies, longer waits, filtered IO or worker suppression. Contract first,
+one changed affected run then full combined-head CI/review; no product change.
