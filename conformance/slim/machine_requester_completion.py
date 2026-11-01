@@ -7,7 +7,8 @@ only its host/device; original files stay on the EXISTING computer. No eager
 suite/product imports, authority/approval/signature/queue/clock-row edits or
 worker disabling. Only one temporary schema-only dec_operations INSERT ABORT.
 Full both-host DB/schema/state/home and BOTH bidirectional TCP/UDP stay strict
-for settled pure refusals/history; real consumed TLS isolates live readers.
+for settled pure refusals/history. Unsigned readers use real consumed TLS;
+signed work requires actual all-carrier ACKs and outbox/journal drain.
 
 A single explicit fresh completion is forwarded once and its real response is
 lost; saved private fixture memory verifies actual application before pure
@@ -437,12 +438,44 @@ def no_original(f):
               'requester acquired a local original owner intent')
 
 
+def signed_drained(f):
+    """Actual byte-storage ACKs; neither application nor a worker/TLS fence."""
+    requester, _ = pending(f['b'], f['rid'])
+    if requester['commit_packet_base64'] == '-' or requester['commit_intent_id'] == '-':
+        return False
+    ordinary = load_intent(f['b'], requester['commit_intent_id'])['record']
+    if not ordinary['approved'] or not ordinary['completed'] or not ordinary['signatures']:
+        return False
+    for h in (f['a'], f['b']):
+        record, _ = pending(h, f['rid'])
+        check(all(set(e) == {'kind', 'address', 'public_key'} for e in record['carrier_endpoints']),
+              'malformed actual retained carrier endpoint')
+        endpoints = {(e['address'], e['public_key']) for e in record['carrier_endpoints']}
+        if not endpoints or not record['outbound_frames']:
+            return False
+        for frame in record['outbound_frames']:
+            check(set(frame) == {'role', 'writer_public_key', 'frame_id', 'acknowledged_by'}
+                  and all(set(ack) == {'address', 'public_key'} for ack in frame['acknowledged_by']),
+                  'malformed actual outbound ACK schema')
+            if not endpoints <= {(ack['address'], ack['public_key']) for ack in frame['acknowledged_by']}:
+                return False
+        with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+            if db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0] or list(h.state.glob('*-journal')):
+                return False
+    return True
+
+
 def quiet(f):
-    """Actual live poll is held outside DB; complete state/carriers stay strict."""
+    """Unsigned live TLS hold or actual signed drain; all comparisons strict."""
     b = f['b']; record, _ = pending(b, f['rid'])
     active = record['terminal'] == '-' and b.now() < parse_time(link_view(b, f['rid'])['expires_at'])
     f['_guard'] = None
-    if active:
+    if record['terminal'] == '-' and record['commit_packet_base64'] != '-':
+        wait_for(lambda: signed_drained(f), timeout=5, interval=.02, message='actual signed publication ACKs/outbox/journal drain')
+        def guard():
+            check(signed_drained(f), 'actual signed ACK/outbox/journal prerequisite changed during pure measurement')
+        f['_guard'] = guard
+    elif active:
         relays = (f['a'].relay, f['b'].relay)
         held = f.get('_held', [])
         fresh = bool(held) and time.monotonic() - f.get('_held_at', 0) < 1 and all(
@@ -1170,6 +1203,7 @@ def signed_fixture(f):
     record, _ = pending(f['b'], f['rid']); ordinary = load_intent(f['b'], iid)['record']
     check(ordinary['completed'] and ordinary['signatures'] and operation(f['b'], f['rid']) is None,
           'signed/framed fixture is incomplete or already independently applied')
+    wait_for(lambda: signed_drained(f), timeout=5, interval=.02, message='actual signed publication ACKs/outbox/journal drain')
     f['signed_packet'], f['signed_intent'], f['signed_frames'] = record['commit_packet_base64'], ordinary, commit_frames(f['b'], f['rid'])
     return f
 
@@ -1256,13 +1290,15 @@ def release(paths):
 
 
 def pure_clock_refusal(f, target, code):
-    quiet(f); before, counters = whole(f), traffic(f)
     saved = [(h.clock, h.clock.offset) for h in (f['a'], f['b'])]
     try:
         for h in (f['a'], f['b']):
             advance_to(h, target)
+            if h.process is not None:
+                retired_expired_helper(h)
+        quiet(f); before, counters = whole(f), traffic(f)
         complete(f, status=409, code=code)
-        strict(f, before, counters, 'fresh-clock-refusal')
+        strict(f, before, counters, 'fresh-raw-before-created' if code == 'machine_commit_completion_unavailable' else 'fresh-signed-expiry')
     finally:
         for clock, offset in saved:
             clock.set(offset)
@@ -1523,11 +1559,12 @@ def _():
         future = pool.submit(f['b'].api, 'POST', endpoint(f, 'complete'), completion_body(f), timeout=95)
         try:
             reached(f, paths); check(operation(f['b'], f['rid']) is None, 'independent application preceded actual time barrier')
-            quiet(f)
-            check(f.get('_guard') is not None, 'actual time-barrier baseline lacks a consumed live reader hold')
-            before, counters = whole(f), traffic(f)
             for h in (f['a'], f['b']):
                 advance_to(h, parse_time(f['view']['expires_at']) + timedelta(seconds=1))
+                retired_expired_helper(h)
+            quiet(f)
+            check(signed_drained(f), 'actual time-barrier baseline lacks signed publication drain')
+            before, counters = whole(f), traffic(f)
             release(paths); status, denied = future.result(timeout=5)
             check(status == 409 and denied.get('code') == 'review_expired', 'actual final transaction did not recheck signed expiry')
             public(denied, *f['secrets']); strict(f, before, counters, 'apply-time-boundary')
