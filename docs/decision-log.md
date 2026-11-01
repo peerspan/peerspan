@@ -4082,3 +4082,12 @@ finite-pattern privacy/forwarding/restoration checks pass. First local diagnosti
 is inferred; d13b3a9 first36/37+all4/bot and its closed unknown-class failure
 remain committed. All67/new47/native415/Rust0047 unchanged. Fresh complete CI
 and exact-head review remain required; discard relaxing failure or readiness.
+
+GU.impl47 c0e8d12 unknown English class remains insufficient; separate old24
+after-expiry dec_contacts refresh also fails. Preserve both. Select bounded
+encryption of only final captured/redacted stderr line with a diagnostic RSA
+public key, privatekey root/tmp only, one2s encryptor on existing failure and
+fixed512byte ciphertext artifact1day. Never plaintext logs/files/argv, keys or
+extra host/API/state/network IO. Independently implement/audit fixture-only
+capture; root syntheticcrypto check precedes changed runtime. Discard further
+blind classifiers and unchanged reruns; old67/native415 remain exact.
