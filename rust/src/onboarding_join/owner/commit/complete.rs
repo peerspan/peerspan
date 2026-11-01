@@ -75,12 +75,19 @@ impl Attempt {
                 bind_history(store, c, &self.flow, &input).map_err(controlled)?;
             let scope = json!({"context":f.proposal.context,"agent":f.review["agent"],
                 "flow_id":f.id,"join_review_id":f.review_id});
-            let (public, changed) =
-                dec::machine_consent_in(c, store, &mut p, &scope, "lookup", None, |p, prepared| {
+            let (public, changed) = dec::machine_requester_consent_in(
+                c,
+                store,
+                &mut p,
+                &scope,
+                "lookup",
+                None,
+                |p, prepared| {
                     super::super::machine_commit::inspection_in(c, store, &f, p, &input, prepared)
                         .map_err(into_domain)
-                })
-                .map_err(domain)?;
+                },
+            )
+            .map_err(domain)?;
             if changed || public["consent"].is_null() {
                 return Err(unavailable());
             }
