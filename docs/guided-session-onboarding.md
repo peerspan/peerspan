@@ -1050,3 +1050,12 @@ English/field observation uses the same captured stderr and changes no verdict,
 call, timeout or state. Its first local6/6in70s emits no failure diagnostic, so
 the prior cause remains unknown. All67/new47/native415/Rust0047 remain exact.
 Fresh final complete CI/review is required; native/full-feature gates stay open.
+
+The [encrypted diagnostic follow-up](results/guided-machine-requester-completion-encrypted-verification.json)
+retains c0e8d12:35/37 with old45unknown CLI error and old24after-expiry contact
+refresh, plus all4checks/native415/Rust155+2ignored/clean bot. Independent
+bounded failure-only ciphertext capture changes no original test verdict or
+product code; root fake/privacy/inverse and real synthetic encryption checks
+pass. First changed local6/6in70s produces no failure artifact, leaving earlier
+causes unknown. Old67/new47/native415/Rust0047 exact; fresh fullCI/review stays
+required, with actual failure diagnosis before any product fix.

@@ -4091,3 +4091,12 @@ fixed512byte ciphertext artifact1day. Never plaintext logs/files/argv, keys or
 extra host/API/state/network IO. Independently implement/audit fixture-only
 capture; root syntheticcrypto check precedes changed runtime. Discard further
 blind classifiers and unchanged reruns; old67/native415 remain exact.
+
+GU.impl47 captureaa26f26 integratescb6c82a; all67/new47/native415/Rust0047
+exact. Root fake/inverse/privacy and real synthetic RSA roundtrip pass; first
+synthetic payload-length assertion before encryption and audit-record digest
+serialization error are retained, substantive checks already passed. First
+changed diagnostic6/6in70s, runner70.32, compiler-idle, no ciphertext/observer.
+Earlier unknown failures remain; c0e8d12all4/bot plus35/37 and old24contact
+phase diagnostics stay committed. Select full fresh CI with bounded encrypted
+error capture for concrete root diagnosis; discard guessed fixes or waivers.

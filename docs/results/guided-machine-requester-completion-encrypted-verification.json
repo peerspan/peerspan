@@ -1,0 +1,350 @@
+{
+  "milestone": "GU.impl47",
+  "source_head": "cb6c82a0a1855d731a0e163dfa472bf0bd80e9b9",
+  "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+  "prior_candidate_ci": [
+    {
+      "kind": "conformance",
+      "id": 41280005856,
+      "head_sha": "c0e8d12aea1605025f52aeb154a1505e8eead647",
+      "attempt": 1,
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "id": 124769818340,
+          "name": "Build host, peer probe and helper",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060129,
+          "name": "onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060158,
+          "name": "adapter_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060159,
+          "name": "renewal",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060162,
+          "name": "owner_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060165,
+          "name": "root",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060184,
+          "name": "capabilities",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060188,
+          "name": "incoming_progress",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060195,
+          "name": "readiness",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060196,
+          "name": "basics",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060199,
+          "name": "owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060205,
+          "name": "admission_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060206,
+          "name": "invitation_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060207,
+          "name": "admission_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060208,
+          "name": "policy",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060209,
+          "name": "owner_finalization",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124770060213,
+          "name": "access_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060215,
+          "name": "work",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060220,
+          "name": "requester_commit",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060221,
+          "name": "access_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060222,
+          "name": "join",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060227,
+          "name": "sync",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060231,
+          "name": "delivery",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060242,
+          "name": "access_application",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060247,
+          "name": "project_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060263,
+          "name": "machine_owner",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060269,
+          "name": "requester_completion",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060276,
+          "name": "access_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060279,
+          "name": "machine_owner_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060297,
+          "name": "machine_requester_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060328,
+          "name": "peer_reachability",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060332,
+          "name": "machine_requester_inspection",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124770060336,
+          "name": "live",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060341,
+          "name": "machine_requester_completion",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060354,
+          "name": "join_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060374,
+          "name": "machine_owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124770060384,
+          "name": "owner_finalization_signing",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "kind": "checks",
+      "id": 41280005826,
+      "head_sha": "c0e8d12aea1605025f52aeb154a1505e8eead647",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 124769818249,
+          "name": "Rust format",
+          "conclusion": "success"
+        },
+        {
+          "id": 124769818419,
+          "name": "Rust Clippy",
+          "conclusion": "success"
+        },
+        {
+          "id": 124769818444,
+          "name": "Claude onboarding runtime",
+          "conclusion": "success"
+        },
+        {
+          "id": 124769818448,
+          "name": "Rust tests and build",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "prior_final_bot": {
+    "head": "c0e8d12aea1605025f52aeb154a1505e8eead647",
+    "receipt": 6554332778,
+    "findings": false
+  },
+  "prior_logs": {
+    "ci-english-old-inspection": "8f5978a21e1d8da2326695481e495b92e48f0f8e094032314fac3b33fe031358",
+    "ci-english-old-finalization": "4bbd26b148d9140ab2b9322ee32a0437b1663dc526cdbca4c72491cbcdc7cf19",
+    "ci-english-native": "b3638d03ac0ab402ff4b0b4e50fe26ca6241a2153602310bd9fc992d0f31d752",
+    "ci-english-rust": "0a249e73d421242dbd97853d60f8ccb94ddc01971d243cc362426f15ef8068f3"
+  },
+  "retained_failure_observations": [
+    "c0e8d12:35/37 conformance jobs succeed; all4checks/native415in106.69s/Rust155+2ignored and bot clean. New47 and old28 pass.",
+    "Old45original finalization before subject inspection:3/6in38s, CLIexit1/noJSON/no known publiccode/Englishclass, all optional request metadata unknown. Cause unclassified.",
+    "Old24finalization:5/6in62s, after_expiry changes only requester dec_contacts row sequence/issued/expiry/message hashes/base64, no added/removed PK, matching network/context, no payload/schema/files/TCP change. This does not establish caller/route attribution."
+  ],
+  "capture": {
+    "author_commit": "aa26f260e18b1fd365245cc4a98faefe5aa94ecf",
+    "root_cherry_pick": "cb6c82a0a1855d731a0e163dfa472bf0bd80e9b9",
+    "contracts": [
+      "09bf647",
+      "8b5ab4d",
+      "62db0a4"
+    ],
+    "author_read_product": false,
+    "author_runtime": false,
+    "author_audit": {
+      "launcher_sha256": "733df85e14771cdf97d91767dd4829bafb0b6463eeef54ec1a85c78303d00094",
+      "public_pem_sha256": "c2ba01d66a069b137dac17606e0ddd199614e14fbdcddc66f6efd35de4a1446d",
+      "restored_launcher_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e",
+      "restored_full_ast_sha256": "19f6f305c9d73459b24216615186615cb2a3a4b86bcda3a620cd54871e34d6ec",
+      "protected_test_helper_files": 68,
+      "unchanged_functions": [
+        "classify_english",
+        "exception_kind",
+        "metadata",
+        "instrument",
+        "main"
+      ],
+      "inverse": "restore original module docstring; remove import os and _capture_attempted/capture_unknown block; restore original emit; remove new public PEM"
+    },
+    "root_audit": {
+      "source_head": "cb6c82a0a1855d731a0e163dfa472bf0bd80e9b9",
+      "author_commit": "aa26f260e18b1fd365245cc4a98faefe5aa94ecf",
+      "launcher_sha256": "733df85e14771cdf97d91767dd4829bafb0b6463eeef54ec1a85c78303d00094",
+      "public_pem_sha256": "c2ba01d66a069b137dac17606e0ddd199614e14fbdcddc66f6efd35de4a1446d",
+      "inverse_exact": true,
+      "root_fake_checks": "pass",
+      "root_actual_capture_synthetic_roundtrip": "pass:256byteplaintext,512cipher,0600,zerooutput",
+      "private_key_committed": false,
+      "old67_new47_native415_exact": true,
+      "host_runtime_executed_by_audit": false,
+      "first_audit_record_error": "After all substantive fake/inverse/crypto/preservation assertions passed, exec(fake script) had rebound the variable source to text; final digest serialization raised TypeError. Correct only record digest to read_bytes; no source or substantive check changed. Runtime launched after substantive audit, before recordwrite correction.",
+      "root_review": "One failure-only encryptor; exact original guard/args/results/exceptions/verdict/timeout preserved; no host/API/database/network reads. Fixed ciphertext artifact only; no plaintext log/file/argv; observer cannot replace original verdict."
+    },
+    "synthetic_crypto_check": {
+      "synthetic_only": true,
+      "host_runtime_executed": false,
+      "first_attempt": "Payload construction exceeded256byte bound, assertion before any crypto process. Correct only synthetic construction to exact256bytes.",
+      "plaintext_bytes": 256,
+      "ciphertext_bytes": 512,
+      "rsa_oaep_sha256_roundtrip": "pass",
+      "public_pem_sha256": "c2ba01d66a069b137dac17606e0ddd199614e14fbdcddc66f6efd35de4a1446d",
+      "private_key_location": "root temporary state only; no key bytes in record/repo/CI/artifact/log"
+    },
+    "private_key": "root temporary only, never committed/uploaded/logged",
+    "ciphertext_artifact": "fixed inspection-finalize-error.rsa,512bytes,0600,retention1day; first unknown failed guard only; no plaintext output/file/argv",
+    "one_local_diagnostic": {
+      "gate": "inspection-finalization-diagnostic-final-encryption-first",
+      "head": "cb6c82a0a1855d731a0e163dfa472bf0bd80e9b9",
+      "rust_tree": "0047f08970dafbb53a5cdbf2d1e812a51cb2d6c4",
+      "command": [
+        "python3",
+        "conformance/slim/inspection_finalization_diagnostic.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-corrected-first"
+      ],
+      "exit": 0,
+      "seconds": 70.32,
+      "log": "/tmp/gu47-runtime/inspection-finalization-diagnostic-final-encryption-first.log",
+      "sha256": "6b269ac4748e956fe162a6318cb90668de1b5c6f6fa3be35b2342415a9f9edde",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.19,
+          "active": []
+        },
+        {
+          "seconds": 60.25,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "733df85e14771cdf97d91767dd4829bafb0b6463eeef54ec1a85c78303d00094"
+    },
+    "failure_observer_emitted": false,
+    "local_result": "6/6in70s runner70.32; no observer/ciphertext generated; compiler-idle. Passing sample does not classify prior failures or establish a product fix."
+  },
+  "preservation": {
+    "old_files_exact": 67,
+    "new47_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6"
+  },
+  "limits": [
+    "All first compile/runtime/CI/no-starts and unknown carrier/contact/finalization causes remain preserved in preceding records.",
+    "Diagnostic capture changes only failure observation; old suite calls/assertions/timeouts/results/exceptions/verdict exact. Root decrypts privately, no raw line committed or reported.",
+    "Cancellation/advanced-only/originalpositive completion/isolated unsigned-stage/fixed-powers expiry/complex authority/corruption/pruned/reused/separateadmin/exactkey/commit/90s races/global worker attribution remain source/fault-only or unexecuted.",
+    "Native requester controls/full35 terminal/reload/installed/physical/model/schema23through27/fullstate backup/recovery/final acceptance remain open."
+  ],
+  "next_gate": "Fresh final full37+4 CI and exact-head bot/root review required; no unchanged retry or waiver. If old45 fails unknown, decrypt bounded ciphertext privately to diagnose, then fix with concrete evidence."
+}
