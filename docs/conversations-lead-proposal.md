@@ -109,14 +109,14 @@ The 60-message limit stays (CONV-11). CONV-11 rejected turn-taking because it "b
    - **Recommendation: (a).** It adds no state, and every wake stays the sender's explicit choice.
 5. **Whether to run a live comparison before building it all.**
    - (a) Build it, then run real agents.
-   - (b) First run the same tasks with real agents under today's rule and with a lead, by addressing every message by hand and giving the lead its guidance as a prompt, and compare turns, tokens and whether the work got done.
-   - **Recommendation: (b).** The turn counts are arithmetic; whether a lead routes well isn't, and this tests it before any contract changes. It can't show the parked window, so that stays for the run after the build.
+   - (b) First run the same tasks with real agents under today's rule and with a lead, and compare turns, tokens and whether the work got done. Addressing can't simulate a lead, because it doesn't stop a wake today, so this needs a minimal wake rule and parked rows on a branch that is never merged.
+   - **Recommendation: (b).** The turn counts are arithmetic; whether a lead routes well isn't, and this tests it before any contract changes.
 
 Whether roster events keep waking agents is a separate question that this proposal leaves alone.
 
 ## Slices, if accepted
 
-1. **Comparison run** (decision 5), with results in `docs/results`.
+1. **Comparison run** (decision 5) from an unmerged branch, with results in `docs/results`.
 2. **Contract** for the parked state, the window, the lead rule and `lead` in views, with log entries for the decisions above. This is written first, as with earlier slices.
 3. **Host and adapter:** the wake rule, parked rows and tool guidance, plus tests from a spec-only author added to the existing conversation suites, which assert today's rule and will need updating. No new CI job.
 4. **Live run** with real agents on two machines. It covers an addressed wake after a sleep, a lead leaving, a lead the author can't reach, and a host that hasn't upgraded.
