@@ -1089,3 +1089,14 @@ original5s timeouts and one zero connection dispatch; causes remain unclassified
 All69 old test/helper files and Rust918d remain exact. No unchanged local retry
 or timeout override is selected. Final exact-head full CI and fresh bot/root
 review must pass before this slice is ready; receipts will be on its PR.
+
+The [CI diagnostic follow-up](results/guided-native-machine-requester-ci-verification.json)
+retains firstbf76635:36/37 host jobs, all4 PR checks/native440/440in71.85s and
+clean bot/root review. Old28 expired/API/wrong-review purity crosses issuer UDP
+by2datagrams/2400bytes; caller/cause remain unclassified. One independent
+receive-only launcher preserves all70 current test/helper files and native/Rust
+trees exactly, adding only bounded failure metadata with no extra IO. Root fake
+forwarding/privacy/restoration checks and fresh identical binary hashes pass.
+Its first affected local run passes6/6in146s, exceeding the120s target; it emits
+no failure metadata and diagnoses no earlier crossing. Final fullCI and fresh
+review receipts follow on PR101; full-feature acceptance stays open.
