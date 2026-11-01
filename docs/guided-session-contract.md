@@ -9787,7 +9787,134 @@ phase witness for that run; it diagnoses no earlier caller or general transport
 fix. Discard guessed sleeps/fences, larger original waits, forced ACKs, ignored
 journals/rows/IO, worker suppression and unchanged retry-to-green.
 
-## 49. Remaining flow contract
+## 49. Combined guided two-host machine-link acceptance
+
+GU.impl49 follows merged101 (`4f6ca8f`). Verify the composed40–48 backend
+ceremony on two genuine temporary Rust hosts, using the same owner-local
+operations as the native controls. This is one combined acceptance slice, not
+a new API/schema/protocol or a claim that installed/physical/native/model/full
+#35 acceptance is complete. All74 prior host/native/helper files stay byte-exact.
+
+### Genuine shared ceremony and consent boundaries
+
+Use one existing-computer A and one fresh-computer B with isolated private
+state/home/config and distinct real host/device identities. Both stay live.
+Create one real DEC network on A using ordinary network creation, generating
+its original person key ONLY in A's documented private home/config location.
+Hash/mode-check it before/after; B has no original file or original/SSH-agent
+source. Use A's actual persisted creator device15 provider and folded host
+admission, checked from current public authority; do not select/fabricate a new
+provider, import authority or copy an original. This chosen complete owned
+signer path avoids an unrelated unavailable original-source setup dependency.
+
+Attach separate real guided projects/agents/sessions on both hosts. On A use
+the exact guided invitation Prepare/Approve/private Handoff with the actual
+current verified member label and person public-key pin. B privately previews
+that authentic introduction, prepares its exact pinned public-key machine
+request, and explicitly approves publication through section12's owner-local
+operations used by section40. No local original creation/inventory/import or
+new-original owner flow on B. Carry private codes/context/review IDs only in
+JSON stdin/private owner socket bodies, never process arguments, routine logs,
+model context or public evidence. Before approval no ordinary request exists;
+after it, observe the actual automatic incoming pending request on A. No manual
+request-code retrieval/import or substitute request may supply this return.
+
+A performs sections41–43 Inspect, Prepare, exact Approve, then pure Signing
+and, where incomplete/currently eligible, explicit Sign. Verify the exact
+recorded project/inspection/consent/ordinary intent, selected provider and
+initial signature evidence. Already authorized background work may win a
+signature/publication race; status is global evidence, never attribution to
+this frontend or the sign action. Observe the real single matching owner offer,
+ordinary requester selection and owner's automatic preapproved finalization
+by bounded public GETs only (30s for the combined selected/finalized checkpoint).
+Require exact person/network/context/target/offer/selection/F pins, folded
+administrator ID '-' and no invented administrator stage, finite scopes7/B2
+with the actual inherited owner/provider cap. Before requester commit consent,
+B has no adopted network or commit approval and no new policy/grant artifact.
+
+Do not run advanced link approve/admit/select/finalize/resume/signed drivers,
+fabricate signed responses or edit protocol/authority/queue/clock rows to make
+the ceremony advance. No stage-expiry clock jump, stopped peer, disabled worker
+or hidden retry is part of this positive path. A real stalled automatic F is a
+workflow blocker to preserve and fix, never a reason to switch drivers. Both
+hosts' existing authority and all original consent boundaries remain enforced.
+
+### Requester completion, lost result and separate observations
+
+B performs sections45–47 Inspect, exact Prepare and Approve under its original
+attached project, then ONE explicit Complete. Its actual successful response is
+lost once through a transparent private local response-drop fixture: forward
+the original request exactly once, capture the real daemon200 reply privately,
+withhold it from the caller, and require controlled nonzero/unknown outcome.
+Never manufacture a success body. Recover by a fresh CLI Lookup using the same
+context/flow/join-review/receipt only, without repeating Prepare/Approve/Complete
+or replacing the project. Verify exact immutable consent and matching global
+local application; do not infer whether Complete or approved background work
+first applied it. Observe ordinary application on A too (25s bound); no resume
+or external signer fallback. A queued frame, ACK or approval alone is no outcome.
+
+Independently verify the actual retained activation/manifest/outcome and typed
+signature/message identities against the public wire contract, matching P/H/B/D
+closure, exact finite device7/binding2, roots/person/host/device and inherited
+end. Inspect genuine stored rows read-only, not generated mock projections.
+Exactly one request, one requester consent/ordinary intent pair and one local
+operation per participating host remain; lost caller response must not duplicate
+identities/consents/application. The original on A remains unchanged and absent
+from B's documented source. Keep all public replay's not_verified fields exact.
+
+Read current members/provider, section30 project/person access inspection and
+section36 readiness separately after actual application. Membership is actual
+current authority, not inferred from UI or a receipt. Compare A's complete
+preexisting signed/current policy and grant artifacts with the result; linking
+must introduce no agent-access change. NO NEW GRANT does not mean NO EFFECTIVE
+ACCESS: hosts of this same person may legitimately have self authorization or
+already-authorized policy access. Preserve and validate its actual explanation;
+never turn it into a new grant or declare an expected denial just to pass.
+No adapter credential/lease is issued in this suite; current adapter/delivery,
+peer reachability, model receipt and overall readiness remain unverified in
+this fixture. No message/model/tool/prompt is sent merely to establish the link.
+
+### Verification and limits
+
+A separate contract-only author writes ONE new slim suite `guided_machine.py`
+from this section and existing public contracts/independent fixtures, never
+product source. Import only safe shared harness/helpers, never eager existing
+suite modules. Three sequential cases share one real ceremony:
+
+1. Genuine separate projects, pinned guided invitation/request/automatic return,
+   exact device15 owner consent/signature, public-read-only observation of the
+   automatic selection/F; no B commit/adoption or authority workaround.
+2. Exact requester consent and one real Complete with lost200 response, truthful
+   CLI Lookup recovery and independently verified actual application on both
+   hosts; no original transfer, duplicate receipt/job or second mutation.
+3. Actual current membership/provider, unchanged preexisting policy/grants,
+   truthful self/access explanation and separate unverified adapter/delivery/
+   reachability/model/readiness. Original A key/hash/mode unchanged; B has none.
+
+Use existing API bounds (5s reads,95s Complete), fixed30s finalization and25s
+remote-application waits, and the120s slim-suite target. Record first failure,
+source/binary/log hashes and any duration overrun; no unchanged retry-to-green
+or larger waits. Root runs a committed suite once with fresh verified Rust918d
+binaries, serially with compiler/native/manual gates. A failure requires actual
+bounded evidence before a product correction, with the original failure kept.
+Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
+TCP+UDP comparisons intact. This combined live-worker progress suite does not
+claim global zero-IO/full-database purity while authorized work is advancing;
+existing strict isolated conformance remains authoritative for those boundaries.
+Public evidence contains fixed roles/states/counts/booleans and hashes only,
+no private handoffs/keys/packets/native refs/raw errors or process arguments.
+
+Selected: one complete owned-device folded path and lost-response lookup across
+the real composed guided APIs. Discarded: another matrix of isolated backend
+cases, replacing old tests, synthetic cryptography, advanced F/resume fallbacks,
+claiming all access is denied for the same person, and a repeated mutation to
+recover a lost result. Original-provider/separate-admin/exhaustive races and
+expiry remain separately specified existing coverage/source limits; this run
+does not extend them. GUI/reload/daemon-restart metadata reattachment, installed
+artifacts, physical two-machine exchange, actual model receipt, schema23→27/
+full-state upgrade/recovery and final #35 acceptance stay explicit later gates.
+
+## 50. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
