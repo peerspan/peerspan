@@ -9707,9 +9707,11 @@ the original5s retirement check. Include every newly coalesced current row, not
 only the first snapshot. A row either disappears through actual delivery or
 must expose a completed attempted generation: its actual retained attempts is
 a positive bounded integer, last_error_code is a documented recorded failure,
-last_error_detail is a nonempty bounded string, and canonical next_attempt_at
+last_error_detail is a bounded UTF8 string (empty and ordinary dash allowed),
+and canonical next_attempt_at
 is strictly after that participant's real debug-clock now. The retry/error
-fields must belong to the same read transaction/record; attempts alone or a
+fields must belong to the same read transaction/record; a documented non-dash
+failure code supplies result presence, not detail-text length. Attempts alone or a
 sync200 is insufficient. Require no rollback journals on either host. Validate
 closed documented outbox envelopes/types/bounds; identities, bodies, result
 text and times stay private. Retain row/generation identity privately during
