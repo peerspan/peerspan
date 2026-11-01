@@ -69,4 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x bin/*
-          python3 conformance/slim/${{ matrix.suite }}.py --bin bin
+          if [ '${{ matrix.suite }}' = 'machine_requester_inspection' ]; then
+            python3 conformance/slim/inspection_finalization_diagnostic.py --bin bin
+          else
+            python3 conformance/slim/${{ matrix.suite }}.py --bin bin
+          fi
