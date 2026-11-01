@@ -3939,3 +3939,15 @@ unclassified. All66 files/fullnative415 unchanged. Select last-known validated
 clock observation for historical recovery; discard clock repair as a prerequisite,
 disabling fresh rollback enforcement or adding a history schema. Final exact-head
 CI and fresh bot/root review remain required; receipts follow on PR99.
+
+GU.impl46 second CI1b41991: fresh bot clean, all4 checks pass; old inspection
+and owner-consent pass. Only new consent fails3/6in72s: finalize observer twice
+records exit1 with owner/selection/F present and HTTP200; historical case loses
+its failed original fixture prerequisite. No raw diagnostic or signer inference
+is available. Choose the actual exact two-host F prerequisite after one bounded
+explicit driver, preserving every independent authority/target/profile check,
+over a CLI English substring as setup success. Reject parse/crash/timeout and
+missing/mismatched F; discard arbitrary ignored errors, signing retries and
+broader timeouts. Explicitly permit only that setup-guard replacement in new46
+and old45 progress helpers under independent authorship/restoration audit. All
+other65 prior files and native415 stay exact. Earlier causes remain unclassified.
