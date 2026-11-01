@@ -996,3 +996,11 @@ The local two-minute target overrun and first CI finalization/TCP-only failures
 remain explicit; the passing diagnostic run does not classify those failures.
 Fresh authorization still enforces its guarded clock. Final combined-head CI/
 review receipts are on PR99; no full-feature readiness claim is made.
+
+The [finalization setup follow-up](results/guided-machine-requester-consent-finalization-verification.json)
+records second CI35/36 plus all4 checks, then the independent new46-only
+verified two-host signed-F prerequisite. All66 prior files/native415 remain
+byte-exact; first measured inspection and all six case bodies stay intact.
+Root6/6in126s passes with the two-minute target overrun retained. The rejected
+old45 mutation remains unintegrated. Fresh final-head CI/bot/root receipts are
+on PR99; completion and full-feature acceptance remain open.

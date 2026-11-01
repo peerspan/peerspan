@@ -1,0 +1,384 @@
+{
+  "milestone": "GU.impl46.finalization",
+  "source_head": "b3ba23f2fbe62bde9c08db3cd3090c10bd512be7",
+  "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+  "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+  "prior_records": [
+    "guided-machine-requester-consent-verification.json",
+    "guided-machine-requester-consent-clock-verification.json"
+  ],
+  "gates": [
+    {
+      "gate": "machine-requester-consent-final-prefix-first",
+      "head": "b3ba23f2fbe62bde9c08db3cd3090c10bd512be7",
+      "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_consent.py",
+        "--bin",
+        "/tmp/gu46-runtime/final-bin-rust-build-final-clock-first"
+      ],
+      "exit": 0,
+      "seconds": 126.62,
+      "log": "/tmp/gu46-runtime/machine-requester-consent-final-prefix-first.log",
+      "sha256": "4ed228332df09c504b9ab4ece916ecfc8347d0ec9b9aa82167406a3b0abb1a25",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.19,
+          "active": []
+        },
+        {
+          "seconds": 75.25,
+          "active": []
+        },
+        {
+          "seconds": 90.42,
+          "active": []
+        },
+        {
+          "seconds": 105.49,
+          "active": []
+        },
+        {
+          "seconds": 120.55,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "c75244caa9c75d5e635c036bd748dee7fbec0ce9843e04c67ded9f47a1c8aaad"
+    }
+  ],
+  "binaries": {
+    "head": "fa4eb64ea05ca88eefdf6d4299c23ad24490e664",
+    "rust_tree": "31c7e5faa444257637f9bb759f4fef4d42e71db4",
+    "directory": "/tmp/gu46-runtime/final-bin-rust-build-final-clock-first",
+    "sha256": {
+      "peerspan-host": "e7f0c1f32adef5059678b70a3631054a0ce5fa78dc2082e973858e4293ef0d46",
+      "peerspan-peer-probe": "a4df83916be9b01b9ee51228857da8cd1063548023da16b9ae172fa823a5940d",
+      "peerspan-helper": "63055e3363d31590fc5ceeae7418191ddde4b28c8afe4d70a093925660db96f0"
+    }
+  },
+  "tests": {
+    "conformance/slim/machine_requester_inspection.py": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+    "conformance/slim/machine_requester_consent.py": "c75244caa9c75d5e635c036bd748dee7fbec0ce9843e04c67ded9f47a1c8aaad"
+  },
+  "preservation": {
+    "prior_files": 66,
+    "byte_exact_files": 66,
+    "prior_suite_not_modified": "conformance/slim/machine_requester_inspection.py",
+    "baseline_sha256": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+    "current_sha256": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+    "restoration_audited_separately": true,
+    "all_66_unchanged": true,
+    "discarded_prior_suite_exception": "Automatic approval review rejected prior-suite mutation; new46-only safe alternative."
+  },
+  "second_ci": {
+    "conformance": {
+      "id": 41267979671,
+      "head_sha": "1b41991e7c4d78923b88ad78453e874f28ae87cc",
+      "run_attempt": 1,
+      "conclusion": "failure",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41267979671",
+      "jobs": [
+        {
+          "id": 124734683763,
+          "name": "Build host, peer probe and helper",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943545,
+          "name": "capabilities",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943568,
+          "name": "owner_finalization",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943569,
+          "name": "work",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943577,
+          "name": "onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943579,
+          "name": "invitation_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943581,
+          "name": "readiness",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943585,
+          "name": "adapter_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943596,
+          "name": "access_consent",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943601,
+          "name": "owner_finalization_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943604,
+          "name": "project_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943608,
+          "name": "access_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943613,
+          "name": "incoming_progress",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943614,
+          "name": "machine_owner_consent",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943625,
+          "name": "policy",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943626,
+          "name": "owner_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943640,
+          "name": "join",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943641,
+          "name": "requester_completion",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943645,
+          "name": "admission_consent",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943649,
+          "name": "access_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943651,
+          "name": "admission_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943657,
+          "name": "sync",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943658,
+          "name": "machine_requester_consent",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124734943667,
+          "name": "requester_commit",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943673,
+          "name": "machine_requester_inspection",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943674,
+          "name": "renewal",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943679,
+          "name": "access_application",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943681,
+          "name": "peer_reachability",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943682,
+          "name": "basics",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943686,
+          "name": "machine_owner",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943693,
+          "name": "machine_owner_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943695,
+          "name": "live",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943696,
+          "name": "owner_signing",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943725,
+          "name": "root",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943742,
+          "name": "delivery",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734943784,
+          "name": "join_onboarding",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "checks": {
+      "id": 41267979721,
+      "head_sha": "1b41991e7c4d78923b88ad78453e874f28ae87cc",
+      "run_attempt": 1,
+      "conclusion": "success",
+      "html_url": "https://github.com/peerspan/peerspan/actions/runs/41267979721",
+      "jobs": [
+        {
+          "id": 124734683840,
+          "name": "Rust format",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734684011,
+          "name": "Claude onboarding runtime",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734684067,
+          "name": "Rust tests and build",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124734684086,
+          "name": "Rust Clippy",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  },
+  "limits": [
+    "SecondCI finalization_present=true with CLIexit1 is exact captured metadata, not attribution of earlier unknown timing/error causes.",
+    "Only setup prerequisite is strengthened; first subject inspection remains inside original complete purity measurement.",
+    "Original signatures/IDs/pins/profile/private corpus/counters/timeouts remain. No mutation retry or arbitrary code1 success without actual verified F.",
+    "Clock-corrected local suite127s exceeded2min target; preserved without unchanged retry or timeout increase.",
+    "Historical approval is not current powers, application, access or readiness; completion/native/full35 acceptance remain open."
+  ],
+  "independent_new_only_restoration_audit": {
+    "source_head": "b3ba23f2fbe62bde9c08db3cd3090c10bd512be7",
+    "independent_author_commits": [
+      "e396be15db2c9882e999512654b0001e74c3d25e",
+      "e4eff8c1c03b889e6747b247e9045f70181fe380"
+    ],
+    "test_sha256": "c75244caa9c75d5e635c036bd748dee7fbec0ce9843e04c67ded9f47a1c8aaad",
+    "restored_sha256": "a0439ba6c4d863c83e85609e12889e2028d13eae44fdaf0feb1dd988e85bd93d",
+    "inverse_bytes_and_ast_exact": true,
+    "only_preexisting_definition_changed": "progress",
+    "all_other_helpers_classes_and_six_case_asts_exact": true,
+    "prior_files_byte_exact": 66,
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "runtime_ran_by_root": true,
+    "discarded_commit": "75eee5e2bdaee800553100aa83fc2277b93d777e",
+    "discarded_reason": "Automatic approval review rejected old45 mutation; it was not integrated."
+  },
+  "local_result": {
+    "cases_passed": 6,
+    "cases_failed": 0,
+    "suite_seconds": 126,
+    "runner_seconds": 126.62,
+    "two_minute_target_exceeded": true,
+    "unchanged_retry": false,
+    "timeouts_increased": false
+  },
+  "final_ci": "Required on pushed combined head; attach exact-head receipt to PR99."
+}

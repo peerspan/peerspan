@@ -3965,3 +3965,15 @@ Select the safer new46-only correction, independently committed from b9d0e85,
 with all66 prior files and native415 exact. No denied prior-suite mutation or
 indirect workaround is performed. No prior-suite local run is needed; final
 combined-head CI still checks the complete tree.
+
+GU.impl46 new-only independent commits e396be15/e4eff8c1 integrate as
+ e64d8a3/b3ba23f; all66 prior files/fullnative415 stay byte-exact. Root inverse
+ audit restores new46 to b9d0e85 bytes/AST and leaves every case/other helper
+ unchanged. One corrected root run passes6/6in126s (runner126.62), compiler-idle
+ throughout on unchanged31c7e5fa fresh binaries. Preserve this second local
+ two-minute target overrun; no timeout increase, mutation retry or unchanged
+ retry. The verified-F setup correction does not classify earlier unknown
+ failures. The finalization follow-up record retains second CI35/36 and all4
+ checks, actual closed failure metadata, independent provenance, denied old45
+ proposal and selected safe alternative. Final pushed-head CI and fresh review
+ remain required; their receipts belong on PR99.
