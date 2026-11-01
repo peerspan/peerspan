@@ -205,6 +205,56 @@
       "passed": 14,
       "failed": 0,
       "classification": "first changed setup observes real own request publication before unchanged strict progress baseline"
+    },
+    {
+      "head": "d489da124b8b9f55426d40744b210eb3793e58f3",
+      "source_sha256": "ec186babc6c983f1bbf7e035dd1d3911f4c5b0800cb8ba61a835e8838389613a",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 40.15,
+      "log_sha256": "344430233b578363faeee98cd439aa54d5ccf5ec40bc620b9e4324930ccb37f1",
+      "gate": "owner-onboarding-view-diagnostic",
+      "passed": 5,
+      "failed": 1,
+      "classification": "live equality did not reproduce; earlier unapproved lookup purity failed, precise changed rows/caller unclassified",
+      "captured_view_differences": []
+    },
+    {
+      "head": "d489da124b8b9f55426d40744b210eb3793e58f3",
+      "source_sha256": "ec186babc6c983f1bbf7e035dd1d3911f4c5b0800cb8ba61a835e8838389613a",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 20.4,
+      "log_sha256": "c3a4231523a95e52139c25e3ec745c30c7c12ad28e71bd1dfc294053f8bfd5cf",
+      "gate": "owner-signing-view-diagnostic",
+      "passed": 4,
+      "failed": 2,
+      "classification": "live sample changes attention1-to0 only while pending/completed1/workrefs0/approvals0; earlier parent-symlink source-refusal whole-state failure unclassified",
+      "captured_view_differences": [
+        {
+          "changed_fields": [
+            "attention"
+          ],
+          "followup": {
+            "approval_count": 0,
+            "attention_count": 0,
+            "completed_count": 1,
+            "field_count": 25,
+            "state": "pending",
+            "work_reference_count": 0
+          },
+          "supplied": {
+            "approval_count": 0,
+            "attention_count": 1,
+            "completed_count": 1,
+            "field_count": 25,
+            "state": "pending",
+            "work_reference_count": 0
+          }
+        }
+      ]
     }
   ],
   "correction": {
@@ -718,5 +768,12 @@
         "log_sha256": "7046260b6ad27d886f5c0db7261e76759675d6be06e53389074c03d875a3a857"
       }
     ]
+  },
+  "owner_diagnostic_author": {
+    "commit": "7937bf3d35cffb83414a7643820b63ad7ea68560",
+    "source_sha256": "ec186babc6c983f1bbf7e035dd1d3911f4c5b0800cb8ba61a835e8838389613a",
+    "original_forwarding_exception_argv_privacy_restoration_audits": true,
+    "all_prior77_exact": true,
+    "product_reads_or_runtime_by_author": false
   }
 }

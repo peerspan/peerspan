@@ -4271,3 +4271,16 @@ one unchanged signed-result corpus at5000ms (5097.74ms recorded). Preserve
 this unclassified timing sample; no native deadline change/retry-to-green.
 Full final-head CI and fresh review remain required. Bot P2 on the known join
 prerequisite is addressed in04fdeff; receipt/thread resolution follows push.
+
+Owner diagnostics d489da1: onboarding5/6in40.15s does not reproduce the
+live equality; instead the earlier initial lookup whole-state guard fails,
+precise changed rows/caller unknown. Signing4/6in20.4s captures live attention
+1→0 only with both views pending/completed1/workrefs0/approvals0; an earlier
+source-refusal parent-symlink guard also fails, changed rows/caller unknown.
+Keep those unknowns. Select the same genuine initial-publication phase before
+every published join's first owner action/baseline, own endpoint ACKs for
+offline fixtures and all participants only for the two live cases. This proves
+a setup boundary for the new run, not the cause/actor of earlier unclassified
+failures. Discard a live-only prerequisite leaving other asynchronous initial
+publication active under strict whole-state comparisons. Every original test
+remains untouched; no signer/authority setup or extra send is added.

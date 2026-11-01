@@ -9951,23 +9951,41 @@ call, wait, mutation, filtered value or altered verdict. Delegate the selected
 suite through runpy without eager imports; all other cases remain untouched.
 Root executes both changed diagnostic entries serially and retains each result.
 
-If the captured difference is solely publication attention before any owner
-offer/selection/commit, select a second separate prerequisite launcher for these
-two live-history cases. Wrap ONLY their original join call, once unchanged;
-before returning the identical result and before original owner operations,
-observe the same exact genuine saved requester frame/pins/unfinished state via
-read-only SQLite for at most5 real seconds. Require nonempty actual participant
-carriers including its own host and a distinct live inviter, no helpers in
-this chosen fixture, and durable ACK of that exact frame at EVERY participant
-endpoint. The two participants are already live in these cases; do not send,
-stop/disable a worker, synthesize an ACK, mutate clocks/files/rows, or skip a
-missing witness. Offline fixtures and all other cases are unchanged. Preserve
-every original compare/timeout/verdict and exact join/argv/exception/global
-restoration; emit only fixed witness booleans/counts. Keep the passing own-only
-join prerequisite and all prior files exact. CI may wire this launcher only
-after the captured difference matches this boundary. A different difference
-requires fresh evidence and contract correction. Native440 is unchanged: retain
-its first5s timeout as unclassified; no raised native deadline or retry-to-green.
+The captured signing sample changes ONLY attention1→0: both views remain
+pending with one completed stage, zero work references and zero approvals.
+The onboarding live equality does not reproduce in its diagnostic; instead its
+first unapproved lookup purity guard fails. Signing also fails an earlier
+source-refusal whole-state guard. Their precise changed rows/callers remain
+unclassified; do not claim those guards were traced to the same field. Initial
+authorized publication is real asynchronous work before each of these owner
+fixtures, so choose an explicit publication phase for every fresh published join
+in both selected suites, preserving every later original guard.
+
+A separate contract-only two-selector prerequisite launcher wraps only the
+original join helper during each existing case of owner_onboarding/owner_signing.
+Call join once unchanged; if it returns an unapproved review, return it exactly
+without a witness. For requested results, before returning the identical result
+and before ANY original owner operation/baseline, observe the exact genuine
+saved requester frame/pins/unfinished state via read-only SQLite for at most5
+real seconds. Reuse the unchanged safe own-request witness module (no eager
+existing suite import). Require the saved single own frame and nonempty own
+participant endpoints with their exact durable ACKs. The offline inviter in
+ordinary isolated fixtures need not acknowledge. For ONLY the two literal live
+history cases above, strengthen the same snapshot to require no helpers, a
+distinct inviter participant, and ACK coverage of EVERY participant endpoint.
+Both participants are already live there.
+
+No new API/transport, sends, stopped/disabled worker, fabricated ACK, clock/file/
+row mutation, filtered original value/assertion/timeout, skip or empty-set pass.
+Preserve each original compare/verdict and exact join/argv/exception/global
+restoration; emit only fixed witness booleans/counts. Freeze all74 prior files,
+the passing own-only join prerequisite and both diagnostics. Missing or
+advanced authority is a failed prerequisite. Wire CI to the two-selector entry
+only after source/forwarding/negative audits; root executes each changed entry
+once serially and preserves every first failure, including still-unclassified
+causes. A passing phase witness establishes this run's setup, not the actor
+of an earlier failure. Native440 stays exact: retain its first5s timeout as
+unclassified; no raised native deadline or unchanged retry-to-green.
 
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
