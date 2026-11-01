@@ -74,11 +74,14 @@ pub(crate) fn select(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
 #[path = "requester_intents.rs"]
 mod approval;
 pub(crate) use approval::validate_references;
-pub(crate) use commitment::inspect_machine as inspect_machine_requester_commit;
 pub(crate) use commitment::resume_guarded as resume_commit_guarded;
 pub(crate) use commitment::{activation_bytes, catalog_delta_components, retain_catalog};
 pub(crate) use commitment::{
     consent_in as commit_in, consent_live as commit_live, consent_proposal as commit_proposal,
+};
+pub(crate) use commitment::{
+    inspect_machine as inspect_machine_requester_commit,
+    inspect_machine_prepared as inspect_machine_requester_prepared, machine_consent_in,
 };
 #[path = "requester_commit.rs"]
 mod commitment;

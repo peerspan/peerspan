@@ -65,6 +65,7 @@ pub(crate) use project_access::inspect as inspect_project_access;
 pub(crate) use project_access_consent::run as access_consent_in;
 pub(crate) use requester::{
     commit_in, commit_live, commit_proposal, inspect_machine_requester_commit,
+    inspect_machine_requester_prepared, machine_consent_in as machine_requester_consent_in,
     resume_commit_guarded,
 };
 pub(crate) use requests::views_in as request_views_in;

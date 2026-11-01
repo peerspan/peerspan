@@ -102,7 +102,14 @@ async fn main() {
                     .windows(3)
                     .any(|p| p == ["onboarding", "join", "machine-commit"])
             {
-                eprintln!("error: invalid machine requester inspection arguments");
+                if raw
+                    .windows(4)
+                    .any(|p| p == ["onboarding", "join", "machine-commit", "inspect"])
+                {
+                    eprintln!("error: invalid machine requester inspection arguments");
+                } else {
+                    eprintln!("error: invalid machine requester consent arguments");
+                }
                 std::process::exit(e.exit_code());
             }
             // Clap may echo rejected arguments before private stdin validation.

@@ -23,7 +23,10 @@ use std::collections::BTreeMap;
 
 #[path = "requester_commit/consent.rs"]
 mod consent;
+#[path = "requester_commit/machine_consent.rs"]
+mod machine_consent;
 pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
+pub(crate) use machine_consent::run as machine_consent_in;
 
 struct Context {
     offer: Offer,
@@ -114,6 +117,16 @@ fn review(p: &Pending, stage: &Context) -> Result<Value> {
 }
 /// Pure existing-person requester review; no intent/key resolution or adoption.
 pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    machine_evidence(c, store, p, false)
+}
+pub(crate) fn inspect_machine_prepared(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+) -> Result<Value> {
+    machine_evidence(c, store, p, true)
+}
+fn machine_evidence(c: &Connection, store: &Store, p: &Pending, prepared: bool) -> Result<Value> {
     let r = &p.record;
     let request = p.packet()?;
     let created = text(&request.payload, "created_at")?;
@@ -143,9 +156,9 @@ pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Res
             && ident(&r.expected_context_id, "ctx_")
             && key(&r.expected_person_public_key)
             && r.selection_approved
-            && !r.commit_approved
+            && (prepared || !r.commit_approved)
             && r.owner_intent_id == "-"
-            && r.commit_intent_id == "-"
+            && (prepared || r.commit_intent_id == "-")
             && r.commit_packet_base64 == "-"
             && r.manifest_id == "-"
             && r.activation_id == "-"
@@ -159,7 +172,11 @@ pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Res
         )
         .map_err(db)?;
     let commit_present: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM dec_intents WHERE kind='requester_commit' AND json_extract(record,'$.operation_id')=?1)", [&p.id], |row| row.get(0)).map_err(db)?;
-    check(!network_present && !commit_present && p.view(&guarded)?["state"] == "needs_commit")?;
+    check(
+        !network_present
+            && (prepared || !commit_present)
+            && p.view(&guarded)?["state"] == "needs_commit",
+    )?;
     let stage = context(c, store, p)?;
     let owner = &stage.offer.owner;
     let provider = &stage.offer.provider;

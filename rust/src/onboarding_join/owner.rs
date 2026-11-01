@@ -5,6 +5,7 @@ mod commit;
 mod finalization;
 mod machine_commit;
 pub use commit::decode_commit_input;
+pub use machine_commit::decode_machine_commit_input;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
