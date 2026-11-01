@@ -3928,3 +3928,14 @@ authorization in both paths. Old callers keep guarded binding; fresh consent
 continues full raw/guarded checks. Extend independent new-suite history coverage
 to actual >300s rollback, using public clocks only; retain all prior categories.
 No policy/runtime authority or timeout weakening is selected.
+
+GU.impl46 clock correction31c7e5fa passes fmt/Rust155+2ignored/Clippy/fresh
+build. Independent b9d0e85 adds genuine anchor−301s API/CLI approved-history
+regression plus fresh refusal, never editing clock rows; all6 cases pass127s
+(runner128.64), no known compilers before/during/after. Retain the local
+two-minute target overrun; no unchanged retry or timeout increase. Failure-only
+finalize diagnostics do not trigger locally, so first CI setup/TCP causes stay
+unclassified. All66 files/fullnative415 unchanged. Select last-known validated
+clock observation for historical recovery; discard clock repair as a prerequisite,
+disabling fresh rollback enforcement or adding a history schema. Final exact-head
+CI and fresh bot/root review remain required; receipts follow on PR99.
