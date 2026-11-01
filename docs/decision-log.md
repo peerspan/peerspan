@@ -3993,3 +3993,10 @@ a separate independently authored failure-only launcher around the exact
 existing Host.cli finalization result/exception. Preserve all67 files/native
 415, args/kwargs, calls/assertions/timeouts and exit. Discard old-suite edits,
 new diagnostic IO, guessed product fixes, ignored errors or unchanged retry.
+
+GU.impl47 diagnosticd13b3a9 captures old45 exit1/no JSON/no recognized public
+code, request fields unknown. Select finite public English-error class/field
+projection from the same stderr; no raw text, new IO or causal inference.
+Independent launcher-only extension precedes one meaningful new run; retain
+all67/new47/native415 and every original verdict/assertion/timeout. No guessed
+product fix follows from this insufficient first diagnostic.
