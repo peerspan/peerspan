@@ -4201,3 +4201,24 @@ Cargo parent before compiling anything; normal-process inspection identifies
 its long-running Rust test child in another track, not a shared-target build.
 Leave it untouched. Discard treating a restricted PID view as global exit or
 requiring all independent tracks to become idle; no global idle/causal claim.
+
+First combined run at `de3e654` failed0/3 in16s (16.3s runner),
+source `c1838345`, original Rust918d/host20062a1c. The15s automatic
+return checkpoint failed; the two dependent cases were not exercised. Retained
+read-only evidence: A has only its invitation-return row; B has its exact
+request and one unacknowledged outbound frame; both embedded mailboxes are
+empty. No owner approval/signature, selection/F or requester consent occurred.
+The ordinary create route dispatches request publication and invitation return
+after commit; guided Join only ran post-commit fault barriers. Its background
+worker polls before publication, so empty mailboxes cannot bootstrap it.
+
+Correction selected: on the FIRST committed guided creation only, dispatch the
+existing encrypted request publication and invitation return with independently
+bounded30s attempts outside SQLite and the response path. The response remains
+publication consent, never proof of delivery. Decline, historical approval
+replay, Inspect and Lookup dispatch nothing; no new consent or original-key IO.
+Discard blocking a guided response on remote reachability, sending again on
+historical recovery, longer conformance waits, manual return-code import and
+advanced resume/F drivers. Section12 already authorizes post-commit transport;
+section49's independent unchanged suite is the regression gate. Preserve the
+first failure and all74 earlier files. No unchanged rerun-to-green.

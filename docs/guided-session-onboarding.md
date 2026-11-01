@@ -1131,3 +1131,9 @@ then current membership, unchanged policy, same-person access and unverified
 delivery/readiness are checked separately. A separate contract-only author
 writes three shared-ceremony cases before root execution. GUI/reload/installed/
 physical/model/schema23→27/full-state and final35 acceptance stay open.
+
+The first combined run exposed missing initial guided request delivery: the
+request committed but no mailbox or automatic return was published. The two
+later cases were not reached. Correct the first-creation post-commit dispatch
+under section12, retaining bounded transport and pure historical replay; keep
+the unchanged independent suite and first failure as regression evidence.
