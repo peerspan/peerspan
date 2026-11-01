@@ -4013,3 +4013,11 @@ retirement outside measured expiry baselines; keep all full purity assertions
 and fixed waits, real holds for unsigned readers. Discard fabricated live
 holds, counter/table exclusions, worker disabling and unchanged retries.
 No production change is inferred; exact earlier subcase timing remains unknown.
+
+GU.impl47 corrected643d165/865a1ad passes5/6in95s, runner96.51. All exact
+application/SQL fault/lost response/privacy/raw/time/parent cases pass. History
+stops before baseline on normal-peer contact setup probe nonzero exit. Its
+error cause is unknown; retained participants each have one application/network.
+Select bounded failure-only closed probe/category/thread/counter diagnostics
+in new suite, exact original result/assertion preserved. Discard inferred UDP
+fix, extra probe, larger wait, old-helper mutation or unchanged retry.

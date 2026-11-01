@@ -1014,3 +1014,10 @@ replay is historical and pure, including detach, expiry and clock rollback.
 No original key on the new computer, new consent/schema or readiness claim.
 Independent conformance and final-head CI/review are required. Native controls
 and full35 terminal/reload/installed/physical/model acceptance stay open.
+
+The [machine completion verification record](results/guided-machine-requester-completion-verification.json)
+retains first compile/host fixture failures and independent corrections.
+Corrected5/6in95s verifies actual application, lost-response lookup recovery,
+SQL rollback and exact expiry/parent guards; historical setup remains pending
+a bounded normal-peer diagnostic. All67 prior files/native415 remain exact.
+Final exact-head CI and fresh review receipts will follow on the slice PR.

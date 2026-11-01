@@ -9213,6 +9213,24 @@ checks, restoring clocks only afterward. Do not measure independent expiry
 collection as reader work, or remove it from snapshots. The corrected separate
 author source must precede one new run on frozen Rust0047; no unchanged retry.
 
+GU.impl47 corrected sourcec443848 passes5/6in95s on frozen Rust0047:
+actual application/lost-response/SQL rollback/private corpus and genuine
+original-cap raw/time/parent guards pass. Terminal history stops before baseline
+when existing normal-peer contact setup probe returns nonzero. Both retained
+participants have one applied operation/network; no probe error/category was
+captured, so the cause remains unknown. Do not infer a product or proxy fix.
+
+Authorize a separate new-suite failure-only observer around that same bounded
+contact setup call: original probe numeric exit, parsed status if actual JSON,
+fixed stderr categories (timeout/certificate/pin/TLS/connection/other), both
+existing counted UDP thread-alive booleans and captured before/after counters.
+No raw args/IDs/keys/paths/error text/contact/cert bytes or new network/API/probe
+call. Return the exact original subprocess result and preserve/rethrow the
+original helper failure/assertion. Print only on failure; success is not a
+causal classification. Removing observer/wrappers restores exact prior source/
+AST and every original case/action/wait/timeout/full purity category. Commit
+before one diagnostic execution on unchanged binaries, no unchanged retry.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
