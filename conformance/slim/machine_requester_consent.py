@@ -586,6 +586,33 @@ def base_world(name='device'):
     return f
 
 
+def finalize_failure_diagnostic(f, result):
+    """Failure-only public metadata; never changes the original verdict."""
+    known = {'invalid', 'not_found', 'forbidden', 'proof_required', 'state_conflict', 'operation_conflict',
+             'clock_rollback', 'signer_unavailable', 'quota_exceeded', 'review_required', 'review_expired',
+             'review_changed', 'not_yet_valid', 'authority_expired', 'recovery_required', 'version_exhausted'}
+    summary = {'exit_code': result.code if type(result.code) is int else 'unknown', 'json_error_code': 'unknown',
+               'public_code_tokens': [], 'http_status': 'unknown', 'owner_present': 'unknown',
+               'selection_present': 'unknown', 'finalization_present': 'unknown'}
+    try:
+        code = result.json.get('code') if type(result.json) is dict else None
+        summary['json_error_code'] = code if code in known else 'unknown'
+        summary['public_code_tokens'] = sorted(code for code in known if re.search(
+            r'(?<![A-Za-z0-9_])' + re.escape(code) + r'(?![A-Za-z0-9_])', result.stderr))
+        status, value = f['a'].api('GET', '/v2/link/requests/' + f['rid'], timeout=2)
+        if type(status) is int and 100 <= status <= 599:
+            summary['http_status'] = status
+        if status == 200 and type(value) is dict and set(value) == LINK:
+            for output, field in (('owner_present', 'owner_offer_id'), ('selection_present', 'selection_id'),
+                                  ('finalization_present', 'owner_finalization_id')):
+                reference = value.get(field)
+                if reference == '-' or (isinstance(reference, str) and re.fullmatch(r'dpk_[0-9a-f]{64}', reference)):
+                    summary[output] = reference != '-'
+    except Exception:
+        pass  # Bounded diagnostics never mask the unchanged failing check.
+    print('machine_requester_finalize_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+
+
 def progress(f):
     if f.get('_ready'):
         return f
@@ -621,6 +648,11 @@ def progress(f):
         if f['provider']['kind'] == 'original_person':
             args += ['--person-key', a.root / 'absent-person-key']
         result = a.cli(*args, timeout=20)
+        if not (result.ok or (result.code == 1 and 'linking is incomplete' in result.stderr)):
+            try:
+                finalize_failure_diagnostic(f, result)
+            except Exception:
+                pass  # Preserve the original failure even if the observer fails.
         check(result.ok or (result.code == 1 and 'linking is incomplete' in result.stderr), 'exact existing-computer finalization failed')
     view = wait_for(lambda: v if (v := link_view(b, rid))['owner_finalization_id'] != '-' else None,
         timeout=15, interval=.1, message='actual requester received existing-person F')
@@ -917,6 +949,69 @@ def fault(f, action, triggers, prepared=None):
                 db.execute('DROP TRIGGER ' + name)
     strict(f, before, counters, 'SQL-fault')
 
+def clock_rollback_regression(f, approved=None):
+    """Root-authorized section46 extension: anchor-301s, no anchor-row edit.
+
+    Normal validators stay exact. Under this explicit historical stimulus only,
+    the effective observation is the target network's retained anchor, not raw
+    local time. Do not call ordinary request GET through its rollback refusal.
+    """
+    quiet(f)
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db:
+        row = db.execute('SELECT record FROM dec_clock WHERE network_id=?', (f['network']['id'],)).fetchone()
+    check(row is not None, 'genuine target-network clock anchor missing')
+    record = json.loads(row[0])
+    check(type(record) is dict and set(record) == {'format', 'largest_local_time'} and type(record['format']) is int
+          and record['format'] == 1 and isinstance(record['largest_local_time'], str)
+          and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', record['largest_local_time']), 'documented target-network anchor malformed')
+    anchor = parse_time(record['largest_local_time'])
+    saved = [(h.clock, h.clock.offset) for h in (f['a'], f['b'])]
+    actions = [(action, cli) for action in ('lookup', 'prepare', 'approve') for cli in (False, True)] if approved else [('approve', False)]
+    for action, cli in actions:
+        quiet(f)
+        try:
+            target = anchor - timedelta(seconds=301)
+            for clock, _ in saved:
+                # Floor keeps the actual raw clock <= the canonical target.
+                clock.set(math.floor((target - datetime.now(timezone.utc)).total_seconds()))
+            check(f['b'].now() < anchor - timedelta(seconds=300), 'rollback stimulus did not exceed retained guard by300s')
+            before, counters = whole(f), traffic(f)
+            data = input_for(f, action, f['prepared'])
+            if cli:
+                result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+                    input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
+                check(result.ok, 'approved CLI history failed under genuine clock rollback')
+                public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
+                value = result.json
+            else:
+                status, value = f['b'].api('POST', endpoint(f, action), data, timeout=5)
+                if approved:
+                    check(status == 200, f'approved history rollback HTTP {status}')
+                else:
+                    check(status == 409 and type(value) is dict and value.get('code') == 'machine_requester_consent_unavailable',
+                          'fresh unapproved action survived genuine clock rollback')
+                public(value, *f['secrets'])
+            if approved:
+                check(type(value) is dict and set(value) == CONSENT_TOP and value['version'] == 1
+                      and value['host_id'] == f['b'].id and value['context'] == context(f['parent'])
+                      and value['flow_id'] == f['flow']['flow_id'] and value['join_review_id'] == f['flow']['review_id']
+                      and value['observed_at'] == record['largest_local_time'] and value['consent'] == approved,
+                      'clock rollback changed exact approved review, binding or retained observation')
+                request = value['request']; frozen = approved['review']['inspection']
+                check(type(request) is dict and set(request) == LINK and request['request_id'] == f['rid']
+                      and request['role'] == 'requester' and request['mode'] == 'new' and request['migration_proposal_id'] == '-'
+                      and request['network_id'] == frozen['network']['id'] and request['context_id'] == frozen['network']['context_id']
+                      and all(request[key] == frozen[key] for key in ('person_public_key', 'host_public_key', 'device_public_key',
+                          'request_packet_id', 'owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id'))
+                      and request['selection_approved'] is request['commit_approved'] is True,
+                      'rollback history changed closed retained request pins/consent')
+            check(f['b'].now() < anchor - timedelta(seconds=300), 'rollback interval crossed its intended300s boundary')
+            strict(f, before, counters, 'clock-rollback-history' if approved else 'clock-rollback-fresh')
+        finally:
+            for clock, offset in saved:
+                clock.set(offset)  # Only public debug offsets; restore outside measurement.
+
+
 def release_reader_holds(f):
     """Reader isolation ends before the genuine ordinary mutation setup."""
     a = f['a']; identity = a.id, a.public_key
@@ -1149,6 +1244,7 @@ def _():
     for h in (f['a'], f['b']):
         advance_to(h, present)
     f['prepared'] = op(f, 'prepare'); c = f['prepared']['consent']
+    clock_rollback_regression(f)
     present = max(f['a'].now(), f['b'].now()) + timedelta(seconds=1)
     quiet(f)
     for h in (f['a'], f['b']):
@@ -1200,6 +1296,7 @@ def _():
             check(value['consent']['state'] == 'approved' and core(value['consent']) == core(approved), 'expired/detached/restarted history changed exact approved consent')
         op(f, 'approve', f['prepared'], pure=True, status=409, code='review_changed',
            override={**input_for(f, 'approve', f['prepared']), 'consent_review_id': 'review_' + '0' * 64})
+    clock_rollback_regression(f, approved)
     check(load_intent(f['b'], approved['consent_id']) == exact_receipt and load_intent(f['b'], approved['review']['intent_id']) == exact_ordinary,
           'history rewrote approval time/templates/signatures/provider/terminal evidence')
     no_original(f)
