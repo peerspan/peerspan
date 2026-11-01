@@ -1,0 +1,3265 @@
+{
+  "slice": "GU.impl48 diagnostic follow-up",
+  "source_head": "56c887c15ebb6fc3e67ae8345068be3568d1b8fd",
+  "first_ci": {
+    "head": "bf76635b910bb803ff203f342c2258c7047a55f8",
+    "conformance_run": 41326223098,
+    "checks_run": 41326223265,
+    "attempt": 1,
+    "conformance": {
+      "conclusion": "failure",
+      "headSha": "bf76635b910bb803ff203f342c2258c7047a55f8",
+      "jobs": [
+        {
+          "completedAt": "2026-11-01T16:26:37Z",
+          "conclusion": "success",
+          "databaseId": 124906608969,
+          "name": "Build host, peer probe and helper",
+          "startedAt": "2026-11-01T16:25:09Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:25:11Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:25:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:13Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:25:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:15Z",
+              "conclusion": "success",
+              "name": "Install Rust toolchain",
+              "number": 3,
+              "startedAt": "2026-11-01T16:25:13Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:18Z",
+              "conclusion": "success",
+              "name": "Run Swatinem/rust-cache@v2",
+              "number": 4,
+              "startedAt": "2026-11-01T16:25:15Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:31Z",
+              "conclusion": "success",
+              "name": "Build",
+              "number": 5,
+              "startedAt": "2026-11-01T16:25:18Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:35Z",
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4",
+              "number": 6,
+              "startedAt": "2026-11-01T16:26:31Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:35Z",
+              "conclusion": "success",
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "number": 11,
+              "startedAt": "2026-11-01T16:26:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:36Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 12,
+              "startedAt": "2026-11-01T16:26:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:36Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 13,
+              "startedAt": "2026-11-01T16:26:36Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906608969"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:00Z",
+          "conclusion": "success",
+          "databaseId": 124906988175,
+          "name": "invitation_onboarding",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:57Z",
+              "conclusion": "success",
+              "name": "Run invitation_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:57Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:26:57Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:58Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:26:57Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:58Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:26:58Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988175"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:35Z",
+          "conclusion": "success",
+          "databaseId": 124906988209,
+          "name": "root",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Run root",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:34Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:34Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:34Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988209"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:29Z",
+          "conclusion": "success",
+          "databaseId": 124906988233,
+          "name": "admission_onboarding",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:46Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Run admission_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988233"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:57Z",
+          "conclusion": "success",
+          "databaseId": 124906988256,
+          "name": "renewal",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:40Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Run renewal",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988256"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:52Z",
+          "conclusion": "success",
+          "databaseId": 124906988268,
+          "name": "delivery",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Run delivery",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988268"
+        },
+        {
+          "completedAt": "2026-11-01T16:26:56Z",
+          "conclusion": "success",
+          "databaseId": 124906988280,
+          "name": "adapter_onboarding",
+          "startedAt": "2026-11-01T16:26:40Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:47Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:53Z",
+              "conclusion": "success",
+              "name": "Run adapter_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:47Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:54Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:26:53Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:54Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:26:54Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:54Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:26:54Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988280"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:24Z",
+          "conclusion": "success",
+          "databaseId": 124906988290,
+          "name": "onboarding",
+          "startedAt": "2026-11-01T16:26:58Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:59Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:58Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:00Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:59Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:01Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:00Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:02Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:22Z",
+              "conclusion": "success",
+              "name": "Run onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:02Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:22Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:22Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:22Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:22Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988290"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:38Z",
+          "conclusion": "success",
+          "databaseId": 124906988292,
+          "name": "join",
+          "startedAt": "2026-11-01T16:27:34Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:36Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:38Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:36Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:38Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:38Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:40Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:38Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:35Z",
+              "conclusion": "success",
+              "name": "Run join",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:35Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:35Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:35Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:35Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988292"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:06Z",
+          "conclusion": "success",
+          "databaseId": 124906988293,
+          "name": "owner_signing",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:04Z",
+              "conclusion": "success",
+              "name": "Run owner_signing",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:04Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:04Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:04Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:04Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:04Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:04Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988293"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:25Z",
+          "conclusion": "success",
+          "databaseId": 124906988299,
+          "name": "incoming_progress",
+          "startedAt": "2026-11-01T16:27:09Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:11Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:12Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:12Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:14Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Run incoming_progress",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:14Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:23Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:23Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:23Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988299"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:50Z",
+          "conclusion": "success",
+          "databaseId": 124906988301,
+          "name": "capabilities",
+          "startedAt": "2026-11-01T16:27:05Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:08Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:09Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:08Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:09Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:09Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:11Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:09Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Run capabilities",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:48Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:48Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:48Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988301"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:07Z",
+          "conclusion": "success",
+          "databaseId": 124906988304,
+          "name": "join_onboarding",
+          "startedAt": "2026-11-01T16:27:24Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:26Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:25Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:26Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:28Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:30Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:28Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Run join_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:06Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:06Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:06Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988304"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:08Z",
+          "conclusion": "success",
+          "databaseId": 124906988310,
+          "name": "policy",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Run policy",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988310"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:32Z",
+          "conclusion": "success",
+          "databaseId": 124906988311,
+          "name": "work",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:30Z",
+              "conclusion": "success",
+              "name": "Run work",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:30Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:31Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:31Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:31Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988311"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:23Z",
+          "conclusion": "success",
+          "databaseId": 124906988323,
+          "name": "admission_consent",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:40Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Run admission_consent",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988323"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:04Z",
+          "conclusion": "success",
+          "databaseId": 124906988330,
+          "name": "owner_onboarding",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:02Z",
+              "conclusion": "success",
+              "name": "Run owner_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:02Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:02Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:02Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:02Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:02Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:02Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988330"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:07Z",
+          "conclusion": "success",
+          "databaseId": 124906988336,
+          "name": "basics",
+          "startedAt": "2026-11-01T16:27:36Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:38Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:36Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:38Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:38Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:39Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:38Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:39Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Run basics",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988336"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:26Z",
+          "conclusion": "success",
+          "databaseId": 124906988339,
+          "name": "sync",
+          "startedAt": "2026-11-01T16:27:24Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:26Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:25Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:26Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:27Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:30Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:27Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:24Z",
+              "conclusion": "success",
+              "name": "Run sync",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:24Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:24Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:24Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:24Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:24Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:24Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988339"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:26Z",
+          "conclusion": "success",
+          "databaseId": 124906988351,
+          "name": "peer_reachability",
+          "startedAt": "2026-11-01T16:26:40Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:46Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:23Z",
+              "conclusion": "success",
+              "name": "Run peer_reachability",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:23Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:23Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:23Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:23Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:23Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:23Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988351"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:34Z",
+          "conclusion": "success",
+          "databaseId": 124906988356,
+          "name": "machine_requester_inspection",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:32Z",
+              "conclusion": "success",
+              "name": "Run machine_requester_inspection",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:32Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:32Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:32Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988356"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:03Z",
+          "conclusion": "success",
+          "databaseId": 124906988365,
+          "name": "readiness",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:01Z",
+              "conclusion": "success",
+              "name": "Run readiness",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:01Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:01Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:01Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:01Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988365"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:28Z",
+          "conclusion": "success",
+          "databaseId": 124906988374,
+          "name": "machine_requester_completion",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:46Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Run machine_requester_completion",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:22Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:22Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:22Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988374"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:23Z",
+          "conclusion": "success",
+          "databaseId": 124906988376,
+          "name": "machine_owner_consent",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:45Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Run machine_owner_consent",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:21Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:21Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988376"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:57Z",
+          "conclusion": "success",
+          "databaseId": 124906988382,
+          "name": "owner_finalization_signing",
+          "startedAt": "2026-11-01T16:27:06Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:07Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:08Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:07Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:09Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:08Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:10Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:09Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Run owner_finalization_signing",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:55Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:55Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988382"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:45Z",
+          "conclusion": "success",
+          "databaseId": 124906988389,
+          "name": "requester_commit",
+          "startedAt": "2026-11-01T16:27:02Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:04Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:03Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:04Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:06Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:09Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:06Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:42Z",
+              "conclusion": "success",
+              "name": "Run requester_commit",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:09Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:42Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:42Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:42Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:42Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988389"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:45Z",
+          "conclusion": "success",
+          "databaseId": 124906988391,
+          "name": "access_onboarding",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:55Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:43Z",
+              "conclusion": "success",
+              "name": "Run access_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:43Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:43Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:43Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:43Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988391"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:18Z",
+          "conclusion": "success",
+          "databaseId": 124906988399,
+          "name": "live",
+          "startedAt": "2026-11-01T16:27:44Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:46Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:45Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:48Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:48Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:48Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Run live",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:16Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:16Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:16Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988399"
+        },
+        {
+          "completedAt": "2026-11-01T16:27:43Z",
+          "conclusion": "success",
+          "databaseId": 124906988417,
+          "name": "machine_owner_signing",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:41Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:43Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:44Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:41Z",
+              "conclusion": "success",
+              "name": "Run machine_owner_signing",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:44Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:41Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:27:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:41Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:27:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:41Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:27:41Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988417"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:05Z",
+          "conclusion": "success",
+          "databaseId": 124906988421,
+          "name": "access_application",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:26:42Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:26:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:46Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:26:42Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:46Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:26:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:48Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:26:46Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:03Z",
+              "conclusion": "success",
+              "name": "Run access_application",
+              "number": 5,
+              "startedAt": "2026-11-01T16:26:48Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:03Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:03Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:03Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:03Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:03Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:03Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988421"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:22Z",
+          "conclusion": "success",
+          "databaseId": 124906988468,
+          "name": "owner_finalization",
+          "startedAt": "2026-11-01T16:27:08Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:10Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:09Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:12Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:12Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:15Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:19Z",
+              "conclusion": "success",
+              "name": "Run owner_finalization",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:15Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:19Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:19Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:19Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:19Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:19Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:19Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988468"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:45Z",
+          "conclusion": "success",
+          "databaseId": 124906988475,
+          "name": "access_consent",
+          "startedAt": "2026-11-01T16:27:30Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:32Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:31Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:32Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:35Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:43Z",
+              "conclusion": "success",
+              "name": "Run access_consent",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:35Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:43Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:43Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:43Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:43Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:43Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988475"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:59Z",
+          "conclusion": "failure",
+          "databaseId": 124906988485,
+          "name": "requester_completion",
+          "startedAt": "2026-11-01T16:27:26Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:28Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:26Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:29Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:28Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:29Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:29Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:30Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:29Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:57Z",
+              "conclusion": "failure",
+              "name": "Run requester_completion",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:57Z",
+              "conclusion": "skipped",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:57Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:57Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:57Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:57Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:57Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988485"
+        },
+        {
+          "completedAt": "2026-11-01T16:29:02Z",
+          "conclusion": "success",
+          "databaseId": 124906988500,
+          "name": "access_signing",
+          "startedAt": "2026-11-01T16:27:37Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:39Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:38Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:40Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:39Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:40Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:41Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:40Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:01Z",
+              "conclusion": "success",
+              "name": "Run access_signing",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:41Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:01Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:29:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:01Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:29:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:01Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:29:01Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988500"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:06Z",
+          "conclusion": "success",
+          "databaseId": 124906988505,
+          "name": "machine_owner",
+          "startedAt": "2026-11-01T16:27:27Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:29Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:28Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:31Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:29Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:31Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:31Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:33Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:31Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:04Z",
+              "conclusion": "success",
+              "name": "Run machine_owner",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:33Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:04Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:04Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:04Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:05Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:05Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988505"
+        },
+        {
+          "completedAt": "2026-11-01T16:29:28Z",
+          "conclusion": "success",
+          "databaseId": 124906988546,
+          "name": "machine_requester_consent",
+          "startedAt": "2026-11-01T16:27:46Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:49Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:47Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:49Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:50Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:52Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:50Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:25Z",
+              "conclusion": "success",
+              "name": "Run machine_requester_consent",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:52Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:25Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:29:25Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:25Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:29:25Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:29:25Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:29:25Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988546"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:17Z",
+          "conclusion": "success",
+          "databaseId": 124906988569,
+          "name": "project_onboarding",
+          "startedAt": "2026-11-01T16:27:51Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:27:53Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:27:52Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:54Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:27:53Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:55Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-python@v5",
+              "number": 3,
+              "startedAt": "2026-11-01T16:27:54Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:27:57Z",
+              "conclusion": "success",
+              "name": "Run actions/download-artifact@v4",
+              "number": 4,
+              "startedAt": "2026-11-01T16:27:55Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:15Z",
+              "conclusion": "success",
+              "name": "Run project_onboarding",
+              "number": 5,
+              "startedAt": "2026-11-01T16:27:57Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-python@v5",
+              "number": 9,
+              "startedAt": "2026-11-01T16:28:15Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:28:16Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:16Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:16Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988569"
+        }
+      ],
+      "status": "completed"
+    },
+    "checks": {
+      "conclusion": "success",
+      "headSha": "bf76635b910bb803ff203f342c2258c7047a55f8",
+      "jobs": [
+        {
+          "completedAt": "2026-11-01T16:26:04Z",
+          "conclusion": "success",
+          "databaseId": 124906609481,
+          "name": "Rust Clippy",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:25:12Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:25:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:14Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:25:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:16Z",
+              "conclusion": "success",
+              "name": "Install Rust toolchain",
+              "number": 3,
+              "startedAt": "2026-11-01T16:25:14Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:20Z",
+              "conclusion": "success",
+              "name": "Run Swatinem/rust-cache@v2",
+              "number": 4,
+              "startedAt": "2026-11-01T16:25:16Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:01Z",
+              "conclusion": "success",
+              "name": "Rust Clippy",
+              "number": 5,
+              "startedAt": "2026-11-01T16:25:20Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:01Z",
+              "conclusion": "success",
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "number": 9,
+              "startedAt": "2026-11-01T16:26:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:01Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:26:01Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:01Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:26:01Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609481"
+        },
+        {
+          "completedAt": "2026-11-01T16:26:32Z",
+          "conclusion": "success",
+          "databaseId": 124906609641,
+          "name": "Claude onboarding runtime",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:25:11Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:25:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:12Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:25:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:15Z",
+              "conclusion": "success",
+              "name": "Run actions/setup-node@v4",
+              "number": 3,
+              "startedAt": "2026-11-01T16:25:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:18Z",
+              "conclusion": "success",
+              "name": "Install pinned native test runtime",
+              "number": 4,
+              "startedAt": "2026-11-01T16:25:15Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:30Z",
+              "conclusion": "success",
+              "name": "Validate native entry and run independent runtime checks",
+              "number": 5,
+              "startedAt": "2026-11-01T16:25:18Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:30Z",
+              "conclusion": "success",
+              "name": "Post Run actions/setup-node@v4",
+              "number": 9,
+              "startedAt": "2026-11-01T16:26:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:31Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "startedAt": "2026-11-01T16:26:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:31Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "startedAt": "2026-11-01T16:26:31Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609641"
+        },
+        {
+          "completedAt": "2026-11-01T16:28:11Z",
+          "conclusion": "success",
+          "databaseId": 124906609758,
+          "name": "Rust tests and build",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:25:12Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:25:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:14Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:25:12Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:14Z",
+              "conclusion": "success",
+              "name": "Install Rust toolchain",
+              "number": 3,
+              "startedAt": "2026-11-01T16:25:14Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:19Z",
+              "conclusion": "success",
+              "name": "Run Swatinem/rust-cache@v2",
+              "number": 4,
+              "startedAt": "2026-11-01T16:25:14Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:26:30Z",
+              "conclusion": "success",
+              "name": "Build shipped Rust binaries",
+              "number": 5,
+              "startedAt": "2026-11-01T16:25:19Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:08Z",
+              "conclusion": "success",
+              "name": "Existing Rust tests",
+              "number": 6,
+              "startedAt": "2026-11-01T16:26:30Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:08Z",
+              "conclusion": "success",
+              "name": "Post Run Swatinem/rust-cache@v2",
+              "number": 11,
+              "startedAt": "2026-11-01T16:28:08Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:09Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 12,
+              "startedAt": "2026-11-01T16:28:08Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:28:09Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 13,
+              "startedAt": "2026-11-01T16:28:09Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609758"
+        },
+        {
+          "completedAt": "2026-11-01T16:25:17Z",
+          "conclusion": "success",
+          "databaseId": 124906609782,
+          "name": "Rust format",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "status": "completed",
+          "steps": [
+            {
+              "completedAt": "2026-11-01T16:25:11Z",
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "startedAt": "2026-11-01T16:25:10Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:13Z",
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "startedAt": "2026-11-01T16:25:11Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:14Z",
+              "conclusion": "success",
+              "name": "Install Rust toolchain",
+              "number": 3,
+              "startedAt": "2026-11-01T16:25:13Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:15Z",
+              "conclusion": "success",
+              "name": "Rust format",
+              "number": 4,
+              "startedAt": "2026-11-01T16:25:14Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:15Z",
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 8,
+              "startedAt": "2026-11-01T16:25:15Z",
+              "status": "completed"
+            },
+            {
+              "completedAt": "2026-11-01T16:25:15Z",
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 9,
+              "startedAt": "2026-11-01T16:25:15Z",
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609782"
+        }
+      ],
+      "status": "completed"
+    },
+    "bot_receipt": "https://github.com/peerspan/peerspan/pull/101#issuecomment-6560675801",
+    "bot_clean_exact_head": true,
+    "unresolved_threads": 0,
+    "native": {
+      "passed": 440,
+      "failed": 0,
+      "seconds": 71.85
+    },
+    "failure": {
+      "suite": "requester_completion",
+      "passed": 5,
+      "failed": 1,
+      "seconds": 84,
+      "case": "expired/API/wrong-review replay carrier purity",
+      "observed": "issuerUDP+2datagrams/+2400bytes; zero returned UDP and TCP changes; directory current row/stateok",
+      "cause": "unclassified"
+    },
+    "logs": {
+      "ci-requester-completion-first.log": {
+        "sha256": "46083dc4090c0757a00f9df500dbe0f3b692398dee84827149c526e03b70f962",
+        "bytes": 18898
+      },
+      "ci-native-first.log": {
+        "sha256": "c5b549529119505fb8ccb18fb11305c188e0cfdd5026cd3c756fccf571102bf7",
+        "bytes": 87415
+      },
+      "ci-rust-first.log": {
+        "sha256": "b6dddeee26caaae8cb5e3f6123077cf6513671a190b542e6678e9c4935c19a2c",
+        "bytes": 37066
+      }
+    }
+  },
+  "diagnostic_contract": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+  "independent_author": {
+    "commit": "d00409c06e4341ecc6b4097eb9b8d24bc3f6ab5f",
+    "branch": "codex/gu-requester-completion-carrier-diagnostic-tests",
+    "path": "conformance/slim/requester_completion_carrier_diagnostic.py",
+    "sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+    "source_only": true,
+    "no_product_reads_or_runtime": true,
+    "audit": {
+      "source_sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+      "source_ast_sha256": "caea76a9b78805e3ebacbc88a27a29df758ed6a0277d7d9887e7ccb836264263",
+      "protected_files_byte_exact": 70,
+      "base": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+      "removal": "delete only conformance/slim/requester_completion_carrier_diagnostic.py; every prior tracked test/helper byte and AST unchanged",
+      "bounds": {
+        "events_per_endpoint": 32,
+        "endpoints": 256,
+        "printed_events_per_crossed_endpoint": 8
+      },
+      "fake_checks": "/tmp/gu48-requester-carrier-static-check.py",
+      "limits": [
+        "no actual sockets/hosts/native/model/runtime executed",
+        "source port/header class does not establish daemon task or route attribution",
+        "unregistered/startup events and truncated windows remain unknown"
+      ]
+    }
+  },
+  "root_fake_checks": {
+    "exit": 0,
+    "command": [
+      "python3",
+      "/tmp/gu48-requester-carrier-static-check.py"
+    ],
+    "check_sha256": "cac6edc17c956abaee3b15808b533aa88344f382d9c116ebf07f9927a05fc3b1",
+    "source_hash_matches_integrated_copy": true,
+    "scope": "Fake socket/process/decorator only; no host/socket/native/model runtime. One-call/result/exception/argv/restoration,32/256/8 bounds, ordinal filtering, finite headers, silent success and private canaries."
+  },
+  "fresh_build": {
+    "gate": "rust-build-diagnostic-first",
+    "head": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "rust/Cargo.toml",
+      "--bins"
+    ],
+    "env_overrides": {
+      "CARGO_TARGET_DIR": "/tmp/peerspan-gu47-target",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "exit": 0,
+    "seconds": 71.53,
+    "sha256": "0c664488bbfc9dca6d9a87a46ed9abda914467716fb582147c4ebc08635bd36f",
+    "preflight_active": [],
+    "binaries": {
+      "peerspan-host": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-host",
+        "sha256": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "bytes": 113941296
+      },
+      "peerspan-peer-probe": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-peer-probe",
+        "sha256": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "bytes": 13904776
+      },
+      "peerspan-helper": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-helper",
+        "sha256": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a",
+        "bytes": 14533032
+      }
+    }
+  },
+  "affected_run": {
+    "gate": "requester-completion-diagnostic-first",
+    "head": "56c887c15ebb6fc3e67ae8345068be3568d1b8fd",
+    "command": [
+      "python3",
+      "conformance/slim/requester_completion_carrier_diagnostic.py",
+      "--bin",
+      "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+    ],
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+    "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+    "observer_sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+    "preflight_active": [
+      [
+        "3504988",
+        "peerspan-host"
+      ]
+    ],
+    "fresh_build_head": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+    "bin_hashes": {
+      "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+      "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+      "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+    },
+    "exit": 0,
+    "seconds": 147.04,
+    "log": "/tmp/gu48-runtime/requester-completion-diagnostic-first.log",
+    "sha256": "f084718c0405b825c27647f6ddbc24e925455f30f5f213cc7d8b312ecdb90144"
+  },
+  "local_outcome": {
+    "passed": 6,
+    "failed": 0,
+    "seconds": 146,
+    "target_seconds": 120,
+    "target_exceeded": true,
+    "failure_observer_output": false,
+    "prior_cause": "unclassified",
+    "product_fix_claimed": false
+  },
+  "preservation": {
+    "base": "bf76635b910bb803ff203f342c2258c7047a55f8",
+    "prior_test_helper_files": 70,
+    "prior_bytes_and_AST_unchanged": true,
+    "native_440_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+    "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "workflow_change": "Only requester_completion uses the new receive-only launcher; all other commands unchanged."
+  },
+  "limits": [
+    "Passing changed diagnostic sample does not explain the first CI crossing or prior local native timeout/zero-dispatch causes.",
+    "Observer changes no test verdict, forwarding/result/exception, case/action/wait/default timeout, host lifecycle or authority.",
+    "Packet class and source-role equality do not establish daemon task/route attribution.",
+    "Startup/unregistered/truncated receive windows remain unknown.",
+    "Final-head full37jobs/fourchecks/native440 and fresh bot/root review remain required, with receipt on PR101.",
+    "Physical/terminal/reload/installed/actual-model/schema23\u219227/full-state/final35 acceptance remains open."
+  ],
+  "attachment": "PR101 app attachment attempted; thread attachment identity count exceeds100. No unrelated artifacts removed."
+}
