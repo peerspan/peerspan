@@ -1068,3 +1068,15 @@ remain unclassified. Temporary capture/publicPEM/upload are removed exactly.
 Fresh Rust918d gates pass; old45six/sixin70s and new47six/sixin118s pass with
 runner120.55s retained separately. All67/new47/native415 exact; final fullCI
 and fresh review receipts follow on PR100. Native/full-feature gates stay open.
+
+
+### New computer: native requester controls
+
+Section48/GU.impl48 follows merged100 (`1457be6`). The terminal pane composes
+verified remote machine review, exact requester consent and bounded completion
+with separate explicit controls and pure uncertain-outcome recovery. The
+original remains on the existing computer. Local application does not establish
+current powers, access, delivery or readiness. No backend/API/schema change.
+Contract-only independent native fixtures and root execution precede final-head
+CI and fresh bot/root review. Full terminal/reload/installed/physical/model/
+schema23→27/full-state/final #35 acceptance remains open.

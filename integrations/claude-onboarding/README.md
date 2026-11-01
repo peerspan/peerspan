@@ -641,3 +641,27 @@ no participant/access approval. Close and parent re-entry succeeded; the final
 native outcome lookup after re-entry remains a manual gate after automatic
 approval review refused that terminal action. Source provenance, exact limits
 and separate independent recovery coverage are recorded in the artifact.
+
+
+## Complete this computer's machine link
+
+After publishing through **Connect this computer**, press **Review machine link**.
+Peerspan reads the existing computer's received approval, requester selection and
+finalization. Missing evidence shows a waiting state; **Check machine requester
+consent** reads again without contacting peers or driving the ceremony.
+
+Review the exact person, remote provider, this host/device, finite powers and
+fixed deadlines, then press **Review machine requester consent**. Preparation
+records unsigned terms only. **Approve machine requester commit** records those
+exact terms; **Complete machine requester commit** separately continues bounded
+host/device signing, publication and local application. The original person key
+stays on the existing computer. No original inventory, import or copy is needed.
+
+**Local application: recorded** is retained global protocol evidence. Participant
+delivery, current powers, agent access, connection readiness and model receipt
+need separate checks. An uncertain action offers pure **Check machine requester
+consent**, without automatically retrying. **Leave machine requester review**
+closes controls and cannot retract dispatched work or revoke consent. Refresh,
+Close, context changes and reload discard frontend evidence; reopen and read
+the retained result. Actual terminal/reload/installed/two-machine/model acceptance
+and the complete feature PR remain open.

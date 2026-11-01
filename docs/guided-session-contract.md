@@ -9507,6 +9507,14 @@ returned LINK_VIEW; all three not_verified fields must be exact. Observation
 cannot regress against retained evidence. Unknown/unsafe/private-prefixed or
 oversized responses fail closed; discard subprocess stdout/stderr diagnostics.
 
+Receipt/intent/inspection and consent digests may appear in this human pane;
+join flow/join review and parent project/native/session plumbing remain private.
+A pure Lookup with approved consent and a consistent linked LINK_VIEW may show
+local application recorded without inventing a Complete response or attribution.
+An invalidated receipt after separately authorized advanced approval remains
+view-only even if ordinary commit/application work has progressed; it cannot
+gain guided approval attribution or authorize native Complete.
+
 ### Recovery, deadlines and invalidation
 
 **Check machine requester consent** uses only Lookup and, while still unprepared
