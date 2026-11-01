@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Run unchanged machine_requester_inspection with closed failure metadata.
 
-GU.impl47/1023749: no extra host, API, storage, network or subprocess work.
-Only the existing link/finalize Result or exception is observed. The original
+GU.impl47/1023749: no extra host, API, database or network work. Only the
+existing link/finalize Result or exception is observed; the bounded failure-only
+encryptor and ciphertext artifact preserve the original verdict. The original
 suite argv, calls, assertions, timeouts and exit remain authoritative.
 """
 import json
+import os
 from pathlib import Path
 import re
 import runpy
@@ -71,6 +73,57 @@ def classify_english(stderr):
     return 'unknown', 'unknown'
 
 
+_capture_attempted = False
+
+
+def capture_unknown(stderr):
+    """First unknown failed guard only; ciphertext is never plaintext output."""
+    global _capture_attempted
+    if _capture_attempted:
+        return
+    _capture_attempted = True
+    try:
+        lines = [line for line in stderr.splitlines() if line.strip()]
+        payload = lines[-1].encode('utf-8')[:256] if lines else b''
+        if not payload:
+            raise ValueError
+        encrypted = subprocess.run(['openssl', 'pkeyutl', '-encrypt', '-pubin', '-inkey',
+            str(Path(__file__).with_name('inspection_finalization_diagnostic_public.pem')),
+            '-pkeyopt', 'rsa_padding_mode:oaep', '-pkeyopt', 'rsa_oaep_md:sha256',
+            '-pkeyopt', 'rsa_mgf1_md:sha256'], input=payload,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+        if encrypted.returncode != 0 or type(encrypted.stdout) is not bytes or len(encrypted.stdout) != 512:
+            raise ValueError
+        directory = Path.cwd() / 'diagnostic-artifacts'
+        directory.mkdir(mode=0o700, exist_ok=True)
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            name = 'inspection-finalize-error.rsa'
+            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory_fd)
+            try:
+                os.fchmod(descriptor, 0o600)
+                with os.fdopen(descriptor, 'wb') as artifact:
+                    if artifact.write(encrypted.stdout) != 512:
+                        raise OSError
+            except BaseException:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(name, dir_fd=directory_fd)
+                except OSError:
+                    pass
+                raise
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        try:
+            print('inspection_finalize_capture_unavailable', flush=True)
+        except BaseException:
+            pass  # Capture failure cannot change the original failed verdict.
+
+
 def exception_kind(error):
     for kind, cls in (('timeout', subprocess.TimeoutExpired), ('host_failure', harness.Failure),
                       ('os_error', OSError), ('system_exit', SystemExit), ('keyboard_interrupt', KeyboardInterrupt)):
@@ -111,7 +164,10 @@ def metadata(result=None, error=None):
 
 def emit(result=None, error=None):
     try:
-        print('inspection_finalize_failure_public=' + json.dumps(metadata(result, error), sort_keys=True), flush=True)
+        summary = metadata(result, error)
+        print('inspection_finalize_failure_public=' + json.dumps(summary, sort_keys=True), flush=True)
+        if result is not None and summary['english_class'] == 'unknown':
+            capture_unknown(result.stderr)
     except BaseException:
         try:
             print('inspection_finalize_diagnostic_unavailable', flush=True)
