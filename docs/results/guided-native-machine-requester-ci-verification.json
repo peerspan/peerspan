@@ -761,5 +761,41 @@
       "pre-existing unrelated host3504988 left untouched; no compiler/native overlap",
       "fresh full combined CI and bot/root review still required before ready"
     ]
+  },
+  "third_ci": {
+    "head": "8f7349f38b1bc6fe424ed4b87e0502f3c08d98e9",
+    "conformance_run": 41330928039,
+    "checks_run": 41330928002,
+    "attempt": 1,
+    "conformance_jobs_passed": 36,
+    "conformance_jobs_total": 37,
+    "all4_checks_pass": true,
+    "native": {
+      "passed": 440,
+      "seconds": 107.06
+    },
+    "bot_receipt": [
+      "https://github.com/peerspan/peerspan/pull/101#issuecomment-6561307724"
+    ],
+    "bot_clean": true,
+    "failure": {
+      "suite": "machine_requester_completion",
+      "job": 124921054644,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 65,
+      "boundary": "pre-measurement actual terminal proof outbox and journal retirement; original5s timeout",
+      "cause": "unclassified; neither failing row nor incomplete attempt observed in this job, no replay purity assertion reached"
+    },
+    "logs": {
+      "candidate-machine-completion-failed.log": {
+        "sha256": "aeeea465947d275941fd927b9bb46ef23b8a6024ef019acc71f6e83d3b668cda",
+        "bytes": 18928
+      },
+      "candidate-native.log": {
+        "sha256": "f0e54e715305e2a62d1f889f1831a306acfaa9946145725fdc50444f558f9ef2",
+        "bytes": 87509
+      }
+    }
   }
 }

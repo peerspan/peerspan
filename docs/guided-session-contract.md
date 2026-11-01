@@ -9744,6 +9744,49 @@ unchanged Rust918d binaries, records every failure/duration/limit, then requires
 full combined-head CI and fresh bot/root review. Earlier unknown causes stay
 unknown; passing prerequisite runs establish no general transport fix.
 
+### GU.impl48 machine-history completed-attempt phase witness
+
+Third full CI41330928039 on8f7349f passes36/37 jobs (including old24/28),
+all4 PR checks/native440in107.06s and fresh exact-head bot review. Old47 final
+case passes5/6in65s but its ORIGINAL5s terminal proof-outbox/journal retirement
+check times out BEFORE subject replay measurement. This log does not identify
+which row/journal/attempt/caller remained; do not attribute old28's attempt0,
+a transport failure or a product regression. Preserve that unknown and failure.
+
+Public old47 terminal_baseline also selects retry timestamps immediately after
+its two successful syncs, without establishing completed attempted generations.
+Select the same documented completed-attempt phase prerequisite above, using
+its existing independently authored helper unchanged. Add ONE new independent
+launcher, preserving all73 existing native/conformance/helper files byte-exact,
+including both prerequisite launchers and the receive-only diagnostic. Do not
+copy/replace terminal_baseline or edit its inline clock/alignment/5s wait.
+
+Wrap Suite.case ONLY for verified_completed_replay_pure_after_expiry_detach_restart_and_anchor_rollback.
+Temporarily wrap that case's terminal_baseline. During the original helper only,
+wrap f['b'].api for the ONE exact existing POST /v2/networks/{known network}/sync.
+Forward original positional/keyword arguments ONCE and retain its exact returned
+object/exception. Only when the original result satisfies the unchanged
+status200/unavailable-empty/usable-authority guard, invoke the existing
+completed_attempts(namespace,(f['a'],f['b'])) BEFORE returning the SAME result.
+The first host's sync/check has completed, and original inline retry-time
+collection then observes the actual completed generation. No additional sync,
+API call, packet/probe/send, alignment, clock write, retry or subject warmup.
+Original malformed/failed sync results go to their original guard unchanged;
+new prerequisite failures fail the original case, without masking exceptions.
+Restore instance attribute exactly (remove temporary override when originally
+inherited), terminal_baseline and Suite.case in finally including SystemExit.
+Delegate the unchanged old47 file by runpy with exact argv/verdict; no eager
+subject imports. No other suite/native/helper/runtime changes.
+
+Separate contract-only author commits that one launcher and fake-only exact
+forwarding/result/exception/guard/order/own-or-inherited restoration checks.
+Root verifies source/protected bytes and unchanged Rust918d binary hashes, runs
+this changed affected suite ONCE, retains every failure/duration/limit, then
+requires fresh full final-head CI and bot/root review. A pass establishes the
+phase witness for that run; it diagnoses no earlier caller or general transport
+fix. Discard guessed sleeps/fences, larger original waits, forced ACKs, ignored
+journals/rows/IO, worker suppression and unchanged retry-to-green.
+
 ## 49. Remaining flow contract
 
 Teammate/device admission, remaining
