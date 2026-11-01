@@ -2704,12 +2704,18 @@ function machineRequesterPayload(running, captured = null) {
     ...(captured?.consent ? { consent_review_id: captured.consent.review_id } : {}) };
 }
 async function machineRequesterParent($, running, epoch) {
-  if (!await joinParent($, running, epoch)) return false;
-  const raw = await joinRun($, ['inspect', running.flow.flow_id]);
   if (!await joinCurrent($, running, epoch)) return false;
-  const flow = await parseJoinFlow(machinePublic(raw, true), running.parent, running.host);
+  // Fresh exact parent and join lookups keep every review/flow reference in
+  // private stdin rather than adding positional IDs to process arguments.
+  const parentRaw = await projectRun($, ['lookup', '--stdin'], running.context);
   if (!await joinCurrent($, running, epoch)) return false;
-  if (!machinePinned(flow) || flow.state !== 'requested' || !same(flow, running.flow)) throw new Error('Changed machine requester flow');
+  const parent = parseProjectLookup(machinePublic(parentRaw, true), running.context, running.host).flow;
+  if (!parent || parent.state !== 'attached' || !same(parent, running.parent)) throw new Error('Changed machine requester parent');
+  const raw = await joinRun($, ['lookup', '--stdin'], { context: adapterContext(running.parent) });
+  if (!await joinCurrent($, running, epoch)) return false;
+  const flow = (await parseJoinLookup(machinePublic(raw, true), running.parent, running.host)).flow;
+  if (!await joinCurrent($, running, epoch)) return false;
+  if (!flow || !machinePinned(flow) || flow.state !== 'requested' || !same(flow, running.flow)) throw new Error('Changed machine requester flow');
   return joinHost($, running, epoch);
 }
 async function machineRequesterRun($, command, running, captured = null, inspected = null) {
