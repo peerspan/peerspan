@@ -2048,7 +2048,10 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const machineRequesterCanPrepare = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'prepare');
   const machineRequesterCanApprove = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'approve');
   const machineRequesterCanComplete = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'complete');
-  const machineRequesterExpired = machineDeadline !== null && !(machineRequesterCanPrepare || machineRequesterCanApprove || machineRequesterCanComplete);
+  const machineCreated = machineValue?.consent?.review.created_at ?? machineInspection?.review.created_at;
+  const machineObserved = Math.max(Date.parse(machineValue?.observed_at), Date.parse(machineInspection?.observed_at ?? machineValue?.observed_at));
+  const machineRequesterExpired = machineDeadline !== null && (!Number.isFinite(now) || now < Date.parse(machineCreated) ||
+    Math.max(now, machineObserved) >= machineDeadline || machineObserved > now + 30000);
   const secret = ['choose', 'create_review', 'machine_identity', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
