@@ -9251,6 +9251,46 @@ result/exception/assertion and all six case ASTs; inverse restores prior1ed578
 source/AST. One committed diagnostic run follows on frozen0047. Do not add a
 proxy fix or old-host-offline setup before this bounded diagnostic is captured.
 
+GU.impl47 target diagnostic92c5393 passes3/6in90s, retaining the malformed
+issuer UDP and parent TCP-only crossings. It identifies existing probe/contact
+POST aimed at the counted existing-computer endpoint: timeout/nonzero, both
+threads alive before/after, no counted UDP delta. This proves that attempted
+counted path did not deliver traffic in that interval; it does not identify a
+dead thread or root cause. Preserve all earlier unknown causes.
+
+Select bounded phase-correct prerequisites before one corrected run:
+
+- After genuine application on both participants, use section28's supported
+  terminal transport config/restart and fresh counted QUIC endpoints, preserving
+  exact identities/state. Keep both ORIGINAL counted UDP proxies/counters at
+  their original traffic positions forever and append every new proxy/direction;
+  never reset or omit old paths. Existing signed contact exchange, peer
+  registrations and syncs must establish actual new normal-peer reachability.
+  No retry at the failed old address, added probe loop or larger waits. This
+  selects independently verified terminal resources, not a proxy defect claim.
+- For original-cap unapplied time/parent barriers, after genuine barrier entry
+  and observed no local operation, take the old computer genuinely offline
+  before the stimulus/baseline. Its complete stopped DB/files and both original
+  TCP/UDP remain included. Preserve exact parent/time refusal, no new local
+  application and full before/after equality. No worker flag or mid-baseline
+  shutdown. The command already completed its one pre-application IO phase.
+- Run the whole malformed/private/refusal/method/scoped/peer/bootstrap/no-startup
+  corpus against genuine signed/approved but UNAPPLIED work before the positive
+  application case, avoiding an installed network's independent directory
+  refresh during those parser checks. Preserve every corpus item, expected
+  status/code, original timeout, full state/counter assertion and API/CLI call.
+  Move the exact64KiB successful API replay and successful pure CLI completed
+  replay to the genuine terminal-history phase after actual settlement. Do not
+  remove them or make an unmeasured warming Complete. The primary fresh lost-
+  response application remains explicitly measured and independently verified.
+
+These are separate genuine prerequisites; no assertion/category weakening,
+current-authority invention, worker disabling, schema/protocol edits, larger
+waits, background-IO attribution or unchanged retry. Separate author commits
+source and restoration audit before root execution on unchanged Rust0047.
+All67 prior files/fullnative415 stay exact. The earlier CI old28 failure remains
+unclassified; it is neither modified nor waived by this new-suite correction.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining

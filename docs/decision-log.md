@@ -4029,3 +4029,12 @@ operation/destination-match/program/before-thread classification; discard dead
 proxy attribution and additional drivers. Preserve first CI old28 expired UDP
 and new47 malformed UDP/contact failures; fourchecks and botpass do not waive
 conformance. No old67 edits or unchanged retry.
+
+GU.impl47 target diagnostic92c5393 records3/6in90s, runner91.48. Contact
+POST uses expected counted A path, timeout/no UDPdelta while threads alive;
+no deadproxy attribution. Select actual fresh terminal config/endpoints with
+every old/new UDPpath retained, genuine old-A offline after unapplied barriers,
+and malformed corpus before application with both successful history reads
+relocated intact to settled terminal history. Discard retries at failedaddress,
+worker flags/counter exclusions, claimed rootcause, larger waits or dropped
+assertions. New-suite independent correction precedes next run; old67 exact.
