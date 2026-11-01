@@ -4179,3 +4179,18 @@ passes6/6in112s, runner115.37s on hashed unchanged Rust918d binaries. All
 original strict history/state/files/carriers/5s waits remain. Prior CI cause
 stays unclassified; no general transport fix or full acceptance is claimed.
 Fresh final combined-head CI and bot/root review are still required.
+
+## GU.impl49 — Combined genuine guided machine-link acceptance
+
+After merged101, select one shared two-host creator-device15/folded ceremony
+through guided project/invitation/pinned request, exact owner review/sign and
+ordinary automatic selection/F, then requester consent/one Complete with a
+real lost200 result and fresh Lookup recovery. Verify actual typed application,
+finite7/B2/current membership and unchanged preexisting policy; report legitimate
+same-person self access separately from grants and unverified delivery/readiness.
+Original stays only on A. Discard advanced F/resume or fabricated-authority
+fixtures, repeated mutations, an exhaustive duplicate matrix, assuming all
+access is denied and claiming GUI/installed/physical/model/upgrade acceptance.
+Three compact independent contract-derived cases,74 prior files unchanged,
+first-run evidence and full final-head CI/review. Actual automatic-F stalls
+remain blockers to fix with evidence, without a fallback driver or longer wait.

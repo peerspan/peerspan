@@ -1119,3 +1119,15 @@ requester sync, before unchanged inline retry alignment. All73 prior files
 remain exact; first affected run passes6/6in112s (runner115.37). No extra sync,
 retry, clock write, altered old verdict/wait or product change. Final fullCI/
 review receipts follow on PR101; full-feature acceptance remains open.
+
+### Combined other-computer acceptance
+
+Merged101 (`4f6ca8f`) completes the native requester controls. GU.impl49 now
+verifies the complete composed machine-link backend on two genuine temporary
+hosts, using guided operations and the existing selected creator-device provider.
+The original stays on the existing host; automatic selection/F must work without
+advanced fallback commands. One lost actual completion reply recovers by Lookup,
+then current membership, unchanged policy, same-person access and unverified
+delivery/readiness are checked separately. A separate contract-only author
+writes three shared-ceremony cases before root execution. GUI/reload/installed/
+physical/model/schema23→27/full-state and final35 acceptance stay open.
