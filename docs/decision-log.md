@@ -4245,3 +4245,16 @@ first failure and choose a contract-only independent diagnostic wrapper around
 existing capture calls before another execution. No changed old verdict, wait,
 comparison, transport or mutation driver. Discard masking authorized work or
 assuming it caused this failure without a captured difference.
+
+Captured-only diagnostic68feeb9 preserves13/14 failure in57.34s: only
+dec_pending.record.outbound_frames changes across the exact original baseline;
+row count1/1 and schema/version unchanged. Home comparison was short-circuited,
+not observed unchanged. Root retained state has the own endpoint acknowledgment
+and no owner/selection/commit authority. Ordinary publication can finish after
+this consent-only response, even with empty advertised hints; reads need a
+settled publication phase before the whole-state baseline. Select one separate
+contract-only five-second read-only own-request ACK prerequisite before the
+original progress action. No additional transport/consent, stopped worker,
+fabricated ACK or altered original assertion/timeout. Discard changing product
+response timing merely to isolate this read-only fixture or masking its strict
+whole-state guard. All75 earlier files plus standalone diagnostic stay exact.
