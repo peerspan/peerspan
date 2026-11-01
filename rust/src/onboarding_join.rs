@@ -405,7 +405,11 @@ impl Store {
             "next_participant":next_participant,"next_action":next_action}),
         )
     }
-    pub fn decide_join_flow(&self, id: &str, request: Decision) -> Result<Value, Error> {
+    fn decide_join_flow(
+        &self,
+        id: &str,
+        request: Decision,
+    ) -> Result<(Value, Option<String>), Error> {
         request.context.validate()?;
         let approve = request.decision == DecisionKind::Approve;
         let code_digest = match (&request.invitation, approve) {
@@ -427,7 +431,7 @@ impl Store {
         let now = now()?;
         if f.state != "review" {
             if (f.state == "requested" && approve) || (f.state == "declined" && !approve) {
-                return view(self, &tx, &f, now);
+                return Ok((view(self, &tx, &f, now)?, None));
             }
             return Err(coded("flow_conflict"));
         }
@@ -486,14 +490,14 @@ impl Store {
         let result = view(self, &tx, &load(&tx, id)?, now)?;
         tx.commit()?;
         drop(c);
-        if fresh_request {
-            requests::after_create_commit(
-                self,
-                field(outcome.as_ref().ok_or_else(corrupt)?, "request_id")?,
-            )
-            .map_err(product::model)?;
-        }
-        Ok(result)
+        let created = if fresh_request {
+            let request_id = field(outcome.as_ref().ok_or_else(corrupt)?, "request_id")?;
+            requests::after_create_commit(self, request_id).map_err(product::model)?;
+            Some(request_id.to_owned())
+        } else {
+            None
+        };
+        Ok((result, created))
     }
 }
 fn now_time_expired(expires: &str) -> Result<bool, Error> {
@@ -573,9 +577,26 @@ async fn decide(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Value>, Error> {
     let request = decode_input(&body.map_err(|_| invalid())?, "decision", false)?;
-    Ok(Json(
-        blocking(store, move |s| s.decide_join_flow(&id, request)).await?,
-    ))
+    let (result, created) =
+        blocking(store.clone(), move |s| s.decide_join_flow(&id, request)).await?;
+    if let Some(request_id) = created {
+        // This response records consent, not delivery. Only fresh committed
+        // creation starts transport; historical recovery remains pure.
+        tokio::spawn(async move {
+            let bound = std::time::Duration::from_secs(30);
+            let _ = tokio::join!(
+                tokio::time::timeout(
+                    bound,
+                    crate::decentralized::publish_request(store.clone(), &request_id),
+                ),
+                tokio::time::timeout(
+                    bound,
+                    crate::decentralized::return_request(store, &request_id),
+                ),
+            );
+        });
+    }
+    Ok(Json(result))
 }
 async fn progress(
     State(store): State<Arc<Store>>,
