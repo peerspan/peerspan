@@ -8994,8 +8994,11 @@ command only, reject parse/crash/timeout outcomes (only exit0/1 eligible), then
 require the original bounded requester-F observation and exact existing-host
 read-only status. Both host views must agree on the same canonical F ID and
 captured request/network/context/person/host/device/owner/selection/admin pins.
-Keep all ordinary verified full-F/P/H/B/D and independent ID/profile/digest
-checks before pure baselines. Missing/mismatched/invalid F still fails; no
+Use existing independent retained-envelope/reference/profile checks for setup.
+Keep the first subject API/CLI inspection INSIDE its original complete purity
+measurement and its full independent validation in place; do not pre-read that
+API outside the baseline and hide a one-time mutation. All full-F/P/H/B/D and
+ID/profile/digest checks remain required. Missing/mismatched/invalid F fails; no
 repeated signing/resume, added mutation, original copying or larger wait.
 
 This explicitly permits the separate contract-only author to replace only the
