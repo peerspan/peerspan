@@ -74,11 +74,3 @@ jobs:
           else
             python3 conformance/slim/${{ matrix.suite }}.py --bin bin
           fi
-      - name: Retain encrypted finalization diagnostic
-        if: ${{ failure() && matrix.suite == 'machine_requester_inspection' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: inspection-finalize-error
-          path: diagnostic-artifacts/inspection-finalize-error.rsa
-          retention-days: 1
-          if-no-files-found: ignore
