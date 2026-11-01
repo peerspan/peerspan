@@ -224,6 +224,11 @@ pub enum JoinCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum MachineCommitCommand {
+    /// Complete only an already approved exact machine requester consent
+    Complete {
+        #[arg(long, required = true)]
+        stdin: bool,
+    },
     /// Read the retained exact machine requester consent without preparing work
     Lookup {
         #[arg(long, required = true)]
@@ -960,6 +965,7 @@ async fn machine_commit_command(command: &MachineCommitCommand, socket: &Path) -
         MachineCommitCommand::Lookup { .. } => "lookup",
         MachineCommitCommand::Prepare { .. } => "prepare",
         MachineCommitCommand::Approve { .. } => "approve",
+        MachineCommitCommand::Complete { .. } => "complete",
     };
     let invalid = || anyhow::anyhow!("invalid machine requester consent input");
     let unavailable = || {
@@ -981,7 +987,7 @@ async fn machine_commit_command(command: &MachineCommitCommand, socket: &Path) -
         .and_then(|v| v.as_str().map(str::to_owned))
         .ok_or_else(invalid)?;
     tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        std::time::Duration::from_secs(if op == "complete" { 95 } else { 5 }),
         Local(socket).post(
             format!("/v1/onboarding/join-flows/{id}/machine-commit/{op}"),
             value,

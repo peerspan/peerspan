@@ -62,6 +62,7 @@ struct Attempt {
     flow: String,
     input: Input,
     until: Instant,
+    machine: bool,
 }
 impl Attempt {
     fn bound(&self, store: &Store, c: &Connection) -> Result<Bound, Error> {
@@ -69,6 +70,33 @@ impl Attempt {
             context: self.input.context.clone(),
             join_review_id: self.input.join_review_id.clone(),
         };
+        if self.machine {
+            let (f, mut p, attached, now) =
+                bind_history(store, c, &self.flow, &input).map_err(controlled)?;
+            let scope = json!({"context":f.proposal.context,"agent":f.review["agent"],
+                "flow_id":f.id,"join_review_id":f.review_id});
+            let (public, changed) =
+                dec::machine_consent_in(c, store, &mut p, &scope, "lookup", None, |p, prepared| {
+                    super::super::machine_commit::inspection_in(c, store, &f, p, &input, prepared)
+                        .map_err(into_domain)
+                })
+                .map_err(domain)?;
+            if changed || public["consent"].is_null() {
+                return Err(unavailable());
+            }
+            if public["consent"]["review_id"] != self.input.commit_review_id {
+                return Err(coded("review_changed"));
+            }
+            if public["consent"]["state"] != "approved" {
+                return Err(unavailable());
+            }
+            return Ok(Bound {
+                pending: p,
+                public,
+                attached,
+                now,
+            });
+        }
         let (f, p, attached, now) = bind(store, c, &self.flow, &input).map_err(|e| match e {
             Error::NotFound | Error::Invalid(_) => e,
             Error::Coded {
@@ -94,6 +122,20 @@ impl Attempt {
             now,
         })
     }
+    fn terms<'a>(&self, public: &'a Value) -> &'a Value {
+        if self.machine {
+            &public["consent"]["review"]["inspection"]
+        } else {
+            &public["commit"]["review"]
+        }
+    }
+    fn consent<'a>(&self, public: &'a Value) -> &'a Value {
+        if self.machine {
+            &public["consent"]["review"]
+        } else {
+            &public["commit"]["review"]
+        }
+    }
     fn result(&self, store: &Store, c: &Connection, b: Bound) -> Result<Option<Value>, Error> {
         if !completion::local_recorded(c, store, &b.pending).map_err(domain)? {
             return Ok(None);
@@ -103,7 +145,9 @@ impl Attempt {
         v["completion"] = json!({"state":"locally_applied","review_id":self.input.commit_review_id,
             "manifest_id":p["manifest_id"],"activation_id":p["activation_id"],"outcome_id":p["outcome_id"],
             "participant_delivery":"not_verified","agent_access":"not_verified","connection_readiness":"not_verified"});
-        if !crate::onboarding_admission::safe(&v) {
+        if !crate::onboarding_admission::safe(&v)
+            || self.machine && serde_json::to_vec(&v).map_err(|_| unavailable())?.len() > 2 << 20
+        {
             return Err(unavailable());
         }
         Ok(Some(v))
@@ -125,15 +169,22 @@ impl Attempt {
             return Err(coded("review_changed"));
         }
         let p = &b.pending;
-        let r = &b.public["commit"]["review"];
+        let r = self.terms(&b.public);
+        let consent = self.consent(&b.public);
         let raw = time(&controls::local_decision_time().map_err(domain)?)?;
         if raw < time(field(&b.public["request"], "created_at")?)?
-            || raw < time(field(r, "created_at")?)?
+            || raw < time(field(consent, "created_at")?)?
             || p.record.stage_at != "-" && raw < time(&p.record.stage_at)?
         {
             return Err(unavailable());
         }
-        let now = raw.max(b.now);
+        let now = if self.machine {
+            let guarded = controls::guarded_decision(c, field(&r["network"], "id")?, &stamp(raw))
+                .map_err(domain)?;
+            raw.max(b.now).max(time(&guarded)?)
+        } else {
+            raw.max(b.now)
+        };
         if now >= time(&p.deadline)?
             || now >= time(field(r, "not_after")?)?
             || p.record.commit_packet_base64 == "-"
@@ -143,19 +194,17 @@ impl Attempt {
         }
         if !p.record.selection_approved
             || !p.record.commit_approved
-            || p.record.commit_intent_id != field(r, "intent_id")?
+            || p.record.commit_intent_id != field(consent, "intent_id")?
             || !matches!(p.record.terminal.as_str(), "-" | "applied")
             || p.record.terminal == "applied" && !own_application
         {
             return Err(unavailable());
         }
-        let mut prefix = vec![
-            "request_created",
-            "owner_offered",
-            "owner_selected",
-            "administrator_offered",
-            "owner_finalized",
-        ];
+        let mut prefix = vec!["request_created", "owner_offered", "owner_selected"];
+        if !self.machine || p.record.administrator_packet_base64 != "-" {
+            prefix.push("administrator_offered");
+        }
+        prefix.push("owner_finalized");
         if p.record.commit_packet_base64 != "-" {
             prefix.push("commit_persisted");
         }
@@ -215,7 +264,7 @@ impl Attempt {
             return Err(unavailable());
         }
         let root = completion::local_current(&tx, store, &b.pending).map_err(domain)?;
-        if root != field(&b.public["commit"]["review"], "root_state_id")? {
+        if root != field(self.terms(&b.public), "root_state_id")? {
             return Err(coded("review_changed"));
         }
         self.check(store, &tx, &b.pending, false)?;
@@ -313,6 +362,7 @@ async fn complete(
         flow: id,
         input: parse(value)?,
         until: Instant::now() + Duration::from_secs(90),
+        machine: false,
     };
     tokio::time::timeout(Duration::from_secs(90), run(store, attempt))
         .await
@@ -320,9 +370,50 @@ async fn complete(
         .map_err(controlled)
         .map(Json)
 }
+async fn machine_complete(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    if !crate::peer_store::valid_id(&id, "flow", 16) {
+        return Err(invalid());
+    }
+    let value = super::super::machine_commit::decode_machine_commit_input(
+        &body.map_err(|_| invalid())?,
+        "complete",
+        false,
+    )?;
+    let attempt = Attempt {
+        flow: id,
+        input: Input {
+            context: serde_json::from_value(value["context"].clone()).map_err(|_| invalid())?,
+            join_review_id: field(&value, "join_review_id")?.into(),
+            commit_review_id: field(&value, "consent_review_id")?.into(),
+            _decision: Decision::CompleteRequesterCommit,
+        },
+        until: Instant::now() + Duration::from_secs(90),
+        machine: true,
+    };
+    tokio::time::timeout(Duration::from_secs(90), run(store, attempt))
+        .await
+        .map_err(|_| coded("machine_commit_completion_unavailable"))?
+        .map_err(|e| match controlled(e) {
+            Error::Coded {
+                code: "commit_completion_unavailable",
+                ..
+            } => coded("machine_commit_completion_unavailable"),
+            e => e,
+        })
+        .map(Json)
+}
 pub(super) fn routes() -> Router<Arc<Store>> {
-    Router::new().route(
-        "/v1/onboarding/join-flows/{id}/commit/complete",
-        post(complete),
-    )
+    Router::new()
+        .route(
+            "/v1/onboarding/join-flows/{id}/commit/complete",
+            post(complete),
+        )
+        .route(
+            "/v1/onboarding/join-flows/{id}/machine-commit/complete",
+            post(machine_complete),
+        )
 }

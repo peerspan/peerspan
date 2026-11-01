@@ -1004,3 +1004,13 @@ byte-exact; first measured inspection and all six case bodies stay intact.
 Root6/6in126s passes with the two-minute target overrun retained. The rejected
 old45 mutation remains unintegrated. Fresh final-head CI/bot/root receipts are
 on PR99; completion and full-feature acceptance remain open.
+
+### New computer: bounded requester completion
+
+Section47/GU.impl47 follows merged99 (`a025f28`). One explicit private action
+continues only the exact approved machine receipt through ordinary bounded
+signing, pinned publication and atomic local application. Verified completed
+replay is historical and pure, including detach, expiry and clock rollback.
+No original key on the new computer, new consent/schema or readiness claim.
+Independent conformance and final-head CI/review are required. Native controls
+and full35 terminal/reload/installed/physical/model acceptance stay open.

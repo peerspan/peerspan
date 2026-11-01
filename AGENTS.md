@@ -125,3 +125,6 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 - `machine_requester_consent`: exact frozen remote machine inspection, unsigned
   project receipt, atomic ordinary/pending/receipt approval and pure history
   (guided section46). No signing/application.
+
+- `machine_requester_completion`: bounded exact approved machine requester
+  signing/publication/local application and pure verified replay (guided47).
