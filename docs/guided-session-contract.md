@@ -9401,6 +9401,8 @@ read. Plaintext only on subprocess stdin, never argv/file/output; suppress and
 never log encryption stderr/stdout. On success write only <=512byte ciphertext
 to fixed `diagnostic-artifacts/inspection-finalize-error.rsa` under repo cwd,
 mode0600. Do not write plaintext; no timestamps/IDs/paths/keys in artifact name.
+The single encryptor attempt is global per launcher run: first unknown failed
+guard only, no overwrite or later attempt. OAEP and MGF1 both use SHA256.
 On capture/encryption failure emit only fixed capture-unavailable and preserve
 the same original Result/exception/verdict; no broadened test timeout or retry.
 
