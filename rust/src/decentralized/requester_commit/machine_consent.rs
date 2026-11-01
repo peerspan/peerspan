@@ -239,7 +239,7 @@ pub(crate) fn run(
     mut inspect: impl FnMut(&Pending, bool) -> Result<Value>,
 ) -> Result<(Value, bool)> {
     let raw = controls::local_decision_time()?;
-    let now = controls::guarded_decision(c, &p.record.expected_network_id, &raw)?;
+    let now = controls::historical_decision(c, &p.record.expected_network_id, &raw)?;
     let meta = find(c, p, "machine_requester_review")?;
     let mut receipt = meta.map(|m| load(c, store, p, m, scope)).transpose()?;
     if let Some(r) = &receipt {

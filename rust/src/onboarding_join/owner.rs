@@ -76,6 +76,23 @@ fn bind(
     id: &str,
     request: &OwnerContext,
 ) -> Result<(Flow, requests::Pending, bool, DateTime<Utc>), Error> {
+    bind_with_clock(store, c, id, request, false)
+}
+fn bind_history(
+    store: &Store,
+    c: &Connection,
+    id: &str,
+    request: &OwnerContext,
+) -> Result<(Flow, requests::Pending, bool, DateTime<Utc>), Error> {
+    bind_with_clock(store, c, id, request, true)
+}
+fn bind_with_clock(
+    store: &Store,
+    c: &Connection,
+    id: &str,
+    request: &OwnerContext,
+    historical: bool,
+) -> Result<(Flow, requests::Pending, bool, DateTime<Utc>), Error> {
     request.context.validate()?;
     if !crate::peer_store::valid_id(&request.join_review_id, "review", 32) {
         return Err(invalid());
@@ -108,7 +125,18 @@ fn bind(
     {
         return Err(corrupt());
     }
-    let now = guarded(c, field(outcome, "network_id")?)?;
+    let now = if historical {
+        time(
+            &controls::historical_decision(
+                c,
+                field(outcome, "network_id")?,
+                &crate::decentralized::local_decision_time().map_err(product::model)?,
+            )
+            .map_err(product::model)?,
+        )?
+    } else {
+        guarded(c, field(outcome, "network_id")?)?
+    };
     let (project, attached) = request.context.project(c, now)?;
     let exists: bool = c.query_row(
         "SELECT EXISTS(SELECT 1 FROM dec_pending WHERE request_id=?1)",
