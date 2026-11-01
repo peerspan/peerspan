@@ -3985,3 +3985,13 @@ application before fresh eligibility and all67 prior fixtures/native415.
 Discard new consent/journal/schema, copying original keys, broad ceremony resume
 and presenting local application as readiness. Independent contract-only suite
 precedes root runtime; native controls and full35 acceptance stay separate.
+
+GU.impl47 first format passes; first Rust test gate fails to compile because
+the completion module calls the internal name machine_consent_in instead of
+the exported machine_requester_consent_in alias. Fix that single reference;
+retain first139.02s/exit101/source9206593 log in verification. No runtime began.
+Select two genuine fixture worlds (device15 fold/original capped) plus exact
+late SQL ABORT and one forwarded lost-response completion. Advanced-only
+without guided metadata remains47 source/fault-only, already tested46; discard
+a third duplicate ceremony. Terminal setup uses existing real delivery and
+retirement rules without unmeasured completion warmup or counter exclusions.

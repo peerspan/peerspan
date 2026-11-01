@@ -9152,6 +9152,27 @@ Owner merges this slice into #35; #35 main acceptance and native controls stay
 open. Discard new completion receipts, a new journal, person-key copying,
 broad resume and treating local application as connection readiness.
 
+GU.impl47 bounded fixture clarification: an injected application SQL ABORT
+returns409 machine_commit_completion_unavailable without raw SQL output.
+A lost-response test may forward one real fresh Complete POST exactly once,
+retain its real200 response privately for independent application verification,
+and drop the client response. Use section46 Lookup before any later explicit
+completed replay; no automatic retry or unmeasured warming Complete.
+
+For terminal history only, existing section28 genuine delivery repair, signed
+contact retention, peer registration/sync and one documented retry-eligibility
+alignment <=61s may precede the baseline. Observe actual complete outbox/journal,
+secret/frame/read-cap retirement. A genuinely fresh unsigned requester create
+and immediate public cancel may drive documented capacity/expiry maintenance;
+no row editing/deletion, forced ACK, omitted carrier or larger wait. Existing
+counted QUIC paths must actually be authenticated/retained before relying on
+delivery. The independent bounded suite uses two real ceremony pairs: device15
+folded F and original-person capped F. Advanced-only without guided metadata is
+already covered in46 and is an explicit source/fault-only completion boundary
+here; discard a third ceremony that would duplicate it at runtime cost. Do not
+claim that path was executed in47. Preserve genuine missing/unapproved/digest
+refusals and all67 old files.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
