@@ -9001,13 +9001,15 @@ API outside the baseline and hide a one-time mutation. All full-F/P/H/B/D and
 ID/profile/digest checks remain required. Missing/mismatched/invalid F fails; no
 repeated signing/resume, added mutation, original copying or larger wait.
 
-This explicitly permits the separate contract-only author to replace only the
-brittle Finalize exit1-English guard in the new46 suite and section45's copied
-progress helper, adding the stronger exact two-host F precondition. All other
-65 prior test/conformance files and full native415 tree stay byte-exact. All
-original case bodies, non-setup assertions, private corpora, full state/carrier
-counters, waits and timeouts remain. Removing the new setup verification and
-restoring that one guard must recover exact prior bytes/AST in both files.
+The separate contract-only author may replace only the brittle Finalize
+exit1-English guard in the NEW46 suite, adding the stronger exact two-host F
+precondition. All66 prior test/conformance files, including section45's suite,
+and full native415 tree stay byte-exact. The proposed old45 setup change was
+rejected by automatic approval review under that preservation requirement and
+is discarded for this pass. Original new46 case bodies, non-setup assertions,
+private corpora, full state/carrier counters, waits and timeouts remain. Removing
+the new setup verification and restoring that guard recovers exact prior new46
+bytes/AST. No prior-suite exception is selected.
 Retain both CI failures and unknown earlier timing causes; no claim that a
 passing fixture diagnoses them or that arbitrary CLI errors imply success.
 
