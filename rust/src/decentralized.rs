@@ -53,6 +53,7 @@ pub(crate) use ceremony_admin::{consent_in, consent_live, consent_proposal};
 pub(crate) use ceremony_finalization::inspect_original as inspect_original_finalization;
 pub use codec::{Error, Result, decision_clock};
 pub use controls::local_decision_time;
+pub(crate) use invite_return::send as return_request;
 pub(crate) use machine_owner::inspect as inspect_machine_owner;
 pub(crate) use machine_owner::inspect_prepared as inspect_machine_owner_prepared;
 pub(crate) use machine_owner::inspect_signing as inspect_machine_owner_signing;
