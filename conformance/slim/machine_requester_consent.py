@@ -917,11 +917,24 @@ def fault(f, action, triggers, prepared=None):
                 db.execute('DROP TRIGGER ' + name)
     strict(f, before, counters, 'SQL-fault')
 
+def release_reader_holds(f):
+    """Reader isolation ends before the genuine ordinary mutation setup."""
+    a = f['a']; identity = a.id, a.public_key
+    if a.process is None:
+        a.start()
+    check((a.id, a.public_key) == identity, 'existing computer restart changed actual pinned identity')
+    for relay in (a.relay, f['b'].relay):
+        relay.mode = 'pass'
+    f['_guard'] = None
+    f['_held'], f['_held_at'] = [], 0
+
+
 def renew_cancelled_fixture(f):
     """One fresh genuine attempt after public cancellation, same real hosts."""
     a, b = f['a'], f['b']; old = f['rid']
     for relay in (a.relay, b.relay):
         relay.mode = 'pass'
+    f['parent'] = project(b, b.name + '-fresh')
     people = get(a, '/v2/networks/' + f['network']['id'] + '/persons')['persons']
     rows = [v for v in people if v['person_public_key'] == f['person']]
     check(len(rows) == 1, 'fresh attempt lost actual existing owner')
@@ -1199,6 +1212,7 @@ def _():
     c = f['prepared']['consent']; before_meta = load_intent(f['b'], c['consent_id'])
     op(f, 'approve', f['prepared'], pure=True, status=409, code='review_changed',
        override={**input_for(f, 'approve', f['prepared']), 'consent_review_id': 'review_' + '0' * 64})
+    release_reader_holds(f)
     view = link_view(f['b'], f['rid'])
     status, _ = f['b'].api('POST', '/v2/link/requests/' + f['rid'] + '/commit', {
         **{key: view[key] for key in ('network_id', 'context_id', 'person_public_key', 'host_public_key', 'device_public_key',
