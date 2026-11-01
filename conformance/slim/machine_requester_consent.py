@@ -18,8 +18,8 @@ History is not current powers, application, delivery, access or readiness.
 Limits: source/fault-only complex separate-admin/device7/reused-binding,
 corrupt/pruned/unsafe authority, private key-resolution syscalls/exact5s cutoff,
 isolated powers expiry and postapproval worker attribution. No completion or
-installed/native/model/physical acceptance. Only old45 Finalize setup shares
-the stronger verified-F prerequisite; other65 old files/native415 unchanged.
+installed/native/model/physical acceptance. Stronger verified-F Finalize setup
+is new46-only; all66 prior files/native415 remain unchanged.
 Root alone executes this committed suite; all author checks are static.
 """
 import base64
