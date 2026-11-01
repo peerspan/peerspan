@@ -4146,3 +4146,8 @@ Discard longer waits, sync200 as proof, fabricated rows/ACKs, worker suppression
 filtered IO and unchanged reruns. Contract first; preserve both CI failures and
 unclassified earlier causes, run each changed affected suite once, then full
 combined CI/review before ready. Rust/native product remains frozen.
+
+Pre-execution independent public-shape review: last_error_detail permits empty
+bounded text. Select recorded non-dash failure code plus positive attempts and
+strictly future canonical retry in the same record, allowing empty/dash detail.
+Discard the unsupported nonempty-detail witness before author source/runtime.
