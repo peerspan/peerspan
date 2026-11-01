@@ -1,0 +1,931 @@
+{
+  "milestone": "GU.impl46",
+  "base": "19ae9bb6ae1ce765e77bb718744b4b4badde1632",
+  "source_head": "5f6ec2311b39f60a4968e187855f195aed3db0db",
+  "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+  "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+  "local_gates": [
+    {
+      "phase": "cargo fmt",
+      "exit": 1,
+      "reason": "new nested decentralized module required explicit requester_commit path; formatter stopped before compiler/runtime launch"
+    },
+    {
+      "gate": "machine-requester-consent-final-setup-first",
+      "head": "5f6ec2311b39f60a4968e187855f195aed3db0db",
+      "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_consent.py",
+        "--bin",
+        "/tmp/gu46-runtime/final-bin-rust-build-final-order-first"
+      ],
+      "exit": 0,
+      "seconds": 117.5,
+      "log": "/tmp/gu46-runtime/machine-requester-consent-final-setup-first.log",
+      "sha256": "8f9d5bdd4dd5869ac00ed2faf7951afbd4d4f8fe62331a32d94cdd1f188f3ac0",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.14,
+          "active": []
+        },
+        {
+          "seconds": 60.21,
+          "active": []
+        },
+        {
+          "seconds": 75.29,
+          "active": []
+        },
+        {
+          "seconds": 90.36,
+          "active": []
+        },
+        {
+          "seconds": 105.42,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "e326611c29d3c96b07e1ac3365f84fc571154a2eec808c17fdad85549fd26026"
+    },
+    {
+      "gate": "machine-requester-consent-first",
+      "head": "df882715a36675f36bfe0bc7bc9cbbc3b05d9452",
+      "rust_tree": "b32d5e59902825906101a95d22ca723c33189b31",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_consent.py",
+        "--bin",
+        "/tmp/gu46-runtime/final-bin-rust-build-first"
+      ],
+      "exit": 1,
+      "seconds": 108.6,
+      "log": "/tmp/gu46-runtime/machine-requester-consent-first.log",
+      "sha256": "9307908f44e4fd7fcae8e2d8e4e2a3f770cbcea6e1653d025bf60a91aba3d588",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.15,
+          "active": []
+        },
+        {
+          "seconds": 60.22,
+          "active": []
+        },
+        {
+          "seconds": 75.28,
+          "active": []
+        },
+        {
+          "seconds": 90.4,
+          "active": []
+        },
+        {
+          "seconds": 105.51,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8a0bf2500cf32533bffbc275cfb38d21eba17671aa2cb6cace50581d0bd2527d"
+    },
+    {
+      "gate": "rust-build-final-order-first",
+      "head": "b18a62a9def4602f4b6477c55421c0c6e9f4f77f",
+      "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 71.27,
+      "log": "/tmp/gu46-runtime/rust-build-final-order-first.log",
+      "sha256": "af287164d013418654284bb3623724659d3e99a7dc955c603f4ec165813bce10",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "158777",
+              "cargo"
+            ],
+            [
+              "158798",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.06,
+          "active": [
+            [
+              "158777",
+              "cargo"
+            ],
+            [
+              "158798",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.13,
+          "active": [
+            [
+              "158777",
+              "cargo"
+            ],
+            [
+              "158798",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.2,
+          "active": [
+            [
+              "158777",
+              "cargo"
+            ],
+            [
+              "158798",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "7a41be0d60e5f853750184e9b80a68f4931398ce",
+      "rust_tree": "b32d5e59902825906101a95d22ca723c33189b31",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 71.3,
+      "log": "/tmp/gu46-runtime/rust-build-first.log",
+      "sha256": "af287164d013418654284bb3623724659d3e99a7dc955c603f4ec165813bce10",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "82511",
+              "cargo"
+            ],
+            [
+              "82540",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "82511",
+              "cargo"
+            ],
+            [
+              "82540",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "82511",
+              "cargo"
+            ],
+            [
+              "82540",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "82511",
+              "cargo"
+            ],
+            [
+              "89551",
+              "rustc"
+            ],
+            [
+              "89552",
+              "rustc"
+            ],
+            [
+              "89553",
+              "rustc"
+            ],
+            [
+              "89557",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-corrected-first",
+      "head": "7a41be0d60e5f853750184e9b80a68f4931398ce",
+      "rust_tree": "b32d5e59902825906101a95d22ca723c33189b31",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 36.15,
+      "log": "/tmp/gu46-runtime/rust-clippy-corrected-first.log",
+      "sha256": "fa65fd0d8b8c73611006b0eaf4976abd6c42f580f78c283a45504805f74431fb",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "78248",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "78248",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-final-order-first",
+      "head": "b18a62a9def4602f4b6477c55421c0c6e9f4f77f",
+      "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 35.14,
+      "log": "/tmp/gu46-runtime/rust-clippy-final-order-first.log",
+      "sha256": "087716738979b6009817cf6b9a7671efa41e14c62281baf0e2b6977ff45bc510",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "154502",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "154502",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "8a8e198dbf25165573f3e294f240e025f637d617",
+      "rust_tree": "46094eac8117e15f58018c4390bc35531faab9ee",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 101,
+      "seconds": 29.08,
+      "log": "/tmp/gu46-runtime/rust-clippy-first.log",
+      "sha256": "2f16b1ae82290a329ebf97c7e0c5e0b86f874c27329002adcba80bf6d517c499",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "59842",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-corrected-first",
+      "head": "7a41be0d60e5f853750184e9b80a68f4931398ce",
+      "rust_tree": "b32d5e59902825906101a95d22ca723c33189b31",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu46-runtime/rust-fmt-corrected-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-final-order-first",
+      "head": "b18a62a9def4602f4b6477c55421c0c6e9f4f77f",
+      "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu46-runtime/rust-fmt-final-order-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-first",
+      "head": "8a8e198dbf25165573f3e294f240e025f637d617",
+      "rust_tree": "46094eac8117e15f58018c4390bc35531faab9ee",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu46-runtime/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-corrected-first",
+      "head": "7a41be0d60e5f853750184e9b80a68f4931398ce",
+      "rust_tree": "b32d5e59902825906101a95d22ca723c33189b31",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 94.58,
+      "log": "/tmp/gu46-runtime/rust-test-corrected-first.log",
+      "sha256": "f57934f3421ad584051a2cb5310e84b9cfaabb0e72d4587dba4353e9b519644b",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ],
+            [
+              "67018",
+              "rustc"
+            ],
+            [
+              "67025",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ],
+            [
+              "67018",
+              "rustc"
+            ],
+            [
+              "67025",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ],
+            [
+              "67018",
+              "rustc"
+            ],
+            [
+              "67025",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ],
+            [
+              "67018",
+              "rustc"
+            ],
+            [
+              "67025",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.41,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ],
+            [
+              "67018",
+              "rustc"
+            ],
+            [
+              "74752",
+              "rustc"
+            ],
+            [
+              "75076",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.48,
+          "active": [
+            [
+              "66996",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-order-first",
+      "head": "b18a62a9def4602f4b6477c55421c0c6e9f4f77f",
+      "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 96.61,
+      "log": "/tmp/gu46-runtime/rust-test-final-order-first.log",
+      "sha256": "12fe09f256471d00d28b614c3ee82541239902f8bb6b35721defeed6a664718f",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.01,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ],
+            [
+              "142869",
+              "rustc"
+            ],
+            [
+              "142898",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.08,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ],
+            [
+              "142869",
+              "rustc"
+            ],
+            [
+              "142898",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.15,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ],
+            [
+              "142869",
+              "rustc"
+            ],
+            [
+              "142898",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.22,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ],
+            [
+              "142869",
+              "rustc"
+            ],
+            [
+              "142898",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.38,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ],
+            [
+              "151095",
+              "rustc"
+            ],
+            [
+              "151267",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.45,
+          "active": [
+            [
+              "142820",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "8a8e198dbf25165573f3e294f240e025f637d617",
+      "rust_tree": "46094eac8117e15f58018c4390bc35531faab9ee",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 101,
+      "seconds": 93.55,
+      "log": "/tmp/gu46-runtime/rust-test-first.log",
+      "sha256": "7c480308729c2ff857d1c010109cfed7833c66c96d31a10045250f89e6a35e41",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ],
+            [
+              "45366",
+              "rustc"
+            ],
+            [
+              "45369",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ],
+            [
+              "45366",
+              "rustc"
+            ],
+            [
+              "45369",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ],
+            [
+              "45366",
+              "rustc"
+            ],
+            [
+              "45369",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ],
+            [
+              "45366",
+              "rustc"
+            ],
+            [
+              "45369",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.37,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ],
+            [
+              "45366",
+              "rustc"
+            ],
+            [
+              "53551",
+              "rustc"
+            ],
+            [
+              "53752",
+              "rustc"
+            ],
+            [
+              "54011",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.46,
+          "active": [
+            [
+              "45352",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    }
+  ],
+  "preservation": {
+    "base": "19ae9bb6ae1ce765e77bb718744b4b4badde1632",
+    "files": 66,
+    "sha256": {
+      "conformance/agent_adapter.py": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
+      "conformance/claude_setup.py": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+      "conformance/fixtures/gh/gh.py": "4afd0f0505e0d2fbf89d6af91aa00c39200c2e19d1a858b7f24480f0c47a2d81",
+      "conformance/fixtures/mcp/server.py": "3e24b43f4b8f2bb713dfa32518d35cd9e36362e2f2cb929eaf1cc2339a1f1da6",
+      "conformance/fixtures/remote/remote.py": "2be308e4bf93ccd58113b59e30bb7aec686f5c1470b7227fa2af127c174d3550",
+      "conformance/host_service.py": "2b7aae580c610fe7270b837b76be4acead89e72555d7964b4a069974c88e01af",
+      "conformance/installed_bundle.py": "1f61d9c11c13649a5e5157fe659a5c318f049556b7fe98c947cc64f852ff6f9a",
+      "conformance/peer_messaging.py": "ed735dcc9360997add4abfa3ddd6da430110b0d7757ff57acbced297b61722a4",
+      "conformance/slim/access_application.py": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+      "conformance/slim/access_consent.py": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+      "conformance/slim/access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "conformance/slim/access_signing.py": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "conformance/slim/adapter_onboarding.py": "d07d1ed9b7088b71ce0af54db50ecfcbbb2cd32d5c48200c511a736e4b2a5714",
+      "conformance/slim/admission_consent.py": "bb1e4a1a9513beaca28621b57eb1c0688c112fb453a38d5fa160566de787f8c6",
+      "conformance/slim/admission_onboarding.py": "e3fa6b749a5225135c23cf5799291d7598b99066434640d403a77da5c9888e08",
+      "conformance/slim/basics.py": "55828ce8de9efeb01c5b83a07574ea31d4374e3a00c10cadb146eb5b23ad0185",
+      "conformance/slim/capabilities.py": "7c07428b7da068866fa65541913fa915cce27498cd8bcd32c4262aa003435b81",
+      "conformance/slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+      "conformance/slim/delivery.py": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "conformance/slim/harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "conformance/slim/incoming_progress.py": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc",
+      "conformance/slim/invitation_onboarding.py": "819425617254996c02bc2825c971ef31e156c24b4584e9f5529190f16ecd6286",
+      "conformance/slim/join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+      "conformance/slim/join_onboarding.py": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+      "conformance/slim/live.py": "6a3296a8ee3f6a2d6a0cd3777b59417620362e55540ae6d34078cfcc3bc3ec0b",
+      "conformance/slim/machine_owner.py": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+      "conformance/slim/machine_owner_consent.py": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+      "conformance/slim/machine_owner_signing.py": "0cd90eeb046ae54f67371806f0c32ea384184aa07bcd6d10422834a18487f8ae",
+      "conformance/slim/onboarding.py": "25a5a8d0f4dc9aebff038b4a212d7db854bb479a5fb9d1d762c61d4642fbbfe1",
+      "conformance/slim/owner_finalization.py": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+      "conformance/slim/owner_finalization_signing.py": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+      "conformance/slim/owner_onboarding.py": "beb06d9a6194bf617ac20d941803c753bf2eed7663bd0079a9558c0eefa6b668",
+      "conformance/slim/owner_signing.py": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0",
+      "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+      "conformance/slim/policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "conformance/slim/project_onboarding.py": "9990241a3a5f7f23c6887aa03293f10bcdcfcb21c0ef9dc0a0718c01c2aa1b5e",
+      "conformance/slim/readiness.py": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "conformance/slim/renewal.py": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+      "conformance/slim/requester_completion.py": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "conformance/slim/root.py": "58cdb05b0cfef63504b24e2a0a8fc918662153320919cd31e6cc26c4ac89bf29",
+      "conformance/slim/sync.py": "dcf42dd76b6f238f4a6089412e0afe66c737b88a7c8b8f071e086711aaf254b3",
+      "conformance/slim/work.py": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af",
+      "conformance/test_package_release.py": "fd3e1045836ecf687498cf14b6a09b324f39030a69cf286ac207659d932ca10b",
+      "integrations/claude-onboarding/tests/access-completion.test.ts": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0",
+      "integrations/claude-onboarding/tests/access-review.test.ts": "65d903019d7bfabb6086d7725d1925fdc020103d4c82e52bda8e011bc4c0bc98",
+      "integrations/claude-onboarding/tests/adapter-review.test.ts": "bebb2ba5d8703e63fbbb5781f2adbe318d40101766a05d50e224158feb229941",
+      "integrations/claude-onboarding/tests/admission-review.test.ts": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts": "7e1b662a12b5190e578a7b4be77793a823d9cb7a979af056249d2caa42adda31",
+      "integrations/claude-onboarding/tests/invitation-review.test.ts": "d7d0dc37392844df4a2b1873a6718769ad2239b3a640bed6e2bcc699a8e87f39",
+      "integrations/claude-onboarding/tests/join-progress.test.ts": "21db445cf0421adfc6e4e9951b00d4d56b189c51b45eeae5afb964af30e9cecb",
+      "integrations/claude-onboarding/tests/join-review.test.ts": "09e2d5d546711bc60d1ec55ffac2f1e359e6cc4163ca45f827a7eb591839b982",
+      "integrations/claude-onboarding/tests/machine-owner.test.ts": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f",
+      "integrations/claude-onboarding/tests/machine-request.test.ts": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+      "integrations/claude-onboarding/tests/native-entry.test.ts": "6a71c73a641247870a9b2a8a7c6e987cfea57eb981b7b4f80d2ae675cf0acfbf",
+      "integrations/claude-onboarding/tests/native-message.test.ts": "58fde146a5e31e661c83c95cb4573d7f2ed965ffb2c1e24fc3a19334053f51da",
+      "integrations/claude-onboarding/tests/native-task.test.ts": "becc4f8f1e41ea708166bb9f7eca6b46154b657dd1cd27f80f77a72a90fa9518",
+      "integrations/claude-onboarding/tests/new-identity.test.ts": "a24abf5a887c6eb63aae1dd007233482c1658ce9635ce12f496946af7988faf2",
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+      "integrations/claude-onboarding/tests/owner-review.test.ts": "2083ea5e72369e22df2bf5a345065b5cda8f3e9cbd7378c124a81277b8336aa7",
+      "integrations/claude-onboarding/tests/owner-signing.test.ts": "5efae8ad77d509e842cdc1d642ec1699f35ecb49796a48ade179d85fbf39bdf1",
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "integrations/claude-onboarding/tests/project-review.test.ts": "f9430f52ddc0f0c5b7da5833a3e923df29ae4ba55bfd481504b2c820c9b2c330",
+      "integrations/claude-onboarding/tests/readiness.test.ts": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a",
+      "integrations/claude-onboarding/tests/requester-commit.test.ts": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653",
+      "conformance/slim/machine_requester_inspection.py": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c"
+    },
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "all_byte_identical": true
+  },
+  "binaries": {
+    "head": "b18a62a9def4602f4b6477c55421c0c6e9f4f77f",
+    "rust_tree": "2f37421598036a63f8bbc863b1afaf6c4c3b404f",
+    "directory": "/tmp/gu46-runtime/final-bin-rust-build-final-order-first",
+    "sha256": {
+      "peerspan-host": "befab9b82cf0e80fa98eae78918a898a36b776c9d237b3f4bd5fc98307850b3f",
+      "peerspan-peer-probe": "211d68e09423f248510f3aaa060cede4511196e94875f73b8ea0e48c1a6f3bcf",
+      "peerspan-helper": "01d0a15f9c3083ec9963e1ef489a28a68a703d38bbec8c894577ad1bf31d863f"
+    }
+  },
+  "independent_suite": {
+    "path": "conformance/slim/machine_requester_consent.py",
+    "sha256": "e326611c29d3c96b07e1ac3365f84fc571154a2eec808c17fdad85549fd26026",
+    "author_first_commit": "267f40cd8e75fee0f65272739ac5ed2a99d4dfd4",
+    "author_corrected_commit": "ece2ee873702e865b20553ce0d6a6297070b2f86",
+    "author_no_runtime_or_product_access": true,
+    "corrected_setup_restores_prior_bytes_and_AST": true
+  },
+  "limits": [
+    "Current local gates are distinct from final combined-head CI/review, whose receipts are on the PR.",
+    "Existing Rust vector test calendar fix uses the existing decode_at at vector AT; production behavior and assertions unchanged.",
+    "Prior66 conformance/native files and entire native415 tree byte-exact.",
+    "Original remains only on old computer; no claim of both-live worker attribution.",
+    "State-only postapproval observations do not establish global read purity while ordinary approved workers act.",
+    "Separate-admin/reused-binding/complex authority/corruption/exact syscall boundaries without real bounded stimulus remain source/fault-only.",
+    "Completion/native/installed/physical/model/final35 acceptance remain open."
+  ]
+}

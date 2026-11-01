@@ -979,3 +979,12 @@ exact retained consent alongside ordinary requester approval. Lookup and exact
 replay preserve history without keys, clock saves or transport. Completion and
 native controls remain separate. Contract-first independent conformance and
 final combined-head CI/review are required before owner review.
+
+The [requester consent verification record](results/guided-machine-requester-consent-verification.json)
+retains the first vector-calendar/Clippy/runtime setup failures, independent
+corrections, source/test/log/binary hashes and preservation audit. Corrected
+real-host6/6in117s and required Rust gates pass; strict history covers expired,
+detached and restarted reads, while external approval has only state evidence.
+All66 old conformance/native files and native415 remain exact. Final-head CI and
+fresh bot/root review receipts follow on the PR without another evidence-only
+commit. Bounded completion and native controls remain separate.

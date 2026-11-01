@@ -3902,3 +3902,14 @@ host with unchanged identity and passing the real carriers. Removing that helper
 one call and one fresh-parent assignment restores prior test bytes and AST. All
 six original cases/assertions/counters/timeouts and66 old files remain exact.
 Fresh2f374215 Rust gates and hashed build pass; one corrected six-case run follows.
+
+GU.impl46 corrected first runtime passes6/6in117s (runner117.5), compiler-idle
+before/during/after on fresh hashed2f374215 binaries. All66 prior conformance/
+native files and fullnative415 tree exact. Remote device/original capped F,
+exact receipts/digests, atomic rollback/approval, private corpus, real signed/
+stage expiry and strict expired/detached/restarted whole-state/BOTH-carrier
+history pass. External ordinary approval remains a coherent state-only check,
+without project attribution or global worker claims. First failures and narrow
+unit-vector/calendar fix remain recorded. Final35suites+build/four checks/
+native415 and fresh bot/root review are required on the PR; fullfeature35 and
+requester completion/native/installed/physical/model acceptance remain open.
