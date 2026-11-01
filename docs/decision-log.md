@@ -4171,3 +4171,11 @@ Preserve all73 current files and every original guard/action/5s wait/full
 comparison. Discard extra syncs/retries, assumed old28 attribution, replaced
 case bodies, longer waits, filtered IO or worker suppression. Contract first,
 one changed affected run then full combined-head CI/review; no product change.
+
+GU.impl48b result: independent3ae5df0 adds one86-line launcher; root fake
+forwarding/guard/order/result/exception/inherited-method/global restoration
+checks pass and all73 prior files remain exact. First45ed815 affected run
+passes6/6in112s, runner115.37s on hashed unchanged Rust918d binaries. All
+original strict history/state/files/carriers/5s waits remain. Prior CI cause
+stays unclassified; no general transport fix or full acceptance is claimed.
+Fresh final combined-head CI and bot/root review are still required.

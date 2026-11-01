@@ -1110,3 +1110,12 @@ Their first committed-source local runs pass6/6in142s (runner143.62; above120s)
 and6/6in82s (runner82.4), with unchanged original5s/whole-state/carrier checks.
 No Rust/native product change or earlier-caller diagnosis is claimed. Final
 combined-head CI and fresh review receipts follow on PR101.
+
+The record also retains third8f7349f:36/37, all4checks/native440in107.06s
+and clean bot; old47 pre-measurement outbox/journal retirement times out5s
+with row/attempt/caller unclassified. A separate independent one-file adapter
+observes the existing completed-attempt prerequisite after the one original
+requester sync, before unchanged inline retry alignment. All73 prior files
+remain exact; first affected run passes6/6in112s (runner115.37). No extra sync,
+retry, clock write, altered old verdict/wait or product change. Final fullCI/
+review receipts follow on PR101; full-feature acceptance remains open.
