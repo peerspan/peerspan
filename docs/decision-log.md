@@ -3860,3 +3860,13 @@ six independent cases before product. Completion and native controls follow.
 GU.impl46 first formatter invocation stopped before compilation: the new nested
 requester module needed the same explicit requester_commit path as the existing
 consent module. Correct the module path; no compiler/runtime execution occurred.
+
+GU.impl46 first Rust run compiles, then the unchanged legacy person vector
+test fails decoding its fixed invitation: EXPIRES2026-11-01T00:00:00Z is now
+in the past. Use existing decode_at with the vector's AT for both successful
+decode and wrong-prefix refusal, preserving signatures/expiry and every
+assertion; production decoding keeps actual-time expiry checks. The first
+Clippy run finds a collapsible validation if; collapse it without changing the
+input contract. Retain both first failures. All66 host/native conformance files
+and complete native415 tree stay exact; the existing Rust unit fixture is the
+sole test adjustment, removing its dependence on the wall calendar.

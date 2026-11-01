@@ -25,13 +25,12 @@ pub fn decode_input(bytes: &[u8], op: &str, cli: bool) -> Result<Value, Error> {
         "inspection_review_id",
         "consent_review_id",
     ] {
-        if k == "join_review_id" || v.get(k).is_some() {
-            if !v[k]
+        if (k == "join_review_id" || v.get(k).is_some())
+            && !v[k]
                 .as_str()
                 .is_some_and(|s| crate::peer_store::valid_id(s, "review", 32))
-            {
-                return Err(invalid());
-            }
+        {
+            return Err(invalid());
         }
     }
     if cli
