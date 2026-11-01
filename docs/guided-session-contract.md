@@ -9403,6 +9403,9 @@ to fixed `diagnostic-artifacts/inspection-finalize-error.rsa` under repo cwd,
 mode0600. Do not write plaintext; no timestamps/IDs/paths/keys in artifact name.
 The single encryptor attempt is global per launcher run: first unknown failed
 guard only, no overwrite or later attempt. OAEP and MGF1 both use SHA256.
+For a longer final line retain only its first256UTF8bytes; a partial final code
+point is permitted in ciphertext and root decodes privately with replacement.
+Reject an empty line; do not discard the entire diagnostic for excess length.
 On capture/encryption failure emit only fixed capture-unavailable and preserve
 the same original Result/exception/verdict; no broadened test timeout or retry.
 
