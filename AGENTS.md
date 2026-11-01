@@ -128,3 +128,8 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
 
 - `machine_requester_completion`: bounded exact approved machine requester
   signing/publication/local application and pure verified replay (guided47).
+
+- `guided_machine`: combined genuine two-host guided pinned machine request,
+  selected owner consent/signing and automatic selection/finalization; one
+  requester completion with lost reply/Lookup recovery, actual application and
+  separate membership/access/readiness (guided session contract section49).
