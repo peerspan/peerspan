@@ -3977,3 +3977,11 @@ GU.impl46 new-only independent commits e396be15/e4eff8c1 integrate as
  checks, actual closed failure metadata, independent provenance, denied old45
  proposal and selected safe alternative. Final pushed-head CI and fresh review
  remain required; their receipts belong on PR99.
+
+GU.impl47 follows merged99/a025f28. Select bounded requester completion
+through the existing ordinary signing/publication/application pipeline with
+exact section46 dual-approved machine receipt guards. Preserve historical
+application before fresh eligibility and all67 prior fixtures/native415.
+Discard new consent/journal/schema, copying original keys, broad ceremony resume
+and presenting local application as readiness. Independent contract-only suite
+precedes root runtime; native controls and full35 acceptance stay separate.
