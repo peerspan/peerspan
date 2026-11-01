@@ -4021,3 +4021,11 @@ error cause is unknown; retained participants each have one application/network.
 Select bounded failure-only closed probe/category/thread/counter diagnostics
 in new suite, exact original result/assertion preserved. Discard inferred UDP
 fix, extra probe, larger wait, old-helper mutation or unchanged retry.
+
+GU.impl47 diagnostic22703b5 fails4/6in101s. Both TCP carriers cross parent
+boundary without DB/files/UDP change. Terminal probe exits1 with timeout,
+UDP threads alive and unchanged UDPcounts. Select failure-only existing-argv
+operation/destination-match/program/before-thread classification; discard dead
+proxy attribution and additional drivers. Preserve first CI old28 expired UDP
+and new47 malformed UDP/contact failures; fourchecks and botpass do not waive
+conformance. No old67 edits or unchanged retry.
