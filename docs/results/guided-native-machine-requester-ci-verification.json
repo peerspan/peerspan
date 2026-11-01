@@ -796,6 +796,70 @@
         "sha256": "f0e54e715305e2a62d1f889f1831a306acfaa9946145725fdc50444f558f9ef2",
         "bytes": 87509
       }
-    }
+    },
+    "full_snapshot_sha256": "a62676ab7259f19e7fb94f5ba6ce51d41611344f3bfe5500b2d7b2bbaf0f1b56"
+  },
+  "machine_history_prerequisite_verification": {
+    "contract_commit": "64eb756eafa4e21a43809cee026ba40de0761f5d",
+    "independent_author": {
+      "commit": "3ae5df083876b6e4890935db2d28c025d521b57e",
+      "integrated_commit": "1442049",
+      "branch": "codex/gu-machine-history-prerequisite-tests",
+      "path": "conformance/slim/machine_requester_completion_prerequisite.py",
+      "sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+      "new_file_only": true,
+      "no_product_reads_or_host_runtime": true,
+      "static_audit": {
+        "source_sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+        "source_ast_sha256": "3d4dad59857e1f47c0b600722941719085dd0dbf61bbbe5351bb332b323bf9fd",
+        "protected_files_exact": 73,
+        "base": "64eb756eafa4e21a43809cee026ba40de0761f5d",
+        "fake_checks": "/tmp/gu48-machine-history-prerequisite-static-check.py",
+        "restoration": "delete only new machine_requester_completion_prerequisite.py; all73 prior file bytes/full ASTs remain exact",
+        "scope": "one final-case terminal_baseline, requester existing exact successful sync; reused completed_attempts unchanged; no added IO/retry/clock or modified5s retirement",
+        "limits": [
+          "no actual hosts/native/model/runtime",
+          "prior CI row/journal/caller not classified; passing phase witness claims no generic transport repair"
+        ]
+      }
+    },
+    "root_source_review": {
+      "head": "45ed815140f0fe1347de6373ca7bddda256eb593",
+      "findings": [],
+      "fake_check_exit": 0,
+      "root_integrated_bytes_match": true,
+      "original_guards_and_5s_retirement_unchanged": true
+    },
+    "first_run": {
+      "head": "45ed815140f0fe1347de6373ca7bddda256eb593",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion_prerequisite.py",
+        "--bin",
+        "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+      ],
+      "entry_sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+      "exit": 0,
+      "seconds": 115.37,
+      "sha256": "68496daa001aa5551899d6cada1b9781f80f1837e9f1aeea71221b99c6710c97",
+      "passed": 6,
+      "failed": 0,
+      "suite_seconds": 112,
+      "target_seconds": 120,
+      "target_exceeded": false,
+      "bin_hashes": {
+        "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+      }
+    },
+    "limits": [
+      "all73 prior files, native440/hooks/Rust918d exact; no added sync/send/probe/retry/clock write",
+      "precondition is a real completed-generation observation, not an attribution of the prior CI timeout",
+      "advanced-only without guided receipt is source-only here; original-provider positive Complete, cancellation, isolated powers/stage expiry, complex grants and final90s/key/commit/microscopic races remain unexecuted",
+      "schema23\u219227/full-state upgrade/recovery and actual terminal/reload/installed/physical/model/final35 acceptance remain open",
+      "one first changed affected run; no unchanged local rerun, original5s extension, forced ACK or worker suppression",
+      "fresh full final-head CI and bot/root review remain required"
+    ]
   }
 }
