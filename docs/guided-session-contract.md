@@ -9448,7 +9448,139 @@ RSA/private-key dependency. No new tests or assertion changes are needed: the
 existing finalization fixture already accepts nonzero incomplete and requires
 actual signed F before its subject inspection.
 
-## 48. Remaining flow contract
+## 48. Native new-computer machine requester review and completion
+
+GU.impl48 follows merged100 (`1457be6`). Compose sections45–47 in the existing
+terminal `/peerspan` Connect this computer lane. No host/API/schema/protocol,
+model setup tool, key inventory/selection/copy, transport driver or new consent.
+The new-original requester and existing-computer owner lanes remain separate.
+
+### Explicit review, exact public consent and bounded completion
+
+A published pinned machine request offers **Review machine link**. Entry reads
+`onboarding join machine-commit lookup --stdin`. When consent is null and the
+actual request has the complete selected/finalized prefix, read `inspect` and
+show its verified terms. Earlier stages show waiting/missing evidence and offer
+pure Check, never prepare implicitly. No local new-original owner lookup is
+required. **Review machine requester consent** requires the displayed current
+inspection; re-read Lookup and Inspect, compare the entire digest/review and
+request pins, recheck parent/time, then Prepare exactly that inspection ID.
+If consent appeared in preflight, show it without Prepare; never adopt a changed
+inspection or silently substitute a retained receipt. Preparation grants nothing.
+
+Show the full network/context/genesis/current and owner roots, request/packet,
+person/target-host/device keys, quoted member/network/project/agent/owner labels,
+remote provider kind/person/host/device/lease/root/scopes/deadline, actual P/H/B/D,
+owner/selection/admission/F IDs, binding reuse and finite7/2 with inherited end.
+Folded admission has no invented administrator packet/stage. Explain policy1,
+host binding2 and eligible own-device work4; network administrator8 is excluded.
+The original person key remains on the existing computer; public authority
+inspection is not a probe of private signer availability. Do not display native
+conversation IDs or parent project flow/review/session plumbing. Display the
+exact inspection/consent effects, receipt/intent/digests and original fixed
+request/stage/powers/review windows when present.
+
+**Approve machine requester commit** requires the same fully displayed receipt,
+fresh pure Lookup, unchanged full review/digest/request identity and all fresh
+windows. It authorizes ordinary host/device signatures, commit publication and
+local application; already authorized ordinary workers may progress separately.
+Approval itself does not establish application or readiness. **Complete machine
+requester commit** is a separate explicit action under that approved receipt.
+Fresh Lookup and exact review comparison precede dispatch. Already-applied
+Lookup only displays its recorded result, without another Complete. No automatic
+selection, signing, mutation retry, progress/fetch/resume, polling, key resolver,
+network IO, model prompt/tool, plugin storage or transcript write.
+
+Trusted executable/state are literal argv. All context/IDs are private JSON
+stdin. Lookup/Inspect/Prepare/Approve have5s process bounds; Complete has95s.
+Payloads exactly sections45–47: all include context,flow_id,join_review_id;
+Prepare additionally inspection_review_id; Approve consent_review_id; Complete
+consent_review_id and decision:"complete_machine_requester_commit". No ordinary
+owner/new-original commit fallback. All responses use <=2MiB safe recursive
+public JSON with closed fields, canonical IDs/keys/whole-second timestamps and
+both independently checked machine inspection/consent domain hashes. Validate
+all context/project agent/host/flow/request pins, complete remote provider,
+finite7/2/deadline cap/roots/leases, exact folded/separate stage prefix, receipt
+state/next-action/approval and manifest/activation/outcome consistency. Bind
+Complete's locally_applied marker and all references to the approved receipt and
+returned LINK_VIEW; all three not_verified fields must be exact. Observation
+cannot regress against retained evidence. Unknown/unsafe/private-prefixed or
+oversized responses fail closed; discard subprocess stdout/stderr diagnostics.
+
+### Recovery, deadlines and invalidation
+
+**Check machine requester consent** uses only Lookup and, while still unprepared
+and eligible, Inspect; it never prepares, approves, completes or retries. Null
+receipt/missing F is not failure proof and does not infer private key possession.
+Historical approved/expired/cancelled/invalidated and locally-applied evidence
+stays viewable without live eligibility, including clock rollback. Effective
+historical observation ahead of native raw time is view-only, not repaired or
+made actionable. The same approved receipt remains historical after its human
+review window; new completion obeys request/powers end and conservatively the
+frozen stage deadline until commit_persisted is observed. Fresh Prepare/Approve
+obey the original minimum request/stage/powers/receipt deadline; never extend
+windows from later observations. Native conservative refusal can leave advanced
+completion available under the ordinary signed-work rules.
+
+Keep the earliest active deadline timer authoritative while busy. Check raw
+native time at/after request/review creation, observed time <=now+30s, and
+max(now,observed)<deadline immediately before mutation dispatch, after all
+asynchronous preflight. Single-flight and exact parent flow/review/full-review,
+host, root, conversation and terminal-surface checks surround every await.
+Leave/Back/Refresh/Close/session end/context change invalidate retained callbacks
+and actionable evidence; no late response can resurrect controls. **Leave machine
+requester review** is available during work and returns to publication without
+cancelling/revoking consent or retracting dispatched signatures/publication/
+application. Existing adapter/message/task runtime survives ordinary pane leave.
+No durable frontend storage. Reload/reopen recovers only through explicit reads.
+
+A dispatched Prepare/Approve/Complete failure is outcome unknown, with fixed
+safe wording and explicit pure Check. Preserve the exact retained receipt or
+inspection privately across an uncertain operation so Check cannot swap terms.
+Never automatically repeat a mutation. Show separately consent recorded, local
+application recorded, and participant delivery/agent access/connection readiness/
+model receipt not verified. Application is global retained evidence without
+claiming which interface completed it or proving current powers.
+
+### Verification
+
+Separate contract-only author adds `machine-requester.test.ts` using public
+native runtime mocks and independently constructed45–47 fixtures; never read
+product/hooks or run runtime/process/host/model. Root alone runs pinned2.1.303
+strict plugin validation and complete native suite serially on a committed
+candidate, with compiler-idle preflight and regular-disk temp directory. Preserve
+all415 existing native cases/files and all old host suites/helpers byte-exact.
+No assertion/time/default timeout weakening or unchanged retry-to-green. Cases:
+
+1. Published pinned entry, null/early waiting and real finalized public review,
+   no eager Prepare/Approve/Complete or original inventory/owner fallback.
+2. Valid remote original/device, folded/separate administrator, actual reused
+   binding and capped powers; exact full quoted identity/authority/effects terms.
+3. Separate Prepare with exact inspection ID/private argv/stdin; no approval;
+   preflight changed inspection refuses and newly appeared receipt is read only.
+4. Same-review explicit Approve then separate bounded Complete with exact stdin,
+   consistent local-application references and not_verified disclaimers.
+5. Pure approved/already-applied/expired/cancelled/invalidated history, future
+   effective observation after rollback stays view-only; no repeated mutation.
+6. Lost Prepare/Approve/Complete responses and explicit Check recover matching
+   retained terms and actual state without duplicate actions or readiness claim.
+7. Changed parent/host/flow/network/person/target/provider/root/leases/stage/
+   finite powers/deadline/effects/digest/receipt or completion references refuse;
+   closed unknown/unsafe/control/private/oversized response corpus never leaks.
+8. Fixed deadline before dispatch and held preflight/action, single-flight,
+   changed conversation/root/host/parent/surface, leave/Refresh/Close/session end
+   discard controls and late responses; unchanged415 cases continue to pass.
+9. Actual terminal/reload/installed/two-machine/model receipt, signature/storage
+   purity, microscopic final dispatch races and retained obsolete-rendered
+   closures unsupported by the pinned test kit remain explicit source/manual
+   limits. Passing mocked boundaries do not complete #35 acceptance.
+
+Root source review and fresh Codex bot review plus final exact-head36suites+
+build/four PR checks/native suite are required before owner review. Keep every
+first no-start/local/CI failure, independent source/log/tree hashes and honest
+coverage limits. Backend tree stays byte-exact; no optional local old-host runs.
+
+## 49. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
