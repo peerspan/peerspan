@@ -40,6 +40,12 @@ import { inventory as accessNetworks, people as accessPeople, inspection as pars
 import { snapshot as parseMachineOwner, own as machineOwnerOwn, sameConsent as sameMachineOwnerConsent,
   live as machineOwnerLive, deadline as machineOwnerDeadline, lines as machineOwnerLines } from './machine-owner.mjs';
 
+import { snapshot as parseMachineRequester, inspection as parseMachineRequesterInspection,
+  result as parseMachineRequesterCompletion, sameConsent as sameMachineRequesterConsent,
+  sameInspection as sameMachineRequesterInspection, finalized as machineRequesterFinalized,
+  applied as machineRequesterApplied, eligible as machineRequesterEligible, deadline as machineRequesterDeadline,
+  lines as machineRequesterLines } from './machine-requester.mjs';
+
 let options;
 let hostId = null;
 let project = { stage: 'inactive', busy: false };
@@ -1935,6 +1941,11 @@ function joinStart($, previous, epoch, extra = {}) {
     finalizationCanSign: false, finalizationExpired: false,
     requester: null, commitActive: false, commitOperation: false, commitError: null,
     commitCanApprove: false, commitCanComplete: false, commitCanPrepare: false, commitExpired: false,
+    machineRequester: null, machineRequesterInspection: null, machineRequesterActive: false, machineRequesterOperation: false,
+    machineRequesterRetained: previous.machineRequester ?? previous.machineRequesterRetained ?? null,
+    machineRequesterInspectionRetained: previous.machineRequesterInspection ?? previous.machineRequesterInspectionRetained ?? null,
+    machineRequesterError: null, machineRequesterCanPrepare: false, machineRequesterCanApprove: false,
+    machineRequesterCanComplete: false, machineRequesterExpired: false,
     parent: project.flow, context: project.context, host: hostId, ...extra };
   $.ui.invalidate('ui.render');
   return joining;
@@ -2032,19 +2043,30 @@ async function joinView($, running, epoch, flow, extra = {}) {
   const commitCanApprove = !!extra.commitActive && requesterEligible(requester, now, true);
   const commitCanComplete = !!extra.commitActive && requesterEligible(requester, now);
   const commitCanPrepare = !!extra.commitActive && requester?.commit === null && requesterCanPrepare(extra.owner, now);
+  const machineValue = extra.machineRequester ?? null, machineInspection = extra.machineRequesterInspection ?? null;
+  const machineDeadline = extra.machineRequesterActive ? machineRequesterDeadline(machineValue, machineInspection) : null;
+  const machineRequesterCanPrepare = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'prepare');
+  const machineRequesterCanApprove = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'approve');
+  const machineRequesterCanComplete = !!extra.machineRequesterActive && machineRequesterEligible(machineValue, machineInspection, now, 'complete');
+  const machineRequesterExpired = machineDeadline !== null && !(machineRequesterCanPrepare || machineRequesterCanApprove || machineRequesterCanComplete);
   const secret = ['choose', 'create_review', 'machine_identity', 'review'].includes(stage) ? extra.secret ?? null : null;
   const expiryAuthority = {};
   joining = { ...running, ...extra, flow, stage, secret, code: '', busy: false, message: null, expiryAuthority,
     ownerExpired, ownerCanSign, ownerSignExpired, finalizationCanReview, finalizationCanSign, finalizationExpired,
-    commitExpired, commitCanApprove, commitCanComplete, commitCanPrepare };
+    commitExpired, commitCanApprove, commitCanComplete, commitCanPrepare,
+    machineRequesterCanPrepare, machineRequesterCanApprove, machineRequesterCanComplete, machineRequesterExpired };
   if (running.machine && stage === 'expired') joining = { ...joining, preview: null, selected: null, identities: [] };
-  const activeDeadline = commitDeadline !== null && !commitExpired ? commitDeadline
+  const activeDeadline = machineDeadline !== null && !machineRequesterExpired ? machineDeadline
+    : commitDeadline !== null && !commitExpired ? commitDeadline
     : deadline && stage !== 'expired' ? Date.parse(deadline) : ownerDeadline && !ownerExpired ? Date.parse(ownerDeadline)
     : signingDeadline && !ownerSignExpired ? signingDeadline : finalizationDeadline && !finalizationExpired ? finalizationDeadline : null;
   if (activeDeadline !== null) {
     joiningExpiry = $.clock.after(activeDeadline - now, () => {
       if (joining.expiryAuthority === expiryAuthority && epoch === generation) {
-        joining = commitDeadline !== null
+        joining = machineDeadline !== null
+          ? { ...joining, machineRequesterCanPrepare: false, machineRequesterCanApprove: false, machineRequesterCanComplete: false,
+            machineRequesterExpired: true, busy: false, machineRequesterOperation: false }
+          : commitDeadline !== null
           ? { ...joining, commitCanApprove: false, commitCanComplete: false, commitCanPrepare: false, commitExpired: true, busy: false }
           : finalizationDeadline
           ? { ...joining, finalizationCanReview: false, finalizationCanSign: false, finalizationExpired: true, busy: false }
@@ -2677,6 +2699,147 @@ function ownerControls($, { Text, Button }, previous, epoch) {
     button('owner-leave', 'Leave owner review', () => leaveOwner($, previous, epoch)),
   ];
 }
+function machineRequesterPayload(running, captured = null) {
+  return { flow_id: running.flow.flow_id, context: adapterContext(running.parent), join_review_id: running.flow.review_id,
+    ...(captured?.consent ? { consent_review_id: captured.consent.review_id } : {}) };
+}
+async function machineRequesterParent($, running, epoch) {
+  if (!await joinParent($, running, epoch)) return false;
+  const raw = await joinRun($, ['inspect', running.flow.flow_id]);
+  if (!await joinCurrent($, running, epoch)) return false;
+  const flow = await parseJoinFlow(machinePublic(raw, true), running.parent, running.host);
+  if (!await joinCurrent($, running, epoch)) return false;
+  if (!machinePinned(flow) || flow.state !== 'requested' || !same(flow, running.flow)) throw new Error('Changed machine requester flow');
+  return joinHost($, running, epoch);
+}
+async function machineRequesterRun($, command, running, captured = null, inspected = null) {
+  const result = await $.process.run([options.executable, ...(options.state ? ['--state', options.state] : []),
+    'onboarding', 'join', 'machine-commit', command, '--stdin'], {
+    timeoutMs: command === 'complete' ? 95000 : 5000,
+    stdin: JSON.stringify({ ...machineRequesterPayload(running, captured),
+      ...(command === 'prepare' ? { inspection_review_id: inspected.review_id } : {}),
+      ...(command === 'complete' ? { decision: 'complete_machine_requester_commit' } : {}) }) });
+  if (result.exitCode !== 0) throw new Error('Unavailable machine requester action');
+  return result.stdout;
+}
+async function machineRequesterLookup($, running, epoch) {
+  if (!await machineRequesterParent($, running, epoch)) return null;
+  const raw = await machineRequesterRun($, 'lookup', running);
+  if (!await joinCurrent($, running, epoch)) return null;
+  const value = await parseMachineRequester(raw, running.flow, running.parent, running.host, running.machineRequesterRetained);
+  if (!await joinCurrent($, running, epoch)) return null;
+  const inspected = running.machineRequesterInspectionRetained;
+  if (inspected && value.consent && (value.consent.review.inspection_review_id !== inspected.review_id ||
+      !same(value.consent.review.inspection, inspected.review))) throw new Error('Changed machine requester inspection');
+  return value;
+}
+async function machineRequesterInspect($, running, epoch, value) {
+  const raw = await machineRequesterRun($, 'inspect', running);
+  if (!await joinCurrent($, running, epoch)) return null;
+  const inspected = await parseMachineRequesterInspection(raw, running.flow, running.parent, running.host, value);
+  if (!await joinCurrent($, running, epoch)) return null;
+  if (running.machineRequesterInspectionRetained && !sameMachineRequesterInspection(running.machineRequesterInspectionRetained, inspected)) {
+    throw new Error('Changed displayed machine requester inspection');
+  }
+  return inspected;
+}
+function machineRequesterFailure($, running, epoch, uncertain = false) {
+  if (joining !== running || epoch !== generation) return;
+  joiningExpiry?.cancel(); joiningExpiry = null;
+  joining = { ...running, busy: false, code: '', secret: null, machineRequester: null, machineRequesterInspection: null,
+    machineRequesterActive: true, machineRequesterOperation: false, machineRequesterCanPrepare: false,
+    machineRequesterCanApprove: false, machineRequesterCanComplete: false, machineRequesterExpired: false,
+    machineRequesterError: uncertain
+      ? 'Machine requester outcome unknown. Check machine requester consent for retained public evidence; no automatic retry. Prior or dispatched signatures, publication or application may remain.'
+      : 'Machine requester review unavailable. Check machine requester consent for retained public evidence; no automatic retry.' };
+  $.ui.invalidate('ui.render');
+}
+async function machineRequesterView($, running, epoch, value, inspected = null) {
+  if (!await machineRequesterParent($, running, epoch)) return;
+  await joinView($, running, epoch, running.flow, { machineRequester: value, machineRequesterInspection: inspected,
+    machineRequesterRetained: value, machineRequesterInspectionRetained: inspected ?? running.machineRequesterInspectionRetained,
+    machineRequesterActive: true, machineRequesterOperation: false, machineRequesterError: null, secret: null });
+}
+async function readMachineRequester($, previous, epoch) {
+  if (!previous.machine || previous.stage !== 'requested') return;
+  const running = joinStart($, previous, epoch, { machineRequesterActive: true, machineRequesterOperation: true });
+  if (!running) return;
+  try {
+    const value = await machineRequesterLookup($, running, epoch);
+    if (!value) return;
+    const inspected = value.consent === null && machineRequesterFinalized(value.request)
+      ? await machineRequesterInspect($, running, epoch, value) : null;
+    if (value.consent === null && machineRequesterFinalized(value.request) && !inspected) return;
+    await machineRequesterView($, running, epoch, value, inspected);
+  } catch { machineRequesterFailure($, running, epoch); }
+}
+async function decideMachineRequester($, previous, epoch, command) {
+  const allowed = command === 'prepare' ? previous.machineRequesterCanPrepare
+    : command === 'approve' ? previous.machineRequesterCanApprove : command === 'complete' && previous.machineRequesterCanComplete;
+  if (!previous.machine || previous.stage !== 'requested' || !previous.machineRequesterActive || !allowed) return;
+  const captured = previous.machineRequester, capturedInspection = previous.machineRequesterInspection;
+  const running = joinStart($, previous, epoch, { machineRequesterActive: true, machineRequesterOperation: true });
+  if (!running) return;
+  let sent = false;
+  try {
+    const value = await machineRequesterLookup($, running, epoch);
+    if (!value) return;
+    let inspected = null;
+    if (command === 'prepare') {
+      if (value.consent !== null) { await machineRequesterView($, running, epoch, value); return; }
+      inspected = await machineRequesterInspect($, running, epoch, value);
+      if (!inspected) return;
+      if (!sameMachineRequesterInspection(capturedInspection, inspected)) throw new Error('Changed displayed machine terms');
+    } else {
+      if (!sameMachineRequesterConsent(captured, value)) throw new Error('Changed displayed machine receipt');
+      if (command === 'approve' && value.consent.state === 'approved' || command === 'complete' && machineRequesterApplied(value)) {
+        await machineRequesterView($, running, epoch, value); return;
+      }
+    }
+    if (!await machineRequesterParent($, running, epoch)) return;
+    const now = await $.clock.now();
+    // No asynchronous boundary separates this final time/identity check from dispatch.
+    if (joining !== running || epoch !== generation) return;
+    if (!machineRequesterEligible(value, inspected, now, command)) throw new Error('Elapsed machine requester action');
+    running.machineRequesterRetained = value;
+    running.machineRequesterInspectionRetained = inspected ?? running.machineRequesterInspectionRetained;
+    sent = true;
+    const raw = await machineRequesterRun($, command, running, command === 'prepare' ? null : captured, inspected);
+    if (!await joinCurrent($, running, epoch)) return;
+    const result = command === 'complete'
+      ? await parseMachineRequesterCompletion(raw, running.flow, running.parent, running.host, captured)
+      : await parseMachineRequester(raw, running.flow, running.parent, running.host, value);
+    if (!await joinCurrent($, running, epoch)) return;
+    if (command === 'prepare' ? result.consent?.state !== 'review' ||
+      result.consent.review.inspection_review_id !== inspected.review_id || !same(result.consent.review.inspection, inspected.review)
+      : result.consent?.state !== 'approved' || !sameMachineRequesterConsent(captured, result)) throw new Error('Changed machine requester result');
+    await machineRequesterView($, running, epoch, result);
+  } catch { machineRequesterFailure($, running, epoch, sent); }
+}
+function leaveMachineRequester($, previous, epoch) {
+  if (joining !== previous || epoch !== generation) return;
+  joiningExpiry?.cancel(); joiningExpiry = null;
+  joining = { ...previous, busy: false, expiryAuthority: null, machineRequester: null, machineRequesterInspection: null,
+    machineRequesterRetained: null, machineRequesterInspectionRetained: null, machineRequesterActive: false,
+    machineRequesterOperation: false, machineRequesterError: null, machineRequesterCanPrepare: false,
+    machineRequesterCanApprove: false, machineRequesterCanComplete: false, machineRequesterExpired: false };
+  $.ui.invalidate('ui.render');
+}
+function machineRequesterControls($, { Text, Button }, previous, epoch) {
+  const button = (key, label, onPress) => Button({ key, label, onPress });
+  if (!previous.machineRequesterActive) return [button('machine-link-review', 'Review machine link', () => readMachineRequester($, previous, epoch))];
+  return [
+    ...(previous.machineRequester ? [Text({ children: [machineRequesterLines(previous.machineRequester, previous.machineRequesterInspection,
+      previous.parent, previous.machineRequesterExpired)] })] : []),
+    ...(previous.machineRequesterError ? [Text({ children: [previous.machineRequesterError] })] : []),
+    ...(previous.machineRequesterCanPrepare ? [button('machine-requester-prepare', 'Review machine requester consent', () => decideMachineRequester($, previous, epoch, 'prepare'))] : []),
+    ...(previous.machineRequesterCanApprove ? [button('machine-requester-approve', 'Approve machine requester commit', () => decideMachineRequester($, previous, epoch, 'approve'))] : []),
+    ...(previous.machineRequesterCanComplete ? [button('machine-requester-complete', 'Complete machine requester commit', () => decideMachineRequester($, previous, epoch, 'complete'))] : []),
+    button('machine-requester-check', 'Check machine requester consent', () => readMachineRequester($, previous, epoch)),
+    button('machine-requester-leave', 'Leave machine requester review', () => leaveMachineRequester($, previous, epoch)),
+  ];
+}
+
 function joinPage($, previous, epoch, page) {
   if (joining !== previous || previous.busy || epoch !== generation || previous.stage !== 'choose' ||
       page < 0 || page * 10 >= previous.identities.length) return;
@@ -2699,7 +2862,8 @@ function joiningControls($, { Text, Button, Input }, epoch) {
   const cancelCreation = button('join-create-cancel', 'Cancel identity creation', () => {
     if (joining === previous && epoch === generation) { clearJoining(); $.ui.invalidate('ui.render'); }
   });
-  if (previous.busy && machine) return [Text({ children: ['Machine request: working…'] }), back];
+  if (previous.busy && machine) return [Text({ children: ['Machine request: working…'] }),
+    ...(previous.machineRequesterOperation ? [button('machine-requester-leave', 'Leave machine requester review', () => leaveMachineRequester($, previous, epoch))] : []), back];
   if (previous.busy) return [Text({ children: [previous.stage === 'requested'
     ? 'Join request: publication recorded\n' + joinReviewLines(previous.flow, null) + '\nJoining: working…' : 'Joining: working…'] }),
     ...(previous.commitOperation ? [button('commit-leave', 'Leave requester review', () => leaveOwner($, previous, epoch))] : []),
@@ -2755,7 +2919,7 @@ function joiningControls($, { Text, Button, Input }, epoch) {
       ...(previous.progress ? [Text({ children: [joinProgressLines(previous.progress)] })] : []),
       ...(previous.progressError ? [Text({ children: ['Join progress unavailable. Publication remains recorded. Check again explicitly; no automatic retry.'] })] : []),
       button('join-progress', machine ? 'Check machine request progress' : 'Check join progress', () => checkJoinProgress($, previous, epoch)),
-      ...(!machine ? ownerControls($, { Text, Button }, previous, epoch) : []),
+      ...(machine ? machineRequesterControls($, { Text, Button }, previous, epoch) : ownerControls($, { Text, Button }, previous, epoch)),
     ] : []),
     ...(previous.stage === 'review' ? [
       ...(previous.secret && (previous.selected || machine && machinePinned(flow)) ? [button('join-approve', machine ? 'Approve machine request' : 'Approve join request', () => decideJoining($, previous, epoch, 'approve'))] : [
