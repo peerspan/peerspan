@@ -255,9 +255,16 @@ pub(crate) fn run(
                 "review_changed",
             )?;
         }
+        // Outside protocol approval cannot gain project attribution, even if
+        // that independently authorized work has already advanced or expired.
+        if op == "approve" && !r.meta.record.approved {
+            require(!r.ordinary.record.approved, "review_changed")?;
+        }
         if op == "lookup" || op == "prepare" || r.meta.record.approved {
             let state = if r.meta.record.approved {
                 "approved"
+            } else if r.ordinary.record.approved {
+                "invalidated"
             } else if p.record.terminal == "cancelled" || r.ordinary.record.terminal == "cancelled"
             {
                 "cancelled"
@@ -266,8 +273,6 @@ pub(crate) fn run(
                 || p.record.terminal == "expired"
             {
                 "expired"
-            } else if r.ordinary.record.approved {
-                "invalidated"
             } else {
                 match inspect(p, true).and_then(|v| current(r, p, &v)) {
                     Ok(_) => "review",

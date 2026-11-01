@@ -8953,7 +8953,11 @@ fabricated positive authority or unchanged retry-to-green.
    fabricate rows or edit authority/signatures to manufacture setup.
 4. Real missing-prefix/context/digest/detachment/cancel and raw/stage/request/
    receipt expiry refusals/history. Preserve first crossings; record unavailable
-   powers-expiry/changed-authority cases as source/fault limits.
+   powers-expiry/changed-authority cases as source/fault limits. A cancelled
+   ordinary request does not replace its immutable requested join flow; use a
+   genuinely fresh attached parent/context for a new attempt. Before a later
+   explicit advanced mutation, release the reader-only transport holds as real
+   setup; preserve original mutation timeout and every read-purity category.
 5. Lookup/null/history, identical Prepare and approved replay are pure after
    detach/restart/expiry and absent original sources. Count complete both-host
    DB/schema/state/home and bidirectional TCP/UDP. Existing computer may go
