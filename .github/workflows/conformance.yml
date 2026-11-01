@@ -72,7 +72,9 @@ jobs:
           if [ '${{ matrix.suite }}' = 'machine_requester_inspection' ]; then
             python3 conformance/slim/inspection_finalization_diagnostic.py --bin bin
           elif [ '${{ matrix.suite }}' = 'requester_completion' ]; then
-            python3 conformance/slim/requester_completion_carrier_diagnostic.py --bin bin
+            python3 conformance/slim/requester_completion_prerequisite.py --bin bin
+          elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then
+            python3 conformance/slim/owner_finalization_prerequisite.py --bin bin
           else
             python3 conformance/slim/${{ matrix.suite }}.py --bin bin
           fi
