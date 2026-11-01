@@ -4067,3 +4067,10 @@ First actual diagnostic runtime passes6/6in70s (runner70.26), compiler-idle,
 no observer output. Preserve unknown first finalization cause and prior unknown
 carrier causes; no production fix inferred. Select fresh complete final-head
 CI/review, discard old-suite edits, verdict/timeout relaxation or waiver.
+
+GU.impl47 diagnosticd13b3a9 captures old45 exit1/no JSON/no recognized public
+code, request fields unknown. Select finite public English-error class/field
+projection from the same stderr; no raw text, new IO or causal inference.
+Independent launcher-only extension precedes one meaningful new run; retain
+all67/new47/native415 and every original verdict/assertion/timeout. No guessed
+product fix follows from this insufficient first diagnostic.

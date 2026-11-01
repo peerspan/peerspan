@@ -9319,6 +9319,29 @@ and final full CI; passing without diagnostic output leaves the earlier cause
 unclassified. Discard an old45 fixture edit, arbitrary ignored errors, guessed
 product fix, unchanged retry-to-green or waiver of a required suite.
 
+GU.impl47 diagnostic candidate d13b3a9 again fails old45 original finalization
+before inspection: exit1, no stdout JSON, no recognized public error code;
+all optional request fields are unknown. Do not infer a signing/key/authority
+failure. Select a finite English-diagnostic classifier on the SAME captured
+stderr in the separate launcher. Match only documented fixed public patterns:
+`link signing changed reviewed {field}` and `link signing changed the fixed
+{field}`, where field is allowlisted network_id/context_id/person_public_key/
+host_public_key/device_public_key/scopes/not_after/root_state_id/owner_offer_id/
+selection_id/administrator_offer_id/person_lease_id/host_lease_id/binding_lease_id/
+device_lease_id. Output only fixed class and that field enum. Also allow exact
+fixed phrases for approved provider/root change, pending self-consent provider
+change (field kind/person_public_key/host_public_key/device_public_key), linking
+context change, original signing key/format change, too many/duplicate/mixed
+signature slots/batches, typed slot/role/reference change, and known timeout or
+missing/mismatched key classes. Never emit an unmatched line, dynamic suffix,
+raw text/hash or inspect additional state. Pattern observation is not causal
+proof; unknown remains unknown. No new assertion or success condition.
+
+Independent author extends launcher only, with no-host fake private-canary and
+exact forwarding/restoration checks. Old67/new47/native415 stay exact. Commit
+before one meaningful diagnostic run and fresh full CI. Preserve d13b3a9 first
+failure and earlier silent local pass; do not infer a fix from a passing sample.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
