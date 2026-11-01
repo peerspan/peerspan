@@ -9342,6 +9342,48 @@ exact forwarding/restoration checks. Old67/new47/native415 stay exact. Commit
 before one meaningful diagnostic run and fresh full CI. Preserve d13b3a9 first
 failure and earlier silent local pass; do not infer a fix from a passing sample.
 
+The finite classifier literals are explicit (case-sensitive substring matching
+on captured stderr, optional surrounding `Error: ` does not affect matching).
+Only fixed labels/allowlisted field enums are output; never the matched text:
+
+- provider_root_changed: `link signing changed the approved provider/root`.
+- context_changed: `linking context changed`.
+- original_key_format_changed: `original signing key/format changed`.
+- key_mismatch: `keep the exact reviewed original/root key on its own machine`.
+- local_timeout: `local host daemon request timed out`.
+- missing_file: `No such file or directory`; denied_file: `Permission denied`.
+- invalid_slot: `invalid signing intent/slot`, `invalid slot`.
+- invalid_batch: `invalid signing batch`.
+- too_many_slots: `too many ready signature slots`.
+- duplicate_slots: `unordered/duplicate signature slots`.
+- mixed_intents: `mixed signing intentions`.
+- dependency_batches: `too many dependency signature batches; resume the exact retained request`.
+- signing_response_changed: `signing response changes request`.
+- typed_object_changed: `typed object ID changed`.
+- typed_role_not_ready: `typed signature role is not ready`.
+- typed_message_changed: `typed signature message/key/format differs`.
+- packet_role_unreviewed: `unreviewed packet signing role`.
+- grant_role_unreviewed: `unreviewed grant signing role`.
+- packet_target_changed: `packet changes reviewed ceremony/key/role`.
+- packet_issuer_changed: `root packet changes reviewed issuer`.
+- packet_signer_changed: `packet changes original signer`.
+- grant_terms_changed: `grant changes reviewed operation/finite terms`.
+- grant_person_changed: `grant changes target person`.
+- grant_host_changed: `grant changes target host`.
+- grant_powers_changed: `grant changes reviewed device/powers`.
+- typed_parents_invalid: `invalid typed grant parents`.
+- signing_window_expired: `link signing window expired; retain and inspect this request`.
+
+Field patterns: `pending self-consent changed provider {field}` outputs
+pending_provider_changed plus kind/person_public_key/host_public_key/
+device_public_key enum. `packet changes reviewed {field}` outputs
+packet_field_changed plus the previous field allowlist extended only by
+request_packet_id. `grant differs from the concrete reviewed {field}` and
+`grant changes reviewed parent {field}` output grant_reference_changed and
+grant_parent_changed plus only person_lease_id/host_lease_id/binding_lease_id/
+device_lease_id. Exact finite replacement strings only, no captured suffix or
+untrusted regular-expression fragment. Preserve prior public-code metadata.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
