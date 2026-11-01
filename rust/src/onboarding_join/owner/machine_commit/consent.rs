@@ -9,6 +9,7 @@ pub fn decode_input(bytes: &[u8], op: &str, cli: bool) -> Result<Value, Error> {
         "lookup" => "context join_review_id",
         "prepare" => "context join_review_id inspection_review_id",
         "approve" => "context join_review_id consent_review_id",
+        "complete" => "context join_review_id consent_review_id decision",
         _ => return Err(invalid()),
     };
     let shape = if cli {
@@ -32,6 +33,9 @@ pub fn decode_input(bytes: &[u8], op: &str, cli: bool) -> Result<Value, Error> {
         {
             return Err(invalid());
         }
+    }
+    if op == "complete" && v["decision"] != "complete_machine_requester_commit" {
+        return Err(invalid());
     }
     if cli
         && !v["flow_id"]

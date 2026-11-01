@@ -35,7 +35,7 @@ impl Store {
         inspection_in(&tx, self, &f, &p, &input, false)
     }
 }
-fn inspection_in(
+pub(super) fn inspection_in(
     c: &Connection,
     store: &Store,
     f: &Flow,

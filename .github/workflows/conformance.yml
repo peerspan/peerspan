@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_owner_signing, machine_requester_inspection, machine_requester_consent]
+        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion]
     steps:
       - uses: actions/checkout@v4
         with:

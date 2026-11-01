@@ -439,3 +439,8 @@ stdin CLI. One immutable unsigned receipt freezes section45's verified remote
 evidence alongside the ordinary requester intent. Exact approval atomically
 authorizes that intent/pending request and the receipt; history is read-only.
 No requester original, signing, publication, application or new schema.
+
+Guided machine requester completion is the owner-local section47 action in
+[the guided session contract](guided-session-contract.md#47-bounded-existing-person-machine-requester-completion).
+It consumes exact existing consent, reuses ordinary signing/application and
+returns verified local application without implying access or readiness.
