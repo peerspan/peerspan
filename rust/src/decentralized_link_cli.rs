@@ -1105,7 +1105,18 @@ pub async fn run(args: LinkArgs, state: Option<PathBuf>) -> Result<()> {
         Some(LinkCommand::Finalize {
             consent: input,
             keys,
-        }) => consent(&socket, input, "finalization", Some(keys)).await?,
+        }) => consent(&socket, input, "finalization", Some(keys))
+            .await
+            .map_err(|error| {
+                if error
+                    .downcast_ref::<crate::integration::DaemonError>()
+                    .is_some_and(|cause| cause.code == "proof_required")
+                {
+                    error.context("linking is incomplete; required proof is unavailable; inspect the same request before resuming")
+                } else {
+                    error
+                }
+            })?,
         Some(LinkCommand::Select(input)) => consent(&socket, input, "selection", None).await?,
         Some(LinkCommand::Commit(input)) => consent(&socket, input, "commit", None).await?,
         Some(LinkCommand::Status { request_id }) => {
