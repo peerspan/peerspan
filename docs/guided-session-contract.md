@@ -2237,7 +2237,12 @@ helpers, using the existing host/device signing, limits, staging and replay
 rules. The ordinary device key, request, encrypted frames/contact and public
 flow outcome commit in one SQLite transaction. A storage, quota, protocol,
 parent, pin, code or review failure rolls back all of them. Publish only after
-commit. No original-person key is read or generated, and no owner selection,
+commit. For a newly created request, dispatch the ordinary encrypted request
+publication and invitation return after commit, outside the SQLite lock and
+without waiting for remote reachability in the guided response. Each existing
+transport attempt is bounded30s; failure leaves the exact durable request, not
+a false delivery result. An already recorded decision dispatches neither.
+No original-person key is read or generated, and no owner selection,
 requester selection/commit, admission, trust or agent permission is approved.
 
 An identical live request already created through the ordinary CLI may be
