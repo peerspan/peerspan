@@ -4109,3 +4109,12 @@ unclassified. Discard a guessed authority fix, hidden retry, success invention
 or test edit. Existing old45requires actual subsequent F. Remove temporary RSA
 capture/publicfixture/upload by independent exact restoration; retain encrypted
 provenance only. New Rust/freshbins/old45/new47/fullCI/review required.
+
+GU.impl47 final proof-context193c971 plus independent capture-restoration
+b6369ed→d17c7c6 yields Rust918d. Format/155Rust+2ignored/Clippy/freshbins
+pass; old45six/sixin70s and new47six/sixin118s pass serially/compiler-idle.
+Runner120.55 (0.55above120) retained, without retry/timeout/fixture changes.
+Only captured2b05ea9 proof_required is classified; missing proof/phase and
+earlier causes remain unknown. Context preserves cause/nonzero, no success
+claim or authority/IO change. All67/new47/native415 exact; no final RSA/key
+dependency. Select exact pushed-head complete CI/bot/root gate; discard waiver.
