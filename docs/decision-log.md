@@ -3985,3 +3985,11 @@ application before fresh eligibility and all67 prior fixtures/native415.
 Discard new consent/journal/schema, copying original keys, broad ceremony resume
 and presenting local application as readiness. Independent contract-only suite
 precedes root runtime; native controls and full35 acceptance stay separate.
+
+GU.impl47 CI41c5d66 first final candidate exposes unchanged old45 original
+finalization guard failure3/6in38s before subject inspection. Two dependent
+fixtures fail; cause unknown without original stderr/response category. Select
+a separate independently authored failure-only launcher around the exact
+existing Host.cli finalization result/exception. Preserve all67 files/native
+415, args/kwargs, calls/assertions/timeouts and exit. Discard old-suite edits,
+new diagnostic IO, guessed product fixes, ignored errors or unchanged retry.
