@@ -1059,3 +1059,12 @@ product code; root fake/privacy/inverse and real synthetic encryption checks
 pass. First changed local6/6in70s produces no failure artifact, leaving earlier
 causes unknown. Old67/new47/native415/Rust0047 exact; fresh fullCI/review stays
 required, with actual failure diagnosis before any product fix.
+
+The [proof-refusal follow-up](results/guided-machine-requester-completion-proof-verification.json)
+records actual2b05ea9 daemon proof_required and the narrow ordinary finalize
+CLI incomplete/error context, preserving the underlying refusal/nonzero exit
+and adding no IO or success claim. Missing proof/phase and earlier failures
+remain unclassified. Temporary capture/publicPEM/upload are removed exactly.
+Fresh Rust918d gates pass; old45six/sixin70s and new47six/sixin118s pass with
+runner120.55s retained separately. All67/new47/native415 exact; final fullCI
+and fresh review receipts follow on PR100. Native/full-feature gates stay open.

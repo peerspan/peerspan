@@ -444,3 +444,9 @@ Guided machine requester completion is the owner-local section47 action in
 [the guided session contract](guided-session-contract.md#47-bounded-existing-person-machine-requester-completion).
 It consumes exact existing consent, reuses ordinary signing/application and
 returns verified local application without implying access or readiness.
+
+Ordinary `link finalize` preserves a structured daemon `proof_required` error
+and nonzero exit, with fixed incomplete/inspect-the-same-request-before-resume
+guidance. It adds no proof fetch, retry, approval, signature or success claim;
+other commands and error codes retain their existing behavior. See the bounded
+completion verification clarifications in guided section47.
