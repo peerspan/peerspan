@@ -8944,7 +8944,9 @@ fabricated positive authority or unchanged retry-to-green.
    original/capped deadline as bounded fixture permits.
 2. Explicit approval: ordinary+pending+receipt matching atomic consent. Missing
    receipt/wrong digest/advanced approval cannot implicitly prepare or gain
-   attribution. Do not assert postapproval workers cannot advance.
+   attribution. Do not assert postapproval workers cannot advance. A single
+   coherent state-only lookup after external approval is acceptable there; it
+   does not replace strict complete purity measurements for settled readers.
 3. Temporary schema-only INSERT/UPDATE ABORT triggers over genuine ordinary or
    receipt writes prove full fresh Prepare/Approve rollback, including clock
    and references. Remove triggers before complete DB/files comparisons; never
