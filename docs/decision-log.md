@@ -4048,3 +4048,11 @@ This passing sample does not identify earlier timeout/carrier causes. Retain
 first CI35/37 plus all4 checks and all local0/5/4/3 outcomes in phase follow-up.
 Select final exact-head complete CI/review before owner review; discard
 unchanged reruns, old-suite edits, cause attribution or broader readiness claims.
+
+GU.impl47 CI41c5d66 first final candidate exposes unchanged old45 original
+finalization guard failure3/6in38s before subject inspection. Two dependent
+fixtures fail; cause unknown without original stderr/response category. Select
+a separate independently authored failure-only launcher around the exact
+existing Host.cli finalization result/exception. Preserve all67 files/native
+415, args/kwargs, calls/assertions/timeouts and exit. Discard old-suite edits,
+new diagnostic IO, guessed product fixes, ignored errors or unchanged retry.

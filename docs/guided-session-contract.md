@@ -9291,6 +9291,34 @@ source and restoration audit before root execution on unchanged Rust0047.
 All67 prior files/fullnative415 stay exact. The earlier CI old28 failure remains
 unclassified; it is neither modified nor waived by this new-suite correction.
 
+GU.impl47 first final-candidate CI41c5d66: old45 original-person setup fails
+at its existing finalization CLI guard, before the subject inspection; two
+later cases lose that fixture prerequisite. Retain the3/6in38s outcome/log.
+No stderr, response category or narrow cause was captured. Do not infer signer,
+key, race or transport failure from the English assertion alone.
+
+Select a separate independent diagnostic launcher for unchanged old45. It may
+wrap only the existing harness Host.cli call when the original args begin
+`link finalize`, forwarding exact args/kwargs and returning the identical
+Result or rethrowing the original exception. Emit fixed closed metadata only
+when the existing finalization success/incomplete guard would fail: numeric
+exit or fixed exception kind, known public error categories matched in the
+already captured stderr, stdout parsed-object flag, and allowlisted public
+request state plus owner/selection/finalization-presence booleans when present
+in that same result. No raw stdout/stderr/argv/IDs/key/path/endpoint, additional
+host/API/DB/files/network reads, mutations, retries, delay or timeout changes.
+Use runpy with the original suite argv; restore the original method in finally,
+including SystemExit. Existing assertions still decide the result. Launcher
+failure cannot convert a failed suite to success or hide its exception.
+
+All67 prior files and native415 remain byte-exact. CI invokes this launcher
+only for machine_requester_inspection; other suites keep their exact command.
+Independent author reads contracts/fixtures only and runs no hosts/runtime.
+Root static inverse/delegation/privacy audit precedes one changed-source run
+and final full CI; passing without diagnostic output leaves the earlier cause
+unclassified. Discard an old45 fixture edit, arbitrary ignored errors, guessed
+product fix, unchanged retry-to-green or waiver of a required suite.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
