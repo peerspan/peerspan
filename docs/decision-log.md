@@ -3870,3 +3870,10 @@ Clippy run finds a collapsible validation if; collapse it without changing the
 input contract. Retain both first failures. All66 host/native conformance files
 and complete native415 tree stay exact; the existing Rust unit fixture is the
 sole test adjustment, removing its dependence on the wall calendar.
+
+GU.impl46 postapproval verification choice: assert coherent ordinary/pending
+approval with an unapproved project receipt and state invalidated after an
+explicit advanced approval. Do not infer global no-signature/traffic behavior
+from that live state-only observation. Strict complete DB/files/BOTH-carrier
+purity remains on readers with genuine settled prerequisites; no worker flags,
+queue edits or category exclusions manufacture it.
