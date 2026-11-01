@@ -1080,3 +1080,12 @@ current powers, access, delivery or readiness. No backend/API/schema change.
 Contract-only independent native fixtures and root execution precede final-head
 CI and fresh bot/root review. Full terminal/reload/installed/physical/model/
 schema23→27/full-state/final #35 acceptance remains open.
+
+The [native machine requester verification record](results/guided-native-machine-requester-verification.json)
+retains the restricted runner's22 file-load/no-case-report failures, first
+435/439 run, independent fixture corrections and changed-source437/440 run
+(new25/25 pass). Three unchanged old native cases still fail locally: two
+original5s timeouts and one zero connection dispatch; causes remain unclassified.
+All69 old test/helper files and Rust918d remain exact. No unchanged local retry
+or timeout override is selected. Final exact-head full CI and fresh bot/root
+review must pass before this slice is ready; receipts will be on its PR.
