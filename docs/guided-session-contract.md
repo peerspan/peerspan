@@ -9676,6 +9676,72 @@ all other suite commands and tests stay exact. Final complete CI and fresh bot/
 root review on the new candidate are required. Earlier unknown causes remain
 unknown if the observer does not catch them; no product correction is claimed.
 
+### GU.impl48 completed-attempt and current-contact prerequisites
+
+Second full CI41328130758 on449c800 passes35/37 jobs and all4 PR checks
+(native440/440in109.12s, Rust155+2ignored). Preserve both failures: old28
+passes5/6in90s but fails BEFORE purity measurement at its existing5s terminal
+outbox retirement. At its single clock alignment one genuine requester row
+still has attempts0/due-now; after the failure it has attempts1 and a recorded
+transport_unavailable result. The other requester row retires; issuer has no
+outbox/journals. This does not reproduce or classify the earlier UDP crossing.
+Old24 passes5/6in62s and identifies only an existing requester own-contact's
+sequence/message/issued/expiry advancing beyond original request expiry with
+unchanged payload; files/TCP counters remain equal. Its asynchronous caller
+remains unknown. Do not infer product regression or transport repair.
+
+A separate contract-only author writes new prerequisite launchers around the
+UNCHANGED old28 and old24 suites. Keep all70 existing native/conformance/helper
+files byte-exact, including the receive-only diagnostic. Use Suite.case wrappers
+to substitute only the specified setup helpers while each original case runs;
+restore globals/class wrappers in finally including SystemExit. Preserve exact
+argv, original actions/assertions/capture order/delays/timeouts/default waits,
+full schema/all-table/state/home comparisons and every TCP/UDP counter. Added
+prerequisite failures fail the original case; never catch them as success.
+
+For old28, immediately BEFORE its original make_terminal_retries_eligible,
+observe real current dec_outbox rows on BOTH participants in bounded read-only
+transactions. Bound this distinct prerequisite to35s (documented30s operation,
+2s worker scheduling plus3s storage settlement); this does not extend or repeat
+the original5s retirement check. Include every newly coalesced current row, not
+only the first snapshot. A row either disappears through actual delivery or
+must expose a completed attempted generation: its actual retained attempts is
+a positive bounded integer, last_error_code is a documented recorded failure,
+last_error_detail is a nonempty bounded string, and canonical next_attempt_at
+is strictly after that participant's real debug-clock now. The retry/error
+fields must belong to the same read transaction/record; attempts alone or a
+sync200 is insufficient. Require no rollback journals on either host. Validate
+closed documented outbox envelopes/types/bounds; identities, bodies, result
+text and times stay private. Retain row/generation identity privately during
+observation and re-evaluate all current records each pass. If this prerequisite
+fails, retain the failure without another send/probe/alignment. Once satisfied,
+invoke the original alignment ONCE and its original5s retirement unchanged.
+No extra sync, packet send, fabricated ACK, queue edit, clock-row edit, worker
+pause, second alignment or retry-to-green is permitted.
+
+For old24's final linked-history case ONLY, append after its ONE original
+advance beyond request expiry, before the original spare create/cancel, the
+genuine GU.impl33e current-own-contact prerequisite: issue one unused65s
+ordinary contact invitation on the adopted network to a fresh real maintenance
+identity. Independently verify actual signed bound own-contact, retained exact
+sequence/message/payload guard, known current transport payload and authority,
+with contact validity at least60s beyond cleanup. Advance debug time to that
+invitation's actual expiry+1 within current authority/contact bounds. Leave the
+original spare create/cancel in place, then independently verify it actually
+retired the expired temporary invitation's secrets/read-cap/frames BEFORE the
+original snapshots. No subject-inspection warmup, recipient sharing/join,
+consent, grant, signer import or original-key copy. All current contact records
+remain included in the original strict whole-state comparison.
+
+Selected: observable protocol phase prerequisites before attribution. Discarded:
+longer original waits, sync-success-as-contact-proof, guessed sleeps/fences,
+filtered rows/IO, forced ACKs, new protocol retries, altered old tests, disabled
+workers and unchanged reruns. Root audits forwarding/restoration/protected-file
+provenance, commits source before ONE affected local run each using verified
+unchanged Rust918d binaries, records every failure/duration/limit, then requires
+full combined-head CI and fresh bot/root review. Earlier unknown causes stay
+unknown; passing prerequisite runs establish no general transport fix.
+
 ## 49. Remaining flow contract
 
 Teammate/device admission, remaining

@@ -4132,3 +4132,17 @@ new-original owner fallback, automatic retries/protocol driving, key copying,
 frontend persisted authority and success badges inferred from publication.
 Separate contract-only tests precede root execution; full feature acceptance
 remains open.
+
+### GU.impl48a — Settle completed delivery attempts and current contact first
+
+Second CI449c800 retains35/37: old28 initial attempt0 was aligned before a
+recorded completed attempt, then its unchanged5s retirement failed; old24
+strict history caught a genuine signed own-contact renewal after a clock jump.
+Select separate independent setup launchers: read-only35s completed-generation
+prerequisite before the single original old28 alignment; genuine unused65s
+contact invitation/current signed hint/expiry and actual reference retirement
+before old24 snapshots. All70 files/full comparisons/old5s waits stay exact.
+Discard longer waits, sync200 as proof, fabricated rows/ACKs, worker suppression,
+filtered IO and unchanged reruns. Contract first; preserve both CI failures and
+unclassified earlier causes, run each changed affected suite once, then full
+combined CI/review before ready. Rust/native product remains frozen.
