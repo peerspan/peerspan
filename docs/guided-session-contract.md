@@ -9588,6 +9588,34 @@ build/four PR checks/native suite are required before owner review. Keep every
 first no-start/local/CI failure, independent source/log/tree hashes and honest
 coverage limits. Backend tree stays byte-exact; no optional local old-host runs.
 
+### GU.impl48 first runtime and fixture clarification
+
+Retain the first restricted-process run:0 case reports,22 file-load failures,
+exit0/no-report for every worker. It is not439 executed-case failures. The
+normal-process-boundary run executes439:435pass/4fail. One unchanged old
+access-completion case hits its original5s timeout (cause unclassified). New
+failures are a configured-argv assertion invoked a second time with default
+options, and two short-stage fixtures whose stage deadline precedes signed
+request creation+600s. All69 prior files stay exact; no timeout/assertion waiver.
+The changed execution boundary establishes reporting availability, not the
+specific restricted syscall or cause of every earlier no-report worker.
+
+Independent author corrects only the new fixture: pass the same trusted
+configuration through its complete term/privacy assertion; a short frozen stage
+requires request creation no later than stage_deadline−600s and the signed
+invitation issuance must precede that request. Keep exact timer assertions,
+5s/95s bounds, privacy/full terms and every old test/helper unchanged. Persisted
+work can remain eligible after human expiry; after a held actual Complete and
+signed-expiry crossing, verify no action/control resurrection then explicitly
+Check matching historical application. Direct late historical display is not
+required; accepting only Check recovery is compatible. Preserve first failure.
+
+For commit_persisted without locally_applied, a canonical outcome ID is premature
+and must not enable native Complete. Only linked/local application can supply
+that outcome. An independent new negative case may exercise this closed
+state/reference consistency alongside its valid persisted positive fixture.
+No new backend behavior or relaxed native deadline is selected.
+
 ## 49. Remaining flow contract
 
 Teammate/device admission, remaining

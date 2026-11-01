@@ -125,6 +125,7 @@ export async function snapshot(raw, flow, parent, host, previous = null) {
       !v.request.selection_approved || !same(done, [...stages, 'commit_persisted', 'locally_applied'].slice(0, done.length)) ||
       done.length < stages.length || !v.request.commit_approved && done.length !== stages.length ||
       done.length === stages.length && !['manifest_id', 'activation_id', 'outcome_id'].every(k => v.request[k] === '-') ||
+      done.length === stages.length + 1 && v.request.outcome_id !== '-' ||
       v.request.state === 'needs_commit' && done.length !== stages.length ||
       v.request.state === 'finalizing' && done.length !== stages.length + 1 ||
       c.state === 'review' && (v.request.state !== 'needs_commit' || Date.parse(v.observed_at) >= Date.parse(r.expires_at)) ||
