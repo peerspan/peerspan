@@ -9173,6 +9173,16 @@ here; discard a third ceremony that would duplicate it at runtime cost. Do not
 claim that path was executed in47. Preserve genuine missing/unapproved/digest
 refusals and all67 old files.
 
+GU.impl47 pre-runtime independent static correction: ordinary cancellation
+cannot succeed after commit persistence. Preserve draft44603a7 as unexecuted;
+remove its unsupported postcommit cancel200 setup before the first run. Keep
+actual original-cap time and parent barriers, exact detached refusal and all
+whole-state/carrier assertions. Cancellation and original-provider positive
+Complete remain explicit47 source/fault-only coverage; discard another fresh
+ceremony solely to duplicate those boundaries. Establish quiet/live consumed
+transport holds at actual time-barrier entry before its original full baseline,
+with unchanged waits/timeouts. No executed failure is reclassified or hidden.
+
 ## 48. Remaining flow contract
 
 Teammate/device admission, remaining
