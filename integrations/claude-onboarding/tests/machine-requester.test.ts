@@ -452,7 +452,10 @@ function delayed(w: World, ms = 1000) {
 }
 async function published($: Engine, w: World, options: any = {}) {
   if (options.deadline) { w.requestExpiry = options.deadline; w.requestCreated = options.deadline - 3_600_000 }
-  if (options.stageDeadline) w.stageDeadline = options.stageDeadline
+  if (options.stageDeadline) {
+    w.stageDeadline = options.stageDeadline
+    w.requestCreated = Math.min(w.requestCreated, w.stageDeadline - 600_000)
+  }
   w.requestState = options.requestState ?? 'needs_commit'
   w.parent ??= await parentFlow({ agent: { id: id('agent', 1), name: 'Agent "東京"', owner: 'Owner \\é', capabilities: ['public "metadata"'] } })
   w.guardedParent = clone(w.parent)
@@ -514,7 +517,7 @@ function safe(w: World, shown = '', options: any = {}) {
     expect(w.tools.map(t => t.name)).toEqual(Array(w.starts).fill('delivery_acknowledge'))
   }
 }
-async function terms(ui: Pane, w: World) {
+async function terms(ui: Pane, w: World, options: any = {}) {
   const inspection = (w.consentValue?.review.inspection ?? w.lastInspection?.review)!, shown = await visible(ui)
   for (const value of [quote(ROOT), quote(inspection.agent.name), quote(inspection.agent.owner), quote(inspection.member),
     quote(inspection.network.name), inspection.network.id, inspection.network.context_id, inspection.network.genesis_root_public_key,
@@ -533,7 +536,7 @@ async function terms(ui: Pane, w: World) {
     expect(shown).toMatch(meaning)
   if (w.consentValue) for (const value of [w.consentValue.consent_id, w.consentValue.review_id, w.consentValue.review.intent_id,
     w.consentValue.review.inspection_review_id, w.consentValue.review.created_at, w.consentValue.review.expires_at]) expect(shown).toContain(value)
-  safe(w, shown)
+  safe(w, shown, options)
 }
 async function recorded(ui: Pane) { expect(await visible(ui)).toMatch(/consent[^\n]*recorded/i) }
 async function applied(ui: Pane, w: World, options: any = {}) {
@@ -588,7 +591,7 @@ test('separate double Prepare rechecks inspection then sends exact configured5s 
   expect(last(w, PREPARE).payload.inspection_review_id).toBe(captured.review_id)
   const sequence = w.calls.slice(at).map(e => e.kind), sent = sequence.indexOf(PREPARE)
   expect(sequence.slice(0, sent)).toContain(LOOKUP); expect(sequence.slice(0, sent)).toContain(INSPECT)
-  await terms(ui, w); safe(w, await visible(ui), configured.options)
+  await terms(ui, w, configured.options); safe(w, await visible(ui), configured.options)
 })
 
 test('receipt appearing during Prepare preflight is shown read-only without preparation or silent replacement', async ($, on) => {
@@ -765,6 +768,18 @@ test('premature manifest activation or outcome in approved pre-commit prefix sto
   safe(w, await visible(ui))
 })
 
+test('commit persisted without locally applied cannot acquire an outcome or enable Complete', async ($, on) => {
+  const w = fixture(on), ui = await published($, w, { consent: 'approved', requestState: 'finalizing' }), normal = w.run
+  w.run = async (kind, payload, e) => {
+    const value = await normal(kind, payload, e)
+    if (kind === LOOKUP) value.request.outcome_id = id64('dpk', 67)
+    return value
+  }
+  await review(ui); await inactive(ui)
+  expect(await visible(ui)).not.toContain('Local application: recorded')
+  expect(mutations(w)).toHaveLength(0); safe(w, await visible(ui))
+})
+
 test('raw rollback effective future history and future observations never authorize fresh mutation', async ($, on) => {
   const w = fixture(on), ui = await published($, w, { consent: 'approved' }); w.observed = NOW + 600_000
   await review(ui); await recorded(ui); await inactive(ui); expect(mutations(w)).toHaveLength(0)
@@ -806,8 +821,11 @@ test('already persisted approved work survives human expiry while dispatched val
   w.run = async (kind, payload, e) => { const v = await normal(kind, payload, e); if (kind === COMPLETE) await delay.wait(); return v }
   const pending = press(ui, 'Complete machine requester commit'); void pending.catch(() => undefined); await delay.started
   await w.clock.advance(w.requestExpiry - w.clock.now() + 1); await pending
-  expect(countMachine(w, 'complete')).toHaveLength(1); await applied(ui, w)
-  w.run = normal; await check(ui, w); await applied(ui, w)
+  expect(countMachine(w, 'complete')).toHaveLength(1); await inactive(ui)
+  expect(await button(ui, 'Check machine requester consent')).toBeDefined()
+  const saved = clone(w.consentValue)
+  w.run = normal; await check(ui, w); expect(w.consentValue).toEqual(saved); await applied(ui, w)
+  expect(countMachine(w, 'complete')).toHaveLength(1)
 })
 
 test('fresh parent host root and conversation are revalidated after actual held preflight before mutation', async ($, on) => {
