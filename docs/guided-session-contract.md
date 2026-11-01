@@ -8984,6 +8984,30 @@ native415 and fresh bot/root review required. Bounded completion/native controls
 and full #35 terminal/reload/installed/physical/model/schema23→27/full-state/final
 acceptance stay open.
 
+### GU.impl46 finalization setup clarification
+
+Second CI records an existing-computer finalization ID already present after
+explicit Finalize returns exit1, while setup rejects its English diagnostic.
+A positive retained-evidence fixture must establish actual signed F, not full
+machine completion or one CLI wording. Use one unchanged bounded Finalize
+command only, reject parse/crash/timeout outcomes (only exit0/1 eligible), then
+require the original bounded requester-F observation and exact existing-host
+read-only status. Both host views must agree on the same canonical F ID and
+captured request/network/context/person/host/device/owner/selection/admin pins.
+Keep all ordinary verified full-F/P/H/B/D and independent ID/profile/digest
+checks before pure baselines. Missing/mismatched/invalid F still fails; no
+repeated signing/resume, added mutation, original copying or larger wait.
+
+This explicitly permits the separate contract-only author to replace only the
+brittle Finalize exit1-English guard in the new46 suite and section45's copied
+progress helper, adding the stronger exact two-host F precondition. All other
+65 prior test/conformance files and full native415 tree stay byte-exact. All
+original case bodies, non-setup assertions, private corpora, full state/carrier
+counters, waits and timeouts remain. Removing the new setup verification and
+restoring that one guard must recover exact prior bytes/AST in both files.
+Retain both CI failures and unknown earlier timing causes; no claim that a
+passing fixture diagnoses them or that arbitrary CLI errors imply success.
+
 ## 47. Remaining flow contract
 
 Teammate/device admission, remaining
