@@ -559,5 +559,99 @@
     "Final-head full37jobs/fourchecks/native440 and fresh bot/root review remain required, with receipt on PR101.",
     "Physical/terminal/reload/installed/actual-model/schema23\u219227/full-state/final35 acceptance remains open."
   ],
-  "attachment": "PR101 app attachment attempted; thread attachment identity count exceeds100. No unrelated artifacts removed."
+  "attachment": "PR101 app attachment attempted; thread attachment identity count exceeds100. No unrelated artifacts removed.",
+  "second_ci": {
+    "head": "449c80094f3da9a1a24028329da39e973a4e884c",
+    "conformance_run": 41328130758,
+    "checks_run": 41328130755,
+    "attempt": 1,
+    "checks": "all4pass",
+    "native": {
+      "passed": 440,
+      "seconds": 109.12
+    },
+    "bot_receipt": "https://github.com/peerspan/peerspan/pull/101#issuecomment-6560917003",
+    "bot_clean": true,
+    "failures": [
+      {
+        "suite": "requester_completion",
+        "passed": 5,
+        "failed": 1,
+        "seconds": 90,
+        "boundary": "prebaseline terminal outbox retirement5s",
+        "new_requester_proofs_row": {
+          "attempts_before_alignment": 0,
+          "attempts_after_failure": 1,
+          "due_now": true,
+          "seconds_until_next": 0,
+          "error_code": "transport_unavailable"
+        },
+        "old_requester_proofs_row": {
+          "attempts": 4,
+          "seconds_until_next_before_alignment": 12,
+          "retired_by_failure": true
+        },
+        "issuer_outbox_count": 0,
+        "both_sync_attempted": 1,
+        "both_sync_unavailable": 0,
+        "carrier_observer_reached": false,
+        "cause": "unclassified; actual observed incomplete setup, not UDP purity crossing"
+      },
+      {
+        "suite": "owner_finalization",
+        "passed": 5,
+        "failed": 1,
+        "seconds": 62,
+        "boundary": "after_expiry pure finalization inspect",
+        "changed": [
+          "dec_contacts:requester sequence/message/issued/expiry"
+        ],
+        "payload_changed": false,
+        "issued_and_expiry_now_after_request_deadline": true,
+        "files_and_tcp_changed": false,
+        "cause": "contact refresh crossing; route/task attribution unproven"
+      }
+    ],
+    "logs": {
+      "ci-requester-completion-diagnostic.log": {
+        "sha256": "3416e713f8c7c74e551be47f090319f41766de1a8dd35c8672c9e182fb6196fb",
+        "bytes": 20318
+      },
+      "ci-owner-finalization-diagnostic.log": {
+        "sha256": "554f72961f2d1a295bc3b28b35265f89d2da53326621e07cb156fa5d2fcc5969",
+        "bytes": 19397
+      },
+      "ci-native-final.log": {
+        "sha256": "066afc1aaad683d6b44167cd1de735e89c0ad891325aacc1cc634d702f2d58c8",
+        "bytes": 87509
+      }
+    },
+    "conformance": {
+      "conclusion": "failure",
+      "headSha": "449c80094f3da9a1a24028329da39e973a4e884c",
+      "jobs_total": 37,
+      "jobs_success": 35,
+      "jobs_failed": [
+        {
+          "name": "requester_completion",
+          "conclusion": "failure",
+          "databaseId": 124912692869,
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41328130758/job/124912692869"
+        },
+        {
+          "name": "owner_finalization",
+          "conclusion": "failure",
+          "databaseId": 124912692952,
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41328130758/job/124912692952"
+        }
+      ],
+      "full_snapshot_sha256": "58c283c7e30a9eaff386048097bcdbb93d5cc5dd547a418ff9eeb86c6d9d524d"
+    }
+  },
+  "prerequisite_contract": {
+    "commit": "68ee627",
+    "selection": "completed-attempt read-only prerequisite before one existing alignment; genuine current signed own-contact and expired temporary reference retirement before unchanged history",
+    "product_and_native_unchanged": true,
+    "cause_limits": "No second-CI UDP crossing observed; async caller/transport failure attribution remains unknown."
+  }
 }
