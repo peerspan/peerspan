@@ -216,7 +216,7 @@ attempt and does not cancel or revoke an earlier published request.
 Back, Close/Escape, Refresh, reload, expiry or context loss clear the private
 attempt. Ordinary pane navigation preserves an established adapter and delivery
 runtime. No native owner/model tool is added. Sections13 and14 of the
-[contract](../../docs/guided-session-contract.md#14-explicit-new-original-identity-creation)
+[contract](https://github.com/peerspan/peerspan/blob/codex/guided-session-onboarding/docs/guided-session-contract.md#14-explicit-new-original-identity-creation)
 define bindings, privacy, persistence, recovery and remaining acceptance gates.
 
 The creation command uses `$XDG_CONFIG_HOME/peerspan/person_ed25519`, falling back
@@ -654,7 +654,7 @@ flow/review prefixes. Exact earlier source/build and a corrected manual fixture
 attempt are recorded; no joining/admission/access or model receipt is claimed.
 
 Contract, decisions and independent cases:
-[guided-session-contract.md](../../docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
+[guided-session-contract.md](https://github.com/peerspan/peerspan/blob/codex/guided-session-onboarding/docs/guided-session-contract.md#2-native-claude-entry-and-delivery-check-gu-01b--gu-03a).
 
 Claude references: [mod reload](https://code.claude.com/docs/en/plugins/mods/overview),
 [native controls](https://code.claude.com/docs/en/plugins/mods/interface) and

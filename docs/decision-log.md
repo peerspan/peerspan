@@ -4350,3 +4350,17 @@ behavior was checked against pinned2.1.303 help and official plugin CLI/local
 marketplace documentation on2026-11-02. References:
 [local marketplaces](https://code.claude.com/docs/en/plugin-marketplaces),
 [CLI reference](https://code.claude.com/docs/en/plugins/cli-reference).
+
+Independent section50 cases30a41b0 preserve all79 prior files and pass static/
+fake privacy, exact argv, unsafe-archive and inherited-HOME audits before root
+execution. First real product archive9e3a102 builds in557.46s without a compiler
+shim and with clean source metadata; SHA2560026fca6…124873d1. First packaging
+fixture run passes5/5in1.87s; unchanged release publication4/4in5.017s and
+unchanged real installed-bundle smoke6.62s pass. The same artifact's actual
+relocated strict native installation passes in6.99s, including expected enabled
+release version and executable configuration. No actual user Claude settings
+change, original-key action or model turn. The verification record retains
+exact source/artifact/log hashes. Bundled guide contract links now resolve in
+the feature repository instead of assuming absent source-doc files in the
+installed plugin. Final-head CI builds a new artifact and fresh review follows;
+all full-feature reload/model/physical/upgrade gates remain open.
