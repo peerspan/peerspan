@@ -7982,6 +7982,20 @@ automatic-return request whose original mailbox-frame GET is withheld, followed
 by exact inspection and unsigned preparation before any owner approval. Release
 the held transport only after asserting that boundary and continue normally.
 
+The independent fixture must identify the held fetch as the existing owner's
+daemon connection, using its known PID/socket inode and the accepted TCP tuple;
+the requester's own publication connection must pass unchanged. To isolate
+unrelated background traffic, the fixture may temporarily stop only its owned
+requester daemon and verify its stopped process state, while owner-local calls
+remain live. Resume that same process unconditionally before releasing transport
+and continuing the ceremony. Park all already-accepted existing-side relay
+streams at acknowledged handler boundaries, including streams still connecting
+upstream; an atomic empty snapshot or closed snapshot member is already drained.
+New connections and all UDP remain counted. Retain full counter equality, both
+live-boundary checks, the sole original-frame absence observation and the fixed
+5s/120s bounds. These are fixture isolation rules, never permission to pause
+product clocks, change state rows or suppress observed new transport attempts.
+
 ### Immutable review and record
 
 Review is exactly `{version:1,kind:"approve_existing_person_machine",consent_id,
