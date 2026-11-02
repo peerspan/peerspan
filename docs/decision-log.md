@@ -4732,3 +4732,17 @@ all full-feature reload/model/physical/upgrade gates remain open.
   strict old-binary replay failure from controls; require XPASS on the correction
   before removing only the known marker. Final source/archive/installed gates,
   full tracking CI/review and explicit model authorization/limit decision apply.
+
+
+The framed-replay proof passes its controls on the old binary in6seconds with
+replay409/state_conflict/XFAIL. The first fixed-binary fixture also held later
+legitimate completion frames and timed out; retain that failure. Disarming the
+barrier immediately after its initial entered marker preserves the original
+held caller/continue, deadlines and every assertion. Corrected fixture: old
+controls pass and replay XFAILs in5seconds; fixed controls plus four frozen cases
+pass with strict replay XPASS in14seconds. Only its known marker is removed.
+The frozen requester-commit suite passes6/6 in81seconds. Fresh clean d819cf8
+archive de999b56 passes installed terminal3/3, both participant paths and all
+three genuine upgrade/full-restore histories. Full final tracking CI/review and
+model authorization/evidence-limit decision remain open; original CI attribution
+is not invented from the separate proof.

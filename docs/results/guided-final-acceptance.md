@@ -7,6 +7,33 @@ CI/review and integration into tracking PR35 still determine merge readiness.
 
 ## Current candidate
 
+The clean-source d819cf8 archive adds exact already-framed requester commit
+replay. It validates retained approved/completed intent, activation and all pins
+without preparing or signing another operation. Ordinary publication/application
+keeps its current authority guards. Archive SHA256:
+`de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08`.
+
+- Independent real two-person frame-barrier controls pass on the old binary;
+  exact replay returns409/state_conflict and its separate strict gate XFAILs.
+- The first corrected run exposed a fixture hold also catching later completion
+  frames. Its failure is retained. A one-line disarm after observed initial
+  entry preserves the held caller, original deadlines and all assertions.
+- That same corrected fixture still XFAILs on the old binary in5seconds, then
+  reports strict XPASS on the fix. All six semantic cases pass in14seconds,
+  including altered-pin refusal and one exact replay before releasing the first
+  caller, immutable consent/commit and both canonical signed applications. Only
+  the known replay200 marker is removed; final CI requires6 ordinary passes.
+- The unchanged requester-commit history suite passes6/6 in81seconds. Its first
+  CI phase remains unattributed; the separate deterministic bug is confirmed.
+- This fresh archive passes actual installed terminal3/3 with zero model requests,
+  distinct-person teammate12.615seconds, second computer11.996seconds, and all
+  genuine three-history upgrade/full restores in10.001seconds.
+- Full corrected tracking CI and review remain required. The final-artifact
+  actual-model repeat remains awaiting explicit authorization or owner acceptance
+  of its historical evidence limit; no new model pass is claimed.
+
+### Previous charged-bootstrap candidate d61a314
+
 The clean-source d61a314 archive includes both confirmed rate-pressure fixes:
 exact bounded completion retry and charged unknown-route404 precedence. Archive
 SHA256: `9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695`.

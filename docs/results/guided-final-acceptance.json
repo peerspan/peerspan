@@ -1,14 +1,15 @@
 {
   "acceptance_pr": "https://github.com/peerspan/peerspan/pull/107",
   "artifact": {
-    "installed_host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
-    "name": "peerspan-0.1.0-gu51-boundary-linux-amd64-rust.tar.gz",
+    "installed_host_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
+    "name": "peerspan-0.1.0-gu51-replay-linux-amd64-rust.tar.gz",
     "production_paths": {
+      "integrations": "71a3bbdfe66e0bc96d09ce0f05e3d99aa613cd8e",
       "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
       "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
       "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
       "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
-      "rust/src": "bf5980feffc1a2501426ac41959e04c4c4c9d2fa",
+      "rust/src": "bd5812daea8c5d891ed967f9152ffdcb02aca9c6",
       "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
     },
     "release": {
@@ -18,10 +19,10 @@
       "os": "linux",
       "rust_libc": "glibc (builder baseline; rust bundles only)",
       "source_dirty": false,
-      "source_revision": "d61a314168c42a4f8bf9facde403e23961d94b1e",
-      "version": "0.1.0-gu51-boundary"
+      "source_revision": "d819cf8eef38509ad14151af8501ae2c62a2f7f5",
+      "version": "0.1.0-gu51-replay"
     },
-    "sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695"
+    "sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08"
   },
   "authenticated_model": {
     "applies_to_archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
@@ -75,7 +76,7 @@
       "passed": 440,
       "receipt_sha256": "52497cef6c4dded44263010adfb54c8f5bf550ab133b583c4f7a90636be2ea61"
     },
-    "observed": "Corrected machine-owner6/6 passes in31seconds. All Rust/native/installed jobs pass;45/46 slim suites pass. Requester-commit history ordinary explicit commit returns409/state_conflict. Original cause remains unattributed; receive-only existing-response diagnostics are being prepared. No speculative product changes or retries.",
+    "observed": "Previous f0b356b passed51/52, all Rust/native/installed jobs and45/46 slim suites; requester_commit returned409/state_conflict. A separate deterministic real-frame proof confirms the replay gap on old binaries and strict XPASS on the narrow correction, preserving all controls and immutable consent/commit. The frozen requester-commit suite passes6/6 in81seconds. Fresh release terminal3/3, both participants and three genuine upgrade/restore histories pass. Full tracking CI and review on the corrected final head remain required, as does explicit model authorization/limit decision.",
     "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41407248571",
     "required": true,
     "required_final_check_count": 52,
@@ -108,7 +109,7 @@
     "source_tree_unchanged_from_artifact": true
   },
   "current_artifact_model": {
-    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
+    "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
     "credentials_read_or_copied": false,
     "model": "haiku",
     "original_conversation": true,
@@ -273,8 +274,51 @@
     {
       "kind": "Requester commit history ordinary explicit commit409 state_conflict on f0b356b; exact guard and cause remain unattributed",
       "log_sha256": "220fbca09c3aabfb636cb336630026ce8a23590ff5b2fbb5f02ea6db6bde1c97"
+    },
+    {
+      "kind": "New framed-replay fixture kept its frame barrier armed and also held later legitimate completion traffic; corrected one-line disarm after initial entry, with no deadline/assertion change",
+      "log_sha256": "e5f2e11cf610e7ddd2511720c681ad8ee8fe6564c7ac293dfe8a11f912a8f561"
     }
   ],
+  "framed_replay_regression": {
+    "corrected_strict_source_sha256": "e2acda9aa3302b56db0da49156a998d77b9793ec833f02618a5a798bb223ff29",
+    "final_marker_free_source_sha256": "b2c7fd09c06d59f737258a2dd130ffad5b47d9a1772c2ec84003bdbfe9c0e183",
+    "first_old_proof_log_sha256": "2f364e67f0be8188ea60f93a3f67c9c07734f36b7c46ebd7e98778cbc9a738f2",
+    "fixed_host_sha256": "4ef199abaeb0b45bafe26759187b5a4b5ce3ef2546ca697ef57f63b997b2127e",
+    "fixed_strict_proof": {
+      "altered_pin_code": "operation_conflict",
+      "altered_pin_http_status": 409,
+      "both_canonical_applications_verified": true,
+      "controls_passed": true,
+      "exact_replay_http_status": 200,
+      "existing_four_cases_passed": true,
+      "log_sha256": "0fe0055cb7bca8b8ce7ef97f5439ba48cf080c1c8da38e0e15aa7593647a4389",
+      "seconds": 14,
+      "single_exact_replay_before_first_caller_release": true,
+      "strict_xpass": 1,
+      "unchanged_consent_commit_original_keys": true
+    },
+    "frozen_requester_commit": {
+      "failed": 0,
+      "log_sha256": "529909c6c197ceb616551e7e88139c49cf6fb5fcf2016322f554a81ce09b9137",
+      "passed": 6,
+      "seconds": 81
+    },
+    "initial_independent_source_sha256": "df5efb247605fd17944fe5b87b35d2979d7f8f055525345c2ecb500136dbd851",
+    "old_corrected_fixture": {
+      "controls_passed": true,
+      "exact_replay_code": "state_conflict",
+      "exact_replay_http_status": 409,
+      "log_sha256": "60d0cab694921b78920f51a9c33716887463b651d3c0894570df5aa9cf835b8d",
+      "seconds": 5,
+      "strict_xfail": 1
+    },
+    "old_host_sha256": "3d645783a8d7727d0dbaa4e5216b959ee720a1cf6e0550a64d314f74657c3e5a",
+    "original_ci_phase_attributed": false,
+    "original_four_case_bodies_and_helpers_preserved": true,
+    "production_source": "d819cf8eef38509ad14151af8501ae2c62a2f7f5",
+    "whole_suite_deadline_seconds": 120
+  },
   "historical_archives": [
     {
       "artifact": {
@@ -310,6 +354,45 @@
         {
           "passed": true,
           "seconds": 11.938,
+          "suite": "machine"
+        }
+      ],
+      "upgrade_passed": true
+    },
+    {
+      "artifact": {
+        "installed_host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
+        "name": "peerspan-0.1.0-gu51-boundary-linux-amd64-rust.tar.gz",
+        "production_paths": {
+          "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
+          "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
+          "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
+          "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
+          "rust/src": "bf5980feffc1a2501426ac41959e04c4c4c9d2fa",
+          "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
+        },
+        "release": {
+          "architecture": "amd64",
+          "implementation": "rust",
+          "node_requirement": ">=22",
+          "os": "linux",
+          "rust_libc": "glibc (builder baseline; rust bundles only)",
+          "source_dirty": false,
+          "source_revision": "d61a314168c42a4f8bf9facde403e23961d94b1e",
+          "version": "0.1.0-gu51-boundary"
+        },
+        "sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695"
+      },
+      "installed_terminal_log_sha256": "82b24fca01cf40d91c4202276e2fc71b973dab8448114575bc5222c733c70e75",
+      "participant_suites": [
+        {
+          "passed": true,
+          "seconds": 12.705,
+          "suite": "teammate"
+        },
+        {
+          "passed": true,
+          "seconds": 11.962,
           "suite": "machine"
         }
       ],
@@ -391,9 +474,9 @@
     }
   ],
   "installed_terminal": {
-    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
+    "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
     "cases": 3,
-    "log_sha256": "82b24fca01cf40d91c4202276e2fc71b973dab8448114575bc5222c733c70e75",
+    "log_sha256": "35708e0e9083edfd872a826dd1135394121a9fd512535b76b2b4249da96e3bd6",
     "model_requests": 0,
     "passed": true,
     "source_sha256": "a466c90bf78cc48d6a7f1a2d37614b555d32cd5d051d3b606f13b6c8436ad853"
@@ -404,7 +487,7 @@
     "Unchanged mod runtime may retain its lease across component reload; explicit Stop/reconnect and fresh model readiness were exercised.",
     "Actual task model execution, onward delegation and non-Linux installation are outside this message-onboarding acceptance.",
     "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
-    "Final-head CI and accepted review, then integration into tracking branch and its final checks, remain required; this receipt alone does not authorize merging35."
+    "Full final tracking CI and accepted review on the corrected head remain required; the final-artifact actual-model repeat separately awaits explicit authorization or owner acceptance of its historical evidence limit. This receipt does not authorize merging35."
   ],
   "main_baseline": "8bc1b922e7b29f030f6799f98e96a0304b6bc8cd",
   "native": {
@@ -477,11 +560,11 @@
   },
   "participants": [
     {
-      "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
+      "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "70ffa8c251577621c373c5a460ea590be85680dbe7549fffe4e0c8c6d8012f03",
-        "fa21cb1bfc37a7454775743fe889efd4d7141474162c4b9111ba56fbcec96ac7"
+        "7eee2e9c643815e72880b5f75a5d9b4d207e0b9d3c20b1252792203e0648f76a",
+        "f193aa453b1f36a1385cebf81a5b3dac0336ee16dfe18535fecfa1738208f23b"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -502,16 +585,16 @@
         "receiver_message_receipt": true,
         "unavailable_manual_fallback": true
       },
-      "host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
+      "host_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
       "passed": true,
-      "probe_sha256": "090ce9f9eba769984d52ae94b5ace6237bef5ada3ac8667722c922281b968ca2",
+      "probe_sha256": "2860548f2c84aa157ac24dc2b3fa03056c84081974c6ad44e06f8253831b1d96",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 12.705,
+      "seconds": 12.615,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -522,11 +605,11 @@
       "suite_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
+      "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "6db6f782708ae49b6132885a50022a0d3d4fe66e9b8cc65ff5e7b0f7f7ef8753",
-        "da5614c331d76550e42de65c60026406637fe899333ea5bf218473e55d538b20"
+        "27a3f2271b97500c9acc4313d42350b662c7a41299de7b9b54c015d017d1f246",
+        "b4878dd11e4a42c0e24f8bc81e32a5a192d9b824291eb5fe7284e74c956729e8"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -547,16 +630,16 @@
         "outbound_peer_observation": true,
         "physical_machines": 0
       },
-      "host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
+      "host_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
       "passed": true,
-      "probe_sha256": "090ce9f9eba769984d52ae94b5ace6237bef5ada3ac8667722c922281b968ca2",
+      "probe_sha256": "2860548f2c84aa157ac24dc2b3fa03056c84081974c6ad44e06f8253831b1d96",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 11.962,
+      "seconds": 11.996,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -564,7 +647,7 @@
         "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
       },
       "suite": "machine",
-      "suite_log_sha256": "6bf44ce27ad36cd0f9dfa965761816e8909f5539a4c625015c3ab80daf455ccb"
+      "suite_log_sha256": "a95c41db4a94e8a8bbd61c8c4f71cd5d5e882d0f56243c65ac8fc9333772e629"
     }
   ],
   "previous_verified_artifact": {
@@ -590,7 +673,7 @@
     },
     "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
   },
-  "recorded_at": "2026-11-02T06:44:26.708718+00:00",
+  "recorded_at": "2026-11-02T08:16:11.160191+00:00",
   "requester_commit_prefix_diagnostic": {
     "actual_commit_http_status": 200,
     "actual_result_state": "linked",
@@ -607,7 +690,7 @@
     "seconds": 81,
     "source_sha256": "1fae4585517298f6f7561e3eb93b0284fba96b1a7d35c41dc321e287d917f04b"
   },
-  "runtime_test_candidate": "13584050795d1870349744a88234a18d485980b7",
+  "runtime_test_candidate": "97fdb9b2b45c788d703fcf2bfe7ceae3583e4401",
   "targeted_regressions": {
     "access_onboarding_bootstrap_boundary": {
       "failed": 0,
@@ -815,12 +898,12 @@
   },
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "upgrade": {
-    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
+    "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
     "contract": "guided-final-acceptance section1",
-    "elapsed_seconds": 9.607,
+    "elapsed_seconds": 10.001,
     "histories": {
       "feature27": {
-        "backup_manifest_sha256": "fcc7c3f8d482c63bbb227a0a18d85a144b1517c9a532bcfc9aa29505a9bdabcd",
+        "backup_manifest_sha256": "d85176d455087b1fa00295773a944cc264e1e09bd3487e5c770ec7d75c90d020",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -831,7 +914,7 @@
         "upgraded_schema": 28
       },
       "main24": {
-        "backup_manifest_sha256": "be502661b1fe82ee18fec72af8c02a2e77bc7d43cebd73e3baf756de4bed0d71",
+        "backup_manifest_sha256": "c397e8e0afb6e004b8e023d40ac336718f95e4c3390d2ccf6375b0c40d607e7b",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -842,7 +925,7 @@
         "upgraded_schema": 28
       },
       "old23": {
-        "backup_manifest_sha256": "5bd6a73b0e3274cb4e49a845e89449a062bf9023b0969745badab47bbc750761",
+        "backup_manifest_sha256": "7aa8613c873c3ebbb8e6828bcdc3aec7522d6ac580d0db16b60c1dad95712e0b",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -853,8 +936,8 @@
         "upgraded_schema": 28
       }
     },
-    "installed_binary_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
-    "log_manifest_sha256": "051a3598f4b46447d803946da6473254b2f802c2b392a03695ea2a7130ecedfb",
+    "installed_binary_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
+    "log_manifest_sha256": "5cccd679cb787fdf58c41bf498d35ad08cfa73150ea4d2ef22fac293a7521207",
     "old_binary_sha256": {
       "feature27": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
       "main24": "dfd8a6343574357bdbdb9008850241e02b3e8891af045400709f652c0d0fb490",
