@@ -26,9 +26,19 @@ branch initially adds only documentation and an independently authored driver.
 | Observation | Outcome and next action |
 | --- | --- |
 | Public network preflight | TCP and UDP exchanges succeeded in both directions in 3.157 seconds. SSH carried control only. This is reachability evidence, not Peerspan acceptance. |
-| Existing-person machine ceremony | Failed in 7.202 seconds: exact public inspection succeeded; owner-consent preparation returned 409 `machine_owner_consent_unavailable`. Retained input matches the documented contract. A separate diagnostic build reproduced the refusal in 7.108 seconds and revealed underlying `state_conflict`; the failing internal phase remains under investigation. Diagnostic results do not qualify the release. |
+| Existing-person machine ceremony | Failed in 7.202 seconds: exact public inspection succeeded; owner-consent preparation returned 409 `machine_owner_consent_unavailable`. Retained input matches the documented contract. A separate diagnostic build reproduced the refusal in 7.108 seconds and revealed underlying `state_conflict`. A second diagnostic identifies the absent reconstructed pairing code: automatic return exposes the authenticated request before its original mailbox frame is fetched. NET-02 removes that second-fetch prerequisite; the rebuilt candidate is not yet qualified. Diagnostic results do not qualify the release. |
 | Distinct-person ceremony, original driver | Both hosts applied the completed ceremony. The driver then failed a proof assertion in 26.489 seconds: it incorrectly required network context on the initial request packet. The independent author corrected this to the wire contract's `-` context and retained signature and identity checks. |
 | Distinct-person ceremony, corrected context assertion | Both host applications and signed proof checks passed. In 30.087 seconds the driver reached message enforcement, where its explicit-policy owner-local send returned 400 `invalid`. This establishes no receiver refusal. The owner-send/peer-wire distinction is under review; exact receiver checks will use an authenticated public peer probe. |
+
+The corrected authenticated-probe teammate check subsequently passed in35.952
+seconds: two actual host applications, one exact guided access grant, one
+receiver append, two403/forbidden receiver denials (before access and after
+withdrawal), independent signed proof verification and zero original-key
+transfers. Public-interface captures on both machines contain direct bootstrap
+TCP and peer UDP traffic, with helpers disabled. The
+[partial protocol receipt](results/real-network-teammate-initial.json) records
+source/control/capture hashes. It does not complete D1, establish normal CLI
+routing, or qualify the pending product fix.
 
 Original controls, daemon logs and packet captures remain private. No failed
 attempt is relabeled as passing, and no unexplained attempt is rerun to obtain a

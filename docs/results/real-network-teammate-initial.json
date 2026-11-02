@@ -1,0 +1,61 @@
+{
+  "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
+  "capture": {
+    "left": {
+      "bytes": 2035991,
+      "packets": {
+        "direct_bootstrap_tcp": 1230,
+        "direct_peer_udp": 720,
+        "other": 0
+      },
+      "sha256": "2c491c85b17c2de46f2fb1f85274cd4f6589171cb13cf10a7e9a9d7ce29c7719"
+    },
+    "right": {
+      "bytes": 2023289,
+      "packets": {
+        "direct_bootstrap_tcp": 1109,
+        "direct_peer_udp": 670,
+        "other": 0
+      },
+      "sha256": "633eeb2a20a7af9d1789086471849396f0aa9ec39c6bc89787239e67a2b252b6"
+    }
+  },
+  "control_evidence_index_sha256": "47cab460a17feecb2d4f370dc8b166e04f62d63a96af60ff5e394dcb251cf4f8",
+  "driver_sha256": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+  "format": 1,
+  "full_D1_acceptance": false,
+  "helpers_enabled": false,
+  "host_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
+  "model_receipt": false,
+  "nat_qualification": false,
+  "native_terminal_receipt": false,
+  "normal_directory_acceptance": false,
+  "outcome": {
+    "evidence": {
+      "actual_host_applications": 2,
+      "adapter_connection": false,
+      "automatic_directory_routing": false,
+      "binding_scopes": 2,
+      "explicit_withdrawals": 1,
+      "finite_device_scopes": 7,
+      "guided_access_grants": 1,
+      "immutable_requester_approval": true,
+      "manual_transport_pins": 2,
+      "model_receipt": false,
+      "original_key_transfers": 0,
+      "receiver_appends": 1,
+      "receiver_denials": 2,
+      "receiver_transport": "authenticated_public_peer_probe",
+      "signed_public_proof_verified": true
+    },
+    "passed": true,
+    "scenario": "teammate",
+    "seconds": 35.952,
+    "stage": "complete"
+  },
+  "passed": true,
+  "probe_sha256": "ce5dadc29310af6229ccb0dbb58b3fac50fb5d1fc592f1917574400afa98769b",
+  "qualification": "D1_teammate_protocol_with_manual_peer_pins",
+  "relay_qualification": false,
+  "separate_deployments": true
+}
