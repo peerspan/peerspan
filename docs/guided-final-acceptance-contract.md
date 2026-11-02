@@ -282,8 +282,10 @@ errors, replay an approval or loosen rate limits. This matches the retained
 prefix treatment already used for original finalization.
 
 Independent verification must retain the exact O/S prefix, make its carrier
-unavailable/rate-limited, and exercise administrator preview/explicit approval
-without another carrier request, while retaining exact signed-result checks.
+unavailable/rate-limited, and exercise administrator preview without another carrier request, then explicit
+approval while carriers are unavailable, retaining exact signed-result checks.
+Approved ordinary T publication remains permitted and is not classified as a
+redundant evidence fetch.
 Wrong IDs/missing bytes must not gain this shortcut. Preserve all existing
 owner, signing and participant cases/deadlines; a final clean full-head run is
 still required after the correction. The first failed CI log remains retained.
