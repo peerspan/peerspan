@@ -195,3 +195,21 @@ every original case, snapshot, action, assertion, deadline and verdict exact.
 Retain the first run, source and diagnostic hashes. Diagnose the source of the
 change before any implementation or fixture correction; a failed combined gate
 is not permission to relax global purity.
+
+### CI acceptance receipt retention (review107 P2)
+
+Always publish a sanitized acceptance receipt artifact even if a gate fails.
+A small operational collector takes explicit terminal/upgrade/participant fixture
+roots, archive directory and output directory. Preserve only closed public
+phase/category/check metadata, bounded counts/timings, pass/fail/history flags,
+and SHA256 source/archive/private-log hashes. Terminal prompt transition traces
+contain only fixed prompt/phase/key enums and timing/selection metadata and may
+be retained after strict field/value validation. A failed check's fixed literal
+may be reported only from a closed allowlist; otherwise retain its digest.
+Do not copy raw native screens, provider errors, transcripts, API/CLI bodies,
+state, keys, configuration or credentials. Never recurse arbitrary state to
+publish hashes of key files. Private raw evidence remains in owned local runs;
+CI retains the sufficient sanitized diagnostic record and discards private
+fixtures at teardown. No additional service or secret-export destination is
+introduced. Missing/invalid/partial evidence is explicitly labelled; successful
+collection does not turn an unsuccessful acceptance gate green.

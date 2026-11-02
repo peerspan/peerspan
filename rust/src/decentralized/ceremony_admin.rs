@@ -1071,10 +1071,14 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
             // intent concurrently. Reload a verified append-only extension;
             // never overwrite another signer or repeat a consent decision.
             require(
-                i.record
-                    .signatures
-                    .iter()
-                    .all(|prior| current.record.signatures.iter().any(|now| now == prior)),
+                current.record.signatures.len() > i.record.signatures.len()
+                    && i.record.signatures.iter().all(|prior| {
+                        current.record.signatures.iter().any(|now| {
+                            now.slot_id == prior.slot_id
+                                && now.role == prior.role
+                                && now.signature == prior.signature
+                        })
+                    }),
                 "state_conflict",
             )?;
             continue;
