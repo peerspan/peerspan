@@ -25,6 +25,13 @@ SHA256: `9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695`.
   native440 passed in181.3seconds, and Rust/all installed gates passed. Its
   exact-head Codex review was clear. Current final CI/review is recorded on PR107
   and then PR35; prior run identities remain historical.
+- Integrated acceptance5f7cd90 passed52/52 checks; all46 suites met120seconds
+  (maximum89), native440 passed in190.082seconds and all installed gates passed.
+  Exact-head Codex review is clear. The fresh tracking35 run on the same source
+  passes51/52: one final signed-request-expiry purity phase observes two unknown
+  owner carrier tables change without file or network activity. That original
+  cause remains unattributed; the first failure is retained. The fixture must
+  establish completed due resource expiry before its strict baseline.
 - The repeated actual-model check remains awaiting explicit authorization or
   acceptance of the named evidence limit. No new model turn occurred. Historical
   model success remains tied to its old verified archive; it is not claimed for

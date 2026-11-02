@@ -59,32 +59,48 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41398547169",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41402036231",
     "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
-    "final_status_location": "Current exact-head checks and review receipts on acceptance PR107, then tracking PR35; recorded previous runs remain historical.",
-    "installed_receipt_sha256": "7dcd008b9bbd2fd5db3cc2d5ddc15bcb2b6d9423fab49ec6aab2e2027a97b577",
+    "final_status_location": "Tracking PR35 current exact-head checks and review; acceptance107 remains a historical integrated receipt.",
+    "installed_receipt_sha256": "a394e2ed5aa60c9a0360ddfd9d3f2effd080749bbebceacf1151fbbb8d9b48fa",
     "latest_exact_review": {
-      "commit": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+      "commit": "5f7cd9080659961095daf76525562883304d4646",
       "result": "no major issues found",
-      "url": "https://github.com/peerspan/peerspan/pull/107#issuecomment-6570483046"
+      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571243763"
     },
-    "next_required_checks": 52,
-    "observed": "ecee08c completed51/52 checks green:45/46 slim suites, Rust/native440 and all installed gates pass; all46 suite runtimes meet120seconds, maximum87. The only failed assertion was the bootstrap owner-route404 boundary without an actual status receipt. Its cause remains unattributed. Independent charged-bucket TLS proof confirms429 masks404 on that source. Narrowd61a314 correction passes strict XPASS, unchanged access6/6, delivery16/16 and all fresh installed gates. Final corrected-head52-check CI/review and model authorization/limit decision remain required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41398547138",
+    "native": {
+      "cases": 440,
+      "elapsed_seconds": 190.082,
+      "files": 22,
+      "passed": 440,
+      "receipt_sha256": "1654654184db29ee61b21ad6e32c490e70b4515905083c9cc38f8c9e3e4d256f"
+    },
+    "observed": "Acceptance107 passed52/52 and was integrated into tracking35 by non-force fast-forward. Fresh tracking35 on that exact source passes51/52: the final signed-request-expiry purity phase observes two unknown owner carrier database tables changed while all files and network counters remain unchanged. The first cause remains unattributed. A contract-only prerequisite is in preparation; production and packaging trees remain identical to d61a314.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41402036070",
     "required": true,
     "required_final_check_count": 52,
     "slim_suites": 46,
-    "source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+    "source": "5f7cd9080659961095daf76525562883304d4646",
     "suite_runtime_audit": {
-      "failed_suites": 1,
-      "log_sha256": "43779d07834ffd82b0fd8ffc9f47ed9b207bfb4c9f1b2c1d4ca73df8aa0a2aa5",
-      "maximum_seconds": 87,
+      "failed_suites": 0,
+      "log_sha256": "eb88d63e1315d07946addafcb06841f251025fcb82137ad893e9b5c6d8ecc4d4",
+      "maximum_seconds": 89,
       "over_120_seconds": 0,
-      "passing_suites": 45,
+      "passing_suites": 46,
       "suites": 46,
-      "summary_sha256": "7e3051a17fe36cb0f3c872c1a8ac319e7f395b02ddd2e3ffb6aa9f0bbba09f8f"
+      "summary_sha256": "16200e339274f6e5debcfd5f630f96dcb2954d2e34f3412203b7b20d3091477a"
     },
-    "tested_merge_source": "23631959d8ca68efb5b41e1ba89feacd269015c3"
+    "tested_merge_source": "2160c9593bb144f135eaa8ad5385cee3b75e7ee0",
+    "tracking_repeat": {
+      "all_46_suite_seconds_maximum": 89,
+      "checks_passed": 51,
+      "checks_total": 52,
+      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41403733674",
+      "failed_suite": "machine_owner",
+      "log_sha256": "55b56e47c3a0e6ae1020a6f44506c2506976340aa667bf90f39efa8451aec153",
+      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41403733744",
+      "summary_sha256": "a1a9665bd1add0c62f07eff760ba3749bd449d67bb084a874a49190106b31cf5"
+    }
   },
   "conformance_execution": {
     "all46_suite_120second_runtime_audit_required": true,
@@ -216,6 +232,10 @@
     {
       "kind": "independent real charged-bucket owner-route429 mask",
       "log_sha256": "81342b9a7883bfdcc42379fd96614636edd31f04c2f243e3af724ecd598bff06"
+    },
+    {
+      "kind": "Fresh tracking35 signed-request-expiry purity: two unknown owner carrier database tables changed; original cause not attributed",
+      "log_sha256": "0ff92cd21310bfc40f1872c1898ec955d23444c043dab8c014ea11b5caa79690"
     }
   ],
   "historical_archives": [
@@ -257,6 +277,36 @@
         }
       ],
       "upgrade_passed": true
+    }
+  ],
+  "historical_ci": [
+    {
+      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41398547169",
+      "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
+      "final_status_location": "Current exact-head checks and review receipts on acceptance PR107, then tracking PR35; recorded previous runs remain historical.",
+      "installed_receipt_sha256": "7dcd008b9bbd2fd5db3cc2d5ddc15bcb2b6d9423fab49ec6aab2e2027a97b577",
+      "latest_exact_review": {
+        "commit": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+        "result": "no major issues found",
+        "url": "https://github.com/peerspan/peerspan/pull/107#issuecomment-6570483046"
+      },
+      "next_required_checks": 52,
+      "observed": "ecee08c completed51/52 checks green:45/46 slim suites, Rust/native440 and all installed gates pass; all46 suite runtimes meet120seconds, maximum87. The only failed assertion was the bootstrap owner-route404 boundary without an actual status receipt. Its cause remains unattributed. Independent charged-bucket TLS proof confirms429 masks404 on that source. Narrowd61a314 correction passes strict XPASS, unchanged access6/6, delivery16/16 and all fresh installed gates. Final corrected-head52-check CI/review and model authorization/limit decision remain required.",
+      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41398547138",
+      "required": true,
+      "required_final_check_count": 52,
+      "slim_suites": 46,
+      "source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+      "suite_runtime_audit": {
+        "failed_suites": 1,
+        "log_sha256": "43779d07834ffd82b0fd8ffc9f47ed9b207bfb4c9f1b2c1d4ca73df8aa0a2aa5",
+        "maximum_seconds": 87,
+        "over_120_seconds": 0,
+        "passing_suites": 45,
+        "suites": 46,
+        "summary_sha256": "7e3051a17fe36cb0f3c872c1a8ac319e7f395b02ddd2e3ffb6aa9f0bbba09f8f"
+      },
+      "tested_merge_source": "23631959d8ca68efb5b41e1ba89feacd269015c3"
     }
   ],
   "installed_terminal": {
