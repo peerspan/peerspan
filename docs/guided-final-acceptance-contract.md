@@ -510,3 +510,41 @@ records per complete suite; never keys, request IDs, paths, packet bytes or free
 text. This supplies evidence if the original CI cause differs from the confirmed
 rate-pressure gap. It must make no extra API request, retry, mutation or read of
 product implementation. Diagnostic output never changes a verdict.
+
+
+### Bootstrap owner-route absence under a charged rate bucket
+
+The corrected ecee08c CI run passed all other slim suites within120seconds, but
+access inspection's frozen bootstrap-boundary assertion failed without recording
+the actual status. The unchanged suite with receive-only HTTPResponse.begin
+metadata passes locally on the exact CI binary and records404. Its original CI
+cause remains unclassified. Source review identifies another concrete hypothesis:
+rate refusal can precede route absence. Do not attribute that first failure or
+change product behavior without an independent real public-wire diagnostic.
+
+Extend the independent completion-rate-limit suite with a small separate
+bootstrap-boundary experiment. Use a real host with no coordinator/helper and
+two distinct valid self-signed client TLS identities on the same loopback source.
+Their certificates establish transport identity only, never network authority.
+Bound the total existing suite to120seconds. Through TLS1.3/bootstrap ALPN and
+real HTTP requests, require a malformed known activation route to return400/invalid
+and exhaust its actual mutation bucket to429/rate_limited within a bounded burst.
+During that exhausted bucket, send the exact frozen owner access-inspection path
+from the second fresh identity. Freeze its actual status/code; a known activation
+request must remain429/rate_limited. Emit only closed status/code/Retry-After
+categories and booleans. No configured limit changes, sleeps to repair the
+observation, private data, synthetic authority or new owner action. Separate all
+fixture/control assertions from one strict known marker for the owner route's
+required404/not_found; after verified XPASS remove only that marker. Keep every
+prior case/assertion/deadline unchanged.
+
+Selected behavior: every request attempt is still charged under the same
+key/source rates and active/header bounds. A successfully parsed genuinely
+unknown route, including an owner-local path on the bootstrap listener, returns
+404 without invoking an owner handler or reading its body. Known bootstrap and
+completion routes, malformed headers/paths and invalid capabilities retain the
+existing rate refusal precedence. If the independent experiment confirms a gap,
+record charging first, classify only the bounded received header/route, return
+404 for a genuine unknown route, then enforce the recorded rate refusal before
+all known-route work. Discard exempting unknown attempts from charging, raising
+limits, bypassing known-route rate limits or weakening the frozen404 assertion.
