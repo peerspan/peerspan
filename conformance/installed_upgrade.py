@@ -53,7 +53,7 @@ def require(condition, message):
 
 
 def private_json(path, value):
-    with path.open('w', opener=lambda name, flags: os.open(name, flags, 0o600)) as target:
+    with open(path, 'w', encoding='utf-8', opener=lambda name, flags: os.open(name, flags, 0o600)) as target:
         json.dump(value, target, sort_keys=True, indent=2)
         target.write('\n')
 
