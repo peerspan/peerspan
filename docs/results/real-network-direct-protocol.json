@@ -1,0 +1,79 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "bare_metal_physical_machines": false,
+  "format": 1,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "independent_public_endpoints": true,
+  "model_receipt": false,
+  "nat_qualification": false,
+  "native_terminal_receipt": false,
+  "normal_directory_acceptance": false,
+  "passed": true,
+  "private_control_evidence_index_sha256": {
+    "machine": "bf6ac4234c1149a9c42719393b71474da1fba4ec35d12d15078ae97062a1b901",
+    "teammate": "07f8a1dad60fd6576070d03c6c03d6abf31b5fe9a9ad5bf5cf189c2fe13395a0"
+  },
+  "probe_sha256": {
+    "left": "c4b573f62b301abc30cef826ca7d966543c40a130f57d79a0d547cd3c3769c46",
+    "right": "c4b573f62b301abc30cef826ca7d966543c40a130f57d79a0d547cd3c3769c46"
+  },
+  "qualification": "D1_protocol_with_manual_peer_pins",
+  "relay_qualification": false,
+  "scenarios": [
+    {
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "automatic_directory_routing": false,
+        "binding_scopes": 2,
+        "explicit_withdrawals": 0,
+        "finite_device_scopes": 7,
+        "guided_access_grants": 0,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 2,
+        "model_receipt": false,
+        "original_key_transfers": 0,
+        "receiver_appends": 0,
+        "receiver_denials": 0,
+        "receiver_transport": "not_exercised",
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "scenario": "machine",
+      "seconds": 24.506,
+      "stage": "complete"
+    },
+    {
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "automatic_directory_routing": false,
+        "binding_scopes": 2,
+        "explicit_withdrawals": 1,
+        "finite_device_scopes": 7,
+        "guided_access_grants": 1,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 2,
+        "model_receipt": false,
+        "original_key_transfers": 0,
+        "receiver_appends": 1,
+        "receiver_denials": 2,
+        "receiver_transport": "authenticated_public_peer_probe",
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "scenario": "teammate",
+      "seconds": 31.877,
+      "stage": "complete"
+    }
+  ],
+  "separate_machines": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true
+}

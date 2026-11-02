@@ -1500,7 +1500,8 @@ optional helpers. Its exact strict private JSON is:
 
 Arrays obey bootstrap endpoint/order/count bounds; token_file is `"-"` for
 anonymous or an explicit protected local credential file, never a token value
-in logs/public records. Publish_contacts is explicit opt-in encrypted publication.
+in logs/public records. Publish_contacts must be false (DEC-Q20); contacts travel
+only inside private codes and between members, as specified in spec9.8.
 No file/helpers is valid. Local bind syntax alone permits wildcard IP/port0;
 advertised signed endpoints never do. `--bootstrap-listen` is an explicit port/
 interface override. Otherwise a freshly configured peer-enabled daemon inherits

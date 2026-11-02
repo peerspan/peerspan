@@ -13,6 +13,35 @@ addresses. Dedicated private test roots are installed on both; existing services
 and credentials remain in place. No home/office router or hotspot participant is
 available in the current inventory. No completed D1 or real-NAT pass is claimed.
 
+The rebuilt candidate is clean release source
+`7da06b7a2fd5604b76029aa833bb7e35c63d133a`, archive
+`7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c`, executable
+`1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0`.
+Both independent direct ceremonies now pass: existing-person machine linking
+in24.506 seconds and distinct-person linking/access/withdrawal in31.877 seconds.
+The [protocol receipt](results/real-network-direct-protocol.json) retains the
+explicit transport-pin limitation. A fresh separate normal-CLI check then
+passes in25.943 seconds: two directory refreshes and two addressed accepted
+sends, one in each direction, with zero configured peers and helpers disabled.
+Its [receipt](results/real-network-cli.json) records private control/capture hashes.
+
+The independent immediate-preparation regression passes2/2 in11.6 seconds.
+It proves the held original fetch belongs to the existing owner's daemon,
+observes the original frame absent, and captures exact preparation200 in0.059
+seconds with all four full transport counter tuples unchanged. Owner intent
+and receipt remain unsigned/unapproved; after releasing the fixture barriers,
+the same ceremony completes with independently verified signed authority on both
+hosts. Four earlier fixture failures remain retained: uncontrolled established
+traffic, an already-drained stream set, and unproven first-fetch provenance
+prevented the original counter setup from isolating this operation. No product
+assertion or operation/ceremony deadline was weakened to obtain this result.
+
+The first manual normal-routing attempt requested forbidden contact publication
+and correctly failed startup. Its corrected configuration then exposed that
+the Unicode stress-fixture agent names are deliberately not addressable. The
+successful normal check uses valid addressable project-agent names. These are
+diagnosed driver corrections; neither initial attempt is claimed as acceptance.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
