@@ -9987,6 +9987,49 @@ causes. A passing phase witness establishes this run's setup, not the actor
 of an earlier failure. Native440 stays exact: retain its first5s timeout as
 unclassified; no raised native deadline or unchanged retry-to-green.
 
+First owner-publication prerequisites each pass5/6. Onboarding reaches ordinary
+admission but its `link admit` command returns real rate_limited; exact preview
+versus later call is not captured. Signing passes the unsafe-source corpus and
+live history, but its authentic-response fault guard changes state. Retained
+negative-corpus intent is approved/unfinished and has only slot1/host recorded,
+no authority signature; the exact earlier comparison's changed rows/caller are
+still unclassified. Preserve both first results.
+
+Choose a narrow production CLI improvement: ONLY the initial unapproved
+`link admit` preview may repeat once after typed owner-daemon429/rate_limited
+with exactly one valid decimal Retry-After of1 or2 seconds. Retain the exact
+private code, network/person/host/device/provider/owner/selection terms and
+approve:false body. Wait those real transport seconds before its single retry.
+Do not retry malformed/missing/duplicate/zero/large Retry-After, another error,
+owner approve, any approve:true decision or signing/submission. A second error
+remains visible. After a successful preview, retain all ordinary review/consent/
+authority/key guards. The API's real429 and helper limits remain unchanged; no
+bootstrap/IncomingPlan retry, new consent or whole-CLI retry. Existing local error
+Display stays sanitized. Root fixes this CLI; existing independent live-owner
+admission is the concrete regression gate, with header/negative/second429 bounds
+source-audited only, not claimed as an exhaustive executed retry matrix.
+
+For the signing fixtures, extend ONLY the new owner prerequisite: before each
+original settled(h) in owner_signing, observe genuine already-approved unfinished
+initial-original owner work. Before calling the unchanged settled once, use
+one read-only snapshot per observation, at most5 real seconds, to bind the
+request/owner intent/provider/initial template to this actual host and require
+its stored slot1/host signature (bounded valid Base64 Ed25519 length), with no
+original authority signature, owner offer, selection/commit or grant in this
+initial phase. The test daemon's existing absent-original configuration remains
+unchanged; do not install an original, call a signer/API/driver, edit rows/clocks,
+or stop workers. Unapproved/terminal/already-offered history is not fresh
+initial work and passes through without waiting; corrupt or advanced unexpected
+initial authority fails the fixture. This is a stored-host-job phase witness,
+not cryptographic admission or attribution of the earlier failed guard.
+
+Restore settled/join/Suite.case/argv in finally; every original action, complete
+logical snapshot, private-file comparison,3s maintenance wait, other timeout
+and verdict stays intact. All old74, combined678561e1, own-only join prerequisite
+4d5afd35 and both diagnostic sources stay exact. Record the changed new
+owner-prerequisite source and first execution separately. Positive signature/
+application validity remains governed by the existing proofs and combined suite.
+
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
 claim global zero-IO/full-database purity while authorized work is advancing;

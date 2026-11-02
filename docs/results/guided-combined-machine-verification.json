@@ -255,6 +255,32 @@
           }
         }
       ]
+    },
+    {
+      "head": "30bfa815cf85ca3f882d97c82954447fe8d903fd",
+      "source_sha256": "a450161b969b8c9f9cf5722b6d33647dc2f5075cd228b6c6a62504b72e08fbec",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 12.34,
+      "log_sha256": "35ec0737bddc9a6945b08b3419171f781121413502102440aea6e602e72b9b4f",
+      "gate": "owner-onboarding-initial-publication",
+      "passed": 5,
+      "failed": 1,
+      "classification": "initial publication witnesses and first5cases pass; live ordinary admission CLI reports rate_limited, exact call unclassified"
+    },
+    {
+      "head": "30bfa815cf85ca3f882d97c82954447fe8d903fd",
+      "source_sha256": "a450161b969b8c9f9cf5722b6d33647dc2f5075cd228b6c6a62504b72e08fbec",
+      "rust_tree": "49c14f8a0db2628617a998e4724b375e5944d841",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 55.17,
+      "log_sha256": "2ffbcb27e54d14f86107fb67305c8d04cb85d2a9976944e8952d9a8ccff08b78",
+      "gate": "owner-signing-initial-publication",
+      "passed": 5,
+      "failed": 1,
+      "classification": "initial publication and unsafe-source/live cases pass; authentic-response corpus whole-state guard fails, exact changed rows/caller unclassified; retained approved intent has only slot1/host"
     }
   ],
   "correction": {

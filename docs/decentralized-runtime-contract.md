@@ -765,6 +765,13 @@ rate bucket per locator/connection. An unneeded GET never establishes freshness.
 precommit cancellation erases secret/frame ciphertext but keeps the public
 bounded tombstone. Persisted final commit cannot be cancelled as uncommitted.
 
+The CLI's initial unapproved `link admit` preview may make one exact
+approve:false retry after owner-local429/rate_limited, only with one valid
+decimal Retry-After of1–2 real transport seconds. It waits that interval,
+retains all original terms, and displays any second error. Other errors, bad
+headers, approve:true decisions and signing/submission are not retried. API429
+visibility, helper quotas and successful-poll caching rules above are unchanged.
+
 ### Owner, administrator and finalization reviews
 
 `POST /v2/link/approvals` takes exactly `{code,network_id,person_public_key,
