@@ -1,0 +1,225 @@
+{
+  "actual_host_applications": 2,
+  "cases_failed": 0,
+  "cases_passed": 2,
+  "format": 1,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "observed": {
+    "boundary": {
+      "captured_review_receipt": true,
+      "existing_stream_barrier": {
+        "acknowledged_counts": [
+          3,
+          0,
+          0
+        ],
+        "drained_streams": 0,
+        "parked_streams": 0,
+        "snapshot_counts": [
+          3,
+          0,
+          0
+        ],
+        "snapshot_streams": 0
+      },
+      "fetch_owner_proven": true,
+      "helper_stream_barrier": {
+        "acknowledged_counts": [
+          4,
+          14082,
+          10178
+        ],
+        "drained_streams": 0,
+        "parked_streams": 1,
+        "snapshot_counts": [
+          4,
+          14082,
+          10178
+        ],
+        "snapshot_streams": 1
+      },
+      "prepare_code": "none",
+      "prepare_status": 200,
+      "requester_stopped": true,
+      "same_existing_hold": true,
+      "same_held_generation": true,
+      "same_helper_hold": true,
+      "seconds": 0.041,
+      "traffic": {
+        "existing_tcp": {
+          "after": [
+            3,
+            0,
+            0
+          ],
+          "before": [
+            3,
+            0,
+            0
+          ]
+        },
+        "existing_udp": {
+          "after": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "before": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "helper_tcp": {
+          "after": [
+            4,
+            14082,
+            10178
+          ],
+          "before": [
+            4,
+            14082,
+            10178
+          ]
+        },
+        "requester_tcp": {
+          "after": [
+            1,
+            0,
+            0
+          ],
+          "before": [
+            1,
+            0,
+            0
+          ]
+        },
+        "requester_udp": {
+          "after": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "before": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "outcome": {
+      "counted_io_unchanged": true,
+      "inspect_status": 200,
+      "live_authenticated_original_get": true,
+      "original_frame_absent": true,
+      "owner_approved": false,
+      "owner_signed": false,
+      "prepare_code": "none",
+      "prepare_status": 200,
+      "seconds": 0.041
+    },
+    "precondition": {
+      "all_return_streams_live": true,
+      "existing_stream_barrier": {
+        "acknowledged_counts": [
+          3,
+          0,
+          0
+        ],
+        "drained_streams": 0,
+        "parked_streams": 0,
+        "snapshot_counts": [
+          3,
+          0,
+          0
+        ],
+        "snapshot_streams": 0
+      },
+      "expected_return_streams": 0,
+      "fetch_owner_still_proven": true,
+      "helper_expected_streams": 1,
+      "helper_live_streams": 1,
+      "helper_original_frames": 1,
+      "helper_stream_barrier": {
+        "acknowledged_counts": [
+          4,
+          14082,
+          10178
+        ],
+        "drained_streams": 0,
+        "parked_streams": 1,
+        "snapshot_counts": [
+          4,
+          14082,
+          10178
+        ],
+        "snapshot_streams": 1
+      },
+      "live_expected_return_streams": 0,
+      "measured_owner_calls_started": false,
+      "original_frame_absent": true,
+      "original_frame_count": 0,
+      "provenance_errors": 0,
+      "requester_stop_verified": true,
+      "same_fetch_generation_live": true
+    },
+    "resource": {
+      "connections": 21,
+      "diagnostic_errors": 0,
+      "failures": {
+        "mailbox_request": 0,
+        "socket_provenance": 0,
+        "tls_handshake": 0,
+        "tls_host_key": 0
+      },
+      "gate_released": true,
+      "held_original_gets": 0,
+      "mailbox_checks": {},
+      "mailbox_clauses": {},
+      "mailboxes": 2,
+      "mtls_decisions": {
+        "accepted": 42,
+        "chain": 0,
+        "issuer": 0,
+        "malformed": 0,
+        "public_key": 0,
+        "self_signature": 0,
+        "socket_owner": 0,
+        "validity": 0
+      },
+      "original_mailboxes": 1,
+      "received_bytes": 134152,
+      "return_mailboxes": 1,
+      "sent_bytes": 188012,
+      "tls_errors": {},
+      "tls_verify_codes": {}
+    }
+  },
+  "operation_seconds_bound": 5,
+  "original_key_transfers": 0,
+  "passed": true,
+  "private_log_sha256": "c984aea8b592c4f4d3ae94f485040aa31cbfef381737dc86c5b5b79213f38df2",
+  "qualification": "immediate_unsigned_prepare_without_original_frame",
+  "release_source": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+  "retained_failure_sha256": {
+    "ci_original_frame_already_present": "8869fc2f1dd77536a9755c62ceb576e731b74b47f1bda4864d5bad37200c8830",
+    "ci_precondition_unclassified": "4a6032eeba3d7676be4095f3c7b4555974760cc9aea220c37a76c54466e51f0c",
+    "resource_carrier_cardinality": "28537fd50797cd2fb1a611c424977da4aad059986a44c06f2f6c7acd99a1fe65",
+    "resource_closed_tls_window_diagnostic": "f8ea1f477210d8002d7cba7f497c8feb457052a4a37aeabcec212dbd05d38b54",
+    "resource_empty_advertise_defaults": "cafc9db0df82e463c765f677d36ecede475c979df757da1e9f1328f1e2de1554",
+    "resource_leaf_trust_and_old_window": "49965d81bc5039d76f47ffa03ce888577d27dfc433a3e6d7deafe47f06052be4"
+  },
+  "same_ceremony_signed_continuation_verified": true,
+  "source_sha256": {
+    "conformance/slim/machine_return_prepare.py": "01a2c23c37169f7b689b56c9e21f3b0bec426c41966890502dc92366285e988e",
+    "conformance/slim/resource_mailbox_gate.py": "c82192e88490bf6769706996e20721a58a3c1ca0aef447fb9f61b6f12974e3de",
+    "conformance/slim/resource_mailbox_gate.requirements.txt": "e16fec6981ab1fd42821eb0c699c06fc00503b79f4978569b4069f516daec74c"
+  },
+  "whole_seconds": 11.6,
+  "whole_seconds_bound": 120
+}
