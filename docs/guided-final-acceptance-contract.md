@@ -162,3 +162,14 @@ local `peerspan-host` Cargo package between old worktrees when sharing a target
 directory; cache reuse by source mtimes must not substitute one old binary for
 another. The suite independently checks the actual old schema before upgrading.
 Actual authenticated model receipt remains a separate manual gate.
+
+### First participant blocker
+
+The first installed distinct-person run reached administrator consent but no
+administrator offer appeared within the unchanged15s checkpoint. Retained
+ordinary administrator intent was approved and unsigned. The worker scheduled
+only requester and approved-owner records; a separate administrator-only record
+was excluded. Approved administrator work must also enter the bounded existing
+worker pipeline through the ordinary exact signer checks. This adds no consent
+or signing authority. The unchanged installed teammate case is its regression
+check; the first failed receipt remains retained.
