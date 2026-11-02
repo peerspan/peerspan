@@ -27,17 +27,20 @@ passes in25.943 seconds: two directory refreshes and two addressed accepted
 sends, one in each direction, with zero configured peers and helpers disabled.
 Its [receipt](results/real-network-cli.json) records private control/capture hashes.
 
-The independent immediate-preparation regression passes2/2 in11.6 seconds.
-It proves the held original fetch belongs to the existing owner's daemon,
-observes the original frame absent, and captures exact preparation200 in0.059
-seconds with all four full transport counter tuples unchanged. Owner intent
-and receipt remain unsigned/unapproved; after releasing the fixture barriers,
-the same ceremony completes with independently verified signed authority on both
-hosts. Four earlier fixture failures remain retained. The first combined-counter
-failure was not individually attributable; later closed diagnostics identified
-uncontrolled established traffic, an already-drained stream set, and unproven
-first-fetch provenance in subsequent attempts. No product
-assertion or operation/ceremony deadline was weakened to obtain this result.
+The final independent [immediate-preparation regression](results/real-network-machine-prepare.json)
+passes2/2 in11.6 seconds against the same release. Its prearmed resource helper
+stores one genuine original frame while every successful original-frame GET is
+held; both alternative participant bootstrap paths are counted refusal proxies.
+The owner retains the authentic request/capability but exactly one observation
+finds no original frame. Exact inspection/preparation returns200 in0.041 seconds,
+unsigned/unapproved, with every original TCP/UDP counter and the helper's full
+encrypted counters unchanged. After unconditional requester resume and transport
+release, the same ceremony completes with signed authority on both hosts.
+The receipt binds the final independent sources, dependencies, closed observations
+and private failure logs. Earlier local opaque-gate success, its four fixture
+failures, the two CI precondition failures and resource-helper setup failures
+remain retained below; none is relabeled or hidden. Assertions and5s/120s bounds
+were not relaxed. Final-head CI is the remaining software gate.
 
 The first manual normal-routing attempt requested forbidden contact publication
 and correctly failed startup. Its corrected configuration then exposed that
@@ -139,7 +142,7 @@ No model turn or artifact content crosses SSH. Helpers, captures and scoped
 firewall rules are cleaned up again; both original unrelated UDP listeners
 remain, and no owned live fixture PID remains on either host.
 
-The current CI run passes52 existing checks but fails the new immediate-prepare
+CI on37ed9bc and02e5bc2 passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
 The independent author added receive-only closed diagnostics for the exact
