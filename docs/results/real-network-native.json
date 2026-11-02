@@ -1,0 +1,77 @@
+{
+  "actual_model_reply": true,
+  "actual_ready_tool_calls": 1,
+  "actual_reply_tool_calls": 1,
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "automatic_directory_routing": true,
+  "capture": {
+    "left": {
+      "bytes": 335665,
+      "sha256": "ccec245e593a1a951a10e9efcb1e498a8df9a27bb8883b0cdaebfde0dd2c78e0"
+    },
+    "right": {
+      "bytes": 335723,
+      "sha256": "c4cd44d09845663c7bb704e1783f4c47f991e95c81bffe55d1da3ca1475b807d"
+    }
+  },
+  "earlier_attempts": [
+    {
+      "category": "controller_uuid_hex_call_error",
+      "logical_model_prompts": 1,
+      "passed": false
+    },
+    {
+      "category": "stale_adapter_recovery_requires_explicit_revocation",
+      "logical_model_prompts": 0,
+      "passed": false
+    },
+    {
+      "category": "model_obeyed_existing_nonce_format_instruction",
+      "logical_model_prompts": 2,
+      "passed": false
+    },
+    {
+      "actual_reply_observed": true,
+      "category": "reply_received_but_first_party_reply_tool_record_not_flushed",
+      "logical_model_prompt_count_verified": false,
+      "passed": false
+    },
+    {
+      "category": "retained_pid_metadata_collision_before_model_start",
+      "logical_model_prompts": 0,
+      "passed": false
+    }
+  ],
+  "earlier_total_model_prompts_verified": false,
+  "explicit_stale_test_adapter_revocations": 1,
+  "explicit_stop_reconnect": true,
+  "format": 1,
+  "fresh_explicitly_reviewed_local_agent": true,
+  "fresh_readiness": true,
+  "helpers_enabled": false,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "logical_model_prompts": 2,
+  "manual_driver_sha256": "3f79dbdc11c683e533702fe3d8d9af25ac6675777c47e9b930a77930c9a2cfb7",
+  "manual_peer_pins": 0,
+  "marketplace_install_repeated": false,
+  "model": "claude-haiku-5-5",
+  "model_seconds_bound": 300,
+  "model_turn_bound": 2,
+  "nat_qualification": false,
+  "native_entry": "plugin-dir_from_verified_installed_archive",
+  "native_reload": true,
+  "network_access_regranted": false,
+  "network_membership_reapproved": false,
+  "nonce_match": true,
+  "original_native_conversation": true,
+  "passed": true,
+  "private_control_evidence_index_sha256": "699cd1eb41919b0cd5a3f938b106e8b3580cacef0ebd1d38cce37aeaa26e1d25",
+  "private_transcript_fragment_sha256": "54b6073505d197fb3b9f9f8bfd99d554e4dc7818fe4e3ade7d3bccf4db1660b0",
+  "project_replacement_reapproved": true,
+  "qualification": "D1_existing_native_conversation_model_reply",
+  "relay_qualification": false,
+  "request_agent_host_session_match": true,
+  "seconds": 33.323,
+  "successful_first_party_tool_results": 2,
+  "transparent_adapter_restart_recovery": false
+}
