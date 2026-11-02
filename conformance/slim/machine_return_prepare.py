@@ -314,7 +314,20 @@ def _():
                 f['owner_inspection'] = dict(review_id=inspected['review_id'],review=review)
                 status,prepared = a.api('POST',g.MACHINE+'/prepare',{**body,'inspection_review_id':inspected['review_id']},timeout=5)
                 elapsed = time.monotonic()-began
-                check(elapsed<=5 and g.traffic(f)==traffic and generation in b.relay.live_generations(),
+                after_traffic = g.traffic(f)
+                same_held_generation = generation in b.relay.live_generations()
+                observed_code = prepared.get('code') if isinstance(prepared,dict) else None
+                print('machine_return_prepare_boundary_public='+json.dumps(dict(
+                    prepare_status=status if type(status) is int and 100<=status<=599 else None,
+                    prepare_code=observed_code if observed_code in {'invalid','not_found','review_changed','review_expired',
+                        'machine_owner_consent_unavailable'} else ('none' if observed_code is None else 'other'),
+                    seconds=round(elapsed,3),same_held_generation=same_held_generation,
+                    captured_review_receipt=status==200 and isinstance(prepared,dict)
+                        and isinstance(prepared.get('consent'),dict) and prepared['consent'].get('state')=='review',
+                    traffic={name:dict(before=list(traffic[index]),after=list(after_traffic[index]))
+                        for index,name in enumerate(('existing_tcp','existing_udp','requester_tcp','requester_udp'))}),
+                    sort_keys=True),flush=True)
+                check(elapsed<=5 and after_traffic==traffic and same_held_generation,
                       'immediate inspect/prepare exceeded5s or performed counted network IO')
                 check(status==200 or (status==409 and isinstance(prepared,dict) and prepared.get('code')=='machine_owner_consent_unavailable'),
                       'unexpected preparation status/category')
