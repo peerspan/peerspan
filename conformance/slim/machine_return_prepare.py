@@ -5,9 +5,14 @@ Independent public-contract regression. B's sole advertised bootstrap carrier
 holds the first A-to-B original-fetch connection after a real ClientHello;
 opaque TLS is never terminated or inspected for an HTTP URI. B-to-A automatic
 return is genuine. Before measuring local calls, already-established A-side
-streams park at acknowledged relay-thread boundaries. Bootstrap permits only
+streams park at acknowledged relay-thread boundaries. The held fetch's client
+TCP tuple/socket inode must belong to A's known daemon PID; B self-publication
+passes. Only the owned B daemon is SIGSTOPped with kernel acknowledgment during
+local measurement, and SIGCONTed unconditionally before transport release.
+Bootstrap permits only
 one HTTP request per TLS connection; new connections and all UDP stay counted.
-An atomic empty snapshot is already drained; snapshot streams closing before
+The snapshot covers already-accepted streams, including upstream connections
+still being established. An atomic empty snapshot is already drained; snapshot streams closing before
 acknowledgment are drained only after removal from the established set. Do not
 wait for or create a stream merely to satisfy a setup timing assumption. The
 first barrier fixture failed because no established stream remained, not
@@ -78,6 +83,62 @@ def wait(predicate,seconds,label):
 suite.wait = wait
 
 
+def socket_owner(client,server,pids):
+    """Linux OS metadata only; no key, database or product inspection."""
+    def encoded(value):
+        return socket.inet_aton(value[0])[::-1].hex().upper()+':'+format(value[1],'04X')
+    local,remote = encoded(client),encoded(server)
+    inodes = {line.split()[9] for line in Path('/proc/net/tcp').read_text().splitlines()[1:]
+              if line.split()[1:4]==[local,remote,'01']}
+    owners = []
+    for pid in pids:
+        try:
+            descriptors = list(Path('/proc',str(pid),'fd').iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(descriptor)
+            except OSError:
+                continue
+            if target.startswith('socket:[') and target.endswith(']') and target[8:-1] in inodes:
+                owners.append(pid)
+                break
+    return owners[0] if len(owners)==1 else None
+
+
+def stop_requester(value):
+    check(value.process is not None and value.process.poll() is None,'owned requester is not running')
+    pid = value.process.pid
+    command = Path('/proc',str(pid),'cmdline').read_bytes().split(b'\0')
+    check(str(value.state).encode() in command and command[0]==str(suite.host_bin).encode(),'requester PID ownership changed')
+    value.fixture_pid_token = Path('/proc',str(pid),'stat').read_text().split()[21]
+    value.fixture_stop_requested = True
+    os.kill(pid,signal.SIGSTOP)
+    ready,result = threading.Event(),[]
+    def acknowledged():
+        try:
+            result.append(os.waitid(os.P_PID,pid,os.WSTOPPED|os.WNOWAIT))
+        except OSError:
+            result.append(None)
+        finally:
+            ready.set()
+    threading.Thread(target=acknowledged,daemon=True).start()
+    check(ready.wait(min(1,max(0,deadline-time.monotonic()))),'requester stop acknowledgment exceeded bound')
+    state = Path('/proc',str(pid),'stat').read_text().split()
+    check(result[0] is not None and result[0].si_pid==pid and result[0].si_code==os.CLD_STOPPED
+          and result[0].si_status==signal.SIGSTOP and state[2] in ('T','t')
+          and state[21]==value.fixture_pid_token,'owned requester did not enter verified stopped state')
+
+
+def resume_requester(value):
+    if getattr(value,'fixture_stop_requested',False):
+        pid = value.process.pid
+        check(Path('/proc',str(pid),'stat').read_text().split()[21]==value.fixture_pid_token,'requester PID changed before resume')
+        os.kill(pid,signal.SIGCONT)
+        value.fixture_stop_requested = False
+
+
 class FirstFetchGate:
     """Count opaque bytes; hold a complete ClientHello before server bytes."""
     def __init__(self,target,held=False):
@@ -87,7 +148,11 @@ class FirstFetchGate:
         self.released,self.closed = threading.Event(),threading.Event()
         self.connections = self.sent = self.returned = 0
         self.live = {}
+        self.verified_owners = {}
+        self.accepted = {}
         self.established = {}
+        self.pid_roles = None
+        self.provenance_errors = 0
         self.park_targets,self.parked = set(),set()
         self.last_barrier = None
         self.sockets = set()
@@ -104,9 +169,22 @@ class FirstFetchGate:
                     outer.connections += 1
                     generation = outer.connections
                     outer.sockets.add(self.request)
+                    outer.accepted[generation] = self.request
                 try:
+                    if not outer.forward_barrier(generation):
+                        return
+                    owner_role = owner = None
+                    with outer.lock:
+                        roles = dict(outer.pid_roles) if outer.pid_roles is not None else None
+                    if roles is not None:
+                        owner = socket_owner(self.request.getpeername(),self.request.getsockname(),roles)
+                        owner_role = roles.get(owner)
+                        if owner_role not in ('existing','requester'):
+                            with outer.lock:
+                                outer.provenance_errors += 1
+                            return
                     prefix = b''
-                    if not outer.released.is_set():
+                    if not outer.released.is_set() and (roles is None or owner_role=='existing'):
                         self.request.settimeout(.1)
                         limit = time.monotonic()+1
                         def receive(count):
@@ -135,6 +213,7 @@ class FirstFetchGate:
                         self.request.setblocking(False)
                         with outer.lock:
                             outer.live[generation] = self.request
+                            outer.verified_owners[generation] = owner
                         while not outer.released.wait(.01):
                             if outer.closed.is_set():
                                 return
@@ -149,6 +228,8 @@ class FirstFetchGate:
                     with outer.lock:
                         outer.sockets.add(upstream)
                         outer.established[generation] = (self.request,upstream)
+                    if not outer.forward_barrier(generation):
+                        return
                     if prefix:
                         upstream.sendall(prefix)
                     while not outer.closed.is_set():
@@ -172,6 +253,8 @@ class FirstFetchGate:
                 finally:
                     with outer.lock:
                         outer.live.pop(generation,None)
+                        outer.verified_owners.pop(generation,None)
+                        outer.accepted.pop(generation,None)
                         outer.established.pop(generation,None)
                         outer.parked.discard(generation)
                         outer.condition.notify_all()
@@ -201,30 +284,31 @@ class FirstFetchGate:
             self.parked.discard(generation)
             return not self.closed.is_set()
 
-    def park_established(self,timeout=1):
+    def park_accepted(self,timeout=1):
         # Freeze the existing set once. Later connections remain fully live and
         # counted, so unrelated retries cannot be hidden by the barrier.
         until = min(deadline,time.monotonic()+timeout)
         with self.condition:
-            check(not self.park_targets,'established transport was already parked')
-            self.park_targets = set(self.established)
+            check(not self.park_targets,'accepted transport was already parked')
+            self.park_targets = set(self.accepted)
             snapshot_counts = self.connections,self.sent,self.returned
-            while (self.park_targets & self.established.keys())-self.parked:
+            while (self.park_targets & self.accepted.keys())-self.parked:
                 remaining = until-time.monotonic()
-                check(remaining>0,'established relay-thread barrier unavailable')
+                check(remaining>0,'accepted relay-thread barrier unavailable')
                 self.condition.wait(remaining)
             held = tuple(sorted(self.park_targets & self.parked))
             self.last_barrier = dict(snapshot_streams=len(self.park_targets),parked_streams=len(held),
-                drained_streams=len(self.park_targets-self.established.keys()),snapshot_counts=list(snapshot_counts),
+                drained_streams=len(self.park_targets-self.accepted.keys()),snapshot_counts=list(snapshot_counts),
                 acknowledged_counts=[self.connections,self.sent,self.returned])
             check(self.last_barrier['snapshot_streams']==self.last_barrier['parked_streams']+self.last_barrier['drained_streams'],
                   'snapshot stream is neither parked nor actually drained')
-        check(set(held)<=set(self.live_established_generations()),'still-established stream lacks a live acknowledged hold')
+        check(set(held)<=set(self.live_parked_generations()),'still-accepted stream lacks a live acknowledged hold')
         return held
 
-    def live_established_generations(self):
+    def live_parked_generations(self):
         with self.lock:
-            current = [(generation,self.established[generation]) for generation in self.parked if generation in self.established]
+            current = [(generation,self.established.get(generation,(self.accepted[generation],)))
+                       for generation in self.parked if generation in self.accepted]
         result = []
         for generation,streams in current:
             live = True
@@ -240,7 +324,7 @@ class FirstFetchGate:
                 result.append(generation)
         return result
 
-    def release_established(self):
+    def release_accepted(self):
         with self.condition:
             self.park_targets.clear()
             self.condition.notify_all()
@@ -258,13 +342,17 @@ class FirstFetchGate:
                 pass
         return result
 
+    def fetch_owner(self,generation):
+        with self.lock:
+            return self.verified_owners.get(generation)
+
     def release(self):
         self.released.set()
 
     def close(self):
         self.closed.set()
         self.release()
-        self.release_established()
+        self.release_accepted()
         with self.lock:
             streams = list(self.sockets)
         for stream in streams:
@@ -337,6 +425,8 @@ def _():
     a=b=None
     try:
         a,b = host('existing'),host('requester',held=True)
+        with b.relay.lock:
+            b.relay.pid_roles = {a.process.pid:'existing',b.process.pid:'requester'}
         check(a.public_key!=b.public_key and not a.original.exists() and not b.original.exists(),'fresh distinct host prerequisite')
         net = i.create_network(a,'Immediate returned request')
         pa,pb = g.project(a,'existing-return'),g.project(b,'requester-return')
@@ -366,7 +456,10 @@ def _():
                       and incoming['person_public_key']==person and incoming['host_public_key']==b.public_key
                       and incoming['owner_offer_id']=='-' and not incoming['commit_approved'],'returned request changed pins/consent')
                 generation = wait(lambda:next(iter(b.relay.live_generations()),None),5,'live original-fetch ClientHello hold')
-                existing_hold = a.relay.park_established()
+                check(b.relay.fetch_owner(generation)==a.process.pid and b.relay.provenance_errors==0,
+                      'held original fetch lacks exact owned-daemon socket provenance')
+                stop_requester(b)
+                existing_hold = a.relay.park_accepted()
                 pending,capability = g.pending(a,f['rid'])
                 packet = json.loads(base64.b64decode(pending['request_packet_base64'],validate=True))
                 check(capability is not None and packet['role']=='request' and packet['context_id']=='-'
@@ -378,7 +471,7 @@ def _():
                 # Exactly one absence observation. No SQL wait or protocol write.
                 original_frame = g.rows(a,"SELECT frame_id FROM dec_frames WHERE request_id=? AND role='request' AND writer_key=?",(f['rid'],b.public_key))
                 check(original_frame==[] and generation in b.relay.live_generations()
-                      and set(existing_hold)<=set(a.relay.live_established_generations()),'original frame or live transport barrier unavailable')
+                      and set(existing_hold)<=set(a.relay.live_parked_generations()),'original frame or live transport barrier unavailable')
                 traffic = g.traffic(f)
                 began = time.monotonic()
                 body = dict(context=g.context(pa),request_id=f['rid'])
@@ -393,20 +486,22 @@ def _():
                 elapsed = time.monotonic()-began
                 after_traffic = g.traffic(f)
                 same_held_generation = generation in b.relay.live_generations()
-                same_existing_hold = set(existing_hold)<=set(a.relay.live_established_generations())
+                same_existing_hold = set(existing_hold)<=set(a.relay.live_parked_generations())
+                fetch_owner_proven = b.relay.fetch_owner(generation)==a.process.pid and b.relay.provenance_errors==0
                 observed_code = prepared.get('code') if isinstance(prepared,dict) else None
                 print('machine_return_prepare_boundary_public='+json.dumps(dict(
                     prepare_status=status if type(status) is int and 100<=status<=599 else None,
                     prepare_code=observed_code if observed_code in {'invalid','not_found','review_changed','review_expired',
                         'machine_owner_consent_unavailable'} else ('none' if observed_code is None else 'other'),
                     seconds=round(elapsed,3),same_held_generation=same_held_generation,same_existing_hold=same_existing_hold,
+                    fetch_owner_proven=fetch_owner_proven,requester_stopped=True,
                     existing_stream_barrier=a.relay.last_barrier,
                     captured_review_receipt=status==200 and isinstance(prepared,dict)
                         and isinstance(prepared.get('consent'),dict) and prepared['consent'].get('state')=='review',
                     traffic={name:dict(before=list(traffic[index]),after=list(after_traffic[index]))
                         for index,name in enumerate(('existing_tcp','existing_udp','requester_tcp','requester_udp'))}),
                     sort_keys=True),flush=True)
-                check(elapsed<=5 and after_traffic==traffic and same_held_generation and same_existing_hold,
+                check(elapsed<=5 and after_traffic==traffic and same_held_generation and same_existing_hold and fetch_owner_proven,
                       'immediate inspect/prepare exceeded5s or performed counted network IO')
                 check(status==200 or (status==409 and isinstance(prepared,dict) and prepared.get('code')=='machine_owner_consent_unavailable'),
                       'unexpected preparation status/category')
@@ -414,8 +509,8 @@ def _():
                     receipt = g.owner_consent(f,prepared,'review')
                     owner = g.load_intent(a,receipt['review']['intent_id'])['record']
                     check(not owner['approved'] and owner['approved_at']=='-' and owner['signatures']==[]
-                          and prepared['request']['owner_offer_id']=='-' and not prepared['request']['commit_approved']
-                          and g.get(b,'/v2/networks')==[],'preparation approved/signed/adopted authority')
+                          and prepared['request']['owner_offer_id']=='-' and not prepared['request']['commit_approved'],
+                          'preparation approved or signed authority')
                 else:
                     check(g.intent_rows(a,f['rid'],'owner')==[] and g.rows(a,"SELECT intent_id FROM dec_intents WHERE kind='machine_owner_review'")==[],
                           'failed preparation left partial owner consent')
@@ -424,8 +519,13 @@ def _():
                     inspect_status=200,prepare_status=status,prepare_code='none' if status==200 else 'machine_owner_consent_unavailable',
                     counted_io_unchanged=True,owner_approved=False,owner_signed=False,seconds=round(elapsed,3)),sort_keys=True),flush=True)
             finally:
-                a.relay.release_established()
-                b.relay.release()
+                try:
+                    resume_requester(b)
+                finally:
+                    a.relay.release_accepted()
+                    b.relay.release()
+            if status==200:
+                check(g.get(b,'/v2/networks')==[],'unsigned preparation adopted requester authority')
             published = publication.result(timeout=35)
             check(published['state']=='requested' and published['review']==flow['review']
                   and published['outcome']['request_id']==f['rid'],'original publication changed after released hold')
