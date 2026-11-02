@@ -136,3 +136,8 @@ Packaging changes require `conformance/installed_bundle.py` against a freshly pa
   selected owner consent/signing and automatic selection/finalization; one
   requester completion with lost reply/Lookup recovery, actual application and
   separate membership/access/readiness (guided session contract section49).
+
+- `completion_rate_limit`: genuine two-person completion under a brief real
+  authenticated rate-limit burst; separate first-result application from exact
+  post-pressure repair, verify signed authority and unchanged requester consent
+  (guided final acceptance contract, exact completion publication).
