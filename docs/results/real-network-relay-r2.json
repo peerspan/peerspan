@@ -1,0 +1,108 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "capture": {
+    "relay-r2-helpers": {
+      "left": {
+        "bytes": 873521,
+        "sha256": "7f127c241640f6e36d58096804c4086ebf3eae4c414c76bf83579aeb5fa215e7"
+      },
+      "right": {
+        "bytes": 864197,
+        "sha256": "8a76a41459073e8a32e9a45ad5d3d8b83bc8303a04da1e44461498b73e92cd2e"
+      }
+    }
+  },
+  "consumer_router_nat": false,
+  "direct_peer_udp_blocked": true,
+  "fleet_sha256": "d6875b5849ef0374d77a77c4e53790748ecc22db86867e0306998d766aa8aa36",
+  "format": 1,
+  "helper_count": 2,
+  "helper_public_key_sha256": [
+    "7c12878d5fe085ef4968ced6ae4b4965d31af310375f98e903b74be1aea90c1c",
+    "5275b9f9b8c08c8106b2c969773d4c66baeea5b66f47077593bbbe668c9792bf"
+  ],
+  "helper_sha256": [
+    "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+    "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b"
+  ],
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_transport_pins": 0,
+  "model_receipt": false,
+  "nat_qualification": false,
+  "native_terminal_receipt": false,
+  "operator_observation_sha256": {
+    "relay-r2-firewall.private.json": "de4e00779c16176b2da595c3b8d0ce10851b5a530cf867e61506ec9980015b6d",
+    "relay-r2-packet-summary.private.json": "9e74c5401fa9304f9fff58563970efca715bad3f5e69d609c8bf874009985ae9",
+    "relay-r2-primary.private.json": "088f26cc33a5b43cd8025e26968c68ea1f8e331ea4a5b2f8c7f95816dd60c01d",
+    "relay-r2-replacement.private.json": "4c39ca6749154ee9ac39b489b09fa501860206fc2939cd742c03369bcda35482"
+  },
+  "original_key_transfers": 0,
+  "passed": true,
+  "phase_gate_sha256": "17a7b329393979239e885cfad3289c984a0f1f82cd4bf9d1e5e4834a615c396e",
+  "port_base": 27540,
+  "primary_running": false,
+  "qualification": "r2_protocol_relay_path_observation",
+  "replacement_payload_packets": 1044,
+  "replacement_running": true,
+  "requires_operator_capture_confirmation": false,
+  "results": [
+    {
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "adapter_connection": false,
+        "addressed_appends": 2,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "receiver_rejections": 0,
+        "relay_path_reported": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "replacement",
+      "private_control_evidence_index_sha256": "9f1c8fc14595df372e46bfa56c3f8338fe0df904b8b2ec4dd607de1207fdde36",
+      "scenario": "machine",
+      "seconds": 34.102,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "evidence": {
+        "actual_receiver_append_verified": false,
+        "adapter_connection": false,
+        "addressed_appends": 0,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": false,
+        "receiver_rejections": 1,
+        "relay_path_reported": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "replacement",
+      "private_control_evidence_index_sha256": "5409ae1ff936c898edc7800a7fa5c5ac43b743af1f263fe8e5887bf814fcd982",
+      "scenario": "teammate",
+      "seconds": 17.444,
+      "stage": "complete",
+      "transport_unavailable": false
+    }
+  ],
+  "retained_owned_hosts": false,
+  "root_capture_qualification": true,
+  "separate_machines": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true
+}
