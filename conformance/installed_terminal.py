@@ -549,13 +549,44 @@ def assert_same_review(before, after):
             'resume changed exact native context, immutable review or original expiry')
 
 
+def project_pane_text(terminal):
+    # Public split-terminal borders delimit Peerspan. Joining the whole screen
+    # would interleave left-chat text between wrapped right-pane review lines.
+    rows = terminal.screen.display
+    vertical = '│┃'
+    anchors = ('Review expires', 'Adapter credentials: none', 'Network access: none')
+    candidates = {}
+    for line in rows:
+        for anchor in anchors:
+            if anchor in line:
+                position = line.index(anchor)
+                borders = [index for index, char in enumerate(line[:position]) if char in vertical]
+                if borders:
+                    column = borders[-1]
+                    candidates[column] = candidates.get(column, 0) + 1
+    if not candidates:
+        require(not any(char in vertical for line in rows for char in line),
+                'human review pane boundary unavailable')
+        return '\n'.join(rows)  # A public full-width view has no split border.
+    left = max(candidates, key=candidates.get)
+    require(candidates[left] >= 2, 'human review pane boundary ambiguous')
+    pane_rows = [line for line in rows if len(line) > left and line[left] in vertical]
+    anchor_rows = [line for line in pane_rows if any(anchor in line[left + 1:] for anchor in anchors)]
+    right_edges = [{index for index, char in enumerate(line) if index > left and char in vertical}
+                   for line in anchor_rows]
+    common = set.intersection(*right_edges) if right_edges else set()
+    right = min(common) if common else max(map(len, pane_rows))
+    return '\n'.join(line[left + 1:right] for line in pane_rows)
+
+
 def assert_preview(terminal, root, name, owner):
     terminal.visible('Approve attachment')
-    rendered = re.sub(r'\s+', '', terminal.text())
-    for value in (str(root), name, owner, 'Review expires', 'Record this local session attachment',
-                  'Adapter credentials: none', 'Network access: none', 'File sharing: none',
-                  'Conversation sharing: none', 'Capability calls: none'):
-        require(re.sub(r'\s+', '', value) in rendered, 'human terminal did not show exact reviewed terms/effects')
+    rendered = re.sub(r'\s+', '', project_pane_text(terminal))
+    for index, value in enumerate((str(root), name, owner, 'Review expires', 'Record this local session attachment',
+                                  'Adapter credentials: none', 'Network access: none', 'File sharing: none',
+                                  'Conversation sharing: none', 'Capability calls: none')):
+        require(re.sub(r'\s+', '', value) in rendered,
+                'human terminal did not show exact reviewed terms/effects; missing_term_index=' + str(index))
 
 
 def registry_delta(before, after, agents, sessions, registrations, attachments):
