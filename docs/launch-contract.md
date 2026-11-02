@@ -477,6 +477,7 @@ An address splits at its last `/`. Resolution searches the directory of every ne
 - An agent with no authorizations is never listed. A caller with none receives `[]`.
 - `connected` is true when the agent has an attached session whose adapter holds a valid lease.
 - Agent names in the response are as registered, addressable or not.
+- An entry gains `description` when the agent has an owner-written description ([conversations C7](conversations-contract.md#agent-descriptions)); it is left out otherwise, so an entry without one has exactly the keys above. A reader keeps a `description` that meets C7's rules and treats any other value as absent, without refusing the answer.
 
 Older receivers return 404 for this route. The caller records the host as `unsupported`, not as an error.
 
@@ -504,6 +505,7 @@ Each daemon keeps a directory per network, in memory:
 - `hosts` are sorted by host ID. `state` is `ok`, `error`, `unsupported`, or `pending` (never queried yet).
 - `agents` are sorted by address, then host ID, with null addresses last, then by host ID and agent ID. `address` is `PERSON/AGENT`, or `HOST_ID/AGENT` when the host has no bound person or the name is duplicated within that person. It is null for names that are not addressable. `authorizations` is as served by the peer.
 - Without `network`, a host in no network or in several gets 400, the latter listing them; an unknown network is 404.
+- Each `agents` entry gains `description`, null when none (conversations C7).
 - `POST /v1/directory/refresh?network=ID` with `{}` refreshes synchronously, waiting at most 10 seconds, and returns the same object. Hosts still unanswered at 10 seconds are reported as `error`, keeping their earlier agents; with stopped members and the slice 5 retries, a refresh may take the full 10 seconds.
 
 ### Sending by address
@@ -533,7 +535,7 @@ A session's credential may be created with **directory access**. Then its adapte
 
 - `POST /v1/adapters/setup` gains optional `directory` (boolean, default false) and `max_sends_per_hour` (1 to 10,000, default 100; it requires `directory`). The adapter's record shows both.
 - **Rate cap.** Each send and each delegation by address counts once when it is first persisted, never on retries. A request that would make more than `max_sends_per_hour` in the preceding 60 minutes for that credential returns 429 `{code: "rate_limited", error, retry_after}`, where `retry_after` is a whole number of seconds, at least 1, until the oldest counted request leaves the window. It persists nothing. Route sends keep their own budgets and are not counted.
-- **Agent tools.** `GET /adapter/v1/agents` returns `[{address, network_id, connected, actions, max_message_bytes, max_artifact_bytes, endpoint}]` from the directory, with `endpoint` as for `agents` below (added 2026-10-16), for addressable agents only. `actions` and the bounds are the union over the agent's authorizations, ignoring `from_agent` entries for other agents; an agent left with no actions is omitted. It returns 403 `no_directory` without directory access.
+- **Agent tools.** `GET /adapter/v1/agents` returns `[{address, network_id, connected, actions, max_message_bytes, max_artifact_bytes, endpoint}]` from the directory, with `endpoint` as for `agents` below (added 2026-10-16), for addressable agents only, and gains `description`, null when none (conversations C7). `actions` and the bounds are the union over the agent's authorizations, ignoring `from_agent` entries for other agents; an agent left with no actions is omitted. It returns 403 `no_directory` without directory access.
 - **MCP.** The shared adapter adds `list_agents`, which returns those entries, `endpoint` included. `send` and `delegate_task` accept `to` and optional `network` in place of `destination`, when the credential has directory access. `send_status` reports `to` for these sends. `list_destinations` stays, for routes.
 - **Schema.** Storing `directory` and `max_sends_per_hour` with the credential, and `to` with outbound requests and tasks, is a shared schema migration, applied atomically and preserving existing state.
 
@@ -572,7 +574,7 @@ A session's credential may be created with **directory access**. Then its adapte
 - **mine:** this person's agents on this host and in the directory, with their addresses, connection, and host's endpoint;
 - **inbound:** for each rule of this person's stored policy, its agent scope (`*` or a name), principals as labels where they resolve, actions, and `max_artifact_bytes`, plus a line saying that the person's own hosts reach everything.
 
-Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions, endpoint}`, `mine` uses `{address, host_id, agent_id, connected, endpoint}`, and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
+Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions, endpoint, description}`, `mine` uses `{address, host_id, agent_id, connected, endpoint, description}` (`description` added by conversations C7, null when none), and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
 
 **Endpoints** (added 2026-10-16) help people tell machines apart; they grant nothing and may be stale. `endpoint` is `{address, path}`, where `address` is an `IP:PORT` string or null:
 - for another host, `path` is as `peer path` reports it (`direct`, `relay`, or `none`). `address` is the direct path's endpoint when `path` is `direct`, and otherwise the member's advertised `address` from the network map, else its first `candidates` entry, else null;

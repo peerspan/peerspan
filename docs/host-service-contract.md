@@ -76,6 +76,7 @@ Requests and responses use JSON. Creation endpoints return 201; reads and detach
 | `POST /v1/agents` | `agent register --name NAME --owner OWNER [--label NAME]` | Register an agent with name, owner, and optional descriptive labels, stored in the `capabilities` field. `--capability` is accepted as an alias of `--label`. |
 | `GET /v1/agents` | `agent list` | List agents by creation time, then ID. |
 | `GET /v1/agents/{id}` | `agent inspect ID` | Return one agent. |
+| `POST /v1/agents/{id}/description` | `agent describe AGENT TEXT`, `agent describe AGENT --clear` | Set or clear the agent's one-line description, as [conversations C7](conversations-contract.md#agent-descriptions) specifies. Agents gain `description`, null when none. |
 | `POST /v1/sessions` | `session attach --agent ID --integration NAME` | Attach metadata with agent_id and integration. |
 | `GET /v1/sessions?agent_id=ID` | `session list [--agent ID]` | List sessions, optionally filtered by agent. |
 | `GET /v1/sessions/{id}` | `session inspect ID` | Return one session. |
