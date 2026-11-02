@@ -183,6 +183,7 @@ class Terminal:
     def __init__(self, claude, cwd, session, env, budget, log):
         import pyte
         self.budget, self.log = budget, log.open('ab')
+        self.startup_events = log.with_suffix('.startup.jsonl')
         self.screen = pyte.Screen(160, 60)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
@@ -250,6 +251,9 @@ class Terminal:
         answered = set()
         active = None
         until = self.budget.until(UI_LIMIT)
+        trace_started = time.monotonic()
+        trace_last, trace_count = None, 0
+        text, lower = '', ''
         prompts = (
             ('style', ('text style', 'choose the text style', 'choose a theme'), None),
             ('key', ('custom api key', 'use this api key'), '\x1b[A'),
@@ -260,13 +264,34 @@ class Terminal:
         def selected_yes(text):
             return re.search(r'^\s*[❯>]\s*(?:\d+\.\s*)?Yes\b', text, re.MULTILINE | re.IGNORECASE) is not None
 
+        def trace(event='view', sent='none'):
+            nonlocal trace_last, trace_count
+            value = dict(event=event, matched_prompt=[name for name, phrases, _ in prompts
+                if any(phrase in lower for phrase in phrases)],
+                active_prompt=None if active is None else active[0],
+                active_phase=None if active is None else active[2],
+                rendered_selected_yes=selected_yes(text), sent=sent)
+            signature = json.dumps(value, sort_keys=True)
+            if trace_count >= 256 or signature == trace_last:
+                return
+            trace_last = signature
+            trace_count += 1
+            value['elapsed_ms'] = int((time.monotonic() - trace_started) * 1000)
+            try:
+                with self.startup_events.open('a') as output:
+                    output.write(json.dumps(value, sort_keys=True) + '\n')
+            except OSError:
+                pass  # Private diagnostics cannot alter native input or verdict.
+
         while time.monotonic() < until:
             text = self.text()
             lower = text.lower()
+            trace()
             if active is not None:
                 name, phrases, phase = active
                 if phase == 'select' and selected_yes(text):
                     # Selection must be rendered before Enter is a separate event.
+                    trace('send', 'confirm')
                     self.send('\r')
                     active = (name, phrases, 'confirm')
                 elif phase == 'confirm' and not any(phrase in lower for phrase in phrases):
@@ -277,18 +302,22 @@ class Terminal:
                 for name, phrases, arrow in prompts:
                     if name not in answered and any(phrase in lower for phrase in phrases):
                         if arrow is not None and not selected_yes(text):
+                            trace('send', 'arrow_up' if arrow == '\x1b[A' else 'arrow_down')
                             self.send(arrow)
                             active = (name, phrases, 'select')
                         else:
+                            trace('send', 'confirm')
                             self.send('\r')
                             active = (name, phrases, 'confirm')
                         break
                 else:
                     if re.search(r'[❯>]\s*$', text, re.MULTILINE) and not any(
                             phrase in lower for phrase in ('no, exit', 'do you trust', 'use this api key')):
+                        trace('ready')
                         return
             # Never answer the next prompt or resend Enter before this one leaves.
             self.pump(min(.1, max(0, until - time.monotonic())))
+        trace('deadline')
         raise CheckFailure('native startup prompt unavailable or unsupported')
 
     def command(self, text):
