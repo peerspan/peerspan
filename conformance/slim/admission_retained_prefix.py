@@ -9,6 +9,7 @@ non-case helper definitions are reused. This suite has one 120-second budget.
 """
 import ast
 import base64
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ import select as socket_select
 import signal
 import socket
 import socketserver
+import sqlite3
 import subprocess
 import threading
 import time
@@ -117,13 +119,24 @@ def run_case(suite, ns):
     def counts():
         return tuple(relay.counts() for relay in relays)
 
+    def optional_pending(issuer, rid):
+        with closing(sqlite3.connect(ns['db_path'](issuer).as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+            row = db.execute('SELECT record FROM dec_pending WHERE request_id=?', (rid,)).fetchone()
+        return json.loads(row[0]) if row is not None else None
+
     def no_consent(issuer, rid):
-        record, _ = ns['pending'](issuer, rid)
-        check(record.get('administrator_offer_id', '-') == '-'
-              and record.get('administrator_packet_base64', '-') == '-', 'negative admission created a signed administrator packet')
-        iid = record.get('administrator_intent_id', '-')
+        record = optional_pending(issuer, rid)
+        check(record is None or (record.get('administrator_offer_id', '-') == '-'
+              and record.get('administrator_packet_base64', '-') == '-'), 'negative admission created a signed administrator packet')
+        iid = record.get('administrator_intent_id', '-') if record is not None else '-'
         if iid != '-':
             check(ns['intent'](issuer, iid)['record']['approved'] is False, 'negative admission approved administrator consent')
+        with closing(sqlite3.connect(ns['db_path'](issuer).as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+            intents = [json.loads(row[0]) for row in db.execute("SELECT record FROM dec_intents WHERE kind='administrator'")]
+            signed_frames = db.execute("SELECT count(*) FROM dec_frames WHERE request_id=? AND role='administrator'", (rid,)).fetchone()[0]
+        check(signed_frames == 0, 'negative admission retained an administrator frame')
+        check(all(intent['approved'] is False and intent['signatures'] == [] for intent in intents
+                  if intent.get('operation_id') == rid), 'negative admission retained approved or signed administrator work')
 
     try:
         issuer, requester = host('administrator'), host('requester')
@@ -163,8 +176,13 @@ def run_case(suite, ns):
                 'expected_host_public_key': requester.public_key,
                 'expected_device_public_key': view['device_public_key'], 'approve': False}
         requester.stop(); modes('drop'); issuer.start()
-        absent, _ = ns['pending'](issuer, rid)
-        check(all(absent.get(field, '-') == '-' for field in prefix), 'administrator unexpectedly retained O/S before their creation')
+        # A carrier storage ACK does not itself open an ordinary administrator
+        # operation. Either an unopened request or a genuine row without O/S
+        # bytes supplies this negative precondition; successful preview below
+        # still must retain the exact row and both complete packet bytes.
+        absent = optional_pending(issuer, rid)
+        check(absent is None or all(absent.get(field, '-') == '-' for field in prefix),
+              'administrator unexpectedly retained O/S before their creation')
         for approve in (False, True):
             status, _ = issuer.api('POST', '/v2/link/admissions', {**body, 'approve': approve})
             check(not 200 <= status < 300, 'missing packet bytes gained retained-prefix admission')
