@@ -283,3 +283,14 @@ attributing the original CI actor. Its first failure stays retained. Product and
 packaging trees remain identical to the verified d61a314 archive, so installed
 acceptance remains attached to that exact artifact. Fresh full tracking CI/review
 and the final-artifact model authorization/evidence-limit decision remain open.
+
+
+The fixture-corrected f0b356b run passes51/52 checks: machine_owner6/6 in31seconds,
+all Rust/native/installed jobs and45/46 slim suites. Every suite meets120seconds
+(maximum88). Exact-head Codex review is clear. The remaining requester-commit
+history case's actual ordinary commit returns409/state_conflict. A read-only
+source audit has not established a stale-planning/signing race: each approval
+and continuation phase reloads under the same store mutex. The first conflict
+log is retained; an independent receive-only observer captures only the existing
+precommit public GET and original POST input/response before a fix is selected.
+No original case, call, state comparison, deadline or product code is changed.

@@ -59,48 +59,38 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41402036231",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41407248526",
     "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
-    "final_status_location": "Tracking PR35 current exact-head checks and review; acceptance107 remains a historical integrated receipt.",
-    "installed_receipt_sha256": "a394e2ed5aa60c9a0360ddfd9d3f2effd080749bbebceacf1151fbbb8d9b48fa",
+    "final_status_location": "Current exact-head checks/review and outstanding live-model authorization/evidence-limit decision on tracking PR35.",
+    "installed_receipt_sha256": "701f7dc51b1ec39d207e09c54c2dc7d1fe125010079f70c7b0946c72020462b9",
     "latest_exact_review": {
-      "commit": "5f7cd9080659961095daf76525562883304d4646",
+      "commit": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
       "result": "no major issues found",
-      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571243763"
+      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571728290"
     },
     "native": {
       "cases": 440,
-      "elapsed_seconds": 190.082,
+      "elapsed_seconds": 184.338,
       "files": 22,
       "passed": 440,
-      "receipt_sha256": "1654654184db29ee61b21ad6e32c490e70b4515905083c9cc38f8c9e3e4d256f"
+      "receipt_sha256": "52497cef6c4dded44263010adfb54c8f5bf550ab133b583c4f7a90636be2ea61"
     },
-    "observed": "Acceptance107 passed52/52 and was integrated at5f7cd90. Fresh tracking35 on that same source passes51/52, with only final signed-request-expiry purity failing. Independent prerequisite observes actual due ciphertext retirement before baseline and passes the unchanged6/6 in34seconds. Product/packaging trees remain identical to d61a314; full tracking CI and review on the fixture-only correction remain required. The original CI write actor remains unattributed.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41402036070",
+    "observed": "Corrected machine-owner6/6 passes in31seconds. All Rust/native/installed jobs pass;45/46 slim suites pass. Requester-commit history ordinary explicit commit returns409/state_conflict. Original cause remains unattributed; receive-only existing-response diagnostics are being prepared. No speculative product changes or retries.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41407248571",
     "required": true,
     "required_final_check_count": 52,
     "slim_suites": 46,
-    "source": "5f7cd9080659961095daf76525562883304d4646",
+    "source": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
     "suite_runtime_audit": {
-      "failed_suites": 0,
-      "log_sha256": "eb88d63e1315d07946addafcb06841f251025fcb82137ad893e9b5c6d8ecc4d4",
-      "maximum_seconds": 89,
+      "failed_suites": 1,
+      "log_sha256": "a37c907ffde339c8194bf0c606e392c5494cc2a0565e0c6203485058c589b86f",
+      "maximum_seconds": 88,
       "over_120_seconds": 0,
-      "passing_suites": 46,
+      "passing_suites": 45,
       "suites": 46,
-      "summary_sha256": "16200e339274f6e5debcfd5f630f96dcb2954d2e34f3412203b7b20d3091477a"
+      "summary_sha256": "1105ae33712765cc1be1320189ed90e71a76ba84811325cdebb495ab5eee4f8d"
     },
-    "tested_merge_source": "2160c9593bb144f135eaa8ad5385cee3b75e7ee0",
-    "tracking_repeat": {
-      "all_46_suite_seconds_maximum": 89,
-      "checks_passed": 51,
-      "checks_total": 52,
-      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41403733674",
-      "failed_suite": "machine_owner",
-      "log_sha256": "55b56e47c3a0e6ae1020a6f44506c2506976340aa667bf90f39efa8451aec153",
-      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41403733744",
-      "summary_sha256": "a1a9665bd1add0c62f07eff760ba3749bd449d67bb084a874a49190106b31cf5"
-    }
+    "tested_merge_source": "417e9f6014bb6d8c3e9c72481fa660f894fcedf7"
   },
   "conformance_execution": {
     "all46_suite_120second_runtime_audit_required": true,
@@ -279,6 +269,10 @@
     {
       "kind": "Fresh tracking35 signed-request-expiry purity: two unknown owner carrier database tables changed; original cause not attributed",
       "log_sha256": "0ff92cd21310bfc40f1872c1898ec955d23444c043dab8c014ea11b5caa79690"
+    },
+    {
+      "kind": "Requester commit history ordinary explicit commit409 state_conflict on f0b356b; exact guard and cause remain unattributed",
+      "log_sha256": "220fbca09c3aabfb636cb336630026ce8a23590ff5b2fbb5f02ea6db6bde1c97"
     }
   ],
   "historical_archives": [
@@ -350,6 +344,50 @@
         "summary_sha256": "7e3051a17fe36cb0f3c872c1a8ac319e7f395b02ddd2e3ffb6aa9f0bbba09f8f"
       },
       "tested_merge_source": "23631959d8ca68efb5b41e1ba89feacd269015c3"
+    },
+    {
+      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41402036231",
+      "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
+      "final_status_location": "Tracking PR35 current exact-head checks and review; acceptance107 remains a historical integrated receipt.",
+      "installed_receipt_sha256": "a394e2ed5aa60c9a0360ddfd9d3f2effd080749bbebceacf1151fbbb8d9b48fa",
+      "latest_exact_review": {
+        "commit": "5f7cd9080659961095daf76525562883304d4646",
+        "result": "no major issues found",
+        "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571243763"
+      },
+      "native": {
+        "cases": 440,
+        "elapsed_seconds": 190.082,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "1654654184db29ee61b21ad6e32c490e70b4515905083c9cc38f8c9e3e4d256f"
+      },
+      "observed": "Acceptance107 passed52/52 and was integrated at5f7cd90. Fresh tracking35 on that same source passes51/52, with only final signed-request-expiry purity failing. Independent prerequisite observes actual due ciphertext retirement before baseline and passes the unchanged6/6 in34seconds. Product/packaging trees remain identical to d61a314; full tracking CI and review on the fixture-only correction remain required. The original CI write actor remains unattributed.",
+      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41402036070",
+      "required": true,
+      "required_final_check_count": 52,
+      "slim_suites": 46,
+      "source": "5f7cd9080659961095daf76525562883304d4646",
+      "suite_runtime_audit": {
+        "failed_suites": 0,
+        "log_sha256": "eb88d63e1315d07946addafcb06841f251025fcb82137ad893e9b5c6d8ecc4d4",
+        "maximum_seconds": 89,
+        "over_120_seconds": 0,
+        "passing_suites": 46,
+        "suites": 46,
+        "summary_sha256": "16200e339274f6e5debcfd5f630f96dcb2954d2e34f3412203b7b20d3091477a"
+      },
+      "tested_merge_source": "2160c9593bb144f135eaa8ad5385cee3b75e7ee0",
+      "tracking_repeat": {
+        "all_46_suite_seconds_maximum": 89,
+        "checks_passed": 51,
+        "checks_total": 52,
+        "conformance": "https://github.com/peerspan/peerspan/actions/runs/41403733674",
+        "failed_suite": "machine_owner",
+        "log_sha256": "55b56e47c3a0e6ae1020a6f44506c2506976340aa667bf90f39efa8451aec153",
+        "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41403733744",
+        "summary_sha256": "a1a9665bd1add0c62f07eff760ba3749bd449d67bb084a874a49190106b31cf5"
+      }
     }
   ],
   "installed_terminal": {
@@ -553,6 +591,22 @@
     "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
   },
   "recorded_at": "2026-11-02T06:44:26.708718+00:00",
+  "requester_commit_prefix_diagnostic": {
+    "actual_commit_http_status": 200,
+    "actual_result_state": "linked",
+    "all_immutable_pins_match_retained_consent": true,
+    "confirmed_framed_replay_gap_source_audit": true,
+    "failed": 0,
+    "frozen_case_sha256": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+    "log_sha256": "89b7ccd1a71895549e14a3114efbbc2dc05c5f8679470b82b3b2f7e7bdab4eb3",
+    "next_requirement": "Independent real frame-barrier proof on old/fixed binaries; current passing local run does not exercise pre-existing framing and is not a resolution of the CI failure.",
+    "original_ci_cause_attributed": false,
+    "passed": 6,
+    "precommit_commit_persisted": false,
+    "precommit_state": "needs_commit",
+    "seconds": 81,
+    "source_sha256": "1fae4585517298f6f7561e3eb93b0284fba96b1a7d35c41dc321e287d917f04b"
+  },
   "runtime_test_candidate": "13584050795d1870349744a88234a18d485980b7",
   "targeted_regressions": {
     "access_onboarding_bootstrap_boundary": {

@@ -590,3 +590,74 @@ blindly rerunning the unchanged failure. Product purity must remain intact; a
 read-only callgraph audit and observed pre-call transitions distinguish worker
 maintenance from an inspection-triggered effect without claiming an unseen
 first call site. The final whole-suite limit remains120seconds.
+
+### Requester commit's existing public-prefix observations
+
+Corrected tracking f0b356b passes51/52: all Rust/native/installed gates and45/46
+slim suites pass, maximum88seconds. The machine-owner correction passes6/6 in31.
+The remaining requester_commit history case's ordinary explicit commit returns
+409/state_conflict. Retain its first log; its cause is not yet attributed. The
+already-approved requester may independently progress through owned work.
+
+A contract-only author may add a receive-only launcher scoped to that literal
+case. Forward every original Host.api call exactly once with unchanged arguments,
+response and exceptions. Observe only its existing GET link view and subsequent
+POST commit input/response, plus already-held exact shared approved consent.
+Emit closed public state/stage/attention/error categories, booleans for public
+O/S/T/F, commit/manifest/activation/outcome presence and approval flags, and fixed
+pin-equality booleans between the original GET, original commit input and held
+approved review. Never emit raw IDs, keys, timestamps, labels, paths, rows,
+packets, signatures, tokens or messages. Unknown categories map to other; output
+must not replace original errors, verdicts or deadlines. No additional calls,
+IO, snapshots, mutation, signing, retry, wait, clock change or fixture assertions.
+Every original helper/case and strict history comparison remains unchanged.
+
+Selected: capture the exact already-observed public prefix at this failure before
+choosing a correction. Discard treating409 as success, retrying an unexplained
+commit, relaxing pins/consent/history, adding production diagnostics for private
+state or claiming a concurrency cause from the status alone. If a concrete
+same-approved-prefix replay gap is confirmed, preserve exact immutable consent,
+all guard/refusal boundaries and transaction serialization while correcting it;
+independent deterministic coverage must derive from these same public contracts.
+
+#### Exact replay after durable requester framing
+
+The receive-only local run passes6/6 in81seconds, with its precommit public GET
+still needs_commit and no persisted commit/activation. All immutable pins match
+held consent; this does not explain the CI conflict. A separate source audit
+identifies a definite stable replay gap after real commit framing: preparation
+can interpret the retained complete activation as a new candidate and reject its
+already-existing authority. The original CI phase remains unattributed.
+
+Selected behavior: an already approved, complete, durably framed exact requester
+commit may recover its retained review and progress without constructing another
+intent, preparing/signing a new operation, writing a decision clock or replacing
+its catalog. Validate the exact retained request/intent/packet and every supplied
+network/context/person/host/device/O/S/T/F pin under the existing transaction.
+Preserve ordinary preview wildcard rules only where already allowed; an actual
+approval requires exact pins. Conflicting pins remain refusal with no mutation.
+Subsequent ordinary publication/application still runs all current authority,
+expiry, revision, identity and exact-operation guards. This grants no new consent
+or readiness and makes no verifier exception for self-referential generations.
+Discard broad generation exceptions, treating every state_conflict as successful,
+retrying approval, returning a fabricated linked state, or skipping apply guards.
+
+Independent verification: append two narrowly related cases to the new completion
+publication suite, preserving all four existing case/helper bodies/assertions and
+its120second whole deadline. Use two real distinct-person hosts and a genuine
+ordinary approved requester operation. Arm the documented private debug barrier
+`dec.frame.after_commit` only for that operation after its real finalization;
+observe actual barrier entry and public persisted commit/manifest/activation,
+while proving no local application. Hold that real caller outside its completed
+transaction. Dispatch exactly one further ordinary `/commit` using the original
+reviewed pins. Freeze its actual response before releasing the hold. Require all
+original pins, intent/consent and signed commit bytes/IDs unchanged; genuine
+application may retire old frames and store its outcome. Assert altered-pin
+refusal and no replacement consent/signatures. Do not attribute concurrent
+publication/application writes to the preparation or refusal from timing alone. Release in finally and require
+both hosts actually apply the same canonical operation with original keys still
+owned. No artificial authority, protocol/row edits, private-original copying,
+relaxed guards, sleeps instead of phase evidence or extra retry. Controls/proofs
+must pass separately from one strict expected-failure gate for replay200 on the
+old binary. Observe strict XPASS on the correction before removing that marker.
+The first failure and original CI attribution limit remain retained.
