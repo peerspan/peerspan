@@ -109,6 +109,15 @@ The path inspection still reported `relay` while the helper was unavailable;
 this reports a route, and is not evidence of current delivery readiness.
 Owned helper processes/captures and scoped firewall rules were removed afterward.
 
+The remaining useful-work check will submit one bounded same-person task on
+the two cloud hosts, with a small generated non-secret input artifact. A
+credential-scoped deterministic receiver will read it through the adapter API,
+compute its SHA256/byte count and upload a result artifact. The submitter must
+retrieve the result through its daemon and independently compare exact bytes,
+manifest hashes and ordered final task events. SSH carries control/manifest
+metadata only, never either tested artifact. This is a120-second protocol/task
+check with zero model turns; it does not substitute for the native model receipt.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
