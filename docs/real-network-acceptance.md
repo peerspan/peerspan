@@ -90,6 +90,12 @@ recovery of that exact request once. Existing authority, original key custody
 and receiver work history must stay intact. No resubmission, new membership,
 access approval or native/model turn is part of this120-second phase.
 
+The first outage controller stopped before host/message work in2.002s: its
+second helper inspection reused an exclusive evidence filename. The root
+operator restored the owned replacement helper. The corrected controller uses
+unique sequence-numbered evidence files and a fresh work/process-metadata root;
+all prior output, including the failed automatic restore record, is retained.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
