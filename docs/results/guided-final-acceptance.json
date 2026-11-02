@@ -60,38 +60,38 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41407248526",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41411975001",
     "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
-    "final_status_location": "Current exact-head checks/review and outstanding live-model authorization/evidence-limit decision on tracking PR35.",
-    "installed_receipt_sha256": "701f7dc51b1ec39d207e09c54c2dc7d1fe125010079f70c7b0946c72020462b9",
+    "final_status_location": "Current exact-head final checks/review and model authorization/evidence-limit decision are recorded on tracking PR35; earlier run identities remain historical.",
+    "installed_receipt_sha256": "c1caff8290d46115182151657d451bea122da368801191697afaa0a6932c7cab",
     "latest_exact_review": {
-      "commit": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
+      "commit": "bbdc5960565fa519aaece1524eee387075302885",
       "result": "no major issues found",
-      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571728290"
+      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6572442296"
     },
     "native": {
       "cases": 440,
-      "elapsed_seconds": 184.338,
+      "elapsed_seconds": 180.884,
       "files": 22,
       "passed": 440,
-      "receipt_sha256": "52497cef6c4dded44263010adfb54c8f5bf550ab133b583c4f7a90636be2ea61"
+      "receipt_sha256": "fc6507ee62ad241c42415a9212f2379105e6025fee187da0124af1064be3f776"
     },
-    "observed": "Previous f0b356b passed51/52, all Rust/native/installed jobs and45/46 slim suites; requester_commit returned409/state_conflict. A separate deterministic real-frame proof confirms the replay gap on old binaries and strict XPASS on the narrow correction, preserving all controls and immutable consent/commit. The frozen requester-commit suite passes6/6 in81seconds. Fresh release terminal3/3, both participants and three genuine upgrade/restore histories pass. Full tracking CI and review on the corrected final head remain required, as does explicit model authorization/limit decision.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41407248571",
+    "observed": "bbdc596 completed51/52: all Rust/native440/installed gates and45/46 slim suites pass. Completion6/6, requester_commit6/6 and machine_owner6/6 pass. Machine requester completion has one ambiguous pure-clock-refusal HTTP200 instead of409 and a dependent case failure. Source audit finds no ordinary-replay bypass and repeated raw creation/signed expiry checks. Independent test-only prerequisite now preserves the exact raw-before-consent target before baseline and observes both original phases; no production or packaging change. Full corrected-head CI/review remains required, with model authorization/limit decision separate.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41411975080",
     "required": true,
     "required_final_check_count": 52,
     "slim_suites": 46,
-    "source": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
+    "source": "bbdc5960565fa519aaece1524eee387075302885",
     "suite_runtime_audit": {
       "failed_suites": 1,
-      "log_sha256": "a37c907ffde339c8194bf0c606e392c5494cc2a0565e0c6203485058c589b86f",
-      "maximum_seconds": 88,
+      "log_sha256": "f4592baaf1260b2444f5cc6a4eee3e2e324c0fee10a0759066b1d32a20329a5b",
+      "maximum_seconds": 89,
       "over_120_seconds": 0,
       "passing_suites": 45,
       "suites": 46,
-      "summary_sha256": "1105ae33712765cc1be1320189ed90e71a76ba84811325cdebb495ab5eee4f8d"
+      "summary_sha256": "2be7a03de114055d81b6a9bdc5b377ec44bef3a2973075d58b18e9b5d1da7d7a"
     },
-    "tested_merge_source": "417e9f6014bb6d8c3e9c72481fa660f894fcedf7"
+    "tested_merge_source": "dc3469a758b46dff4fdb4d33d2fbe12e6e5322ae"
   },
   "conformance_execution": {
     "all46_suite_120second_runtime_audit_required": true,
@@ -278,6 +278,10 @@
     {
       "kind": "New framed-replay fixture kept its frame barrier armed and also held later legitimate completion traffic; corrected one-line disarm after initial entry, with no deadline/assertion change",
       "log_sha256": "e5f2e11cf610e7ddd2511720c681ad8ee8fe6564c7ac293dfe8a11f912a8f561"
+    },
+    {
+      "kind": "Machine requester completion pure-clock-refusal HTTP200 expected409 on bbdc596; raw-before-consent vs signed-expiry phase and cause remain unattributed",
+      "log_sha256": "7901dd28160bc35d613eab4821e0075e057a1f08417180468dab86fdb6df3419"
     }
   ],
   "framed_replay_regression": {
@@ -471,6 +475,40 @@
         "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41403733744",
         "summary_sha256": "a1a9665bd1add0c62f07eff760ba3749bd449d67bb084a874a49190106b31cf5"
       }
+    },
+    {
+      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41407248526",
+      "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
+      "final_status_location": "Current exact-head checks/review and outstanding live-model authorization/evidence-limit decision on tracking PR35.",
+      "installed_receipt_sha256": "701f7dc51b1ec39d207e09c54c2dc7d1fe125010079f70c7b0946c72020462b9",
+      "latest_exact_review": {
+        "commit": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
+        "result": "no major issues found",
+        "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6571728290"
+      },
+      "native": {
+        "cases": 440,
+        "elapsed_seconds": 184.338,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "52497cef6c4dded44263010adfb54c8f5bf550ab133b583c4f7a90636be2ea61"
+      },
+      "observed": "Previous f0b356b passed51/52, all Rust/native/installed jobs and45/46 slim suites; requester_commit returned409/state_conflict. A separate deterministic real-frame proof confirms the replay gap on old binaries and strict XPASS on the narrow correction, preserving all controls and immutable consent/commit. The frozen requester-commit suite passes6/6 in81seconds. Fresh release terminal3/3, both participants and three genuine upgrade/restore histories pass. Full tracking CI and review on the corrected final head remain required, as does explicit model authorization/limit decision.",
+      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41407248571",
+      "required": true,
+      "required_final_check_count": 52,
+      "slim_suites": 46,
+      "source": "f0b356b225071223c9adc33b7cfb8dd5034a920e",
+      "suite_runtime_audit": {
+        "failed_suites": 1,
+        "log_sha256": "a37c907ffde339c8194bf0c606e392c5494cc2a0565e0c6203485058c589b86f",
+        "maximum_seconds": 88,
+        "over_120_seconds": 0,
+        "passing_suites": 45,
+        "suites": 46,
+        "summary_sha256": "1105ae33712765cc1be1320189ed90e71a76ba84811325cdebb495ab5eee4f8d"
+      },
+      "tested_merge_source": "417e9f6014bb6d8c3e9c72481fa660f894fcedf7"
     }
   ],
   "installed_terminal": {
@@ -489,6 +527,63 @@
     "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
     "Full final tracking CI and accepted review on the corrected head remain required; the final-artifact actual-model repeat separately awaits explicit authorization or owner acceptance of its historical evidence limit. This receipt does not authorize merging35."
   ],
+  "machine_completion_clock_prerequisite": {
+    "contract_only_author": true,
+    "failed": 0,
+    "frozen_suite_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166",
+    "history_prerequisite_sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+    "log_sha256": "4a2fda10ec983459a6e54c4f8bcb46dc1aa5dfcbe6a5be3ea0f7b057cdd4b3c1",
+    "original_baselines_assertions_counters_and_deadlines_preserved": true,
+    "original_ci_phase_or_cause_attributed": false,
+    "passed": 6,
+    "product_packaging_changes": false,
+    "raw_phase_closed_observation": {
+      "after_rearm": {
+        "before_consent_creation": true,
+        "before_request_creation": false,
+        "before_signed_expiry": true
+      },
+      "at_dispatch": {
+        "before_consent_creation": true,
+        "before_request_creation": false,
+        "before_signed_expiry": true
+      },
+      "before_baseline": {
+        "before_consent_creation": true,
+        "before_request_creation": false,
+        "before_signed_expiry": true
+      },
+      "clock_outside_measured_roots": true,
+      "code": "machine_commit_completion_unavailable",
+      "http_status": 409,
+      "lost_before_rearm": false,
+      "phase": "raw_before_consent_creation",
+      "point": "original_response",
+      "rearmed_same_target": true,
+      "request_state": "other"
+    },
+    "same_original_consent_created_minus_one_target": true,
+    "seconds": 88,
+    "signed_expiry_clock_unchanged": true,
+    "signed_expiry_closed_observation": {
+      "at_dispatch": {
+        "before_consent_creation": false,
+        "before_request_creation": false,
+        "before_signed_expiry": false
+      },
+      "before_baseline": {
+        "before_consent_creation": false,
+        "before_request_creation": false,
+        "before_signed_expiry": false
+      },
+      "code": "review_expired",
+      "http_status": 409,
+      "phase": "signed_request_expiry",
+      "point": "original_response",
+      "request_state": "other"
+    },
+    "source_sha256": "90c21ecbd63df64de873bf21752bd2c45adcecfc78494fb317d1b9cc263768a9"
+  },
   "main_baseline": "8bc1b922e7b29f030f6799f98e96a0304b6bc8cd",
   "native": {
     "ci_cases": 440,

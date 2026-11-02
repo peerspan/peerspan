@@ -321,3 +321,31 @@ and continuation phase reloads under the same store mutex. The first conflict
 log is retained; an independent receive-only observer captures only the existing
 precommit public GET and original POST input/response before a fix is selected.
 No original case, call, state comparison, deadline or product code is changed.
+
+
+### Machine completion raw-time fixture precondition
+
+Corrected-code bbdc596 passes51/52 checks, all Rust/native440/installed jobs and
+45/46 slim suites, maximum89seconds. Completion6/6, requester commit6/6 and
+machine owner6/6 pass. Only machine completion's two-phase pure-clock refusal
+returns200 instead of409, with the phase/cause unrecorded; its dependent parent
+case also fails. That first log remains retained.
+
+Source audit finds no ordinary replay route on guided machine Complete and
+checks actual raw creation/signed expiry through final application. The raw test
+clock is real UTC plus an integer offset; ceil advancing to consent-created
+minus-one can lose its intended negative relation during resource retirement
+and quiet. An independent prerequisite runs original quiet first, then reapplies
+the identical captured target with floor before the original baseline, verifying
+external sidecars and the actual before-consent condition again at dispatch.
+Signed-expiry clocks and all original cases/helpers/restores/strict state and
+carrier comparisons/deadlines remain unchanged. Existing history setup remains.
+
+First execution passes6/6 in88seconds. Raw dispatch is before consent creation
+and receives409/machine_commit_completion_unavailable; original signed-expiry
+dispatch receives409/review_expired. Actual final-transaction time and detached
+parent refusals, plus immutable historical recovery, pass. This run did not find
+the raw relation already lost before rearm; it does not identify the earlier
+CI phase or cause. No product or packaging change: verified archive de999b56
+and its installed proofs remain current. Full final tracking CI/review and the
+explicit live-model authorization/evidence-limit decision remain required.

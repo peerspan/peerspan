@@ -4746,3 +4746,38 @@ archive de999b56 passes installed terminal3/3, both participant paths and all
 three genuine upgrade/full-restore histories. Full final tracking CI/review and
 model authorization/evidence-limit decision remain open; original CI attribution
 is not invented from the separate proof.
+
+
+### GU.final.machine-clock: preserve the negative raw-creation stimulus
+
+- **Evidence:** bbdc596 passes51/52 checks, including completion6/6, requester
+  commit6/6, machine owner6/6, all Rust/native440/installed jobs and45/46 slim
+  suites. Maximum suite runtime89seconds. The machine-completion time case
+  returns200 instead of409 in one of two unlabelled refusal phases; its dependent
+  case fails. The original phase and cause remain unattributed.
+- **Audit:** this guided route cannot reach the new ordinary replay branch. It
+  checks actual raw creation/signed expiry before work, around IO and in final
+  application. Historical200 requires an exact verified local application.
+- **Selected:** an independent prerequisite labels the original two phases,
+  runs original quiet first, then reestablishes only the original consent-created
+  minus-one target with floor rounding before the original baseline. Record
+  actual lost/rearmed boundary booleans, verify external clock sidecars and that
+  the same boundary still holds at dispatch, and fail setup without retry if lost.
+  Signed-expiry clocks, restores, time/parent barriers, every frozen body/assertion/
+  state/counter comparison and existing deadline remain unchanged.
+- **Rationale:** real UTC plus an integer ceil offset can cross its intended
+  negative boundary during retirement/settling. The action must receive the
+  documented negative stimulus before its refusal can be judged.
+- **Discarded:** accepting200 as refusal, inventing an earlier target, extending
+  windows/deadlines, altering product guards, skipping cases, relaxing purity or
+  attributing an ambiguous first response without phase evidence. Production and
+  packaging stay identical to d819cf8; current installed archive evidence stands.
+
+
+The independent machine-clock prerequisite passes all6 frozen cases in88seconds.
+It observes before-consent dispatch409/machine_commit_completion_unavailable and
+unchanged signed-expiry409/review_expired, with actual final time/parent and pure
+history assertions passing. Its local raw precondition was not already lost
+before rearm; this is not attribution of the original ambiguous CI failure.
+No product/packaging change or new archive; full corrected tracking CI/review
+and explicit model authorization/evidence-limit decision remain open.
