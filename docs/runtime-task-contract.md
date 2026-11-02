@@ -215,7 +215,7 @@ as text, with exactly these keys in this order:
 | `output_truncated` | Whether streaming stopped at `max_output_bytes`. |
 | `results_dropped` | Result artifact names that did not fit `max_artifact_bytes` or the per-artifact limit, in the order below; usually `[]`. |
 | `results_same` | An object mapping each result artifact name left out because its content equals an earlier attached one's to that earlier name; usually `{}`. |
-| `snapshot` | For a peerfs workspace, the peerfs snapshot the runtime took after the command, 64 lowercase hex digits, or null when the command changed no source path or never started (RUN-7). Null for every other run. |
+| `snapshot` | For a peerfs workspace, the peerfs snapshot the runtime took after the command, its peerfs object ID of 66 lowercase hex digits, or null when the command changed no source path or never started (RUN-7). Null for every other run. |
 | `error` | A short text when the run failed outside the command, such as `the runtime restarted`; otherwise null. |
 
 The `cancelled` event of a task that was running has the run result as `output` too, with
@@ -340,7 +340,8 @@ other than those below.
 
 The run record's `state` is `running` until the run has exited, then `exited`. The events
 response is a JSON array of events. Error codes are `invalid` (400), `not_found` (404),
-`conflict` (409), `too_large` (422) and `busy` (429). A run that never started still ends
+`conflict` (409), `too_large` and `unavailable` (422), and `busy` (429); `unavailable` is a
+peerfs workspace asked of a runtime that serves no peerfs space. A run that never started still ends
 with `exited` then `results`.
 
 `run_id` is `run_` followed by the lowercase hex SHA-256 of `<sender host ID>/<task_id>`.
@@ -408,7 +409,7 @@ refuses, computes results as specified, and reports `max_concurrent_runs` 1 and 
 maximums unless told otherwise on its command line. A command-line delay holds each run
 before `started`; a run cancelled during it ends with `exited`, `signal` 9 and no `started`.
 Workspace names given on its command line are its peerfs workspaces, each a directory kept
-across runs, and it reports `peerfs` true only when given some. Its snapshot is the
+across runs, and it reports `peerfs` true only when given some. Its snapshot is `01` and the
 lowercase hex SHA-256 of the workspace's sorted paths and contents after the command, or
 null when they are those it had before; it answers 429 for a workspace one of its runs
 holds, and fails a run on a name it was not given before `started`.
