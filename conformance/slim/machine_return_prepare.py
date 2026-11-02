@@ -4,7 +4,11 @@
 Independent public-contract regression. B's sole advertised bootstrap carrier
 holds the first A-to-B original-fetch connection after a real ClientHello;
 opaque TLS is never terminated or inspected for an HTTP URI. B-to-A automatic
-return remains live. One narrow read-only frame-absence observation immediately
+return is genuine. Before measuring local calls, already-established A-side
+streams park at acknowledged relay-thread boundaries. Bootstrap permits only
+one HTTP request per TLS connection; new connections and all UDP stay counted.
+The earlier diagnostic identified existing-stream byte movement, not its URI
+or originating operation. One narrow read-only frame-absence observation immediately
 precedes exact owner inspection/preparation. No SQL polling, fabricated request,
 key copying, code import, clock change or transport retry is used.
 
@@ -74,9 +78,12 @@ class FirstFetchGate:
     def __init__(self,target,held=False):
         self.target = target
         self.lock = threading.Lock()
+        self.condition = threading.Condition(self.lock)
         self.released,self.closed = threading.Event(),threading.Event()
         self.connections = self.sent = self.returned = 0
         self.live = {}
+        self.established = {}
+        self.park_targets,self.parked = set(),set()
         self.sockets = set()
         if not held:
             self.released.set()
@@ -135,15 +142,20 @@ class FirstFetchGate:
                     upstream.settimeout(None)
                     with outer.lock:
                         outer.sockets.add(upstream)
+                        outer.established[generation] = (self.request,upstream)
                     if prefix:
                         upstream.sendall(prefix)
                     while not outer.closed.is_set():
+                        if not outer.forward_barrier(generation):
+                            return
                         readable,_,_ = select.select([self.request,upstream],[],[],.02)
                         for stream in readable:
-                            data = stream.recv(65536)
-                            if not data:
-                                return
                             with outer.lock:
+                                if generation in outer.park_targets:
+                                    break
+                                data = stream.recv(65536)
+                                if not data:
+                                    return
                                 if stream is self.request:
                                     outer.sent += len(data)
                                 else:
@@ -154,6 +166,9 @@ class FirstFetchGate:
                 finally:
                     with outer.lock:
                         outer.live.pop(generation,None)
+                        outer.established.pop(generation,None)
+                        outer.parked.discard(generation)
+                        outer.condition.notify_all()
                         outer.sockets.discard(self.request)
                         if upstream:
                             outer.sockets.discard(upstream)
@@ -170,6 +185,54 @@ class FirstFetchGate:
     def counts(self):
         with self.lock:
             return self.connections,self.sent,self.returned
+
+    def forward_barrier(self,generation):
+        with self.condition:
+            while generation in self.park_targets and not self.closed.is_set():
+                self.parked.add(generation)
+                self.condition.notify_all()
+                self.condition.wait()
+            self.parked.discard(generation)
+            return not self.closed.is_set()
+
+    def park_established(self,timeout=1):
+        # Freeze the existing set once. Later connections remain fully live and
+        # counted, so unrelated retries cannot be hidden by the barrier.
+        until = min(deadline,time.monotonic()+timeout)
+        with self.condition:
+            check(not self.park_targets,'established transport was already parked')
+            self.park_targets = set(self.established)
+            check(self.park_targets,'no established original-return stream to park')
+            while (self.park_targets & self.established.keys())-self.parked:
+                remaining = until-time.monotonic()
+                check(remaining>0,'established relay-thread barrier unavailable')
+                self.condition.wait(remaining)
+            held = tuple(sorted(self.park_targets & self.parked))
+        check(held and set(held)<=set(self.live_established_generations()),'no live acknowledged established-stream hold')
+        return held
+
+    def live_established_generations(self):
+        with self.lock:
+            current = [(generation,self.established[generation]) for generation in self.parked if generation in self.established]
+        result = []
+        for generation,streams in current:
+            live = True
+            for stream in streams:
+                try:
+                    if stream.recv(1,socket.MSG_PEEK|socket.MSG_DONTWAIT)==b'':
+                        live = False
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    live = False
+            if live:
+                result.append(generation)
+        return result
+
+    def release_established(self):
+        with self.condition:
+            self.park_targets.clear()
+            self.condition.notify_all()
 
     def live_generations(self):
         with self.lock:
@@ -190,6 +253,7 @@ class FirstFetchGate:
     def close(self):
         self.closed.set()
         self.release()
+        self.release_established()
         with self.lock:
             streams = list(self.sockets)
         for stream in streams:
@@ -291,6 +355,7 @@ def _():
                       and incoming['person_public_key']==person and incoming['host_public_key']==b.public_key
                       and incoming['owner_offer_id']=='-' and not incoming['commit_approved'],'returned request changed pins/consent')
                 generation = wait(lambda:next(iter(b.relay.live_generations()),None),5,'live original-fetch ClientHello hold')
+                existing_hold = a.relay.park_established()
                 pending,capability = g.pending(a,f['rid'])
                 packet = json.loads(base64.b64decode(pending['request_packet_base64'],validate=True))
                 check(capability is not None and packet['role']=='request' and packet['context_id']=='-'
@@ -301,7 +366,8 @@ def _():
                 g.ed25519(packet['signer_public_key'],packet['device_signature'],g.packet_message(packet),'returned-device')
                 # Exactly one absence observation. No SQL wait or protocol write.
                 original_frame = g.rows(a,"SELECT frame_id FROM dec_frames WHERE request_id=? AND role='request' AND writer_key=?",(f['rid'],b.public_key))
-                check(original_frame==[] and generation in b.relay.live_generations(),'original frame was not actually withheld')
+                check(original_frame==[] and generation in b.relay.live_generations()
+                      and set(existing_hold)<=set(a.relay.live_established_generations()),'original frame or live transport barrier unavailable')
                 traffic = g.traffic(f)
                 began = time.monotonic()
                 body = dict(context=g.context(pa),request_id=f['rid'])
@@ -316,18 +382,19 @@ def _():
                 elapsed = time.monotonic()-began
                 after_traffic = g.traffic(f)
                 same_held_generation = generation in b.relay.live_generations()
+                same_existing_hold = set(existing_hold)<=set(a.relay.live_established_generations())
                 observed_code = prepared.get('code') if isinstance(prepared,dict) else None
                 print('machine_return_prepare_boundary_public='+json.dumps(dict(
                     prepare_status=status if type(status) is int and 100<=status<=599 else None,
                     prepare_code=observed_code if observed_code in {'invalid','not_found','review_changed','review_expired',
                         'machine_owner_consent_unavailable'} else ('none' if observed_code is None else 'other'),
-                    seconds=round(elapsed,3),same_held_generation=same_held_generation,
+                    seconds=round(elapsed,3),same_held_generation=same_held_generation,same_existing_hold=same_existing_hold,
                     captured_review_receipt=status==200 and isinstance(prepared,dict)
                         and isinstance(prepared.get('consent'),dict) and prepared['consent'].get('state')=='review',
                     traffic={name:dict(before=list(traffic[index]),after=list(after_traffic[index]))
                         for index,name in enumerate(('existing_tcp','existing_udp','requester_tcp','requester_udp'))}),
                     sort_keys=True),flush=True)
-                check(elapsed<=5 and after_traffic==traffic and same_held_generation,
+                check(elapsed<=5 and after_traffic==traffic and same_held_generation and same_existing_hold,
                       'immediate inspect/prepare exceeded5s or performed counted network IO')
                 check(status==200 or (status==409 and isinstance(prepared,dict) and prepared.get('code')=='machine_owner_consent_unavailable'),
                       'unexpected preparation status/category')
@@ -345,6 +412,7 @@ def _():
                     inspect_status=200,prepare_status=status,prepare_code='none' if status==200 else 'machine_owner_consent_unavailable',
                     counted_io_unchanged=True,owner_approved=False,owner_signed=False,seconds=round(elapsed,3)),sort_keys=True),flush=True)
             finally:
+                a.relay.release_established()
                 b.relay.release()
             published = publication.result(timeout=35)
             check(published['state']=='requested' and published['review']==flow['review']
