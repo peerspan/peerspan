@@ -13,10 +13,11 @@
     "corrected_ast_sha256": "318370974209c827bf2177937c9156efdc355a3ece57dae941724ca2d715fb15"
   },
   "preflight_no_starts": {
-    "count": 2,
+    "count": 3,
     "compiler_or_test_started": false,
     "reason": "unrelated Cargo parent; later normal-process inspection showed another track long-running test child, no shared-target compilation",
-    "global_idle_claim": false
+    "global_idle_claim": false,
+    "latest_reason": "initial owner launch stopped before execution for unrelated release compilation in a separate target; subsequent runs serialize this stream and retain external activity context"
   },
   "builds": [
     {
@@ -307,6 +308,44 @@
       "failed": 3,
       "dependent_cases_exercised": false,
       "classification": "generic409 before owner consent, exact operation/code unclassified; retained A imported pending row but0frames; B1genuine request frame"
+    },
+    {
+      "gate": "owner-onboarding-preview-retry",
+      "head": "05c74e81abdfecfebc2fbc8233066dc8779bc595",
+      "source_sha256": "4b9be464e15a331f26d2613978b03de8a127f85b3ffcb53e5e1f954bd5a6e381",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 0,
+      "seconds": 46.26,
+      "log_sha256": "c469aca7faa95e4e1cb66039983efacf8123c721cedd07dbf6faef2fc43fb5e6",
+      "suite": "owner_onboarding",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "classification": "first changed reviewed preview-retry/host-job phase run; all original assertions pass",
+      "unrelated_external_compilation_observed": true,
+      "global_idle_claim": false
+    },
+    {
+      "gate": "owner-signing-preview-host-job",
+      "head": "05c74e81abdfecfebc2fbc8233066dc8779bc595",
+      "source_sha256": "4b9be464e15a331f26d2613978b03de8a127f85b3ffcb53e5e1f954bd5a6e381",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 0,
+      "seconds": 83.8,
+      "log_sha256": "19a06196b8eab727884b2c4ffef15f94601f0bb0dc625b4f93fb2d4528765054",
+      "suite": "owner_signing",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "classification": "first changed reviewed preview-retry/host-job phase run; all original assertions pass",
+      "unrelated_external_compilation_observed": true,
+      "global_idle_claim": false
     }
   ],
   "correction": {
@@ -891,5 +930,16 @@
       "seconds": 7.68,
       "log_sha256": "9408e4a2cf0b9a58bda27f030d4730653d7c36166e6751f3820b2264f2b57ddc"
     }
-  ]
+  ],
+  "host_job_prerequisite_author": {
+    "commit": "a3a9399be99cf455d22e9ac341da4e6e82982388",
+    "source_sha256": "4b9be464e15a331f26d2613978b03de8a127f85b3ffcb53e5e1f954bd5a6e381",
+    "product_reads_or_runtime_by_author": false,
+    "coherent_readonly_fake_negative_privacy_forwarding_and_inverse_audits": true,
+    "original_74_files_exact": true,
+    "phase_bound_seconds": 5,
+    "old_settled_bound_seconds": 3,
+    "cryptographic_validity_claim_from_stored_host_slot": false,
+    "earlier_failure_actor_attribution": false
+  }
 }
