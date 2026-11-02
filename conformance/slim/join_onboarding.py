@@ -28,6 +28,8 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check,
                      create_network, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
 
@@ -539,7 +541,7 @@ def refuse_start(h):
     check(records(h) == before, "refused migration changed schema/version/logical state")
 
 
-@suite.case("schema27_additive_reserved_names_corruption_future28_and_rollback", "guided onboarding12 verification6")
+@suite.case("schema27_additive_reserved_names_corruption_future29_and_rollback", "guided onboarding12 verification6")
 def _():
     h, parent, code, person = fixture("migration")
     flow = prepare(h, parent, code, person); decide(h, flow, code, "decline")
@@ -548,19 +550,23 @@ def _():
     h.stop(); baseline = records(h)
     legacy = clone_state(h, "legacy26")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        drop_conversations(db)
         db.execute(f"DROP TABLE {TABLE}"); db.execute("PRAGMA user_version = 26")
     old = records(legacy); legacy.start()
     check(get(legacy, "/v1/host") == identity and get(legacy, "/v1/activity?limit=1000") == activity, "migration changed identity/activity")
     check(get(legacy, PROJECT + "/" + parent["flow_id"])["state"] == "invalidated", "migration resurrected historical attachment")
     legacy.stop(); migrated = records(legacy)
-    check(migrated["$version"] == (27,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
-    check(without(migrated, "$schema", "$version", TABLE) == without(old, "$schema", "$version"), "additive migration changed prior authority/registry/history")
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+          "migration did not add all empty schema28 conversation tables")
+    check(migrated["$version"] == (28,) and migrated[TABLE] == (), "26→27 did not add exactly empty join table")
+    check(without(migrated, "$schema", "$version", TABLE, *CONVERSATION_TABLES) == without(old, "$schema", "$version"), "additive migration changed prior authority/registry/history")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed table definitions")
     for kind, ddl in [("table", f"CREATE TABLE {TABLE} (marker TEXT)"), ("view", f"CREATE VIEW {TABLE} AS SELECT 'reserved' AS marker"),
                       ("index", f"CREATE INDEX {TABLE} ON sessions(id)"),
                       ("trigger", f"CREATE TRIGGER {TABLE} AFTER INSERT ON sessions BEGIN SELECT 1; END")]:
         collision = clone_state(h, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            drop_conversations(db)
             db.execute(f"DROP TABLE {TABLE}"); db.execute("PRAGMA user_version = 26"); db.execute(ddl)
         refuse_start(collision)
     for name, ddl in [("missing", f"DROP TABLE {TABLE}"), ("extra", f"ALTER TABLE {TABLE} ADD COLUMN unexpected TEXT"),
@@ -569,9 +575,9 @@ def _():
         with closing(sqlite3.connect(db_path(corrupt))) as db, db:
             db.executescript(ddl)
         refuse_start(corrupt)
-    future = clone_state(h, "future28")
+    future = clone_state(h, "future29")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 28")
+        db.execute("PRAGMA user_version = 29")
     refuse_start(future)
 
 
