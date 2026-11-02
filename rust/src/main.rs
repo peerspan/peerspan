@@ -1380,6 +1380,22 @@ async fn call_inner(
         .body(Full::new(Bytes::from(encoded)))?;
     let response = sender.send_request(request).await?;
     let status = response.status();
+    let retry_after = if status == hyper::StatusCode::TOO_MANY_REQUESTS {
+        let mut values = response
+            .headers()
+            .get_all(hyper::header::RETRY_AFTER)
+            .iter();
+        match (values.next(), values.next()) {
+            (Some(value), None) => value
+                .to_str()
+                .ok()
+                .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|s| s.parse::<u64>().ok()),
+            _ => None,
+        }
+    } else {
+        None
+    };
     let bytes = http_body_util::Limited::new(response.into_body(), RESPONSE_LIMIT)
         .collect()
         .await
@@ -1394,6 +1410,7 @@ async fn call_inner(
                 .unwrap_or("request failed")
                 .to_owned(),
             code: value["code"].as_str().unwrap_or_default().to_owned(),
+            retry_after,
         }
         .into());
     }
@@ -1524,6 +1541,7 @@ async fn failure(response: hyper::Response<hyper::body::Incoming>) -> anyhow::Er
             .unwrap_or("request failed")
             .to_owned(),
         code: value["code"].as_str().unwrap_or_default().to_owned(),
+        retry_after: None,
     }
     .into()
 }
