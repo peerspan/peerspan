@@ -162,6 +162,14 @@ completion cannot serve mailboxes. Original absence, all counters, successful
 continuation and5s/120s bounds remain unchanged; no product advertising change
 or implicit bypass is introduced.
 
+The explicit-refusal resource fixture then fails before the measured owner
+operation in15.7s. Receive-only diagnostics identify self-signed TLS verification
+error18 and a stale300-second original mailbox lifetime check. Canonical wire
+formats9.1/12 require3600 seconds. Section42 settles mandatory pinned-host-key
+mTLS for the independent helper, with full certificate/key/socket validation,
+test-only pinned PyOpenSSL and unchanged encrypted counters/5s/120s bounds.
+These are fixture compatibility corrections; no new product failure is inferred.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
