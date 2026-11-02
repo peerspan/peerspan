@@ -118,6 +118,17 @@ manifest hashes and ordered final task events. SSH carries control/manifest
 metadata only, never either tested artifact. This is a120-second protocol/task
 check with zero model turns; it does not substitute for the native model receipt.
 
+The first task attempt returned a valid durable `unknown` outcome in11.840s,
+with `configured relay is unavailable`: this retained fixture still named its
+relay helpers, both intentionally stopped after recovery qualification. Its
+peer captures contain no packets. The manual controller incorrectly required
+immediate acceptance without first establishing a usable transport. No receiver
+worker/model started. Preserve that request; its deadline is not extended or
+resubmitted. The next fresh bounded task uses the explicitly restored replacement
+helper with direct test UDP blocked, and requires observed relay delivery plus
+the same artifact/hash/event checks. This is a recorded topology correction,
+not a reinterpretation of the first unconfirmed request as acceptance.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
