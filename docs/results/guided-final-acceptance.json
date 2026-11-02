@@ -1,14 +1,14 @@
 {
   "acceptance_pr": "https://github.com/peerspan/peerspan/pull/107",
   "artifact": {
-    "installed_host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
-    "name": "peerspan-0.1.0-gu51-retry-linux-amd64-rust.tar.gz",
+    "installed_host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
+    "name": "peerspan-0.1.0-gu51-boundary-linux-amd64-rust.tar.gz",
     "production_paths": {
       "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
       "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
       "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
       "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
-      "rust/src": "ba8b75c96c9b5ff58e54eee65966b07d25a10cbf",
+      "rust/src": "bf5980feffc1a2501426ac41959e04c4c4c9d2fa",
       "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
     },
     "release": {
@@ -18,10 +18,10 @@
       "os": "linux",
       "rust_libc": "glibc (builder baseline; rust bundles only)",
       "source_dirty": false,
-      "source_revision": "81720b4258e4ddab34478154bb30c65721eea9ec",
-      "version": "0.1.0-gu51-retry"
+      "source_revision": "d61a314168c42a4f8bf9facde403e23961d94b1e",
+      "version": "0.1.0-gu51-boundary"
     },
-    "sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0"
+    "sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695"
   },
   "authenticated_model": {
     "applies_to_archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
@@ -60,15 +60,16 @@
   },
   "ci": {
     "conformance": "https://github.com/peerspan/peerspan/actions/runs/41398547169",
+    "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
     "final_status_location": "Current exact-head checks and review receipts on acceptance PR107, then tracking PR35; recorded previous runs remain historical.",
-    "installed_receipt_sha256": "dcd2822d4d0cbbf92cc58bfe8461e9c72627a89b52596753bcce5a8381329062",
+    "installed_receipt_sha256": "7dcd008b9bbd2fd5db3cc2d5ddc15bcb2b6d9423fab49ec6aab2e2027a97b577",
     "latest_exact_review": {
       "commit": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
       "result": "no major issues found",
       "url": "https://github.com/peerspan/peerspan/pull/107#issuecomment-6570483046"
     },
     "next_required_checks": 52,
-    "observed": "ecee08c: all45 other slim suites pass; access_onboarding5/6 failed the required bootstrap404 boundary without recording actual status. All46 suite runtimes meet120seconds (maximum87). Rust/native pass; installed old-binary build still in progress when recorded. Exact-head Codex review is clear. A receive-only local exact-CI-binary run passes access6/6 in22seconds and records404, so the original CI status remains unattributed. Independent charged-bucket TCP experiment confirms a separate masking gap: owner route429 while known route remains429. Narrow correction and full final-head checks/review remain required.",
+    "observed": "ecee08c completed51/52 checks green:45/46 slim suites, Rust/native440 and all installed gates pass; all46 suite runtimes meet120seconds, maximum87. The only failed assertion was the bootstrap owner-route404 boundary without an actual status receipt. Its cause remains unattributed. Independent charged-bucket TLS proof confirms429 masks404 on that source. Narrowd61a314 correction passes strict XPASS, unchanged access6/6, delivery16/16 and all fresh installed gates. Final corrected-head52-check CI/review and model authorization/limit decision remain required.",
     "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41398547138",
     "required": true,
     "required_final_check_count": 52,
@@ -83,16 +84,16 @@
       "suites": 46,
       "summary_sha256": "7e3051a17fe36cb0f3c872c1a8ac319e7f395b02ddd2e3ffb6aa9f0bbba09f8f"
     },
-    "tested_merge_source": "23c87cd64dc7040bf04a0729eac508eac335bb21"
+    "tested_merge_source": "23631959d8ca68efb5b41e1ba89feacd269015c3"
   },
   "conformance_execution": {
     "all46_suite_120second_runtime_audit_required": true,
     "binaries_sha256": {
-      "peerspan-helper": "f9a5c11dda70d7b5ea22bfb203231b9fe9fd3d8b4ee31e187b9b563a60342d08",
-      "peerspan-host": "cdaddef2651966b88985d3990347e207073509375c50a7fb56c47ba7cb97786d",
-      "peerspan-peer-probe": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c"
+      "peerspan-helper": "40beb1f06e1bd601a6e7c1c14363cdbf2d545877dc83145672edd894bc0723ad",
+      "peerspan-host": "3d645783a8d7727d0dbaa4e5216b959ee720a1cf6e0550a64d314f74657c3e5a",
+      "peerspan-peer-probe": "090ce9f9eba769984d52ae94b5ace6237bef5ada3ac8667722c922281b968ca2"
     },
-    "build_log_sha256": "fcfee31ad58c103bc5344d29a3a2b7dacf13e49ff3d7095158d796e61e54daab",
+    "build_log_sha256": "2f36e344ecc8456309c34cb81d9c7bf522aa2a7159f64602a8fa7c24cccb932e",
     "debug_assertions": true,
     "debug_symbols": false,
     "incremental": false,
@@ -101,13 +102,14 @@
     "source_tree_unchanged_from_artifact": true
   },
   "current_artifact_model": {
+    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
     "credentials_read_or_copied": false,
     "model": "haiku",
     "original_conversation": true,
     "passed": false,
     "planned_nonce_reply_turns": 1,
     "planned_readiness_turns": 1,
-    "reason": "Automatic approval review requires explicit authorization for external Claude activity and normal usage cost. Fresh installed project/adapter review prepared; dependent enable action not executed.",
+    "reason": "Automatic approval review blocked external Claude activity/normal usage cost on the preceding archive before enable. No new model turn executed; the final-artifact check awaits explicit authorization or owner acceptance of that evidence limit.",
     "status": "awaiting_explicit_authorization"
   },
   "first_failures": [
@@ -216,10 +218,51 @@
       "log_sha256": "81342b9a7883bfdcc42379fd96614636edd31f04c2f243e3af724ecd598bff06"
     }
   ],
+  "historical_archives": [
+    {
+      "artifact": {
+        "installed_host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
+        "name": "peerspan-0.1.0-gu51-retry-linux-amd64-rust.tar.gz",
+        "production_paths": {
+          "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
+          "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
+          "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
+          "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
+          "rust/src": "ba8b75c96c9b5ff58e54eee65966b07d25a10cbf",
+          "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
+        },
+        "release": {
+          "architecture": "amd64",
+          "implementation": "rust",
+          "node_requirement": ">=22",
+          "os": "linux",
+          "rust_libc": "glibc (builder baseline; rust bundles only)",
+          "source_dirty": false,
+          "source_revision": "81720b4258e4ddab34478154bb30c65721eea9ec",
+          "version": "0.1.0-gu51-retry"
+        },
+        "sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0"
+      },
+      "installed_terminal_log_sha256": "46f73920a856b59b7838006bdf914b356a444649a4235122b2268ab5a297260a",
+      "participant_suites": [
+        {
+          "passed": true,
+          "seconds": 14.789,
+          "suite": "teammate"
+        },
+        {
+          "passed": true,
+          "seconds": 11.938,
+          "suite": "machine"
+        }
+      ],
+      "upgrade_passed": true
+    }
+  ],
   "installed_terminal": {
-    "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
+    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
     "cases": 3,
-    "log_sha256": "46f73920a856b59b7838006bdf914b356a444649a4235122b2268ab5a297260a",
+    "log_sha256": "82b24fca01cf40d91c4202276e2fc71b973dab8448114575bc5222c733c70e75",
     "model_requests": 0,
     "passed": true,
     "source_sha256": "a466c90bf78cc48d6a7f1a2d37614b555d32cd5d051d3b606f13b6c8436ad853"
@@ -265,6 +308,17 @@
       "runner_source_sha256": "6d7ece22e12fdd51c2e5074c9e96f88f392eaac7a0d62019894ef1145b7f4957",
       "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526"
     },
+    "latest_ci": {
+      "failed": 0,
+      "files": 22,
+      "gate_seconds": 600,
+      "passed": 440,
+      "receipt_sha256": "d0af55461f575c07a7c115ca34679bb809d2321e60be7a24b5fb8cb10fb1afa8",
+      "seconds": 181.3,
+      "skipped": 0,
+      "source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526"
+    },
     "local": {
       "deadline_failures": 9,
       "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832",
@@ -292,11 +346,11 @@
   },
   "participants": [
     {
-      "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
+      "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "1b676132db3fed16ba3cbafdbf96c9ae73b113a4a28bc36c07a4eb7a474d7292",
-        "5752562a993dcacda04b778dc533a88356268959578795a445c3ce6584a972c1"
+        "70ffa8c251577621c373c5a460ea590be85680dbe7549fffe4e0c8c6d8012f03",
+        "fa21cb1bfc37a7454775743fe889efd4d7141474162c4b9111ba56fbcec96ac7"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -317,16 +371,16 @@
         "receiver_message_receipt": true,
         "unavailable_manual_fallback": true
       },
-      "host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
+      "host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
       "passed": true,
-      "probe_sha256": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c",
+      "probe_sha256": "090ce9f9eba769984d52ae94b5ace6237bef5ada3ac8667722c922281b968ca2",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 14.789,
+      "seconds": 12.705,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -337,11 +391,11 @@
       "suite_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
+      "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "2203b8646c1d4f37e325fc28d91e7f44efdebef070e3508c45867f73e2ddb5e7",
-        "f4cbdd1b358e4e5eac9a24f7e970a085362e995b634e26d28c46971f6af7eaf9"
+        "6db6f782708ae49b6132885a50022a0d3d4fe66e9b8cc65ff5e7b0f7f7ef8753",
+        "da5614c331d76550e42de65c60026406637fe899333ea5bf218473e55d538b20"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -362,16 +416,16 @@
         "outbound_peer_observation": true,
         "physical_machines": 0
       },
-      "host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
+      "host_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
       "passed": true,
-      "probe_sha256": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c",
+      "probe_sha256": "090ce9f9eba769984d52ae94b5ace6237bef5ada3ac8667722c922281b968ca2",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 11.938,
+      "seconds": 11.962,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -379,7 +433,7 @@
         "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
       },
       "suite": "machine",
-      "suite_log_sha256": "1b0ca7bbb73431b79eea44c6bb47c0f2927d60a67314b50f6d265f91f71de733"
+      "suite_log_sha256": "6bf44ce27ad36cd0f9dfa965761816e8909f5539a4c625015c3ab80daf455ccb"
     }
   ],
   "previous_verified_artifact": {
@@ -405,9 +459,16 @@
     },
     "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
   },
-  "recorded_at": "2026-11-02T06:06:56.863713+00:00",
-  "runtime_test_candidate": "64840c5b5d30617dfe326eee50777e94516f3815",
+  "recorded_at": "2026-11-02T06:44:26.708718+00:00",
+  "runtime_test_candidate": "13584050795d1870349744a88234a18d485980b7",
   "targeted_regressions": {
+    "access_onboarding_bootstrap_boundary": {
+      "failed": 0,
+      "frozen_source_sha256": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "log_sha256": "9ea38a5dcca40f9111f8a249c5ac0098aba2b895d3864448e5dac05b3d8511a9",
+      "passed": 6,
+      "seconds": 21
+    },
     "admission_retained_prefix": {
       "cases": 1,
       "log_sha256": "63f3c59a6dd193e8eca5638d77f43a3afacb6b5e9311f4838e698946820f8b37",
@@ -423,6 +484,24 @@
       "log_sha256": "a95b0d5c0536e1e99ee5cc1ed302dcb54cc4bd9198f419641ac60cf5a3bbd63c",
       "seconds": 22,
       "source_sha256": "e7475641a9c1f9cc6d6da61f790007954f6cc8d64d97e53d07478f9fc7c3521a"
+    },
+    "bootstrap_owner_route_after_fix": {
+      "distinct_transport_keys": true,
+      "every_attempt_charging_retained": true,
+      "failed": 0,
+      "known_after_http": 429,
+      "log_sha256": "1f2cf3c493ce7fc81e6963995584a1f0bb5285ace74eb8560850a7a228ce5fbb",
+      "only_known_marker_removed": true,
+      "ordinary_cases_passed": 3,
+      "owner_code": "not_found",
+      "owner_http": 404,
+      "product_source": "d61a314168c42a4f8bf9facde403e23961d94b1e",
+      "seconds": 9,
+      "skipped": 0,
+      "source_after_marker_removal_sha256": "e30b1c59298d44db40f099abb53809f23bf26ad4fe93981569fecf94ed5171cd",
+      "source_before_marker_removal_sha256": "460fb67da814cc25e41253d389f9ee4bb85841ab4220e7b1761dcba4c0d85bfc",
+      "strict_known_xpass_observed": true,
+      "suite_cases": 4
     },
     "bootstrap_owner_route_before_fix": {
       "distinct_transport_keys": true,
@@ -490,6 +569,13 @@
       "skipped": 0,
       "source_sha256": "cfc9b125ff3e62971a81517449155c997b1757843ad86109e0dd8aa919072710",
       "unexpected_passes": 0
+    },
+    "delivery_bootstrap_boundary": {
+      "failed": 0,
+      "frozen_source_sha256": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "log_sha256": "72408759b40f66f4fd603428fb9869041a16dca06cdd54c0bdd3d01693f8a1f9",
+      "passed": 16,
+      "seconds": 61
     },
     "join_completion_retry": {
       "failed": 0,
@@ -582,12 +668,12 @@
   },
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "upgrade": {
-    "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
+    "archive_sha256": "9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695",
     "contract": "guided-final-acceptance section1",
-    "elapsed_seconds": 9.592,
+    "elapsed_seconds": 9.607,
     "histories": {
       "feature27": {
-        "backup_manifest_sha256": "068fd298c8c8fa40c8106634db3e2e4da6b32ff526bc14ba8a418dac127b51b2",
+        "backup_manifest_sha256": "fcc7c3f8d482c63bbb227a0a18d85a144b1517c9a532bcfc9aa29505a9bdabcd",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -598,7 +684,7 @@
         "upgraded_schema": 28
       },
       "main24": {
-        "backup_manifest_sha256": "b33447ddac08df36f07015eef5c861ad2ed55a1a3fcaa8110ed77eedf1fe8c5f",
+        "backup_manifest_sha256": "be502661b1fe82ee18fec72af8c02a2e77bc7d43cebd73e3baf756de4bed0d71",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -609,7 +695,7 @@
         "upgraded_schema": 28
       },
       "old23": {
-        "backup_manifest_sha256": "7da1fdfcaf53fb3a29f3b6476c81daad49986036f6081f7eed4a1e68975b9085",
+        "backup_manifest_sha256": "5bd6a73b0e3274cb4e49a845e89449a062bf9023b0969745badab47bbc750761",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -620,8 +706,8 @@
         "upgraded_schema": 28
       }
     },
-    "installed_binary_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
-    "log_manifest_sha256": "53d67799b24dd436c7fb66831af49a234eb447ef5a339e837dc6d5b00325c65e",
+    "installed_binary_sha256": "3a83af424f6acc0f3c16bf7f35fcbdf680e180e097ff0dc7730f4bdd2f244745",
+    "log_manifest_sha256": "051a3598f4b46447d803946da6473254b2f802c2b392a03695ea2a7130ecedfb",
     "old_binary_sha256": {
       "feature27": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
       "main24": "dfd8a6343574357bdbdb9008850241e02b3e8891af045400709f652c0d0fb490",

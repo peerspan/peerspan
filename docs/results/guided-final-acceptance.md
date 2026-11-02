@@ -5,7 +5,32 @@ candidate, verified archive, production trees, independent sources, successful
 installed flows and private evidence hashes. It is acceptance evidence; final
 CI/review and integration into tracking PR35 still determine merge readiness.
 
-## Current corrected candidate
+## Current candidate
+
+The clean-source d61a314 archive includes both confirmed rate-pressure fixes:
+exact bounded completion retry and charged unknown-route404 precedence. Archive
+SHA256: `9d9628f4e63c2a6a18c68ce6b5cc6393828a1aecf6fd6498b24d464e3982c695`.
+
+- Both independent real-wire experiments pass their controls and actual behavior.
+  The final owner404 marker reports strict XPASS; only that marker is removed.
+  Final CI requires all4 ordinary cases within the unchanged120second bound.
+- Unchanged access inspection passes6/6 in21seconds, including observed bootstrap
+  404. Unchanged delivery passes16/16 in61seconds, including mailbox, completion,
+  optional-helper/relay and timeout behavior.
+- This archive passes actual installed terminal3/3 with zero model requests,
+  teammate12.705seconds, second computer11.962seconds and genuine three-history
+  upgrade/full restore9.607seconds.
+- Previous ecee08c CI finished51/52 checks green; only the original bootstrap
+  boundary assertion failed. All46 suite runtimes met120seconds (maximum87),
+  native440 passed in181.3seconds, and Rust/all installed gates passed. Its
+  exact-head Codex review was clear. Current final CI/review is recorded on PR107
+  and then PR35; prior run identities remain historical.
+- The repeated actual-model check remains awaiting explicit authorization or
+  acceptance of the named evidence limit. No new model turn occurred. Historical
+  model success remains tied to its old verified archive; it is not claimed for
+  this new archive.
+
+### Previous completion-only candidate81720b4
 
 The fresh clean-source81720b4 archive contains the bounded completion retry.
 The unchanged independent pressure case now reports strict XPASS: both hosts
@@ -28,7 +53,7 @@ Authorization or an explicit acceptance of that evidence limit remains pending.
 Final merge readiness requires52 green checks, all46 slim runtimes within120seconds
 and final review. Current exact-head outcomes are recorded on PR107 and PR35.
 
-## What passed
+## Acceptance coverage and historical evidence
 
 - Verified installed archive: actual marketplace-installed terminal project
   review, unchanged conversation/review through reload, daemon restart,
@@ -44,7 +69,8 @@ and final review. Current exact-head outcomes are recorded on PR107 and PR35.
   All upgrade to28, retain public identity/authority/history, reject old-binary
   reopening without mutation, and reopen with their old binary after a complete
   stopped state/config backup is restored. Feature27 retains its pending review.
-- An authenticated Claude model in a preexisting conversation receives a unique
+- Historical actual-model evidence: an authenticated Claude model in a preexisting
+  conversation receives a unique
   peer nonce and replies through the actual native tool. The originating host
   retrieves that exact reply. A second run retains the same conversation across
   component reload, explicit Stop/reconnect and fresh model readiness, then
@@ -223,3 +249,11 @@ owner404 assertion is a strict expected failure. Certificates establish transpor
 identity, not authority. The correction must retain every-attempt charging and
 known-route limits while returning404 for a genuinely absent route. Frozen
 cases/assertions/deadlines remain unchanged; the original failure is retained.
+
+
+The charged-route correction keeps the same every-attempt debit before any
+classification, preserves existing route error categories, and only prioritizes
+not_found before the recorded rate refusal. No owner credentials/body/handler
+run for absent paths. The corrected genuine TLS case observes owner404/not_found
+and known-route429 with distinct transport keys on the same source. Its strict
+XPASS and final marker removal are recorded separately from the old XFAIL.
