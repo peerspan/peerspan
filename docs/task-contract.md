@@ -130,3 +130,5 @@ Each subject is the other host ID and the task ID.
 [Task artifacts](artifact-contract.md) extend tasks with input and result files (milestone 6 slice 3).
 
 [Delegation chains](delegation-chain-contract.md) let a receiving agent pass a task on with narrowed authority (milestone 6 slice 4).
+
+[Runtime tasks](runtime-task-contract.md) let a host run a task's command in a microVM instead of handing it to an agent.

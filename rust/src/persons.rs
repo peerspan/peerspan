@@ -1385,12 +1385,15 @@ mod tests {
         let mut late = membership.clone();
         late.joined_at = "2026-12-01T00:00:00Z".into();
         assert!(late.verify(NETWORK, 0, ROOT).is_err());
-        let decoded = PersonInviteToken::decode_at(&token.encode(), time(AT).unwrap()).unwrap();
+        // The signatures above cover EXPIRES, so decode at a fixed time.
+        let at = time(AT).unwrap();
+        let decoded = PersonInviteToken::decode_at(&token.encode(), at).unwrap();
         assert_eq!(decoded, token);
+        assert!(PersonInviteToken::decode_at(&token.encode(), time(EXPIRES).unwrap()).is_err());
         assert!(
             PersonInviteToken::decode_at(
                 &token.encode().replace("peerspan-person", "peerspan-host"),
-                time(AT).unwrap()
+                at
             )
             .is_err()
         );

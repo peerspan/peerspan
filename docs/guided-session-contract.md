@@ -10188,12 +10188,15 @@ hosted marketplace, vendoring Claude, or treating plugin installation as live
 session/remote acceptance. Schema23→27/full-state rollback and physical/model
 checks remain open under tracking35.
 
-## 51. Remaining flow contract
+## 51. Final acceptance freeze
 
-Teammate/device admission, remaining
-native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
-attachment/data path must pass before the frontend claims a ready connection.
-Plugin reload or this slice's attachment metadata alone does not establish it.
+The [final acceptance contract](guided-final-acceptance-contract.md) freezes
+feature additions and combines current main before acceptance. Main24 and the
+feature24–27 histories migrate to the combined schema28. It specifies installed
+terminal/reload/recovery, distinct-person and same-person-device flows, actual
+model receipt and genuine full-state upgrade/restore. No slice receipt alone
+establishes #35 readiness; the final candidate needs its own checks and review.
+
 
 ## Implementation choices
 

@@ -1300,7 +1300,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         let returned: Option<String> = tx
             .query_row(
                 "SELECT n.record FROM task_update_notifications n JOIN sessions s ON s.id = json_extract(n.record, '$.session_id') WHERE s.agent_id = ?1 AND n.returned_at IS NOT NULL ORDER BY n.rowid LIMIT 1",

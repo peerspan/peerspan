@@ -9,7 +9,10 @@ const titles = {
   task_cancel_requested: 'Peerspan cancellation request',
   task_update: 'Peerspan task update',
   call_update: 'Peerspan capability call update',
-  approval_request: 'Peerspan approval request'
+  approval_request: 'Peerspan approval request',
+  conversation: 'Peerspan conversation message',
+  conversation_roster: 'Peerspan conversation change',
+  conversation_undelivered: 'Peerspan conversation message not delivered'
 };
 
 export function presentEvent(event) {

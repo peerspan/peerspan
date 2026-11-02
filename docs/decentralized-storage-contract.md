@@ -1008,3 +1008,15 @@ prepare/approve atomically; exact guided approval cannot be inferred from an
 advanced ordinary action approval. Section31 pins every duplicated field,
 operation key, quotas, public privacy/history and replacement behavior. Existing
 schema23–27 SQL and every old record/kind remain unchanged.
+
+## Combined onboarding and conversations migration (schema28)
+
+Main and the guided feature independently allocated schema24. The final
+integration uses schema28 for their union, preserving the existing SQL and
+records of conversations and all four guided flow tables. See the
+[final acceptance contract](guided-final-acceptance-contract.md#1-integrating-both-database-histories)
+for recognition of genuine main24 and feature24–27 histories, transaction
+boundaries, corruption refusal, full-state backup/restore and verification.
+Schema23 remains the last common baseline; historical sections above retain
+their original allocation numbers. No version rewrite or binary-only downgrade
+is supported.

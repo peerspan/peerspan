@@ -62,7 +62,7 @@ No schema change is needed: these are fields of the JSON records.
 
 ### Status
 
-`GET /v1/status` returns one object:
+`GET /v1/status` and `GET /v2/status` return the same object ([DEC-OWN13](decision-log.md#dec-own13-v1-status-returns-the-v2-object-2026-10-31)):
 
 ```json
 {
@@ -89,14 +89,14 @@ No schema change is needed: these are fields of the JSON records.
 ```
 
 **Fields:**
-- **`networks`:** sorted by ID.
+- **`networks`:** sorted by ID. The example shows a retained old network; it also has `mode: "legacy_history"` and `migration_required: true`, and raises `network_migration_pending`. A coordinator-free network is a `NETWORK_VIEW` instead (`docs/decentralized-runtime-contract.md`, section 9), with its bound person in `person_public_key` and `member`.
   - `person` is this host's bound person, or null.
   - `policy` is that person's stored policy, or null.
   - `members` counts current, unrevoked members, this host included.
 - **`agents`:** sorted by name, then ID. `sessions`, sorted by ID, lists only attached sessions and sessions with an unrevoked, unexpired credential. `connection` uses the values of `adapter connection`: `registered`, `ready`, `offline`, `detached`, `revoked`, or `expired`. A session without a credential shows null `adapter_id`, `connection`, and `expires_at`, and `renewable: false`.
 - **`version`:** the implementation's version string. Its wording is not shared.
 
-**Attention items**, in this order, each with its subject:
+**Attention items**, in this order, each with its subject. Items 1, 3 and 4 came from old coordinator networks and are no longer raised; the numbers are kept because other contracts cite them:
 1. `coordination_error`: a network with a non-null `last_sync_error`. Subject: the network ID; command: `peerspan network sync ID`.
 2. `policy_expired`: this person's policy has passed `valid_until`. Command: `peerspan access renew --network ID`.
 3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `peerspan access renew --network ID`.
@@ -496,8 +496,8 @@ Each daemon keeps a directory per network, in memory:
   "refreshed_at": "RFC3339 or null",
   "hosts": [{"host_id": "host_…", "person_id": "person_… or null", "person_label": "bob or null",
              "state": "ok", "refreshed_at": "RFC3339 or null", "error": "text or null"}],
-  "agents": [{"address": "bob/claude-laptop", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
-              "name": "claude-laptop", "agent_id": "agent_…", "connected": true, "authorizations": []}]
+  "agents": [{"address": "bob/claude", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
+              "name": "claude", "agent_id": "agent_…", "connected": true, "authorizations": []}]
 }
 ```
 
@@ -555,12 +555,12 @@ A session's credential may be created with **directory access**. Then its adapte
   - connected now (`ready`, a valid lease): an adapter that has just exited keeps its lease for up to 15 seconds, so `attach` says on stderr that it is waiting, and polls the connection until the lease it saw has expired, at most 16 seconds. If the lease was renewed meanwhile, the session is running, and `attach` refuses with exit 1 before changing anything. Otherwise it continues as for `offline`;
   - otherwise (expired, revoked, detached, or connected before and now `offline`): it performs a new setup for the same agent, replacing the old credential as the adapter contract allows for a lapsed lease, and replaces the old profile once the setup succeeds. A refusal because the old adapter is still within its reconnect window is reported as is.
 - **Naming** (revised 2026-10-16). Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
-  1. `BASE-HOSTNAME`, with this machine's short host name;
-  2. `BASE-HOSTNAME-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE-HOSTNAME` is used on this host;
-  3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on while that is taken;
+  1. `BASE`;
+  2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE` is used on this host;
+  3. `BASE-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE` is used only on another host of this person; then 6, 8, and so on while that is taken;
   4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
-  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name part left with no letters or digits after that is replaced by `host`, and a project part left with none, including the root directory's empty base name, by `project`. So that the whole name fits in 64 characters, parts are cut from the end in this order, each down to 1 character before the next is cut: the host name, then the project, then `BASE`. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
-  The host name is the one at `attach` time. An agent keeps its name when the machine is renamed, and re-attaching reuses it.
+  The machine's host name is never part of a default name, because other hosts in the network see agent names (DEC-OWN12). Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A project part left with no letters or digits after that, including the root directory's empty base name, is replaced by `project`. So that the whole name fits in 64 characters, parts are cut in this order, each down to 1 character before the next is cut: the project, then `BASE`. The reserved name `builtin` is never free. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
+  An agent named under an earlier rule keeps its name, and re-attaching reuses it.
   IP addresses are not part of names: they change after `attach`, repeat across private networks, and a host often has several. `agents` shows each host's current endpoint instead (below).
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
 - **Setup.** It then runs today's session setup with directory access, `max_sends_per_hour` (default 100), no routes, and a renewable credential (the slice 1 default) unless an expiry is given. Integration options pass through.
@@ -616,7 +616,7 @@ The readable layout prints, after each agent, `address` when there is one, follo
   - `not_authorized` persisting nothing;
   - a retry still reaching the stored target after the address would resolve elsewhere (the target host unbound, and the name registered on another host of that person).
 - **Attach:**
-  - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule), a host name with no letters or digits, and `--directory /` as a second project;
+  - default naming and each suffix rule, across two hosts of one person, including the `-HHHH` rule, and `--directory /` as a second project;
   - `endpoint` in `agents --json` for this host, and in `agents --json` and `GET /adapter/v1/agents` for a direct peer, a relayed peer, and a peer with path `none`;
   - a 64-character integration ID as `BASE`, cut so the default name fits;
   - `--name` taken refused, with no registration;
@@ -671,6 +671,28 @@ For an integration that supports launch, `attach` ends by doing what `peerspan s
 
 Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness. The object is the same as with `--no-start`, including `next`, which names `peerspan session start` for later launches.
 
+**A launch that needs a terminal.** When the integration's launch plan has `terminal: true` ([harness integration contract](harness-integration-contract.md)) and `attach`'s stdout is not a terminal, `attach` does not start the harness. It exits 1, after its output object on stderr, with exactly:
+
+```
+error: terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. For one non-interactive Claude Code run, add -- -p. To set up only, use --no-start.
+```
+
+- The setup stays: the session is `registered` and has never connected, so the same `attach` at a terminal reuses it and starts the harness.
+- `up` refuses the same way, as a failed `launch` stage in its envelope, with that text (without `error: `) as the stage's attention `detail`, and exits 1.
+- Only stdout decides. stdin is not checked.
+- `--no-start` never launches, so this does not apply to it. Neither does an integration without launch.
+- `peerspan session start` does not refuse: it is the explicit foreground launch for scripts and starts the plan whatever stdout is.
+
+Claude Code's plan sets `terminal: true`, because without a terminal on stdout it switches to `--print` mode and exits at once for lack of a prompt. It leaves `terminal` out when the arguments after `--` contain `-p`, `--print`, `-h`, `--help`, `-v` or `--version`, which work without one, so `attach claude -- -p "text" | tee log` still runs. A prompt piped into `attach claude | tee log` without `-p` is refused; adding `-- -p` is the fix. The Codex and OpenCode plans, which run a bridge to a conversation already running, leave it out.
+
+Verification: spec-only cases in `conformance/slim/naming.py`'s suite or a new one, with a bundle whose helper returns a launch plan for a small fixture program that records that it ran:
+- `terminal: true`, stdout a pipe: exit 1 with the exact text; the fixture did not run; the output object is on stderr. `session doctor --directory` on the profile reports `registered`. The same command with stdout on a terminal runs the fixture with `reused: true`. The harness's `tty=True` gives stdin a terminal and leaves stdout a pipe, so it does not count: only stdout decides, and with `tty=True` the command is still refused.
+- `terminal: true` with `--no-start`, stdout a pipe: exit 0, printing the object on stdout.
+- `terminal: true`, `session start --directory`, stdout a pipe: the fixture runs.
+- `terminal` false or absent, stdout a pipe: the fixture runs.
+- `terminal: "yes"`: exit 1, `integration returned an invalid launch plan`, and the fixture did not run.
+- `node --test` in `integrations/claude-channel`: the launch plan has `terminal: true` with no arguments and with `--name x`, and leaves it out with each of the six listed arguments.
+
 ### The documented guided path
 
 The [guided setup contract](guided-setup-proposal.md) defines `up`, its scope,
@@ -701,7 +723,7 @@ it keeps the terminal for Claude Code. Each counted step below is a command the 
 2. copying `~/.config/peerspan/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Peerspan step);
 3. M2: `scripts/install-release.sh VERSION --from dist`, `peerspan join TOKEN`, `peerspan attach claude`.
 
-That is 7 commands, including 2 installer calls, and one copy. The agents are named `claude-HOSTNAME` after each machine, and `claude-HOSTNAME-HHHH` on M2 if both machines have the same host name.
+That is 7 commands, including 2 installer calls, and one copy. The agents are named `claude` on M1 and `claude-HHHH` on M2.
 
 **Pair** (alice on M1, bob on M2):
 1. M1: `scripts/install-release.sh VERSION --from dist`, `peerspan network create acme`, `peerspan invite bob`;

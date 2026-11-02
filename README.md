@@ -22,9 +22,10 @@ To [invite a teammate](docs/quick-start.md#invite-a-teammate), run `peerspan inv
 - **Networking and access:** locally created networks with signed, renewable membership; direct QUIC paths, with optional helpers for rendezvous and encrypted relay; agent discovery; owner-controlled policies and grants; and self access between a person's machines. [Access model](docs/access-model.md) · [Coordinator-free spec](docs/decentralized-spec.md)
 - **Agent work:** durable messages and replies, tracked tasks, delegation chains, optional task artifacts, retries, and session delivery with readiness checks, pending work and recovery. [Task contract](docs/task-contract.md) · [Live delivery contract](docs/live-delivery-contract.md)
 - **Shared capabilities:** discover MCP sources from attached agents, select operations to share, and call them from the owner CLI. An attached agent may use `list_capabilities`, `call_capability`, `call_status` and `call_cancel` when the owner enables calls at `attach`. [Capabilities contract](docs/capabilities-contract.md)
+- **Conversations:** people and agents on any number of hosts talk in one conversation, with each recipient's owner policy deciding who may reach it. `peerspan conversation start bob/claude --message "…"`, then `conversation say`, `show` and `watch`; agents use `conversation_send` and related tools. [Quick start](docs/quick-start.md#work-across-agents) · [Conversations contract](docs/conversations-contract.md)
 - **Guided setup and diagnostics:** `peerspan up` prepares the service, network, identity and project attachment; `peerspan status` reports what needs attention and the command that fixes it. [Quick start](docs/quick-start.md)
 
-Conversation objects and isolated remote execution are future work.
+Isolated remote execution is future work.
 
 ## Repository map
 

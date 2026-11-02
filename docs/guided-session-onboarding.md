@@ -1,6 +1,9 @@
 # Guided onboarding from an existing agent session
 
-Status: feature plan. The owner accepted the experience below on 2026-10-28.
+Status: final acceptance in progress. Feature additions are frozen as of
+2026-11-02; see the [final acceptance contract](guided-final-acceptance-contract.md).
+
+Feature plan. The owner accepted the experience below on 2026-10-28.
 Implementation is in progress on the isolated feature branch. Working slices
 provide the read-only observation API, native Claude entry,
 local delivery check, owner-local project review backend and native human
@@ -302,8 +305,8 @@ existing slim suites as each area changes.
   failures. Authorization denial and access withdrawal remain enforced.
 - [ ] User guides match the tested commands and supported platforms. State any
   remaining platform or harness limitations.
-- [ ] Installed upgrade/recovery acceptance covers current main's schema23
-  state through schema27, with preserved identity/authority/history. Record a
+- [ ] Installed upgrade/recovery acceptance covers the prior common schema23, current main schema24 and feature schema27
+  histories through combined schema28, with preserved identity/authority/history. Record a
   private full-state backup and recovery procedure. An older schema23 binary
   refuses upgraded state: binary-only rollback is unsupported; never rewrite
   user_version or drop flow tables to simulate a downgrade.

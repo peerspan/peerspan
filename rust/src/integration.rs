@@ -89,6 +89,9 @@ impl Check {
 struct Launch {
     program: String,
     args: Vec<String>,
+    /// This launch cannot work unless stdout is a terminal.
+    #[serde(default)]
+    terminal: Option<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1069,7 +1072,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
         Some(directory) => directory,
         None => attached_profile(&state)?,
     };
-    start(&directory, &state, workspace, args).await
+    start(&directory, &state, workspace, args, false).await
 }
 
 /// `session start`: recovers a preparing session if needed, then replaces
@@ -1079,6 +1082,7 @@ pub(crate) async fn start(
     state: &Option<PathBuf>,
     workspace: Option<PathBuf>,
     args: Vec<String>,
+    refuse_without_terminal: bool,
 ) -> anyhow::Result<()> {
     let mut p = load_profile(directory, state)?;
     if !p.harness.supports("launch") {
@@ -1111,6 +1115,17 @@ pub(crate) async fn start(
         bail!("integration returned an invalid launch plan")
     }
     let program = executable(&plan.program)?;
+    let needs_terminal = match &plan.terminal {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        Some(_) => bail!("integration returned an invalid launch plan"),
+    };
+    use std::io::IsTerminal;
+    if needs_terminal && refuse_without_terminal && !std::io::stdout().is_terminal() {
+        bail!(
+            "terminal_required: This integration needs a terminal, and standard output is not one, so it was not started. Run the command again at a terminal, without a pipe or redirect. For one non-interactive Claude Code run, add -- -p. To set up only, use --no-start."
+        )
+    }
     if p.phase == "preparing" {
         recover(&mut p).await?
     }
@@ -1281,7 +1296,23 @@ fn workspace_profiles(state: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 /// Introduces the pending work in the session start hook's context.
-const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, and check each call with call_status; call pending_work for the current list. ";
+const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. ";
+
+/// The `SessionStart` hook's output for a pending object, `None` when every
+/// list is empty.
+fn pending_hook(value: &Value) -> Option<String> {
+    let empty = ["deliveries", "replies", "tasks", "calls", "conversations"]
+        .iter()
+        .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
+    (!empty).then(|| {
+        let context = format!(
+            "{PENDING_HOOK_LEAD}{}",
+            crate::conversation_cli::json_text(&value.to_string())
+        );
+        json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
+            .to_string()
+    })
+}
 
 /// `session pending`: the work the current directory's attached session
 /// still owes. Without an attachment it prints nothing, so a session start
@@ -1321,15 +1352,8 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
     if hook {
         // Claude Code reads a hook's JSON output as hook output, so the list
         // reaches the model only as additionalContext.
-        let empty = ["deliveries", "replies", "tasks", "calls"]
-            .iter()
-            .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
-        if !empty {
-            let context = format!("{PENDING_HOOK_LEAD}{}", serde_json::to_string(&value)?);
-            println!(
-                "{}",
-                json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
-            );
+        if let Some(output) = pending_hook(&value) {
+            println!("{output}");
         }
         return Ok(());
     }
@@ -1378,6 +1402,15 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
             text(&t["sender_host_id"]),
             marks(&[(t["adopted"] == true, "adopted")]),
             text(&t["preview"])
+        );
+    }
+    for c in value["conversations"].as_array().into_iter().flatten() {
+        println!(
+            "conversation {} {} unseen, latest from {}: {}",
+            text(&c["conversation_id"]),
+            c["unseen"],
+            crate::capability_cli::escaped(&text(&c["latest"]["author_label"])),
+            crate::capability_cli::escaped(&text(&c["latest"]["preview"]))
         );
     }
     for c in value["calls"].as_array().into_iter().flatten() {
@@ -1447,12 +1480,12 @@ fn suffix_or(text: &str, fallback: &str) -> String {
     }
 }
 /// `parts` joined with `-` and `tail` appended, cutting the parts from the
-/// end so the name fits in 64 characters: the host name (`parts[1]`)
-/// first, then the project (`parts[2]`), then the base (`parts[0]`), each
-/// down to 1 character before the next. The tail is never cut.
+/// end so the name fits in 64 characters: the project (`parts[1]`) first,
+/// then the base (`parts[0]`), each down to 1 character before the next.
+/// The tail is never cut.
 fn fitted(parts: &[String], tail: &str) -> String {
     let mut cut = parts.to_vec();
-    for i in [1, 2, 0] {
+    for i in [1, 0] {
         let Some(part) = cut.get(i) else { continue };
         let over = (cut.join("-").len() + tail.len()).saturating_sub(64);
         let keep = part.len().saturating_sub(over).max(1);
@@ -1461,24 +1494,22 @@ fn fitted(parts: &[String], tail: &str) -> String {
     format!("{}{tail}", cut.join("-"))
 }
 
-/// The first free default name: `BASE-HOSTNAME`, else
-/// `BASE-HOSTNAME-PROJECT` when that is used on this host, or
-/// `BASE-HOSTNAME-HHHH` with a growing prefix of the host ID when it is
-/// used only on another host, then the last of these with `-2`, `-3`, and
-/// so on.
+/// The first free default name: `BASE`, else `BASE-PROJECT` when that is
+/// used on this host, or `BASE-HHHH` with a growing prefix of the host ID
+/// when it is used only on another host, then the last of these with `-2`,
+/// `-3`, and so on. The machine's host name is never part of it: other hosts
+/// in the network see agent names.
 fn default_name(
     base: &str,
-    hostname: &str,
     project: &str,
     host_id: &str,
     local: &BTreeSet<String>,
     remote: &BTreeMap<String, String>,
 ) -> String {
-    let free = |name: &str| !local.contains(name) && !remote.contains_key(name);
-    let mut parts = vec![
-        base.to_owned(),
-        suffix_or(hostname.split('.').next().unwrap_or_default(), "host"),
-    ];
+    let free = |name: &str| {
+        name != peerspan_host::builtin::AGENT && !local.contains(name) && !remote.contains_key(name)
+    };
+    let mut parts = vec![base.to_owned()];
     let first = fitted(&parts, "");
     if free(&first) {
         return first;
@@ -1571,7 +1602,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     if !no_start && prepared.launchable {
         eprintln!("{text}");
         let workspace = prepared.value["workspace"].as_str().map(PathBuf::from);
-        start(&prepared.directory, &state, workspace, args).await
+        start(&prepared.directory, &state, workspace, args, true).await
     } else {
         println!("{text}");
         if !args.is_empty() {
@@ -1678,44 +1709,33 @@ async fn prepare_attach_inner(
         .to_owned();
     // Refresh every network's directory first: names are checked against
     // the person's other hosts, and unreachable ones are reported.
-    let status = admin(&state, Method::GET, "/v1/status".into(), None).await?;
+    // Retained legacy history binds nothing and has no directory to refresh.
+    let status = admin(&state, Method::GET, "/v2/status".into(), None).await?;
+    let networks: Vec<&Value> = status["networks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|n| n["mode"] != "legacy_history")
+        .collect();
     let mut persons = BTreeMap::new();
     let mut label = None;
-    for network in status["networks"].as_array().into_iter().flatten() {
-        if let (Some(id), Some(person)) = (network["id"].as_str(), network["person"]["id"].as_str())
-        {
-            persons.insert(id.to_owned(), person.to_owned());
+    for network in &networks {
+        if let (Some(id), Some(key)) = (
+            network["id"].as_str(),
+            network["person_public_key"].as_str().filter(|k| *k != "-"),
+        ) {
+            persons.insert(
+                id.to_owned(),
+                peerspan_host::persons::person_id_of(key).context("invalid daemon response")?,
+            );
             if label.is_none() {
-                label = network["person"]["label"].as_str().map(str::to_owned);
-            }
-        } else if network["mode"] == "decentralized"
-            && let Some(id) = network["id"].as_str()
-        {
-            // A coordinator-free network's entry is its network view: the
-            // bound person and label come from the verified current members.
-            let members = admin(
-                &state,
-                Method::GET,
-                format!("/v1/networks/{}/members", crate::cli::encoded(id)),
-                None,
-            )
-            .await?;
-            if let Some(own) = members.as_array().into_iter().flatten().find(|m| {
-                m["public_key"] == network["host_public_key"] && m["person_id"].is_string()
-            }) {
-                persons.insert(
-                    id.to_owned(),
-                    own["person_id"].as_str().unwrap_or_default().to_owned(),
-                );
-                if label.is_none() {
-                    label = own["person_member"].as_str().map(str::to_owned);
-                }
+                label = network["member"].as_str().map(str::to_owned);
             }
         }
     }
     let mut unchecked = BTreeSet::new();
     let mut remote: BTreeMap<String, String> = BTreeMap::new();
-    for network in status["networks"].as_array().into_iter().flatten() {
+    for network in &networks {
         let Some(id) = network["id"].as_str() else {
             continue;
         };
@@ -2010,14 +2030,7 @@ async fn prepare_attach_inner(
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
                             let names = local.keys().cloned().collect();
-                            default_name(
-                                &base,
-                                &crate::hostname(),
-                                &project,
-                                &host,
-                                &names,
-                                &remote,
-                            )
+                            default_name(&base, &project, &host, &names, &remote)
                         }
                     };
                     let owner = label
@@ -2139,6 +2152,29 @@ pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_hook_names_conversations() {
+        let empty =
+            json!({"deliveries": [], "replies": [], "tasks": [], "calls": [], "conversations": []});
+        assert_eq!(pending_hook(&empty), None);
+        let mut only = empty;
+        only["conversations"] = json!([{"conversation_id": "conv_x"}]);
+        let output = pending_hook(&only).unwrap();
+        assert!(output.contains(
+            "check each call with call_status, and follow each conversation with conversation_history; call pending_work for the current list. "
+        ));
+        assert!(output.contains("conv_x"));
+    }
+
+    #[test]
+    fn pending_output_escapes_peer_text() {
+        let mut value = json!({"deliveries": [], "replies": [], "tasks": [], "calls": []});
+        value["conversations"] = json!([{"title": "t\u{9b}2J", "conversation_id": "conv_x"}]);
+        let output = pending_hook(&value).unwrap();
+        assert!(!output.contains('\u{9b}'));
+        assert!(output.contains("t\\\\u009b2J"));
+    }
 
     #[test]
     fn relative_expiry_is_bounded_and_uses_whole_minutes_or_hours() {

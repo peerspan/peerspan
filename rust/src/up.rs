@@ -564,7 +564,7 @@ pub(crate) async fn run(mut args: UpArgs, state: Option<PathBuf>) -> anyhow::Res
         eprintln!(
             "Prepared; starting the integration. Check peerspan status for its connection and delivery readiness."
         );
-        tokio::select! {value=integration::start(&prepared.directory,&state,workspace,args.harness_args)=>value,_=interrupt.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept")),_=terminate.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept"))}
+        tokio::select! {value=integration::start(&prepared.directory,&state,workspace,args.harness_args,true)=>value,_=interrupt.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept")),_=terminate.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept"))}
     };
     if let Err(error) = &launch {
         setup.result["setup"]["state"] = json!("incomplete");

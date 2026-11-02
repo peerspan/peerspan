@@ -11,11 +11,16 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks.
 
 Contents:
 - [Full entries](#full-entries), with options:
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
+  - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
+  - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
+  - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
+  - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
+  - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
@@ -31,6 +36,7 @@ Contents:
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
   - [DEC-D1: replace the coordinator before launch](#dec-d1-replace-the-coordinator-before-launch-2026-10-26) (2026-10-26)
   - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
+  - [CONV-22 to CONV-27: conversations after the coordinator-free work](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
   - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
   - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
   - [LAUNCH-34: the `attach --no-start` sign-in check](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) (2026-10-24)
@@ -85,6 +91,85 @@ Contents:
   boundaries, merge gates and implementation recommendations with discarded
   options. This is a plan; implementation and validation remain pending.
 - **Tracking PR:** [#35](https://github.com/peerspan/peerspan/pull/35).
+### CONV-28: comparison run for the lead proposal (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), decision 5.
+- **Question:** Whether to run a live comparison before building it all.
+- **Options:**
+  - (a) Build it, then run real agents.
+  - (b) First run the same tasks with real agents under today's rule and with a lead, and compare turns, tokens and whether the work got done. Addressing can't simulate a lead, because it doesn't stop a wake today, so this needs a minimal wake rule and parked rows on a branch that is never merged.
+- **Chosen:** (b), by the owner, who merged the proposal and asked for the comparison run.
+- **Reason given:** None beyond asking for the run.
+- **Effect:** Results are in [conversations-lead-comparison.json](results/conversations-lead-comparison.json). The proposal's decisions 1 to 4 stay open.
+
+### RUN-1 to RUN-5: runtime tasks (2026-10-27 and 2026-10-31)
+
+- **Date:** RUN-1 to RUN-4 on 2026-10-27; RUN-5 on 2026-10-31.
+- **Area:** runtime tasks, user story 1: a task's command run in a microVM on another of the person's machines.
+- **Source:** [runtime-task-proposal.md, Decisions](runtime-task-proposal.md#decisions) (RUN-1 to RUN-4, decisions 1 to 4) and [Questions resolved after the coordinator-free work](runtime-task-proposal.md#questions-resolved-after-the-coordinator-free-work) (RUN-5, question RQ-1 of the refresh).
+- **Recorded in:** this log, the proposal and the contract ([PR #2](https://github.com/peerspan/peerspan/pull/2)).
+- **Contract section:** [runtime-task-contract.md](runtime-task-contract.md).
+- **Implementing PRs:** none yet.
+
+RUN-1 to RUN-4 were decided by accepting the proposal's recommendation; the options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### RUN-1. Who may run, and how a host opts in
+
+- **Options:** (a) a runtime rule in the owner's signed policy naming the serving host, plus a local switch on that host; (b) grants for runtime tasks; (c) reusing `task.submit`; (d) policy alone.
+- **Chosen:** (a).
+- **Reason given:** "rules give the two-sided gate and the bounds in one signed place, and grants can follow if wanted"; "running commands on a host is different authority from asking an agent"; with policy alone, "anyone with the person key could make every machine of that person an executor."
+
+#### RUN-2. How the workspace reaches the VM
+
+- **Options:** (a) a tar input artifact, unpacked inside the VM, with a peerfs commit as a later variant; (b) waiting for peerfs; (c) a `git clone` URL.
+- **Chosen:** (a).
+- **Reason given:** waiting "would gate the runtime on peerfs milestone 3"; a clone URL "needs network and credentials in the guest, which this slice rules out."
+
+#### RUN-3. What comes back
+
+- **Options:** (a) the submitter chooses `none`, `output` or `changes`; (b) the whole workspace back; (c) streaming only, with no artifacts.
+- **Chosen:** (a).
+- **Reason given:** the whole workspace is "large, and mostly what the submitter already has"; with streaming only, "a long log would be lost past the streaming cap."
+
+#### RUN-4. The fake runtime for conformance
+
+- **Options:** (a) a fake runtime implementing the local contract without VMs, written from the contract by the separate conformance author; (b) real VMs in daemon conformance.
+- **Chosen:** (a).
+- **Reason given:** real VMs "would need KVM on every conformance host and would test the runtime rather than the daemons."
+
+#### RUN-5. Runtime rules and hosts on earlier software (RQ-1; RUN-1)
+
+- **Options:**
+  - (a) Keep runtime rules in the signed policy, as RUN-1 accepted, as an optional `runtime_rules` field of the policy body; an owner adds one only once every host in the network is upgraded, and `runtime enable` says so.
+  - (b) Store the principals and bounds with the local switch on the serving host, with no policy change, which drops the person-key gate.
+- **Chosen:** (a).
+- **Reason given:** hosts on earlier software, v0.1.0 included, refuse a policy with an unknown field, but every such host is a test or staging host; Peerspan is not yet in broad use.
+
+### DEC-OWN13: v1 status returns the v2 object (2026-10-31)
+
+- **Authority:** owner approved fixing the mismatch, 2026-10-31, and left the choice of route or docs to the implementer.
+- **Question:** `GET /v1/status` returned no coordinator-free networks, while the launch and conversations contracts described it as listing them and as the same object as `GET /v2/status`. `attach` read it and never saw the person, which caused the default name bug of [DEC-OWN12](#dec-own12-no-host-name-in-default-agent-names-2026-10-31). What should change?
+- **Options:** (a) serve the v2 object on both routes; (b) keep the routes and correct the contracts to say v1 omits these networks; (c) remove the v1 route.
+- **Chosen:** (a). `peerspan status` already reads v2, so API callers now see what the CLI shows, and the mistake can't recur. (c) would break anything still calling v1.
+- **Consequence:** on a retained old network, `/v1/status` now returns the `legacy_history` entry and `network_migration_pending` instead of the old coordinator fields and attention items. The owner then asked to remove the old code too: `Store::status`, its old-network branch and the `coordination_error`, `policy_expiring` and `policy_delivery_failing` items are gone. `policy_expired` stays, because coordinator-free networks raise it.
+
+### DEC-OWN12: no host name in default agent names (2026-10-31)
+
+- **Authority:** owner decision, 2026-10-31.
+- **Question:** the conversations live run (`docs/results/conversations-live.json`) found that a default agent name such as `claude-HOSTNAME` carries the machine's host name, which every host in the network can see, while `attach --help` says the default is `claude`. Should the default change?
+- **Options:** (a) drop the host name: `BASE`, then `BASE-PROJECT` if used on this host, or `BASE-HHHH` if used only on another host; (b) keep it and correct the help text.
+- **Chosen:** (a). The owner asked to fix the host name in the default name; the suffix rules were the implementer's choice, keeping the existing project and host ID rules.
+- **Consequence:** existing agents keep their names. `-PROJECT` still puts the workspace's base name in a name the network can see; this decision does not change that.
+
+### DEC-OWN11: next feature after the coordinator-free work (2026-10-30)
+
+- **Authority:** owner decision, 2026-10-30.
+- **Question:** with the coordinator-free work on `main`, which feature comes next?
+- **Options:** conversations (the accepted [conversations proposal](conversations-proposal.md), CONV-1 to CONV-21, on hold until the coordinator-free work landed); runtime tasks (PR #2, "Specify runtime tasks (story 1)"); PeerFS integration; capabilities in delegation chains.
+- **Chosen:** conversations.
+- **Consequence:** the conversations proposal is brought up to date with the coordinator-free model first, keeping CONV-1 to CONV-21; accepted decisions that no longer fit were put to the owner as CQ-1 to CQ-4 and decided as [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30). Implementation follows as PRs C1 to C6 of its [Slices](conversations-proposal.md#slices).
+- **Recorded in:** [PR #65](https://github.com/peerspan/peerspan/pull/65), the conversations refresh.
 
 ### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
 
@@ -281,6 +366,11 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 
 - **Implemented in:** [PR #34](https://github.com/peerspan/peerspan/pull/34).
 
+### DEC-impl: settled by the implementer for renewal-fork retention (not owner decisions)
+
+- **DEC.impl38. Retention across compatible renewal forks (spec 4.2, 7.1, 7.2).** While a stream holds a fork of identical plain renewals (the kind spec 7.1 resolves automatically), a child that depends on it fails `active` only because its parent lookup needs one head. An automatic renewal's retention list therefore judges each candidate child under every combination of the branches of the forks of this kind on that child's own authority path (itself and the parents it names, transitively), as they stood before resolution, and lists it only if it is live in every combination; unrelated forks elsewhere do not affect it. This applies whether the fork is in the renewed stream (the resolver) or in another stream the child depends on (for example the root renewing a person grant while one of that person's bindings is forked), so the device grant under the forked binding is not dropped and stays renewable after resolution. A child dropped by any branch stays dropped, so listing cannot revive it, and forks other than identical plain renewals are not collapsed: they wait for the owner. If one child's path holds more than 64 combinations, the renewal is deferred to a later pass rather than published with that child dropped. Discarded: checking only the renewed stream's own fork (a parent renewed during another stream's fork still dropped the child); accepting a child live in any one branch (it would revive a child one branch dropped); one global product over all forks (unrelated forks could push it over the bound and drop children).
+- **Implemented in:** [PR #63](https://github.com/peerspan/peerspan/pull/63).
+
 ### DEC-impl: settled by the implementer for the first send to a new member (not owner decisions)
 
 - **DEC.impl20. Learning a member's contact on send.** A peer request to a current member of a coordinator-free network for which this host holds no valid signed contact (typically both just joined, before the next background sync) first syncs each coordinator-free network it shares with that member, as `network sync` does (spec 10), which exchanges contacts with every member it can reach, and then resolves the address again. The request uses the learned address only for the same host key. The sync runs as its own task, so a send that gives up at its own time bound does not cancel it, and it keeps going to later members (4 at a time, up to sync's 30 seconds) when the first ones are offline; concurrent sends and automatic retries to that network wait for the running sync instead of starting another. A new sync for this reason starts no sooner than 5 seconds after the previous one finished, so a member that advertises no address does not turn every send into a sync. Discarded: waiting for the 60-second background sync (the first send and the retries within the task schedule fail); pushing every new member's contact to all members when it is admitted (more traffic for members that never talk, and still racy with the first send).
@@ -290,6 +380,90 @@ Fixes for the places where the Rust host did not yet follow the simplified [spec
 - **DEC.impl29. `call` waits on a held local request.** `GET /v1/calls/{peer}/{id}` takes an optional `wait=N` (seconds, at most 30): the daemon answers once the record is final, or a refused submission, or after N seconds. `call` sends it for the rest of its `--wait`, so a result reaches it when it is stored rather than on its fixed 250 ms poll; an answer that is quick and not final, as from a daemon that predates `wait`, is followed no sooner than 250 ms later. Discarded: a new route or a streaming response (more API for the same effect).
 - **DEC.impl30. Verified DEC results are reused for identical inputs.** Reading a catalog, loading a network's snapshot and building a projection are pure functions of their exact inputs, and one owner command repeated each of them dozens of times. The daemon keeps the latest results in memory, keyed by a hash of every input: the descriptor and exact catalog bytes; every row `Snapshot::load` reads for the network, with the network and own host key; and the descriptor, prior state, candidate bytes, decision time and operation of a projection. Only successes are kept, at most 32 per kind and about 32 MiB of catalog bytes, and a full memo starts over; nothing is persisted, so any changed row, byte or second misses and is verified in full. Discarded: invalidating on writes (every writer of the DEC tables would have to take part) and the host crate at `opt-level = 1` again (DEC.impl11 revision).
 - **Implemented in:** [PR #27](https://github.com/peerspan/peerspan/pull/27).
+
+### DEC-impl: settled by the implementer in conversations C1, [PR #68](https://github.com/peerspan/peerspan/pull/68) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C1 contract section](conversations-contract.md#c1-two-hosts-one-message-each-way). The owner may revisit any of them.
+
+- **DEC.impl39. One agent target in C1.** `conversation start` and `POST /v1/conversations` take exactly one participant, an agent address. Person forms (`person:…`, or a value without `/`) are 400 `invalid` until C3, and more than one participant is 400 until C2. Discarded: several agent targets now, which would need the roster pushes that C2 adds.
+- **DEC.impl40. `not_bound`.** A host with no bound person answers person starts, sends and reads with 409 `{code: "not_bound"}` and the proposal's text. Discarded: 403 (nothing is forbidden; the host lacks a binding).
+- **DEC.impl41. The invite carries the roster home will commit.** The invite's `roster` is the next version with the target `joined`, and the name in the answer is the authoritative one. A final refusal commits the next version without the target. Discarded: sending the `inviting` roster, which would leave the target's host without a roster in which its agent is joined.
+- **DEC.impl42. The first message from `start` goes only to joined targets.** `start` waits at most 15 seconds for the invite. A target still `inviting` then gets no target record for the first message, as for any message. Discarded: holding the first message until the invite settles.
+- **DEC.impl43. No citation for person targets.** A request to a person target carries none of `policy`, `grant_id` and `self`; persons are authorized by joining, not by policy. Discarded: citing a policy the receiver would ignore.
+- **DEC.impl44. Cite something, and let the receiver decide.** When nothing the author's host holds allows a target, it still cites the target owner's newest policy, so the receiver gives the final answer. With no policy at all, the target is `refused` with `not_authorized` locally, without a request. Discarded: refusing locally whenever the directory shows no allowing rule, because the directory can be stale.
+- **DEC.impl45. 403 `forbidden` on the wire, `not_authorized` in views.** The receiver answers authorization failures as one-to-one messages do (403 `forbidden`), and the sender records them as `refused` with code `not_authorized`. Content over every allowing rule's `max_message_bytes` is such a 403. Discarded: a new peer error code.
+- **DEC.impl46. `prev_seq` is omitted for the first message.** Peer bodies are strict JSON in which null is 400, so the first message to a target has no `prev_seq` key. Discarded: allowing null for this one field.
+- **DEC.impl47. `unseen` counts unforwarded notifications until C5.** Before seen tracking exists, `unseen` in the claim counts the agent's message notifications in the conversation that have not been forwarded yet, the claimed one included. Discarded: a constant 1.
+- **DEC.impl48. No directory access, nothing to claim.** A session without directory access gets `null` from the conversation claim route, so its adapter keeps polling quietly, while the sending route refuses with 403 `no_directory`. Discarded: 403 from the claim route, which the adapter's loop would treat as an authorization failure.
+- **DEC.impl49. The daemon cuts the window.** Window entries arrive already cut to 2,048 bytes, with `truncated` and `content_bytes`. The claim adds `window_total`, the N in the header's "last K of N", which is 0 whenever the window is empty. Discarded: sending full contents for the adapter to cut, which can pass the claim's size bound.
+- **DEC.impl50. `addressed_to` on the wire only.** The peer route accepts, checks and stores `addressed_to`, and `meta.addressed` follows it. No C1 local route or tool sets it; C6 adds that. Discarded: refusing it on the wire until C6, which would break hosts that run C6 against C1 hosts.
+- **Implemented in:** [PR #68](https://github.com/peerspan/peerspan/pull/68).
+
+### DEC-impl: settled by the implementer in conversations C2, [PR #70](https://github.com/peerspan/peerspan/pull/70) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C2 contract section](conversations-contract.md#c2-membership). The owner may revisit any of them.
+
+- **DEC.impl51. A host admits its own participants.** Each host records which of its local participants it admitted (by creating the conversation, committing a local agent at home, or accepting an invite), and "joined" for a local participant means admitted and not left. A roster listing an admitted participant as `inviting` does not end the admission. A pushed or fetched roster that lists an unadmitted local participant as `joined` is 400 `invalid`, except an agent that left here and whose leave home has not confirmed yet. Discarded: storing such a roster and ignoring the entry, which would leave views and checks disagreeing about one version.
+- **DEC.impl52. Invites carry home's roster plus one version.** Each invite carries home's current roster with its target `joined`, one version higher. Home remembers the highest version each invite offered. Only that invite's own join, while home's roster has not moved on, may take the offered version. Every other commit is numbered past all offered versions, so a host holding an invite roster home did not commit always receives a higher version. A late `joined` answer to a stopped invite pushes home's roster to that host again. Discarded: sending invites one at a time; letting the receiver replace a held roster with an equal version.
+- **DEC.impl53. `unanswered` is a departure reason.** An invite unanswered for 10 minutes moves its target to `departed` with reason `unanswered`, so a host that admitted the agent but whose answer was lost learns of it from the push. A refused invite is still dropped without a `departed` entry. Discarded: dropping unanswered targets silently.
+- **DEC.impl54. A closed roster is final.** After close, home commits no further version. Pending invites stop, and their targets stay `inviting` in the closed roster. The closing version is the closed roster's version. Discarded: dropping pending invites at close, which would add a version after the close.
+- **DEC.impl55. Lenient `add` and `remove`.** Adding a participant already `inviting` or `joined` answers 200 with its current outcome. `remove` takes a participant ID or a label that matches exactly one participant. Removing the creator is 400; the creator leaves instead. Discarded: 409 for a repeated add.
+- **DEC.impl56. Reachability from what home holds.** `reachable_from` and `reaches` count self access, same-host pairs, and the target owner's current policy statements that home holds. Manual grants count only when home is one of the two hosts. Discarded: asking each participant host, which would need a new peer route.
+- **DEC.impl57. No roster, no fetch.** A message for a conversation the receiver holds no roster for stays 503 without a fetch, since the receiver does not know home. A `roster_version` above the one held fetches the roster from home, at most one fetch per conversation at a time. Discarded: carrying `home_host_id` in every message.
+- **DEC.impl58. Roster notifications.** `added`, `removed` and `closed` are `roster` notifications with a `change` object, claimed through the same route as messages. Leaving creates none, and the participant that made a change gets none for it. Leaving or removal withdraws the agent's unclaimed message notifications in that conversation. Discarded: a separate claim route for roster changes.
+- **DEC.impl59. New refusal codes.** 409 `full`, 403 `not_creator`, 409 `closed`, and 429 `limit` (200 open conversations), each with fixed text. Target views gain `closed` and `limit`. Discarded: reusing `conflict` and `forbidden`.
+- **DEC.impl60. A lost `conversation_start` answer.** The tool's lost-response error carries the generated `message_id` and the recovery text `Check list_conversations before starting again; the conversation may exist.` Discarded: retrying the start automatically, which could create two conversations.
+- **DEC.impl61. No new schema version.** Admission, local departures and remembered participant names live in the conversation's `record`. Leaves go in `conversation_roster_outbound` with `kind` `leave:PARTICIPANT`, and pushes with `kind` `roster`. Discarded: new columns, which would need a migration that C1 meant to avoid.
+- **Implemented in:** [PR #70](https://github.com/peerspan/peerspan/pull/70).
+
+### DEC-impl: settled by the implementer in conversations C3, [PR #71](https://github.com/peerspan/peerspan/pull/71) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C3 contract section](conversations-contract.md#c3-people). The owner may revisit any of them.
+
+- **DEC.impl62. No departure record for a person who never joined.** A person dropped before joining (declined, removed, expired, unanswered after 10 minutes, or refused by every bound host) leaves `participants` without a `departed` entry, as C2 drops a refused invite. An invited person has `id` null in the roster and is named `person:PERSON_ID` in outcomes and in `remove`. Discarded: `departed` entries without an ID, which would change the entry's shape.
+- **DEC.impl63. `inviting`, then `invited`.** A person entry is `inviting` until the first bound host answers `invited`, then `invited`. Person invites reuse C2's offered-version rule. Discarded: `invited` at once, which would show an invite no host holds.
+- **DEC.impl64. One outcome per person, with `hosts`.** The outcome lists each bound host's answer. The overall state is `joined`, else `invited`, else `inviting`, else `unsupported` when every host answered 404, else `refused` with the first refusing host's code. Discarded: one outcome per host.
+- **DEC.impl65. Home bound to the invited person.** When home itself is bound to the invited person (for example, an agent creator inviting its owner), home holds the pending invite itself, with no peer request. Discarded: refusing such targets.
+- **DEC.impl66. One expiry.** An invite expires at the person entry's `added_at` plus 7 days on both sides; home drops the entry within 15 seconds after that. Discarded: each host counting from when it received the invite.
+- **DEC.impl67. `join` waits for home and does not retry by itself.** The join route waits up to 15 seconds and answers 503 `unavailable` without a final answer; running `join` again is safe, since home answers a repeat as a success. While a join has no final answer, a roster from home listing the person `joined` is home's confirmation. Discarded: a background join retry, which could join the person long after they gave up.
+- **DEC.impl68. `decline` drops the local copy first.** The pending invite ends here at once; the decline goes to home with retries, as a C2 leave does. Discarded: waiting for home.
+- **DEC.impl69. A pending invite is not a held conversation.** Reads and message routes treat a conversation known only through a pending invite as unknown; only `--invites`, `join`, `decline`, and the roster push and fetch use it. Discarded: showing invited conversations in `conversation show`.
+- **DEC.impl70. Status without `unread`.** Status gains `conversations: {open, invites}` and the `conversation_invites` attention item (subject the count, detail `pending conversation invites: N`), sorted after every existing kind. `unread` waits for the read cursor in C6. Discarded: an `unread` field that would always be 0.
+- **DEC.impl71. Route and texts.** Pending invites are listed at `GET /v1/conversations/invites`. New texts: `No pending invite to that conversation on this host.`, `That person already takes part from another host.`, `This host holds 20 pending conversation invites from that host.`, `The home host refused the join.`, and `The home host did not answer; run conversation join again.` Discarded: a separate `/v1/conversation-invites` resource.
+- **DEC.impl72. The adapter marks people not yet joined.** The events' `Participants:` line shows such a person as `LABEL (person, invited)` or `LABEL (person, inviting)`, and the `conversation_start` description mentions people. Discarded: leaving them out of the line.
+- **Implemented in:** [PR #71](https://github.com/peerspan/peerspan/pull/71).
+
+### DEC-impl: settled by the implementer in conversations C4, [PR #72](https://github.com/peerspan/peerspan/pull/72) (not owner decisions)
+
+These are choices the [conversations proposal](conversations-proposal.md) left open, written into the [C4 contract section](conversations-contract.md#c4-catch-up). The owner may revisit any of them.
+
+- **DEC.impl73. A sync on request.** `POST /v1/conversations/{id}/sync` and `conversation sync ID` (not listed in the root help, CONV-24) run one sync now and report each host as `synced`, `failed`, `complete` or `unsynced`. Tests use it instead of waiting 10 minutes. Discarded: a debug-only trigger, which the owner could not use.
+- **DEC.impl74. Acks report refusals.** Each `acks` entry carries `refused: [{seq, code}]`, so the author's host learns that a fetched message was refused, and its target becomes `refused` with that code. Every other `sending` or `stopped` record up to `through_seq` becomes `delivered`. Discarded: acks that only mark `delivered`, which would leave refused targets `stopped` forever.
+- **DEC.impl75. Acks ride on syncs.** A recipient sends acks after each gap fetch and in each sync; a failed ack is sent again at the next sync, not kept in its own retry queue. Discarded: a separate durable ack queue.
+- **DEC.impl76. The fetch answer.** `GET .../messages` answers `{messages: [ENTRY], more}`, each entry carrying `prev_seq` so the recipient can check the chain. A message already `refused` for the target is named without its content (`{message_id, seq, prev_seq, refused}`): a final refusal stays final, and a sender allowed again never gets its refused messages delivered. Discarded: serving refused messages for a fresh check at the fetch, which delivered messages the owner had refused; bare messages, which would hide `prev_seq`.
+- **DEC.impl77. Serving after close.** After a close, `GET .../messages` serves a target only while one of its outbound records is neither `delivered` nor `refused`, and for at most 30 days. `heads` stays served, so the requester can confirm it is complete. Discarded: serving closed conversations forever.
+- **DEC.impl78. No current policy waits.** A fetched message for an agent whose owner has no current policy statement here (and no self access or grant) is not refused; it waits for the next sync. A pushed message in the same position gets 503 `unavailable` as before. Discarded: refusing it, which a lapsed policy would turn into lost messages.
+- **DEC.impl79. Roster pushes stop after 24 hours too.** As for messages; the host gets the roster at its next sync, which always fetches the roster first. Leaves and declines are still retried until home answers. Discarded: pushing rosters without a time limit.
+- **DEC.impl80. The handoff recheck has three outcomes.** It is C4's fetched-message step 6: pass, fail, or wait (no current policy here). Only a claim records `blocked`, and that is final. A read hides a failing message and records nothing, so an owner who allows the author again before any claim loses nothing. Discarded: blocking at any read, because an owner's GET would change state.
+- **DEC.impl81. What an agent may see.** A message the agent authored, or one with a non-blocked notification that is seen, held by a live session, or passing the recheck now. A withdrawn message stays hidden after a re-add. The rule also covers the owner's `agent:` reads and `GET /v1/sessions/{id}/pending`, whose answer reaches the session through the `--hook` text.
+- **DEC.impl82. Catch-up.** Only returned message notifications coalesce; late arrivals stay separate events with `redelivered` false. The window is the first-event window, so it may hold earlier context beside the coalesced messages. `forwarded`, or `mark_seen` with the new message's ID, covers everything coalesced, since the session sees only that ID.
+- **DEC.impl83. `mark_seen` with conversation IDs.** A `conv_` or `cmsg_` ID counts as held only when this session holds at least one matching notification; otherwise 404, as for other kinds.
+- **DEC.impl84. What `pending_work` and `unseen` count.** Message notifications only. Roster and `undelivered` notifications still return and redeliver, but are not listed.
+- **DEC.impl85. Past the redelivery limit.** As the proposal says, a notification stays unseen and is no longer offered or counted; history still shows it while the recheck passes. One-to-one messages become `blocked` at that point instead.
+- **DEC.impl86. One `conversation_undelivered` per (message, target).** `stopped` then `refused` makes no second event, and `stopped` then `delivered` makes no correction. Only for local agent authors still joined.
+- **DEC.impl87. `conversation_history` limits.** A departed agent gets 403 `not_participant`; a closed conversation it was in at the close stays readable. A `before` that is unknown or hidden is the same 400, so it reveals nothing. An agent's own messages carry `targets`.
+- **DEC.impl88. The `--hook` lead names conversations always,** not only when some are pending, to keep one fixed sentence.
+- **DEC.impl89. A Rust unit test for the `--hook` output.** The slim suite cannot create an `attach` profile, so the C5 contract asks for this one test.
+- **DEC.impl90. The rate limit counts by a message's own time.** A message's time is the lesser of its `sent_at` and when the host stored it, not its arrival time, because counting by arrival would permanently refuse an honest author's backlog after an outage. Weakness, stated plainly: a dishonest host can spread messages across claimed past hours and so get around the limit. The recipient's owner can still deny or block it. A future `sent_at` gains nothing.
+- **DEC.impl91. The limit's codes.** The daemon answers 429 `limit` on both sides; only the `conversation_send` tool maps it to `rate_limited`, with the proposal's text. A limit at a fetch is final as well, and `acks` gains the `limit` code.
+- **DEC.impl92. `addressed_to` on local routes.** It resolves against participants with an ID that are `joined` or `inviting`, with `remove`'s `not_found` and `ambiguous`. An empty array is the same as none. The repeat check runs before resolution and compares `addressed_to` as well as content, so a different one is 409 `conflict`, and a repeat still succeeds after a named participant departed.
+- **DEC.impl93. `about`.** It lives in the roster and home never changes it. The CLI form is `--about HOST_ID/TASK_ID`, and `conversation_start` takes `about`. Events carry `meta.about_*` and an `About task` line. No host checks that the task exists.
+- **DEC.impl94. The read cursor's route.** `POST .../read` takes optional `message_ids` because views do not expose `local_seq`. No `GET` moves the cursor, and neither does `--as AGENT`. Moving it can mark older unshown messages as read, as the proposal's "newest message shown" implies.
+- **DEC.impl95. Two local API additions.** `GET /v1/conversations/{id}/messages/{message_id}` lets `watch` fetch a late-arriving message; the events route gains `latest`, `next_after` and a `conversation` filter. The proposal's `?after=MESSAGE_ID` paging is left for a later UI.
+- **DEC.impl96. Hidden event entries are passed over for good.** An entry whose message fails or waits on the recheck is skipped permanently for that reader of the stream; `show` and the claim still follow C5. The safe direction: nothing hidden leaks, and history stays the source of truth.
+- **DEC.impl97. `forget`.** It is 409 `in_use` while a local participant is joined in an open conversation or a pending invite is held here. An unconfirmed leave is still sent. On home, event entries go too, local routes answer 404, and peer routes keep working. Not at a terminal without `--yes`, it exits 1 with `confirm`.
+- **DEC.impl98. Escaping.** The rule covers all readable output and `error:` lines, plus every JSON the conversation commands print (U+007F to U+009F as `\u00XX`, which parses to the same text). A peer-supplied agent `name` is escaped rather than refused, including in adapter event labels, so it cannot forge a line. Unicode bidi characters are not covered.
+- **DEC.impl99. `home_unavailable`.** A view flag per CONV-23: true while home is not a current member of a network shared with this host, never on home. Its test uses a fresh host, since it is revoked.
 
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
@@ -1232,8 +1406,10 @@ These points were left open by the proposal and were settled by the implementer 
 - **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
 - **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
 - **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
-- **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
-- **Implementing PRs:** none yet.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), one section per PR: [C1](conversations-contract.md#c1-two-hosts-one-message-each-way), [C2](conversations-contract.md#c2-membership), [C3](conversations-contract.md#c3-people). Not yet a roadmap milestone.
+- **Implementing PRs:** C1 [PR #68](https://github.com/peerspan/peerspan/pull/68) (settled choices DEC.impl39 to DEC.impl50), C2 [PR #70](https://github.com/peerspan/peerspan/pull/70) (DEC.impl51 to DEC.impl61), C3 [PR #71](https://github.com/peerspan/peerspan/pull/71) (DEC.impl62 to DEC.impl72), C4 [PR #72](https://github.com/peerspan/peerspan/pull/72) (DEC.impl73 to DEC.impl79), C5 [PR #74](https://github.com/peerspan/peerspan/pull/74) (DEC.impl80 to DEC.impl89).
+- **Implemented in:** PRs C1 to C6: [#68](https://github.com/peerspan/peerspan/pull/68), [#70](https://github.com/peerspan/peerspan/pull/70), [#71](https://github.com/peerspan/peerspan/pull/71), [#72](https://github.com/peerspan/peerspan/pull/72), [#74](https://github.com/peerspan/peerspan/pull/74), [#76](https://github.com/peerspan/peerspan/pull/76). C6 settled DEC.impl90 to DEC.impl99. The live run of CONV-25 and CONV-27 is in [docs/results/conversations-live.json](results/conversations-live.json).
+- **Refreshed for coordinator-free networks:** 2026-10-30, after [DEC-OWN11](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30). The decisions stand; where they no longer fit as written, the owner decided [CONV-22 to CONV-25](#conv-22-to-conv-27-conversations-after-the-coordinator-free-work-2026-10-30), and CONV-26 renamed "post" to "message".
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
@@ -1415,6 +1591,72 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
   - (b) Agents only first; people from the CLI in the next slice.
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** The CLI is the only human surface today, and people in the conversation are the multiplayer case worth proving first.
+
+### CONV-22 to CONV-27: conversations after the coordinator-free work (2026-10-30)
+
+- **Date:** 2026-10-30.
+- **Area:** conversations, after the coordinator-free work (DEC-OWN11).
+- **Source:** [conversations-proposal.md, Questions resolved after the coordinator-free work](conversations-proposal.md#questions-resolved-after-the-coordinator-free-work), questions CQ-1 to CQ-4 of the refresh PR ([PR #65](https://github.com/peerspan/peerspan/pull/65)), and the owner's rename of "post".
+- **Recorded in:** this log and the proposal ([PR #67](https://github.com/peerspan/peerspan/pull/67)).
+- **Contract section:** none yet; `docs/conversations-contract.md` is written by the implementing PRs C1 to C6.
+- **Implementing PRs:** none yet.
+
+CONV-22 to CONV-25 were decided by accepting the question's recommendation. They change CONV-17, CONV-3 and CONV-21 only as stated; those entries stay.
+
+#### CONV-22. How long the author's host pushes, now that policies last at most 24 hours (CQ-1; refines CONV-17)
+
+- **Options:**
+  - (a) Keep the message rule. Pushes stop at the capped deadline; sync covers the rest. No design change.
+  - (b) Re-cite on each retry: the author's host cites its newest copy of the recipient owner's policy on every attempt, with a new deadline capped by it, up to 24 hours after `sent_at`. The repeat check (acceptance step 3) ignores `deadline` and the citation fields.
+  - (c) Posts carry no `deadline`. The author's host pushes until 24 hours after `sent_at`, and the receiver checks a pushed post as it checks a fetched one: under its own current policy, grants and block list, with no deadline bounds. The cited `policy` version is still sent, so a receiver behind it answers 503.
+- **Chosen:** (c). Conversation messages carry no deadline. The sender's host pushes for 24 hours, and the receiving host checks a pushed message against its own current policy, exactly as it checks a fetched one.
+- **Reason given:** It gives CONV-17's 24 hours as written, and makes a pushed and a fetched post pass the same checks, which removes a field and a rule instead of adding one.
+
+#### CONV-23. A home host that stops being a member (CQ-2; CONV-3)
+
+- **Options:**
+  - (a) As accepted: posting continues among participants whose hosts are members; membership changes wait for home. Each host shows `home_unavailable` in the conversation view while home is not a current member of any network they share, and any participant can still leave locally.
+  - (b) Bring CONV-3(c) forward: the creator may hand home to another participant host while home is still a member.
+  - (c) Automatic handover to a host of the same person, when home has been a non-member for 7 days.
+- **Chosen:** (a), as accepted. Handover stays in a later slice.
+- **Reason given:** Lapsed grants are renewed when the host returns, revocation is rare, and handover needs its own design for roster authority.
+
+#### CONV-24. What "first slice" means when it is built as six PRs (CQ-3; CONV-21)
+
+- **Options:**
+  - (a) C1 to C6 together are CONV-21's first slice. Each PR is complete for what it covers. The root help, README, and quick start mention conversations only from C6.
+  - (b) Agents first: list the commands from C2, and add people in C3 as a second user-visible step (CONV-21(b)).
+  - (c) Keep everything behind a build or runtime flag until C6.
+- **Chosen:** (a). C1 to C6 together are the first slice; the commands are listed in help, the README and the quick start only from C6.
+- **Reason given:** It keeps CONV-21's scope as the first thing users see, needs no flag, and each PR still runs in CI.
+
+#### CONV-25. The live run with real agents (CQ-4)
+
+- **Options:**
+  - (a) Keep it as a one-time manual run before C6 merges, recorded in `docs/results/` and linked from C6's PR. It does not gate CI.
+  - (b) Drop it; the slim suite with fixture adapters and the shared adapter's own tests are enough.
+  - (c) Make it a scripted CI job with real agents.
+- **Chosen:** (a). One manual live run, recorded in `docs/results/` before C6 merges; not a CI gate.
+- **Reason given:** The window, labels, and "you need not answer every post" guidance only show their value with real models, and a single recorded run is cheap. Real agents in CI need accounts and keys the project does not have.
+
+#### CONV-26. What to call one contribution to a conversation
+
+- **Options:**
+  - (a) "post", as in the accepted proposal (`post_id`, `post_…` IDs, `conversation_post`, `/posts` routes).
+  - (b) "message", or "conversation message" where it could be confused with the existing one-to-one messages.
+- **Chosen:** (b), the owner's decision of 2026-10-30, not a recommendation of the proposal.
+- **Names chosen in the proposal** (none collides with an existing name in `rust/src`, `integrations/shared` or the contracts): field `message_id` with IDs `cmsg_` plus 32 hex digits; routes `/peer/v1/conversations/{id}/messages`, `/adapter/v1/conversations/{id}/messages` and `/v1/conversations/{id}/messages`; agent tool `conversation_send` (was `conversation_post`), `before_message_id`; table `conversation_messages` and index `conversation_messages_order`; activity kinds `conversation.message_sent`, `conversation.message_received`, `conversation.message_refused`; local event kinds `message_received`, `message_sent`; CLI `conversation say --message-id`. Event kinds (`conversation`, `conversation_roster`, `conversation_undelivered`), the `conv_` conversation ID, and the one-to-one message names (`send`, `reply`, `/peer/v1/messages`, `request_id`, the `message.*` activity kinds) are unchanged.
+- **Effect on earlier entries:** CONV-1 to CONV-25 keep their wording; a "post" there is a conversation message.
+
+#### CONV-27. Where the live run happens (refines CONV-25)
+
+- **Options:**
+  - (a) One machine with two separate hosts, each with its own state directory.
+  - (b) Restore access to the earlier second machine.
+  - (c) Provide a different second machine.
+- **Chosen:** (a), by the owner on 2026-10-30.
+- **Reason given:** None beyond accepting it; the earlier second machine refused SSH.
+- **Effect:** Changes only CONV-25's "across two machines"; CONV-25 keeps its wording. The one-machine run satisfies CONV-25 for C6. The owner added "we should also test multi machine": a multi-machine run is still wanted as a separate follow-up.
 
 ### LIVE-5: protocol_version from every adapter (2026-10-25)
 

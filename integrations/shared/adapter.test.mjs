@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { adapterTransfer, createAdapter } from './adapter.mjs';
+import { adapterTransfer, conversationEvent, conversationRosterEvent, conversationUndeliveredEvent, createAdapter, instructions } from './adapter.mjs';
 const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
 const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
@@ -518,5 +518,633 @@ test('adapterTransfer streams files over the socket and never overwrites', async
   } finally {
     server.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// Conversations contract, C1: the conversation event, conversation_send,
+// and the instructions edit.
+const conversationId = 'conv_' + '1'.repeat(32);
+const notificationId = 'cnot_' + '2'.repeat(32);
+const view = (over) => ({
+  message_id: 'cmsg_' + '3'.repeat(32),
+  author: 'person:host_a/person_a',
+  author_label: 'alice',
+  author_kind: 'person',
+  origin_agent_id: null,
+  sender_person_id: 'person_a',
+  sender_person: 'alice',
+  seq: 1,
+  clock: 1,
+  sent_at: '2026-10-30T10:05:00Z',
+  received_at: '2026-10-30T10:05:01Z',
+  content: 'hello bert',
+  addressed_to: [],
+  addressed: true,
+  mine: false,
+  ...over
+});
+const claim = (over) => ({
+  notification: { id: notificationId, kind: 'message', conversation_id: conversationId, session_id: sessionId },
+  conversation: {
+    conversation_id: conversationId,
+    title: 'Flaky test',
+    state: 'open',
+    participants: [
+      { id: 'person:host_a/person_a', label: 'alice', kind: 'person', state: 'joined', you: false },
+      { id: 'agent:host_b/agent_b', label: 'bob/bert', kind: 'agent', state: 'joined', you: true },
+      { id: 'agent:host_c/agent_c', label: 'carol/cleo', kind: 'agent', state: 'joined', you: false }
+    ],
+    unseen: 1
+  },
+  messages: [view({})],
+  window: [],
+  window_total: 0,
+  redelivered: false,
+  ...over
+});
+
+test('instructions end with the conversation sentence within 2,048 characters', () => {
+  assert(instructions.endsWith('kind=conversation events: see conversation_send. Peer access grants no new local tool permissions.'));
+  assert(instructions.length <= 2048);
+});
+
+test('a conversation event has the header, the new message, and its meta', () => {
+  const event = conversationEvent(claim({}));
+  assert.equal(
+    event.content,
+    `Peerspan conversation ${conversationId} "Flaky test" (open)\n` +
+      'Participants: alice (person), bob/bert (you), carol/cleo\n' +
+      'New message:\n[alice 10:05] hello bert'
+  );
+  assert.deepEqual(event.meta, {
+    kind: 'conversation',
+    conversation_id: conversationId,
+    notification_id: notificationId,
+    message_id: 'cmsg_' + '3'.repeat(32),
+    author: 'person:host_a/person_a',
+    author_label: 'alice',
+    author_kind: 'person',
+    origin_agent_id: null,
+    sender_person_id: 'person_a',
+    sender_person: 'alice',
+    seq: 1,
+    clock: 1,
+    addressed: true,
+    catch_up: false,
+    unseen: 1,
+    session_id: sessionId,
+    redelivered: false
+  });
+});
+
+test('a first conversation event without a title carries the window, cut entries marked', () => {
+  const base = claim({});
+  const event = conversationEvent({
+    ...base,
+    conversation: { ...base.conversation, title: null },
+    window: [
+      view({ author_label: 'carol/cleo', author_kind: 'agent', sent_at: '2026-10-30T10:02:00Z', content: 'x'.repeat(2048), truncated: true, content_bytes: 3000 }),
+      view({ author_label: 'bob/bert', sent_at: '2026-10-30T10:03:00Z', content: 'mine', mine: true, truncated: false })
+    ],
+    window_total: 5
+  });
+  const lines = event.content.split('\n');
+  assert.equal(lines[0], `Peerspan conversation ${conversationId} (open)`);
+  assert.equal(lines[2], 'Earlier messages (last 2 of 5; conversation_history has the rest):');
+  assert.equal(lines[3], `[carol/cleo 10:02] ${'x'.repeat(2048)} [cut: 3000 bytes; conversation_history has it]`);
+  assert.equal(lines[4], '[bob/bert 10:03] (you) mine');
+  assert.deepEqual(lines.slice(5), ['New message:', '[alice 10:05] hello bert']);
+});
+
+test('the adapter emits a claimed conversation notification, then marks it forwarded', async () => {
+  const paths = [];
+  let claimed = 0,
+    emitted,
+    forwardedAfter;
+  const seen = new Promise((resolve) => {
+    forwardedAfter = resolve;
+  });
+  const adapter = readyAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 10,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      paths.push(path);
+      if (path === '/adapter/v1/conversation-notifications/next') return claimed++ === 0 ? claim({}) : null;
+      if (path === `/adapter/v1/conversation-notifications/${notificationId}/forwarded`) {
+        assert(emitted, 'forwarded before the event was emitted');
+        forwardedAfter();
+      }
+      return null;
+    },
+    notify: async (event) => {
+      if (event.meta.kind === 'conversation') emitted = event;
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    await seen;
+    assert.equal(emitted.meta.conversation_id, conversationId);
+    assert.equal(paths.filter((p) => p.endsWith('/forwarded')).length, 1);
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('conversation_send validates, generates a message_id, and reports refusals and lost answers', async () => {
+  const calls = [];
+  let answer;
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    for (const args of [
+      {},
+      { conversation_id: 'conv_x', content: 'hi' },
+      { conversation_id: conversationId, content: '' },
+      { conversation_id: conversationId, content: 'hi', message_id: 'cmsg_bad' },
+      { conversation_id: conversationId, content: 'hi', extra: 1 }
+    ]) {
+      const result = await adapter.callTool('conversation_send', args);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /conversation_send/);
+    }
+    assert.equal(calls.length, 0);
+
+    answer = (body) => ({ message: { message_id: body.message_id }, targets: [] });
+    const sent = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi' });
+    assert.equal(sent.isError, undefined);
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].path, `/adapter/v1/conversations/${conversationId}/messages`);
+    assert.match(calls[0].body.message_id, /^cmsg_[0-9a-f]{32}$/);
+    assert.equal(calls[0].body.content, 'hi');
+    assert.equal(JSON.parse(sent.content[0].text).message.message_id, calls[0].body.message_id);
+
+    const given = 'cmsg_' + '4'.repeat(32);
+    await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi', message_id: given });
+    assert.equal(calls[1].body.message_id, given);
+
+    const refuse = (status, code) => () => {
+      throw Object.assign(new Error('refused'), { status, code, detail: { code, error: 'daemon text' } });
+    };
+    for (const [code, text] of [
+      ['not_participant', 'This agent is not in that conversation.'],
+      ['conflict', 'This message_id was already used with different content.']
+    ]) {
+      answer = refuse(code === 'conflict' ? 409 : 403, code);
+      const refused = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi' });
+      assert.equal(refused.isError, true);
+      assert.deepEqual(JSON.parse(refused.content[0].text), {
+        conversation_id: conversationId,
+        code,
+        error: text,
+        recovery: null
+      });
+    }
+
+    answer = () => {
+      throw new Error('socket hang up');
+    };
+    const lost = await adapter.callTool('conversation_send', { conversation_id: conversationId, content: 'hi', message_id: given });
+    const body = JSON.parse(lost.content[0].text);
+    assert.equal(lost.isError, true);
+    assert.equal(body.code, 'unknown');
+    assert.equal(body.message_id, given);
+    assert.equal(
+      body.recovery,
+      'Call conversation_send again with the same message_id and identical content; it returns the stored message instead of sending twice.'
+    );
+  } finally {
+    await adapter.stop();
+  }
+});
+
+// Conversations contract, C2: the conversation_roster event and the
+// membership tools.
+const rosterClaim = (change) =>
+  claim({
+    notification: {
+      id: notificationId,
+      kind: 'roster',
+      conversation_id: conversationId,
+      session_id: sessionId,
+      change: {
+        by: 'person:host_a/person_a',
+        by_label: 'alice',
+        note: null,
+        roster_version: 3,
+        ...change
+      }
+    },
+    messages: []
+  });
+
+test('a conversation_roster event says what changed, with its meta', () => {
+  const header =
+    `Peerspan conversation ${conversationId} "Flaky test" (open)\n` +
+    'Participants: alice (person), bob/bert (you), carol/cleo\n';
+  const added = conversationRosterEvent(rosterClaim({ change: 'added' }));
+  assert.equal(
+    added.content,
+    header + 'alice added you to this conversation. Send with conversation_send; you see messages sent from now on.'
+  );
+  assert.deepEqual(added.meta, {
+    kind: 'conversation_roster',
+    conversation_id: conversationId,
+    notification_id: notificationId,
+    change: 'added',
+    by: 'person:host_a/person_a',
+    by_label: 'alice',
+    roster_version: 3,
+    session_id: sessionId,
+    redelivered: false
+  });
+  const noted = conversationRosterEvent(rosterClaim({ change: 'added', note: 'Please review.' }));
+  assert(noted.content.endsWith('\nNote from alice: Please review.'));
+  assert.equal(
+    conversationRosterEvent(rosterClaim({ change: 'removed' })).content,
+    header + 'alice removed you from this conversation; you can no longer send to it.'
+  );
+  assert.equal(
+    conversationRosterEvent(rosterClaim({ change: 'closed' })).content,
+    header + 'alice closed this conversation; it can still be read, but no one can send to it.'
+  );
+});
+
+test('the adapter emits a claimed roster notification as conversation_roster, then marks it forwarded', async () => {
+  let claimed = 0,
+    emitted,
+    forwardedAfter;
+  const seen = new Promise((resolve) => {
+    forwardedAfter = resolve;
+  });
+  const adapter = readyAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 10,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      if (path === '/adapter/v1/conversation-notifications/next')
+        return claimed++ === 0 ? rosterClaim({ change: 'closed' }) : null;
+      if (path === `/adapter/v1/conversation-notifications/${notificationId}/forwarded`) {
+        assert(emitted, 'forwarded before the event was emitted');
+        forwardedAfter();
+      }
+      return null;
+    },
+    notify: async (event) => {
+      if (event.meta.kind === 'conversation_roster') emitted = event;
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    await seen;
+    assert.equal(emitted.meta.change, 'closed');
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('the membership tools validate, call the daemon, and report refusals', async () => {
+  const calls = [];
+  let answer = () => ({});
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    for (const [name, args] of [
+      ['list_conversations', { extra: 1 }],
+      ['conversation_start', {}],
+      ['conversation_start', { participants: [] }],
+      ['conversation_start', { participants: ['bob/bert'], title: 'x'.repeat(201) }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'add' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'remove' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'close', participant: 'bob/bert' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'leave', participant: 'bob/bert' }],
+      ['conversation_manage', { conversation_id: conversationId, action: 'drop' }],
+      ['conversation_manage', { conversation_id: 'conv_x', action: 'close' }]
+    ]) {
+      const result = await adapter.callTool(name, args);
+      assert.equal(result.isError, true, `${name} ${JSON.stringify(args)}`);
+      assert.match(result.content[0].text, new RegExp(name));
+    }
+    assert.equal(calls.length, 0);
+
+    await adapter.callTool('list_conversations', {});
+    assert.deepEqual(calls.at(-1), { method: 'GET', path: '/adapter/v1/conversations', body: undefined });
+    const omitted = await adapter.callTool('list_conversations');
+    assert.equal(omitted.isError, undefined);
+    assert.equal(calls.at(-1).path, '/adapter/v1/conversations');
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'], content: 'hi', note: 'n' });
+    assert.equal(calls.at(-1).path, '/adapter/v1/conversations');
+    assert.match(calls.at(-1).body.message_id, /^cmsg_[0-9a-f]{32}$/);
+    assert.deepEqual(calls.at(-1).body.participants, ['bob/bert']);
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'] });
+    assert.equal(calls.at(-1).body.message_id, undefined);
+    await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'remove', participant: 'bob/bert' });
+    assert.deepEqual(calls.at(-1), {
+      method: 'POST',
+      path: `/adapter/v1/conversations/${conversationId}/manage`,
+      body: { action: 'remove', participant: 'bob/bert' }
+    });
+
+    for (const [status, code, text] of [
+      [403, 'not_creator', "Only the conversation's creator can add, remove, or close."],
+      [409, 'closed', 'The conversation is closed; it can still be read with conversation_history.'],
+      [409, 'full', 'A conversation has at most 16 participants.']
+    ]) {
+      answer = () => {
+        throw Object.assign(new Error('refused'), { status, code, detail: { code, error: 'daemon text' } });
+      };
+      const refused = await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'close' });
+      assert.equal(refused.isError, true);
+      assert.deepEqual(JSON.parse(refused.content[0].text), {
+        conversation_id: conversationId,
+        code,
+        error: text,
+        recovery: null
+      });
+    }
+  } finally {
+    await adapter.stop();
+  }
+});
+
+// Conversations contract, C3: people not yet joined in the Participants
+// line, and person targets in the membership tools.
+test('a person not yet joined is marked invited or inviting in both events', () => {
+  const conversation = {
+    ...claim({}).conversation,
+    participants: [
+      ...claim({}).conversation.participants,
+      { id: null, label: 'dave', kind: 'person', state: 'invited', you: false },
+      { id: null, label: 'erin', kind: 'person', state: 'inviting', you: false }
+    ]
+  };
+  const line = 'Participants: alice (person), bob/bert (you), carol/cleo, dave (person, invited), erin (person, inviting)';
+  assert.equal(conversationEvent(claim({ conversation })).content.split('\n')[1], line);
+  assert.equal(conversationRosterEvent({ ...rosterClaim({ change: 'added' }), conversation }).content.split('\n')[1], line);
+});
+
+test('conversation_start and conversation_manage take person targets', async () => {
+  const calls = [];
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return {};
+    }
+  });
+  try {
+    const started = await adapter.callTool('conversation_start', { participants: ['person:bob', 'dave'] });
+    assert.equal(started.isError, undefined);
+    assert.deepEqual(calls.at(-1).body.participants, ['person:bob', 'dave']);
+    for (const participant of ['person:bob', 'dave']) {
+      const added = await adapter.callTool('conversation_manage', { conversation_id: conversationId, action: 'add', participant });
+      assert.equal(added.isError, undefined);
+      assert.deepEqual(calls.at(-1).body, { action: 'add', participant });
+    }
+  } finally {
+    await adapter.stop();
+  }
+});
+
+// Conversations contract, C5: catch-up events, conversation_undelivered,
+// conversation_history, and mark_seen with conversation IDs.
+test('a catch-up event carries its meta, with and without a window', () => {
+  const window = [{ author_label: 'alice', sent_at: '2026-10-30T10:02:00Z', content: 'one', truncated: false }];
+  const full = conversationEvent(claim({ catch_up: true, redelivered: true, window, window_total: 1 }));
+  assert.equal(full.meta.catch_up, true);
+  assert.equal(full.meta.redelivered, true);
+  assert.match(full.content, /Earlier messages \(last 1 of 1; conversation_history has the rest\):/);
+  const bare = conversationEvent(claim({ catch_up: true, redelivered: true }));
+  assert.equal(bare.meta.catch_up, true);
+  assert.doesNotMatch(bare.content, /Earlier messages/);
+  assert.match(bare.content, /New message:/);
+  assert.equal(conversationEvent(claim({})).meta.catch_up, false);
+});
+
+test('the catch-up claim is forwarded after its event', async () => {
+  let emitted = null;
+  let served = false;
+  let forwarded;
+  const seen = new Promise((resolve) => (forwarded = resolve));
+  const adapter = readyAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 10,
+    call: async (method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      if (path === '/adapter/v1/conversation-notifications/next' && !served) {
+        served = true;
+        return claim({ catch_up: true, redelivered: true });
+      }
+      if (path.endsWith('/forwarded')) {
+        assert(emitted, 'forwarded before the event was emitted');
+        forwarded();
+      }
+      return null;
+    },
+    notify: async (event) => {
+      if (event.meta.kind === 'conversation') emitted = event;
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    await seen;
+    assert.equal(emitted.meta.catch_up, true);
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('a conversation_undelivered event names the participant and the reason', () => {
+  const failed = (state, code) =>
+    conversationUndeliveredEvent({
+      conversation: { conversation_id: 'conv_x', title: 'T', state: 'open', participants: [] },
+      notification: {
+        id: 'cnot_x',
+        message_id: 'cmsg_x',
+        session_id: 's',
+        undelivered: { participant: 'agent:h/a', label: 'carol/cara', state, code, preview: 'hello' }
+      },
+      redelivered: false
+    });
+  const refused = failed('refused', 'not_authorized');
+  assert.equal(
+    refused.content,
+    'Peerspan conversation conv_x "T" (open)\nParticipants: \nYour message cmsg_x did not reach carol/cara: its host refused it (not_authorized).\nMessage: hello'
+  );
+  assert.deepEqual(refused.meta, {
+    kind: 'conversation_undelivered',
+    conversation_id: 'conv_x',
+    notification_id: 'cnot_x',
+    message_id: 'cmsg_x',
+    participant: 'agent:h/a',
+    participant_label: 'carol/cara',
+    state: 'refused',
+    code: 'not_authorized',
+    session_id: 's',
+    redelivered: false
+  });
+  assert.match(failed('unsupported', 'unsupported').content, /its host is running a Peerspan without conversations\./);
+  const stopped = failed('stopped', null);
+  assert.match(stopped.content, /retries stopped after 24 hours; its host fetches it when it next syncs\./);
+  assert.equal(stopped.meta.code, null);
+});
+
+test('conversation_history validates, calls the daemon, and reports refusals; mark_seen takes conversation IDs', async () => {
+  const calls = [];
+  let answer = () => ({ messages: [] });
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer();
+    }
+  });
+  try {
+    const conversation_id = 'conv_' + '1'.repeat(32);
+    const before = 'cmsg_' + '2'.repeat(32);
+    for (const bad of [{}, { conversation_id: 'x' }, { conversation_id, limit: 51 }, { conversation_id, before_message_id: 'x' }, { conversation_id, other: 1 }]) {
+      const invalid = await adapter.callTool('conversation_history', bad);
+      assert.equal(invalid.isError, true);
+      assert.match(invalid.content[0].text, /conversation_history/);
+    }
+    assert.equal(calls.length, 0);
+    await adapter.callTool('conversation_history', { conversation_id });
+    assert.equal(calls[0].method, 'GET');
+    assert.equal(calls[0].path, `/adapter/v1/conversations/${conversation_id}/messages`);
+    await adapter.callTool('conversation_history', { conversation_id, before_message_id: before, limit: 5 });
+    assert.equal(calls[1].path, `/adapter/v1/conversations/${conversation_id}/messages?before=${before}&limit=5`);
+    answer = () => {
+      throw Object.assign(new Error('refused'), { status: 403, code: 'not_participant', detail: { code: 'not_participant', error: 'daemon text' } });
+    };
+    const refused = await adapter.callTool('conversation_history', { conversation_id });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(JSON.parse(refused.content[0].text), {
+      conversation_id,
+      code: 'not_participant',
+      error: 'This agent is not in that conversation.',
+      recovery: null
+    });
+    answer = () => ({ seen: [] });
+    calls.length = 0;
+    const seen = await adapter.callTool('mark_seen', { ids: [conversation_id, before] });
+    assert.notEqual(seen.isError, true);
+    assert.deepEqual(calls[0].body, { ids: [conversation_id, before] });
+  } finally {
+    await adapter.stop();
+  }
+});
+
+// Conversations contract, C6: addressing, about, the rate limit's tool
+// error, and escaped labels.
+test('a conversation event shows who a message is to, the about link, and escaped labels', () => {
+  const about = { peer_host_id: 'host_' + 'a'.repeat(64), task_id: 'task_' + 'b'.repeat(32) };
+  const base = claim({});
+  const event = conversationEvent(
+    claim({
+      conversation: { ...base.conversation, about },
+      messages: [view({ addressed_to: ['agent:host_b/agent_b'], addressed_to_labels: ['bob/bert'], addressed: false, author_label: 'ev\u001b[31m\nil' })]
+    })
+  );
+  const lines = event.content.split('\n');
+  assert.equal(lines[2], `About task ${about.task_id} on ${about.peer_host_id}`);
+  assert.equal(lines.at(-1), '[ev\\u001b[31m\\u000ail 10:05, to bob/bert] hello bert');
+  assert.equal(event.meta.addressed, false);
+  assert.equal(event.meta.about_task_id, about.task_id);
+  assert.equal(event.meta.about_peer_host_id, about.peer_host_id);
+  assert.equal(event.meta.author_label, 'ev\\u001b[31m\\u000ail');
+  const own = conversationEvent(claim({ messages: [view({ mine: true, addressed_to_labels: ['alice'] })] }));
+  assert.equal(own.content.split('\n').at(-1), '[alice 10:05, to alice] (you) hello bert');
+  assert.equal(conversationEvent(claim({})).meta.about_task_id, undefined);
+  const roster = conversationRosterEvent({
+    ...base,
+    conversation: { ...base.conversation, about },
+    notification: { ...base.notification, kind: 'roster', change: { change: 'closed', by_label: 'a\u0007b' } }
+  });
+  assert.match(roster.content, /About task task_b+ on host_a+/);
+  assert.match(roster.content, /a\\u0007b closed this conversation/);
+});
+
+test('conversation_send passes addressed_to and maps the limit; conversation_start validates about', async () => {
+  const calls = [];
+  let answer = () => ({ message: {}, targets: [] });
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    log: () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push({ method, path, body });
+      return answer(body);
+    }
+  });
+  try {
+    const args = { conversation_id: conversationId, content: 'hi' };
+    await adapter.callTool('conversation_send', { ...args, addressed_to: ['bob/bert'] });
+    assert.deepEqual(calls.at(-1).body.addressed_to, ['bob/bert']);
+    await adapter.callTool('conversation_send', args);
+    assert.equal(calls.at(-1).body.addressed_to, undefined);
+    const count = calls.length;
+    for (const addressed_to of ['bob', [1], Array(17).fill('x'), ['x'.repeat(257)]]) {
+      const bad = await adapter.callTool('conversation_send', { ...args, addressed_to });
+      assert.equal(bad.isError, true);
+      assert.match(bad.content[0].text, /conversation_send/);
+    }
+    const about = { peer_host_id: 'host_' + 'a'.repeat(64), task_id: 'task_' + 'b'.repeat(32) };
+    for (const value of [{}, { ...about, extra: 1 }, { ...about, task_id: 'task_x' }, { peer_host_id: about.peer_host_id }]) {
+      const bad = await adapter.callTool('conversation_start', { participants: ['bob/bert'], about: value });
+      assert.equal(bad.isError, true);
+    }
+    assert.equal(calls.length, count);
+    await adapter.callTool('conversation_start', { participants: ['bob/bert'], about });
+    assert.deepEqual(calls.at(-1).body.about, about);
+    answer = () => {
+      const error = new Error('limit');
+      error.status = 429;
+      error.code = 'limit';
+      throw error;
+    };
+    const limited = await adapter.callTool('conversation_send', args);
+    assert.equal(limited.isError, true);
+    assert.deepEqual(JSON.parse(limited.content[0].text), {
+      conversation_id: conversationId,
+      code: 'rate_limited',
+      error: 'This agent reached its limit of 60 messages per hour in this conversation. Wait, or ask the person.',
+      recovery: null
+    });
+  } finally {
+    await adapter.close?.();
   }
 });
