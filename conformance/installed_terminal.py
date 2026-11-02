@@ -248,26 +248,48 @@ class Terminal:
 
     def startup(self):
         answered = set()
+        active = None
+        until = self.budget.until(UI_LIMIT)
+        prompts = (
+            ('style', ('text style', 'choose the text style', 'choose a theme'), None),
+            ('key', ('custom api key', 'use this api key'), '\x1b[A'),
+            ('security', ('security notes', 'security note'), None),
+            ('trust', ('trust this folder', 'trust the files', 'trust this workspace'), '\x1b[B'),
+        )
 
-        def ready():
+        def selected_yes(text):
+            return re.search(r'^\s*[❯>]\s*(?:\d+\.\s*)?Yes\b', text, re.MULTILINE | re.IGNORECASE) is not None
+
+        while time.monotonic() < until:
             text = self.text()
             lower = text.lower()
-            # Public pinned303 initial prompts, isolated fixture answers only.
-            prompts = (
-                ('style', ('text style', 'choose the text style', 'choose a theme'), '\r'),
-                ('key', ('custom api key', 'use this api key'), '\x1b[A\r'),
-                ('security', ('security notes', 'security note'), '\r'),
-                ('trust', ('trust this folder', 'trust the files', 'trust this workspace'), '\x1b[B\r'),
-            )
-            for name, phrases, answer in prompts:
-                if name not in answered and any(phrase in lower for phrase in phrases):
+            if active is not None:
+                name, phrases, phase = active
+                if phase == 'select' and selected_yes(text):
+                    # Selection must be rendered before Enter is a separate event.
+                    self.send('\r')
+                    active = (name, phrases, 'confirm')
+                elif phase == 'confirm' and not any(phrase in lower for phrase in phrases):
                     answered.add(name)
-                    self.send(answer)
-                    return False
-            return bool(re.search(r'[❯>]\s*$', text, re.MULTILINE)) and not any(
-                phrase in lower for phrase in ('no, exit', 'do you trust', 'use this api key'))
-
-        self.wait(ready, 'native startup prompt unavailable or unsupported')
+                    active = None
+                    continue
+            else:
+                for name, phrases, arrow in prompts:
+                    if name not in answered and any(phrase in lower for phrase in phrases):
+                        if arrow is not None and not selected_yes(text):
+                            self.send(arrow)
+                            active = (name, phrases, 'select')
+                        else:
+                            self.send('\r')
+                            active = (name, phrases, 'confirm')
+                        break
+                else:
+                    if re.search(r'[❯>]\s*$', text, re.MULTILINE) and not any(
+                            phrase in lower for phrase in ('no, exit', 'do you trust', 'use this api key')):
+                        return
+            # Never answer the next prompt or resend Enter before this one leaves.
+            self.pump(min(.1, max(0, until - time.monotonic())))
+        raise CheckFailure('native startup prompt unavailable or unsupported')
 
     def command(self, text):
         self.send('\x15' + text + '\r')
@@ -618,6 +640,16 @@ def main():
             subprocess.SubprocessError, tarfile.TarError) as error:
         # Never print native/provider errors, paths, private UI strings or traceback.
         kind = 'contract' if isinstance(error, CheckFailure) else 'local_input_or_terminal'
+        try:
+            failure = dict(phase=PHASE, category=kind, check=str(error) if isinstance(error, CheckFailure)
+                           else 'local input or terminal operation unavailable')
+            # CheckFailure messages originate in this test/public bundle helper,
+            # never captured CLI output. Keep even these fixed details private.
+            with (args.work / 'terminal-failure.json').open('x') as output:
+                json.dump(failure, output, sort_keys=True)
+                output.write('\n')
+        except OSError:
+            pass  # Diagnostic failure cannot hide the original verdict.
         print('FAIL installed terminal: phase=' + PHASE + ' category=' + kind)
         raise SystemExit(1) from None
 
