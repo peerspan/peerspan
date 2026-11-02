@@ -307,7 +307,7 @@ def main():
     archives = []
     try:
         names = sorted(p.name for p in args.archive_dir.iterdir() if re.fullmatch(
-            r'peerspan-(?:helper-)?[A-Za-z0-9.+-]{1,100}-linux-(?:amd64|arm64|x86_64|aarch64)\.tar\.gz', p.name))[:16]
+            r'peerspan-(?:[A-Za-z0-9.+-]{1,100}-linux-(?:amd64|arm64)-rust|helper-[A-Za-z0-9.+-]{1,100}-linux-(?:amd64|arm64))\.tar\.gz', p.name))[:16]
         archives = [file_hash(args.archive_dir, name) for name in names]
     except OSError:
         pass
