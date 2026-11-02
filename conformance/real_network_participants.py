@@ -429,8 +429,14 @@ def proof(f, host, completed, review, kind):
         if role == 'administrator' and kind == 'machine':
             check(packet == '-' and manifest['administrator_offer_id'] == '-','folded activation invented administrator')
             continue
-        check(packet['role'] == role and packet['request_id'] == f['rid'] and packet['context_id'] == f['network']['context_id'],
+        # Wire9.2: the signed request is unbound; its invitation pins are in
+        # the request payload. Later stage packets bind the selected context.
+        expected_context = '-' if role == 'request' else f['network']['context_id']
+        check(packet['role'] == role and packet['request_id'] == f['rid'] and packet['context_id'] == expected_context,
               'typed activation packet changed operation pins')
+        if role == 'request':
+            check(packet['person_public_key'] == packet['issuer_id'] == '-',
+                  'unbound request packet carries selected owner authority')
         message = g.packet_message(packet)
         if role in refs:
             check(g.packet_id(packet) == manifest[refs[role]] == review[refs[role]],'packet differs from exact approved reference')
