@@ -572,17 +572,15 @@ pub(crate) fn run(c: &Connection, store: &Store, op: &str, input: &Input) -> Res
             .map_err(|_| Error::new("review_changed"))?;
         owner
     } else {
-        let code = p
-            .code(c, &now)?
-            .ok_or_else(|| Error::new("state_conflict"))?;
-        ceremony::owner_in_guided(
+        ceremony::owner_pending_in_guided(
             store,
             c,
-            object(&json!({"code":code,"network_id":frozen["network"]["id"],
+            object(
+                &json!({"request_id":p.id,"network_id":frozen["network"]["id"],
             "person_public_key":frozen["person_public_key"],"provider_id":frozen["provider_id"],
             "signature_format":frozen["signature_format"],"scopes":7,"not_after":frozen["not_after"],
-            "expected_host_public_key":frozen["host_public_key"],"expected_device_public_key":frozen["device_public_key"],"approve":false}))?,
-            |_| Ok(()),
+            "expected_host_public_key":frozen["host_public_key"],"expected_device_public_key":frozen["device_public_key"],"approve":false}),
+            )?,
         )?;
         p = requests::load(c, &p.id)?;
         matching(c, store, &p, frozen)?
