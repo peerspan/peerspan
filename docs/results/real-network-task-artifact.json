@@ -1,0 +1,49 @@
+{
+  "actual_task_state": "succeeded",
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "capture": {
+    "left": {
+      "bytes": 277776,
+      "sha256": "da6910a4fe5a1df2660de97489a8409881fb5478d1468696a0b7ab326ab75580"
+    },
+    "right": {
+      "bytes": 275578,
+      "sha256": "1ead4e402b0f170f4e462462988d31449a4f78c7687df4707a97d208bb08d1d7"
+    }
+  },
+  "cleanup_index_sha256": "61b803cd374912f13b42eba5fbf916e929cd6ff141e9be7046ca0bf4cf056c7a",
+  "direct_peer_udp_blocked": true,
+  "earlier_attempt": {
+    "deadline_extended": false,
+    "error_category": "configured_relay_unavailable",
+    "receiver_worker_started": false,
+    "resubmitted": false,
+    "state": "unknown"
+  },
+  "exact_result_bytes_verified": true,
+  "firewall_observation_sha256": "54614ce2564cf3d7e87b715dfdf10839c9b7e7f44bfbe38a3c6c1698796abdea",
+  "format": 1,
+  "helpers_running": true,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "input_and_result_hashes_verified": true,
+  "input_artifacts": 1,
+  "input_bytes": 290,
+  "manual_driver_sha256": "5252327067bd08c7a61081bcdcf9959b05d4d603253a0f419fdde7f0e841263e",
+  "manual_peer_pins": 0,
+  "model_turns": 0,
+  "nat_qualification": false,
+  "native_task_model_receipt": false,
+  "ordered_final_events": 3,
+  "original_key_transfers": 0,
+  "passed": true,
+  "phase_seconds_bound": 120,
+  "private_control_index_sha256": "e82bb0166c78e61810b8c6f8ea02bde5036b7d2a28e372123fb04a30c9bbbc15",
+  "qualification": "R1_deterministic_task_and_verified_result_artifact",
+  "receiver_adapter_credential_revoked": true,
+  "relay_path_reported": true,
+  "replacement_helper_payload_packets": 346,
+  "result_artifacts": 1,
+  "result_bytes": 122,
+  "seconds": 16.575,
+  "ssh_control_only": true
+}

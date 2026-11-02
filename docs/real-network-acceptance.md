@@ -129,6 +129,16 @@ helper with direct test UDP blocked, and requires observed relay delivery plus
 the same artifact/hash/event checks. This is a recorded topology correction,
 not a reinterpretation of the first unconfirmed request as acceptance.
 
+The fresh [task/artifact receipt](results/real-network-task-artifact.json)
+passes in16.575s over the observed replacement relay with direct test UDP
+blocked:290 input bytes arrive through the scoped receiver adapter, which
+computes a122-byte result. The submitter retrieves and independently verifies
+its exact bytes and both manifests' hashes; queued/accepted/succeeded events
+are contiguous and ordered. The receiver's new fixture credential is revoked.
+No model turn or artifact content crosses SSH. Helpers, captures and scoped
+firewall rules are cleaned up again; both original unrelated UDP listeners
+remain, and no owned live fixture PID remains on either host.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
