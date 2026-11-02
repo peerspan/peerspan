@@ -57,14 +57,29 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41389078806",
-    "installed_receipt_sha256": "403df1b2f489aa09539d55bf10575378252ad68f5044914b807d2a2496b8d10a",
-    "observed": "Previous eeb0987:50/51 passed, including all45 conformance suites, Rust checks, complete installed terminal/upgrade/participant job and clear Codex review. Native439/440: one5000ms validation deadline, cause unclassified. The independent operational runner now isolates each file with byte-exact inputs, preserves all440 cases/deadlines and retries none. Full corrected-head CI/review required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41389078813",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41390612009",
+    "installed_receipt_sha256": "542ab875b014158facb25939ecf3616c0d1f07ce178f357ebbbc4e4341a45da6",
+    "observed": "Previous7fb4853:50/51 CI checks passed, including native440 and the complete installed job; Codex review clear. Requester history purity passed but its separate final-guard barrier case returned409 with an unrecorded unexpected code. Renewal13/13 semantics took167seconds and also failed the120second timing gate. First failures retained. Atomic private fixture markers and optimized guarded debug conformance builds now correct identified hazards/configuration; final full-head CI/review and runtime audit still required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41390612019",
     "required": true,
     "slim_suites": 45,
-    "source": "eeb098775a415d59f9a691f400a81de18a81a587",
-    "tested_merge_source": "8a6d53999c5bca750a9c4493ca8403188e9ed85a"
+    "source": "7fb4853739beede447481181779c5d4c54e986e1",
+    "tested_merge_source": "654788b2300e9b33abc09e3e8e309b09a9f0b311"
+  },
+  "conformance_execution": {
+    "all45_suite_120second_runtime_audit_required": true,
+    "binaries_sha256": {
+      "peerspan-helper": "6e00592401928d9376ea832f003f5443092396aba141719947e5f82a96db705c",
+      "peerspan-host": "7ae7d92cea7c11a62fa83d54a288228e7ff0a8df7ac95ea7587d92bb9e4249a1",
+      "peerspan-peer-probe": "a6ab1af5f014e2d8ad031b9fe3f9ba495a29c2cd27f7159c020ad08d8574154e"
+    },
+    "build_log_sha256": "029fd039b5efce20641c18be848b8fe3fd12250eba281bde75cf7760c538cc43",
+    "debug_assertions": true,
+    "debug_symbols": false,
+    "incremental": false,
+    "optimization_level": 1,
+    "profile": "dev",
+    "source_tree_unchanged_from_artifact": true
   },
   "first_failures": [
     {
@@ -134,6 +149,14 @@
     {
       "kind": "helper-corrected full local native run: different unchanged invitation-preview5000ms deadline at5003ms; cause unclassified",
       "log_sha256": "595a5d79f49729beef7dbb1b65b699d6d63f309048aab2c7ef6aaa335aa26ad7"
+    },
+    {
+      "kind": "requester pre-application barrier returned409 with unrecorded unexpected code on7fb4853",
+      "log_sha256": "87e4601af5eee05a39af9a0f29634bf7c56c5316fdf1c2b00e83df4f48c1d351"
+    },
+    {
+      "kind": "existing renewal13/13 semantic pass exceeded120second runtime budget at167seconds",
+      "runtime_audit_sha256": "21ba44fea418aa18ff400c4c52ab2e1a3f4eac2e3d54e2b86ef5db37dcecbb77"
     }
   ],
   "installed_terminal": {
@@ -154,17 +177,35 @@
   "main_baseline": "7d675b6f80304c82e1ad3162b94e5ba305ecdffb",
   "native": {
     "ci_cases": 440,
-    "ci_result": "all440 passed on527d1db/e21e6d6/083c6b9; eeb0987 validation deadline439/440, first failure retained; full corrected-head CI required",
+    "ci_result": "native440/440 passed on7fb4853 with complete exact-source file-isolation receipt; final corrected-head CI remains required",
     "file_process_isolation": {
       "all_inputs_byte_exact": true,
       "audit_sha256": "346429db44e0643c2d0e702a3c66c899536cf89c4ec66e8d20a5e7756d9a78f0",
+      "ci": {
+        "failed": 0,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "38f44912f5518e609160e9c3a1965d25bbaced5a8dd3de5851eba0943bc3f434",
+        "seconds": 172.397,
+        "skipped": 0,
+        "source": "7fb4853739beede447481181779c5d4c54e986e1"
+      },
       "expected_files": 22,
       "expected_runtime_cases": 440,
       "failed_file_retries": 0,
       "gate_seconds": 600,
       "individual_deadlines_unchanged": true,
-      "local_and_final_ci": "required, not yet claimed passed",
-      "runner_source_sha256": "6d7ece22e12fdd51c2e5074c9e96f88f392eaac7a0d62019894ef1145b7f4957"
+      "local": {
+        "failed": 0,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "450ec3ec1d9f9e62598deccadc581566a33df955cd82c6f78ab9f4c9c823eeb7",
+        "seconds": 226.86,
+        "skipped": 0,
+        "source": "7fb4853739beede447481181779c5d4c54e986e1"
+      },
+      "runner_source_sha256": "6d7ece22e12fdd51c2e5074c9e96f88f392eaac7a0d62019894ef1145b7f4957",
+      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526"
     },
     "local": {
       "deadline_failures": 9,
@@ -283,7 +324,7 @@
       "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
     }
   ],
-  "recorded_at": "2026-11-02T04:49:48.155497+00:00",
+  "recorded_at": "2026-11-02T05:10:32.659342+00:00",
   "runtime_test_candidate": "acebed964820eb2e9c3a51d2ae91a3fe5d1fab61",
   "targeted_regressions": {
     "admission_retained_prefix": {
@@ -330,7 +371,27 @@
       "passed": true,
       "seconds": 111
     },
+    "renewal_guarded_debug": {
+      "cases": 13,
+      "log_sha256": "b88215284ca4e8315d48b0bdf083325102196e7fe1c3602a8eef7b2cf334fda7",
+      "original_75second_windows_retained": true,
+      "passed": true,
+      "seconds": 45,
+      "source_sha256": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "suite_120second_budget_met": true
+    },
     "requester_completion": {
+      "atomic_guarded_debug_local": {
+        "barrier_code": "review_changed",
+        "barrier_http_status": 409,
+        "cases": 6,
+        "history_purity_passed": true,
+        "log_sha256": "5f5e404f944bbbd350962e554f012afc91aa044e34f9f44087c5760c0ef1b3bd",
+        "passed": true,
+        "seconds": 93,
+        "suite_120second_budget_met": true
+      },
+      "atomic_marker_launcher_sha256": "6303a3fef07cc0cdff39710d849559e373bf4fa7fedc6cac7099909e87616338",
       "cases": 6,
       "ci_elapsed_seconds": 111,
       "ci_job_failed": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612381",
@@ -339,7 +400,7 @@
       "ci_passed": true,
       "ci_source": "eeb098775a415d59f9a691f400a81de18a81a587",
       "directory_prerequisite_source_sha256": "11f433f5af26b54366ea17af9e802d183a3eb16354464a43f63a8b6f94c5e740",
-      "final_two_minute_runtime_gate": "passed on eeb0987; unchanged source must pass on final corrected head",
+      "final_two_minute_runtime_gate": "passed locally with atomic private markers and guarded optimized debug; final CI still required",
       "first_packet_attribution": "unresolved; receive-only diagnostic matches requester endpoint and stale directory state but does not identify a call site",
       "frozen_source_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
       "local_elapsed_seconds": 151,

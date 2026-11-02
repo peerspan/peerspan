@@ -120,3 +120,31 @@ isolates each original file in a separate public CLI invocation with byte-exact
 plugin inputs. It must execute all22 files/440 cases once without retry, preserve
 all case deadlines and finish within600seconds. No further case-helper changes
 are authorized in response to individual timeouts.
+
+
+File-isolated native acceptance passed all440 cases across22 files, zero failures
+or skips:226.86seconds locally and172.397seconds in7fb4853 CI, below600seconds,
+with matching complete source manifests. That head also passed all installed
+terminal, participant and genuine upgrade/full-restore checks. Its separate
+requester pre-application barrier case returned409 with an unexpected code that
+the old message did not capture. The fixture's visible-write-then-chmod marker
+helper has a publication hazard; an independent launcher now publishes exact
+complete0600 markers atomically and records only closed status/code metadata.
+The first response's exact cause remains unclassified. The historical purity
+case passed; no late application success was reported.
+
+The full runtime audit also found renewal13/13 semantics took167seconds. That
+exceeds the existing120second suite budget. Conformance binaries now use the dev
+profile with optimization1 and debug assertions/test controls retained. No suite
+body, renewal window, assertion or deadline changed. The installed release
+artifact and native production source remain unchanged. Full final-head CI and
+audit of all45 suite runtimes remain required, as does the final combined review.
+
+
+The optimized guarded debug build passes the unchanged renewal suite13/13 in45
+seconds and the atomically published requester suite6/6 in93seconds. Both meet
+the120second budget. The receive-only barrier diagnostic records HTTP409 with
+exact `review_changed`; history purity also passes. Those corrections change no
+product source, frozen case body, assertion or deadline. First failures remain
+preserved; final full51-check CI, all45 timing audit and accepted review are the
+remaining integration gates.

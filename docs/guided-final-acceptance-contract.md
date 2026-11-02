@@ -405,8 +405,8 @@ A separate contract-only author may add one launcher around only the literal
 pre-application barrier case. Replace only its marker publication helper with
 same-directory atomic publication: create a fresh private0600 regular temporary
 file, write the exact original bytes completely and flush, then rename it over
-the original marker path. Preserve its operation/request match, one arm, one
-release, barrier entry, parent detach, every whole-state/carrier/application
+the original marker path. Preserve its operation/request match and all original arm/release calls, including
+the final cleanup release, barrier entry, parent detach, every whole-state/carrier/application
 assertion, error-code requirement and deadline. Temporary publication files
 must be gone before returning to the case or taking its snapshots. Compose the
 existing directory/outbox/receive-only launchers unchanged. No product code,
