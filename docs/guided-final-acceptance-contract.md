@@ -675,3 +675,36 @@ legitimate frames. No deadline, original case or replay200 assertion changes;
 rerun the corrected fixture against both old and fixed binaries, retaining all
 first failures. Do not treat the timeout as either a verified product regression
 or an old replay success.
+
+### Machine completion's moving raw-creation precondition
+
+The bbdc596 tracking run's only failed suite is machine_requester_completion:
+its original-provider refusal case returns200 where409 was required, then its
+dependent parent case fails. The same message covers two pure_clock_refusal
+calls, so the original raw-before-created versus signed-expiry phase is unknown.
+Retain its first log. Read-only source audit finds no ordinary-replay branch on
+this route and repeated raw creation/signed expiry checks through final apply;
+verified applied history alone may return historical200 without fresh checks.
+
+The fixture's raw clock is real UTC plus an integer offset. Its unchanged ceil
+advance to created_at-1s can lose that precondition during existing resource
+retirement and quiet. A contract-only prerequisite may wrap only this literal
+case and its original pure_clock_refusal, labelling both phases. Forward every
+original stimulus unchanged. After the original quiet returns, before its whole
+state/traffic baseline, sample the raw fixture-clock relation and reapply ONLY
+the same captured raw-before-created target with floor rounding to both external
+clock sidecars. Verify they are outside both hosts' measured state/home roots.
+Assert actual raw remains before consent/request creation and emit only closed
+lost/rearmed/boundary booleans. At original complete dispatch verify that same
+precondition still holds; if lost, fail fixture setup without a second rearm,
+retry, wait or deadline extension. Signed-expiry clocks remain untouched.
+
+Observe the original API call exactly once and report closed phase/status/code/
+public-state categories. UTC samples are fixture precondition observations only;
+never emit times, IDs, paths, offsets, rows, keys, packets or messages. Preserve
+all frozen case/helper bodies, baseline/strict state/counter assertions, original
+restore/finally, time/parent barriers and the existing history prerequisite chain.
+Selected: maintain the actual negative stimulus before blaming the subject.
+Discard accepting200 as refusal, changing signed windows, skipping guards/cases,
+relaxing purity, changing product clocks or claiming the ambiguous CI cause.
+No production/packaging change; all current artifact gates stay attached to d819.
