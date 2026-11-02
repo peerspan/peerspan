@@ -213,3 +213,40 @@ CI retains the sufficient sanitized diagnostic record and discards private
 fixtures at teardown. No additional service or secret-export destination is
 introduced. Missing/invalid/partial evidence is explicitly labelled; successful
 collection does not turn an unsuccessful acceptance gate green.
+
+### Real-model tool output boundary
+
+The first authenticated installed-plugin turn invoked `adapter_ready`, and the
+host/native pane recorded readiness, but Claude rejected the returned object as
+an invalid `tool.call` result. Successful native tools must return their bounded
+public result as JSON **text** in `result`, following Claude's supported string
+or content-block wire shape. The parsed fields and all authorization, origin,
+context, expiry and exact-once guards remain unchanged. Denial responses retain
+their existing shape. Apply the same boundary to the local delivery check,
+message readiness/seen/reply and task lifecycle tools. No additional authority,
+model retry or owner setup tool is introduced.
+
+Independent native verification must first assert that each successful tool
+result is text and parses to an object, then retain every existing semantic
+assertion against that decoded object. Preserve all denial/late/stale/origin
+cases and their deadlines. Test-kit dispatch alone previously accepted the
+unsupported object shape; it is not live-model wire validation. Repeat the
+bounded authenticated incoming nonce/reply check only after correcting this
+observed fault and rebuilding the installed artifact. Retain the failed
+source/archive/terminal evidence, and do not present the pane's readiness as a
+successful model receipt.
+
+Reference: [Claude mods API, Add a tool](https://code.claude.com/docs/en/plugins/mods/api#add-a-tool).
+
+### Bounded publication observation
+
+The final combined CI's owner-signing case2 stopped at0.6s with the fixed
+"publication witness unavailable" category. Its last successful snapshot had one
+saved request frame, one own endpoint and no acknowledgment yet. That does not
+identify the following exception's cause. Retain this first failure. The
+independent prerequisite observer may retry only SQLite BUSY/LOCKED read
+contention inside its existing5s observation deadline and0.1s interval, and add
+closed error-class/count diagnostics. Missing/malformed/advanced authority and
+all semantic predicates still fail. Preserve the frozen case bodies, assertions
+and deadlines. Do not claim lock contention caused this failure without evidence
+or treat a repeat run alone as its resolution.
