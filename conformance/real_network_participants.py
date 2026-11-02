@@ -6,6 +6,9 @@ SSH carries owner-local orchestration only. The actual installed daemons exchang
 protocol/application traffic through their advertised public listeners. This is
 host/protocol evidence; native terminal, adapter and model receipt remain separate.
 The explicit peer address configuration does not qualify normal directory routing.
+Receiver checks use a separately verified public peer probe. The earlier owner
+POST /v1/outbound explicit-policy HTTP400 remains an unqualified interface
+discrepancy; this driver does not reinterpret it as receiver authorization.
 
 Use the private fleet manifest described by --help. Each scenario has a strict
 120s process deadline, excluding archive installation. All control JSON and host
@@ -36,7 +39,7 @@ from installed_participants import g, check, Result, rfc3339
 # This worker has no generic shell/SQL/file-read operation. Original-key metadata
 # is computed on its owning machine; the private bytes never leave that machine.
 OWNER_WORKER = r'''
-import base64, hashlib, http.client, json, os, pathlib, signal, socket, stat, subprocess, sys, time, traceback
+import base64, hashlib, http.client, ipaddress, json, os, pathlib, signal, socket, stat, subprocess, sys, time, traceback
 class UnixHTTP(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -115,6 +118,17 @@ def run():
         return {'exists':True,'mode':stat.S_IMODE(key.stat().st_mode),'sha256':digest(key),'public_key':base64.b64encode(public).decode()}
     timeout = payload.get('timeout',5)
     assert 0 < timeout <= 95
+    if action == 'peer_message':
+        assert timeout == 15
+        probe = pathlib.Path(payload['probe'])
+        assert probe.is_absolute() and digest(probe) == payload['probe_sha256'], 'peer probe hash mismatch'
+        address, port = payload['target'].rsplit(':',1)
+        assert ipaddress.ip_address(address.strip('[]')).is_global and 0 < int(port) <= 65535
+        args = [str(probe),'--state',str(state),'--address',payload['target'],'--alpn','peerspan-peer/1',
+                '--method','POST','--path','/peer/v1/messages','--body-stdin']
+        result = subprocess.run(args,input=json.dumps(payload['body'],ensure_ascii=False,separators=(',',':')).encode(),
+                                cwd=root,env=env,capture_output=True,timeout=timeout)
+        return {'code':result.returncode,'stdout':result.stdout.decode(errors='replace'),'stderr':result.stderr.decode(errors='replace')}
     if action == 'api':
         connection = UnixHTTP('localhost',timeout=timeout)
         connection.unix_path = str(state/'admin.sock')
@@ -235,6 +249,15 @@ class Endpoint:
     def cli(self, *args, input=None, timeout=5):
         value = self.suite.control(self,'cli',args=list(map(str,args)),input=input or '',timeout=timeout)
         return Result(args,value['code'],value['stdout'],value['stderr'])
+
+    def peer_message(self, target, body):
+        probe = self.metadata.get('probe',str(Path(self.metadata['prefix'])/'bin/peerspan-peer-probe'))
+        result = self.suite.control(self,'peer_message',probe=probe,probe_sha256=self.metadata['probe_sha256'],
+                                    target=target.peer_address,body=body,timeout=15)
+        check(result['code'] == 0,'authenticated public peer probe failed')
+        value = json.loads(result['stdout'])
+        check(isinstance(value,dict) and type(value.get('status')) is int,'public peer response malformed')
+        return value['status'],value.get('body')
 
 
 def stage(label):
@@ -483,22 +506,20 @@ def receiver_message(f, citation, accepted):
         deadline=rfc3339(datetime.now(timezone.utc)+timedelta(minutes=2)),
         content='Private real-machine qualification '+os.urandom(16).hex(),policy=citation)
     before = g.get(a,'/v1/messages?limit=1000')
-    # Explicit public owner send carries the exact policy citation. The result
-    # must prove an authenticated receiver attempt, including on denial.
-    status,outbound = b.api('POST','/v1/outbound',dict(peer_host_id=a.id,**message),timeout=15)
-    check(status in (200,201,202) and outbound['attempts'] > 0 and outbound['request'] == message,
-          'owner send lacks actual immutable network attempt')
+    # The probe uses only this sender's own state and the target's public peer
+    # address. Exact peer HTTP status/code, rather than an outbound error text,
+    # establishes receiver permission enforcement independently of sender filters.
+    status,response = b.peer_message(a,message)
     after = g.get(a,'/v1/messages?limit=1000')
     if accepted:
-        receipt = outbound['receipt']
-        check(outbound['state'] == 'accepted' and isinstance(receipt,dict) and receipt['request_id'] == rid
+        receipt = response
+        check(status == 200 and isinstance(receipt,dict) and receipt['request_id'] == rid
               and receipt['sender_host_id'] == b.id and receipt['receiver_host_id'] == a.id
               and receipt['target_agent_id'] == message['target_agent_id'] and len(after) == len(before)+1
               and any(v['request'] == message and v['receipt'] == receipt for v in after),
               'receiver lacks actual permitted append and matching receipt')
     else:
-        check(outbound['state'] == 'rejected' and outbound['receipt'] is None
-              and outbound['error']['code'] == 'forbidden' and after == before,
+        check(status == 403 and isinstance(response,dict) and response.get('code') == 'forbidden' and after == before,
               'receiver lacks actual forbidden rejection or retained work changed')
 
 
@@ -571,7 +592,8 @@ def finish(f,completed,review,kind):
         receiver_denials=2 if kind == 'teammate' else 0,receiver_appends=1 if kind == 'teammate' else 0,
         guided_access_grants=1 if kind == 'teammate' else 0,explicit_withdrawals=1 if kind == 'teammate' else 0,
         signed_public_proof_verified=True,immutable_requester_approval=True,adapter_connection=False,model_receipt=False,
-        manual_transport_pins=2,automatic_directory_routing=False)
+        manual_transport_pins=2,automatic_directory_routing=False,
+        receiver_transport='authenticated_public_peer_probe' if kind == 'teammate' else 'not_exercised')
 
 
 def scenario(args,fleet):
@@ -599,7 +621,7 @@ def scenario(args,fleet):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__,epilog='Fleet JSON: root, archive_sha256, left/right={prefix,root,address,ssh(null for local),host_sha256,machine_id_sha256}; optional ssh_options string array. The roots must be dedicated, and <root>/machine and <root>/teammate must not already exist. The driver edits no firewall, service, HOME or global configuration.')
+    parser = argparse.ArgumentParser(description=__doc__,epilog='Fleet JSON: root, archive_sha256, left/right={prefix,root,address,ssh(null for local),host_sha256,machine_id_sha256,probe_sha256}; optional endpoint probe absolute path (defaults to prefix/bin/peerspan-peer-probe), optional ssh_options string array. The roots must be dedicated, and <root>/machine and <root>/teammate must not already exist. The driver edits no firewall, service, HOME or global configuration.')
     parser.add_argument('--fleet',type=Path,required=True)
     parser.add_argument('--work-dir',type=Path,required=True)
     parser.add_argument('--port-base',type=int,default=27440)
@@ -617,6 +639,10 @@ def main():
         endpoint = fleet[side]
         check(Path(endpoint['root']).is_absolute() and Path(endpoint['prefix']).is_absolute(),'explicit endpoint roots required')
         check(endpoint.get('archive_sha256',fleet['archive_sha256']) == fleet['archive_sha256'],'endpoint archive provenance differs')
+        check(len(endpoint['probe_sha256']) == 64 and all(c in '0123456789abcdef' for c in endpoint['probe_sha256']),
+              'invalid public probe provenance hash')
+        check(Path(endpoint.get('probe',str(Path(endpoint['prefix'])/'bin/peerspan-peer-probe'))).is_absolute(),
+              'public probe path must be absolute')
     if args.scenario:
         return scenario(args,fleet)
     os.umask(0o077)
@@ -659,6 +685,7 @@ def main():
         bare_metal_physical_machines=False,nat_qualification=False,relay_qualification=False,
         native_terminal_receipt=False,model_receipt=False,ssh_control_only=True,
         archive_sha256=fleet['archive_sha256'],host_sha256=fleet['left']['host_sha256'],source_sha256=sources,
+        probe_sha256={side:fleet[side]['probe_sha256'] for side in ('left','right')},
         private_control_evidence_index_sha256=evidence_indexes,
         scenarios=outcomes,passed=all(o['passed'] for o in outcomes))
     private_json(args.work_dir/'receipt.json',receipt)
