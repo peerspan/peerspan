@@ -1,6 +1,6 @@
 # Conversation leads
 
-Status: **Proposed, not accepted.** The comparison run from decision 5 has happened (CONV-28), and its [results](results/conversations-lead-comparison.json) are for the owner's review. A lead used about half the turns, but finished fewer tasks and surfaced no unprompted help. Nothing here is built outside an unmerged experiment branch, and no contract has changed. Decisions 1 to 4 under [Owner decisions needed](#owner-decisions-needed) are still open; they go in the [decision log](decision-log.md) once made.
+Status: **Proposed, not accepted.** The comparison run from decision 5 has happened (CONV-28), and its [results](results/conversations-lead-comparison.json) are for the owner's review. A lead used about half the turns, but finished fewer tasks and surfaced no unprompted help. A [second comparison](results/conversations-wake-comparison-2.json) (CONV-29) found that quieter agents kept the work and saved little, and that a lead told to route finished every answer at about two-thirds of today's cost, saving mostly when it held the answer itself and still losing unprompted help. Nothing here is built outside unmerged experiment branches, and no contract has changed. Decisions 1 to 4 under [Owner decisions needed](#owner-decisions-needed) are still open; they go in the [decision log](decision-log.md) once made.
 
 ## The problem
 

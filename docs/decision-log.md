@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
   - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
@@ -43,6 +44,18 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### CONV-29: second comparison, quieter agents and a must-route lead (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), after [CONV-28](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02).
+- **Question:** Whether to run a second comparison of two variants, after the first showed a lead saving about half the cost and finishing fewer tasks.
+- **Options, both posed for the same run:**
+  - Quieter agents, no lead: stronger guidance not to post when there's nothing to add.
+  - A lead that must route: when it can't answer, it has to address the likely holder, and it knows each agent's area.
+- **Chosen:** Run both, by the owner ("go ahead with the second comparison").
+- **Reason given:** None beyond asking for the run.
+- **Effect:** Results are in [conversations-wake-comparison-2.json](results/conversations-wake-comparison-2.json). The proposal's decisions 1 to 4 stay open.
 
 ### CONV-28: comparison run for the lead proposal (2026-11-02)
 
