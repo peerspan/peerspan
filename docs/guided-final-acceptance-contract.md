@@ -459,9 +459,10 @@ A separate contract-only author must add one small `completion_rate_limit` suite
 from this public contract, before implementation changes. Use two real hosts and
 a genuine new-person request through owner/selection/administrator/finalization,
 with exact requester commitment still unapproved. Keep both original keys on
-owning machines. Through the public peer probe's authenticated bootstrap ALPN,
-apply a bounded real burst of malformed activation POSTs from the requester to
-the original participant. Require400 invalid/429 rate_limited and no successful
+owning machines. Through the public peer probe's authenticated QUIC completion ALPN
+`peerspan-completion/1` on the participant peer address (wire9.5), apply a bounded
+real burst of malformed activation POSTs from the requester to the original
+participant. This shares the specified completion mutation bucket with TCP. Require400 invalid/429 rate_limited and no successful
 application from these invalid requests. A bounded pressure thread may continue
 for at most2seconds while one exact genuine requester commit is approved and
 applied. Require observed429; stop pressure on its original deadline, with no
@@ -473,6 +474,10 @@ status/state/attention-code categories and booleans, never keys, handoffs, paths
 packet bytes or arbitrary text. For the initial old-build diagnostic, one exact
 ordinary requester resume after pressure ends may distinguish retained-publication
 repair; record that separately and never let it satisfy the first-attempt gate.
+The one diagnostic repair may await the public positive Retry-After interval
+(or the specified1second mailbox refill interval when the public probe exposes
+only status/body), strictly after the first-attempt facts were captured. That
+wait cannot change the first-attempt verdict or satisfy its application gate.
 The final behavior requires the original participant to apply by the first
 bounded commit call's return under this brief rate pressure, without another
 human decision, new signature/intent, changed exact terms or extra commit call.
