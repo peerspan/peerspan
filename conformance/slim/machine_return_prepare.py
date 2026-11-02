@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 """Immediate machine consent from genuine automatic return (guided42).
 
-Independent public-contract regression. B's sole advertised bootstrap carrier
-holds the first A-to-B original-fetch connection after a real ClientHello;
-opaque TLS is never terminated or inspected for an HTTP URI. B-to-A automatic
-return is genuine. Before measuring local calls, already-established A-side
-streams park at acknowledged relay-thread boundaries. The held fetch's client
-TCP tuple/socket inode must belong to A's known daemon PID; B self-publication
-passes. Only the owned B daemon is SIGSTOPped with kernel acknowledgment during
-local measurement, and SIGCONTed unconditionally before transport release.
-Bootstrap permits only
-one HTTP request per TLS connection; new connections and all UDP stay counted.
-The snapshot covers already-accepted streams, including upstream connections
-still being established. An atomic empty snapshot is already drained; snapshot streams closing before
-acknowledgment are drained only after removal from the established set. Do not
-wait for or create a stream merely to satisfy a setup timing assumption. The
-first barrier fixture failed because no established stream remained, not
-because of product IO or preparation behavior.
-The earlier diagnostic identified existing-stream byte movement, not its URI
-or originating operation. One narrow read-only frame-absence observation immediately
-precedes exact owner inspection/preparation. No SQL polling, fabricated request,
-key copying, code import, clock change or transport retry is used.
+Independent public-contract regression. Both hosts advertise empty direct and
+relay contacts and one fresh independent resource helper. Before join approval,
+that helper holds every original link_ mailbox GET before any response bytes;
+the distinct invitation-ID return mailbox and genuine B publication pass.
+It preserves exact opaque frame bytes and owns only its transport key. Public
+certificate discovery anchors mTLS; no participant private file is read.
+The held request must have both A's actual TLS host key and its known daemon
+PID/socket provenance. Only owned B is SIGSTOPped with kernel acknowledgment;
+SIGCONT runs unconditionally before all gates release. Accepted A-side and
+helper streams park at acknowledged boundaries. Atomic empty/closed snapshots
+are drained; new connections and every original TCP/UDP counter stay counted,
+with all helper connections/encrypted bytes added. One original-frame absence
+observation immediately precedes exact owner inspection/preparation. No SQL
+polling, fabricated request, key copying, clock change or transport retry.
+
+The prior opaque connection gate allowed a real original frame to arrive in CI.
+Preserve that first failure; neither filter nor relabel the stored frame. This
+prearmed resource-route discriminator removes that fixture timing assumption.
 
 Fixture/status/continuation failures remain ordinary FAIL. The exact final
 required prepare200 assertion is a normal gate. Release the hold before any
@@ -49,6 +47,7 @@ import real_network_participants as r
 from installed_participants import g, check
 from harness import Suite
 from counted_peer import CountedUDP
+from resource_mailbox_gate import ResourceMailboxGate
 
 suite = Suite('machine_return_prepare',__doc__)
 suite.work.chmod(0o700)
@@ -365,17 +364,44 @@ class FirstFetchGate:
         self.thread.join(timeout=1)
 
 
-def host(name,held=False):
+def host(name,helper):
     value = i.InstalledHost(suite,name)
     suite.hosts.append(value)
-    value.relay = FirstFetchGate(('127.0.0.1',value.bootstrap_port),held=held)
+    value.relay = FirstFetchGate(('127.0.0.1',value.bootstrap_port))
     value.counted_peer = CountedUDP(('127.0.0.1',value.peer_port))
     config = value.root/'transport.json'
-    config.write_bytes(g.compact(dict(format=1,advertise_bootstrap=[value.relay.address],advertise_quic=[],
-                                     rendezvous=[],relays=[],publish_contacts=False)))
+    config.write_bytes(g.compact(dict(format=1,advertise_bootstrap=[],advertise_quic=[],
+                                     rendezvous=[helper.pin()],relays=[],publish_contacts=False)))
     config.chmod(0o600)
     value.extra_args = ['--transport-config',str(config)]
     return value.start()
+
+
+def invitation(a,parent,network,person,member,helper):
+    body = dict(context=g.context(parent),network_id=network['id'],member=member,expected_person_public_key=person)
+    prepared = g.api(a,'POST',i.INVITATIONS,body,expected=201)
+    review = prepared['review']
+    expected_transport = dict(bootstrap_addresses=[],quic_addresses=[],relays=[],
+                              helpers=[dict(address=helper.address,public_key=helper.public_key)])
+    check(prepared['state']=='review' and prepared['invitation'] is None
+          and prepared['review_id']==g.digest('peerspan-invitation-review-v1',review)
+          and review['network']=={key:network[key] for key in ('id','name','context_id','genesis_root_public_key')}
+          and review['expected_person_public_key']==person and review['member']==member
+          and review['transport']==expected_transport,'sole-resource guided invitation changed exact terms')
+    issued = g.api(a,'POST',i.INVITATIONS+'/'+prepared['flow_id']+'/decision',
+                   dict(context=g.context(parent),review_id=prepared['review_id'],decision='approve'))
+    check(issued['state']=='issued' and issued['review']==review,'guided invitation approval changed terms')
+    status,handoff = a.api('POST',i.INVITATIONS+'/'+prepared['flow_id']+'/handoff',
+                          dict(context=g.context(parent),review_id=prepared['review_id']))
+    check(status==200 and handoff['invitation'].startswith('psi2-')
+          and handoff['invitation_id']==issued['invitation']['invitation_id'],'private genuine invitation handoff failed')
+    code = handoff['invitation']
+    g.shared['secrets'].append(code)
+    return code
+
+
+def traffic(f):
+    return g.traffic(f)+(f['helper'].counts(),)
 
 
 def continue_ceremony(f,prepared):
@@ -422,11 +448,11 @@ def continue_ceremony(f,prepared):
 
 @suite.case('genuine_return_live_fetch_hold_unsigned_prepare_and_continuation','guided42 retained request/capability')
 def _():
-    a=b=None
+    a=b=helper=None
     try:
-        a,b = host('existing'),host('requester',held=True)
-        with b.relay.lock:
-            b.relay.pid_roles = {a.process.pid:'existing',b.process.pid:'requester'}
+        helper = ResourceMailboxGate(suite.work/'resource-helper',deadline,socket_owner,g.ed25519)
+        a,b = host('existing',helper),host('requester',helper)
+        helper.configure((a,b))
         check(a.public_key!=b.public_key and not a.original.exists() and not b.original.exists(),'fresh distinct host prerequisite')
         net = i.create_network(a,'Immediate returned request')
         pa,pb = g.project(a,'existing-return'),g.project(b,'requester-return')
@@ -434,13 +460,16 @@ def _():
         people = g.get(a,'/v2/networks/'+net['id']+'/persons')['persons']
         member = [p for p in people if p['person_public_key']==person]
         check(len(member)==1,'existing person ambiguous')
-        f = dict(a=a,b=b,network=net,person=person,provider=net['provider'],owner_parent=pa,parent=pb,
+        f = dict(a=a,b=b,helper=helper,network=net,person=person,provider=net['provider'],owner_parent=pa,parent=pb,
                  original=i.sha(a.original),secrets=[])
         g.shared = f
-        _issued,code = i.invitation(a,pa,net,person,member[0]['member'])
+        code = invitation(a,pa,net,person,member[0]['member'],helper)
         preview = g.api(b,'POST','/v1/onboarding/invitation-preview',dict(context=g.context(pb),invitation=code))
         check(preview['review_id']==g.digest('peerspan-invitation-preview-v1',preview['review'])
-              and preview['review']['invitation']['automatic_return'] is True,'authentic automatic-return preview missing')
+              and preview['review']['invitation']['automatic_return'] is True
+              and preview['review']['helpers']==[dict(address=helper.address,public_key=helper.public_key)]
+              and all(contact['bootstrap_addresses']==contact['quic_addresses']==contact['relays']==[]
+                      for contact in preview['review']['contacts']), 'authentic exclusive-resource automatic-return preview missing')
         flow = g.api(b,'POST',i.JOINS,dict(context=g.context(pb),invitation=code,person_public_key=person),expected=201)
         check(flow['state']=='review' and flow['outcome'] is None and flow['review_id']==g.digest('peerspan-join-review-v1',flow['review'])
               and flow['review']['invitation_review_id']==preview['review_id'],'unapproved join review changed')
@@ -455,35 +484,44 @@ def _():
                       and incoming['network_id']==net['id'] and incoming['context_id']==net['context_id']
                       and incoming['person_public_key']==person and incoming['host_public_key']==b.public_key
                       and incoming['owner_offer_id']=='-' and not incoming['commit_approved'],'returned request changed pins/consent')
-                generation = wait(lambda:next(iter(b.relay.live_generations()),None),5,'live original-fetch ClientHello hold')
-                check(b.relay.fetch_owner(generation)==a.process.pid and b.relay.provenance_errors==0,
-                      'held original fetch lacks exact owned-daemon socket provenance')
+                generation = wait(lambda:next(iter(helper.live_holds(f['rid'],a.process.pid,a.public_key)),None),
+                                  5,'live authenticated owner original-resource GET hold')
+                check(helper.stored_request(f['rid'],b.public_key)==1 and helper.errors==0,
+                      'resource helper lacks genuine original publication or transport authentication')
                 stop_requester(b)
                 existing_hold = a.relay.park_accepted()
+                helper_hold = helper.park_accepted()
                 pending,capability = g.pending(a,f['rid'])
                 packet = json.loads(base64.b64decode(pending['request_packet_base64'],validate=True))
                 check(capability is not None and packet['role']=='request' and packet['context_id']=='-'
                       and packet['request_id']==f['rid'] and packet['writer_host_public_key']==b.public_key
                       and packet['signer_public_key']==incoming['device_public_key']
                       and g.packet_id(packet)==incoming['request_packet_id'],'retained authenticated request/capability mismatch')
+                check(pending['carrier_endpoints']==[dict(kind='helper',address=helper.address,public_key=helper.public_key)],
+                      'returned request acquired an alternate original-frame carrier')
                 g.ed25519(b.public_key,packet['host_signature'],g.packet_message(packet),'returned-host')
                 g.ed25519(packet['signer_public_key'],packet['device_signature'],g.packet_message(packet),'returned-device')
                 # Exactly one absence observation. No SQL wait or protocol write.
                 original_frame = g.rows(a,"SELECT frame_id FROM dec_frames WHERE request_id=? AND role='request' AND writer_key=?",(f['rid'],b.public_key))
-                precondition_fetch_live = generation in b.relay.live_generations()
+                precondition_fetch_live = generation in helper.live_holds(f['rid'],a.process.pid,a.public_key)
                 precondition_return_live = set(a.relay.live_parked_generations())
+                precondition_helper_live = set(helper.live_parked_generations())
                 print('machine_return_prepare_precondition_public='+json.dumps(dict(
                     original_frame_count=len(original_frame),original_frame_absent=original_frame==[],
                     same_fetch_generation_live=precondition_fetch_live,
                     expected_return_streams=len(existing_hold),
                     live_expected_return_streams=len(set(existing_hold)&precondition_return_live),
                     all_return_streams_live=set(existing_hold)<=precondition_return_live,
-                    fetch_owner_still_proven=b.relay.fetch_owner(generation)==a.process.pid,
-                    provenance_errors=b.relay.provenance_errors,requester_stop_verified=True,
+                    fetch_owner_still_proven=precondition_fetch_live,
+                    provenance_errors=helper.errors,requester_stop_verified=True,
+                    helper_original_frames=helper.stored_request(f['rid'],b.public_key),
+                    helper_expected_streams=len(helper_hold),helper_live_streams=len(set(helper_hold)&precondition_helper_live),
+                    helper_stream_barrier=helper.last_barrier,
                     existing_stream_barrier=a.relay.last_barrier,measured_owner_calls_started=False),sort_keys=True),flush=True)
-                check(original_frame==[] and precondition_fetch_live and set(existing_hold)<=precondition_return_live,
+                check(original_frame==[] and precondition_fetch_live and set(existing_hold)<=precondition_return_live
+                      and set(helper_hold)<=precondition_helper_live and helper.errors==0,
                       'original frame or live transport barrier unavailable')
-                traffic = g.traffic(f)
+                before_traffic = traffic(f)
                 began = time.monotonic()
                 body = dict(context=g.context(pa),request_id=f['rid'])
                 inspected = g.api(a,'POST','/v1/onboarding/machine-owner-inspection',body,timeout=5)
@@ -495,24 +533,27 @@ def _():
                 f['owner_inspection'] = dict(review_id=inspected['review_id'],review=review)
                 status,prepared = a.api('POST',g.MACHINE+'/prepare',{**body,'inspection_review_id':inspected['review_id']},timeout=5)
                 elapsed = time.monotonic()-began
-                after_traffic = g.traffic(f)
-                same_held_generation = generation in b.relay.live_generations()
+                after_traffic = traffic(f)
+                same_held_generation = generation in helper.live_holds(f['rid'],a.process.pid,a.public_key)
                 same_existing_hold = set(existing_hold)<=set(a.relay.live_parked_generations())
-                fetch_owner_proven = b.relay.fetch_owner(generation)==a.process.pid and b.relay.provenance_errors==0
+                same_helper_hold = set(helper_hold)<=set(helper.live_parked_generations())
+                fetch_owner_proven = same_held_generation and helper.errors==0
                 observed_code = prepared.get('code') if isinstance(prepared,dict) else None
                 print('machine_return_prepare_boundary_public='+json.dumps(dict(
                     prepare_status=status if type(status) is int and 100<=status<=599 else None,
                     prepare_code=observed_code if observed_code in {'invalid','not_found','review_changed','review_expired',
                         'machine_owner_consent_unavailable'} else ('none' if observed_code is None else 'other'),
                     seconds=round(elapsed,3),same_held_generation=same_held_generation,same_existing_hold=same_existing_hold,
-                    fetch_owner_proven=fetch_owner_proven,requester_stopped=True,
+                    same_helper_hold=same_helper_hold,fetch_owner_proven=fetch_owner_proven,requester_stopped=True,
+                    helper_stream_barrier=helper.last_barrier,
                     existing_stream_barrier=a.relay.last_barrier,
                     captured_review_receipt=status==200 and isinstance(prepared,dict)
                         and isinstance(prepared.get('consent'),dict) and prepared['consent'].get('state')=='review',
-                    traffic={name:dict(before=list(traffic[index]),after=list(after_traffic[index]))
-                        for index,name in enumerate(('existing_tcp','existing_udp','requester_tcp','requester_udp'))}),
+                    traffic={name:dict(before=list(before_traffic[index]),after=list(after_traffic[index]))
+                        for index,name in enumerate(('existing_tcp','existing_udp','requester_tcp','requester_udp','helper_tcp'))}),
                     sort_keys=True),flush=True)
-                check(elapsed<=5 and after_traffic==traffic and same_held_generation and same_existing_hold and fetch_owner_proven,
+                check(elapsed<=5 and after_traffic==before_traffic and same_held_generation and same_existing_hold
+                      and same_helper_hold and fetch_owner_proven,
                       'immediate inspect/prepare exceeded5s or performed counted network IO')
                 check(status==200 or (status==409 and isinstance(prepared,dict) and prepared.get('code')=='machine_owner_consent_unavailable'),
                       'unexpected preparation status/category')
@@ -526,7 +567,7 @@ def _():
                     check(g.intent_rows(a,f['rid'],'owner')==[] and g.rows(a,"SELECT intent_id FROM dec_intents WHERE kind='machine_owner_review'")==[],
                           'failed preparation left partial owner consent')
                 shared['prepare_status'] = status
-                print('machine_return_prepare_public='+json.dumps(dict(live_client_hello=True,original_frame_absent=True,
+                print('machine_return_prepare_public='+json.dumps(dict(live_authenticated_original_get=True,original_frame_absent=True,
                     inspect_status=200,prepare_status=status,prepare_code='none' if status==200 else 'machine_owner_consent_unavailable',
                     counted_io_unchanged=True,owner_approved=False,owner_signed=False,seconds=round(elapsed,3)),sort_keys=True),flush=True)
             finally:
@@ -534,7 +575,8 @@ def _():
                     resume_requester(b)
                 finally:
                     a.relay.release_accepted()
-                    b.relay.release()
+                    helper.release_accepted()
+                    helper.release()
             if status==200:
                 check(g.get(b,'/v2/networks')==[],'unsigned preparation adopted requester authority')
             published = publication.result(timeout=35)
@@ -545,6 +587,9 @@ def _():
             continue_ceremony(f,prepared)
         check(time.monotonic()<deadline,'suite exceeded120s')
     finally:
+        if helper is not None:
+            print('machine_return_prepare_resource_public='+json.dumps(helper.summary(),sort_keys=True),flush=True)
+            helper.close()
         for h in (b,a):
             if h is not None:
                 h.relay.close()
