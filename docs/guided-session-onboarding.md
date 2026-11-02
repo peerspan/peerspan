@@ -309,7 +309,8 @@ existing slim suites as each area changes.
   histories through combined schema28, with preserved identity/authority/history. Record a
   private full-state backup and recovery procedure. An older schema23 binary
   refuses upgraded state: binary-only rollback is unsupported; never rewrite
-  user_version or drop flow tables to simulate a downgrade.
+  user_version or drop flow tables to simulate a downgrade. See the
+  [upgrade and full-state recovery procedure](upgrading-guided-onboarding.md).
 - [ ] Review and acceptance use one final feature head and corresponding
   artifacts. Later changes invalidate the affected results until rerun.
 - [ ] The tracking PR is ready for review and its final review is accepted before
