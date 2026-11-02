@@ -173,3 +173,25 @@ was excluded. Approved administrator work must also enter the bounded existing
 worker pipeline through the ordinary exact signer checks. This adds no consent
 or signing authority. The unchanged installed teammate case is its regression
 check; the first failed receipt remains retained.
+
+### Combined regression follow-up
+
+A concurrent CLI/worker signing pass for the same exact administrator intent
+may observe a verified append-only signature extension. Re-read that same
+intent and its current guards; do not overwrite it or repeat human consent.
+A changed intent or changed prior signature remains a conflict. Policy denial
+must consider a cited owner's policy only in networks shared with the actual
+sender; a lower policy in an unrelated network cannot turn withdrawal's denial
+into a transient policy-unavailable response. The installed two-invitation
+teammate case and unchanged `work`/`join_onboarding` suites cover these findings.
+
+For the two first combined CI read-purity failures (`machine_owner` and
+`requester_completion`), a separate contract-only author may add a diagnostic
+launcher. It observes only existing before/after snapshots/counters/failure
+objects; no new calls, reads, waits, mutations, clock changes or retries. Report
+only fixed phase, changed public table names, schema/file/carrier change booleans
+and counts, never row values, keys, native refs, paths or packet content. Keep
+every original case, snapshot, action, assertion, deadline and verdict exact.
+Retain the first run, source and diagnostic hashes. Diagnose the source of the
+change before any implementation or fixture correction; a failed combined gate
+is not permission to relax global purity.

@@ -1055,19 +1055,30 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
         let mut p = requests::load(&tx, id)?;
         let mut current = load(&tx, &p)?;
         let (b2, r2) = check_current(&tx, store, &p, &current)?;
-        require(
-            current
+        require(current.id == i.id, "state_conflict")?;
+        if !current
+            .record
+            .signatures
+            .iter()
+            .map(|s| (s.slot_id, &s.role, &s.signature))
+            .eq(i
                 .record
                 .signatures
                 .iter()
-                .map(|s| (&s.slot_id, &s.role, &s.signature))
-                .eq(i
-                    .record
+                .map(|s| (s.slot_id, &s.role, &s.signature)))
+        {
+            // The CLI and the normal worker can advance the same exact approved
+            // intent concurrently. Reload a verified append-only extension;
+            // never overwrite another signer or repeat a consent decision.
+            require(
+                i.record
                     .signatures
                     .iter()
-                    .map(|s| (&s.slot_id, &s.role, &s.signature))),
-            "state_conflict",
-        )?;
+                    .all(|prior| current.record.signatures.iter().any(|now| now == prior)),
+                "state_conflict",
+            )?;
+            continue;
+        }
         let barrier = if !generated.is_empty() {
             for sig in generated {
                 let object = current
