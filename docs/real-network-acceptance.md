@@ -170,6 +170,13 @@ mTLS for the independent helper, with full certificate/key/socket validation,
 test-only pinned PyOpenSSL and unchanged encrypted counters/5s/120s bounds.
 These are fixture compatibility corrections; no new product failure is inferred.
 
+The pinned-key resource helper then authenticates both hosts, stores the genuine
+original frame and holds its GET with zero TLS/mailbox/provenance failures. Its
+2.3s setup failure is a carrier-cardinality assumption: the retained array
+includes the inviter's counted refusal proxy as well as the requester's and H.
+The corrected exact union/sort still excludes every other address/key/kind and
+both actual daemon bootstrap listeners; no absence/counter assertion is removed.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
