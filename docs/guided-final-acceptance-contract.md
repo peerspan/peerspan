@@ -334,3 +334,21 @@ all original whole-state/carrier comparisons, phases, API/CLI operations and
 deadlines. No packet filtering, counter reset, row fabrication, daemon restart,
 new approval or mutation retry. Preserve prior failed logs and keep the existing
 outbox-attempt prerequisite and receive-only diagnostics composed in order.
+
+### Native validation observation overhead
+
+Finaleeb0987 CI passed the corrected requester-history suite in111seconds but
+one unchanged native access-completion validation case hit its5000ms test bound
+(5022ms,439/440). Preserve that failure; no claim is made that scheduling caused
+it. The independent author identified27 redundant public UI queries across its
+nine fault variants. The public mounted UI calls settle their handlers before
+returning. In only this file's `uncertain` helper, retain the first complete
+rendered text after the unchanged no-Finish check and use it for every existing
+text/privacy assertion: no action, clock advance, fixture mutation or held delay
+occurs between these observations. In `closePane`, press the already captured
+Close key, preserving its defined assertion, single press and unmount. Keep all
+case bodies, nine variants, assertions, action order and5000ms deadline exact.
+Do not change product code, cache across an action or asynchronous transition,
+split a case, add an unsupported runner setting, or retry an unchanged failure
+until green. Run the complete440-case native suite after this narrow correction
+and retain full final-head CI/review as merge gates.
