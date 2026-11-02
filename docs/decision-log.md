@@ -4284,3 +4284,16 @@ a setup boundary for the new run, not the cause/actor of earlier unclassified
 failures. Discard a live-only prerequisite leaving other asynchronous initial
 publication active under strict whole-state comparisons. Every original test
 remains untouched; no signer/authority setup or extra send is added.
+
+First all-owner publication source a450161b: onboarding5/6in12.34s reaches
+link admit but gets rate_limited (exact preview/later call not captured);
+signing5/6in55.17s passes unsafe-source/live cases, but authentic-response
+fault whole-state guard fails. Retained faults intent has only approved slot1
+host, no authority signature; exact changed rows/caller remain unknown. Select
+a narrow initial unapproved CLI admission-preview retry, once honoring only
+typed429/rate_limited/one1–2s Retry-After; preserve API429 visibility and never
+repeat approval/signing. Discard relaxing server quotas, changing pinned guided
+GET behavior, matching error strings or retrying a whole approved command.
+Observe the existing authorized host-slot job before the original signing
+settled baseline, retaining every original3s wait/guard and no original signer
+source. This establishes a new setup witness, not an earlier-actor diagnosis.
