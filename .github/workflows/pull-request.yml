@@ -79,6 +79,7 @@ jobs:
       - name: Install terminal acceptance dependency
         run: python -m pip install --disable-pip-version-check -r conformance/requirements-terminal.txt
       - name: Exercise the actual installed terminal
+        id: terminal-acceptance
         run: |
           set -euo pipefail
           archive="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
@@ -104,6 +105,7 @@ jobs:
           path: acceptance-sources/feature27
           persist-credentials: false
       - name: Build genuine old binaries and verify complete upgrade and restore
+        id: upgrade-acceptance
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/peerspan-old-target
           CARGO_INCREMENTAL: '0'
@@ -126,6 +128,7 @@ jobs:
             --feature27 "$RUNNER_TEMP/peerspan-old-binaries/feature27" \
             --work "$RUNNER_TEMP/peerspan-upgrade-acceptance"
       - name: Verify installed participant flows and receiver enforcement
+        id: participant-acceptance
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/peerspan-old-target
           CARGO_INCREMENTAL: '0'
@@ -139,6 +142,37 @@ jobs:
           python conformance/installed_participants.py --archive "$archive" --sha256 "$archive_sha" \
             --probe "$CARGO_TARGET_DIR/debug/peerspan-peer-probe" --suite all \
             --work-dir "$RUNNER_TEMP/peerspan-participant-acceptance"
+      - name: Retain sanitized acceptance evidence on every outcome
+        if: always()
+        env:
+          TERMINAL_OUTCOME: ${{ steps.terminal-acceptance.outcome }}
+          UPGRADE_OUTCOME: ${{ steps.upgrade-acceptance.outcome }}
+          PARTICIPANT_OUTCOME: ${{ steps.participant-acceptance.outcome }}
+        run: |
+          set -euo pipefail
+          python conformance/acceptance_receipts.py \
+            --terminal-work "$RUNNER_TEMP/peerspan-terminal-acceptance" \
+            --upgrade-work "$RUNNER_TEMP/peerspan-upgrade-acceptance" \
+            --participants-work "$RUNNER_TEMP/peerspan-participant-acceptance" \
+            --archive-dir dist --output "$RUNNER_TEMP/peerspan-acceptance-public"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          values = {key: os.environ.get(key, '') for key in
+                    ('TERMINAL_OUTCOME', 'UPGRADE_OUTCOME', 'PARTICIPANT_OUTCOME')}
+          allowed = {'success', 'failure', 'cancelled', 'skipped', ''}
+          assert all(value in allowed for value in values.values())
+          values['candidate_sha'] = os.environ['GITHUB_SHA']
+          destination = Path(os.environ['RUNNER_TEMP']) / 'peerspan-acceptance-public/gate-outcomes.json'
+          destination.write_text(json.dumps(values, sort_keys=True) + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-acceptance-receipts
+          path: ${{ runner.temp }}/peerspan-acceptance-public/*.json
+          retention-days: 14
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
