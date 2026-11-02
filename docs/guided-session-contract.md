@@ -8006,9 +8006,20 @@ original-frame carrier was blocked. Preserve that failed precondition and do
 not remove, filter or relabel the stored original frame.
 
 Use an independent resource-only mTLS helper with its own fresh transport key,
-configured in the signed invitation and both hosts. Advertise empty bootstrap,
-QUIC and relay contact arrays, and no other helper, for this fixture only. Arm
-its route-aware gate before join approval. Implement only the public bootstrap
+configured in the signed invitation and both hosts, with no other helper or
+relay. Empty advertise arrays do not disable listener-derived default contacts
+(section9 and the earlier fixture clarification). Instead explicitly advertise
+each original counted TCP proxy, whose upstream is an owned bound but
+non-listening reserved socket, and each original counted QUIC endpoint. The TCP
+reservation stays owned until cleanup: direct bootstrap attempts are counted and
+promptly refused before any participant/resource bytes can be delivered. The
+actual daemon bootstrap listener remains available only for pinned public
+certificate discovery and is never in a signed contact or retained carrier.
+QUIC completion serves no mailboxes (bootstrap section3/wire section13), so
+its counted forwarding supports continuation without another original-frame
+carrier. Require these exact reviewed/signed transport hints before approval
+and only H plus the requester's already-refusing TCP proxy in retained original
+carriers afterward. Arm H's route-aware gate before join approval. Implement only the public bootstrap
 mailbox resource behavior: preserve exact participant-created outer/frame bytes,
 allow the requester's genuine original-frame publication and the invitation-ID
 return mailbox GET unchanged, and hold **every** authenticated GET for an
@@ -8033,7 +8044,12 @@ late gate/filter, worker/clock suppression or timeout/assertion relaxation.
 Selected: an explicit resource-route discriminator armed before publication.
 Discarded: another opaque first-connection guess; filtering/deleting the retained
 frame; accepting frame presence; and relying on asymmetric helper configuration
-without proof of exclusive routing. Section12 takes request helpers from the
+without proof of exclusive routing. Also discard interpreting empty advertise
+arrays as withdrawal of bound listeners: the first resource-fixture run fails
+its exact invitation terms in0.6s before helper traffic because listener defaults
+are present. Preserve that failure and use explicit counted refusal endpoints,
+never an uncounted or timing-dependent direct original-frame alternative.
+Section12 takes request helpers from the
 signed invitation and exposes no requester-only helper override, so asymmetric
 local configuration alone cannot establish that exclusivity. The helper remains
 replaceable transport and receives no membership/access authority.
