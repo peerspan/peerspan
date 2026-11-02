@@ -42,6 +42,33 @@ the Unicode stress-fixture agent names are deliberately not addressable. The
 successful normal check uses valid addressable project-agent names. These are
 diagnosed driver corrections; neither initial attempt is claimed as acceptance.
 
+The first forced-relay phase also passes on the rebuilt candidate: same-person
+ceremony23.564s/work17.187s and distinct-person ceremony27.505s/work19.217s.
+The latter verifies a narrow guided grant, one receiver append, and actual
+receiver refusals before grant and after withdrawal. Direct peer UDP is dropped
+at both test hosts; the primary helper carries payload traffic and the second
+helper is stopped. Helper replacement is running against the same retained
+identities and signed authority. These controlled firewall results do not
+establish consumer-router NAT behavior.
+
+A native attempt observed fresh model readiness and an exactly correlated
+reply retrieved by the droplet in32.115s. Its controller then terminated the
+native process before the reply tool call/result reached the first-party
+transcript. This is incomplete model provenance, not a complete native/model
+receipt. The retained transcript also shows old fixture-message redelivery;
+therefore the controller's proposed two-prompt count is not established. A
+corrected manual check will use a fresh explicitly reviewed local agent in the
+same existing native conversation, and wait within the unchanged model budget
+for the exact first-party reply call and successful result before cleanup.
+Earlier private outputs and the failed receipt assertion remain retained.
+
+The current CI run passes52 existing checks but fails the new immediate-prepare
+regression before its measured owner operation: an original-frame/held-stream
+precondition is unavailable. Initial PID/socket provenance already passed.
+The independent author added receive-only closed diagnostics for the exact
+failed conjunction, without changing observations, assertions or deadlines.
+The first CI failure remains retained; no unexplained rerun is counted as a fix.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
