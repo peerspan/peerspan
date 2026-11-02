@@ -287,3 +287,27 @@ without another carrier request, while retaining exact signed-result checks.
 Wrong IDs/missing bytes must not gain this shortcut. Preserve all existing
 owner, signing and participant cases/deadlines; a final clean full-head run is
 still required after the correction. The first failed CI log remains retained.
+
+### Owned host signing and rollback-fixture dispatch
+
+The last CI run also exposed the advanced CLI trying to find an SSH agent while
+an approved signing batch was in flight. The CLI must never look for the current
+host's private signing key in a person's SSH agent. Validate every typed slot as
+before; leave a matching current-host/host-role slot to the existing daemon
+worker. Continue any genuinely external signer slots in the same batch. If only
+owned host work remains, return its actual pending request without claiming
+completion or changing consent. Keep configured external signer selection and
+all wrong-key/message/template/origin refusal cases unchanged.
+
+The machine-requester raw-time fixture sets an integer offset, not a frozen
+clock. Its old ceil offset to created_at-1 leaves less than one second before
+wall time catches up; quiet/snapshot work runs before dispatch. The first CI
+failure did not identify which denial phase returned200, so retain that
+uncertainty. An independent test-only launcher may preserve the specific raw
+creation precondition at dispatch: only that time fixture's approve/unavailable
+branch sets the clock sidecars using floor(target-realUTC) for the same intended
+created_at-1 target, asserts raw time is still earlier than creation, and calls
+the original API once. Sidecars are outside every frozen DB/schema/state/home
+snapshot. No product rows/authority, body, timeout, signed deadline, phase,
+assertion or mutation retry changes. All other operations keep their original
+clocks. Emit closed phase/precondition diagnostics, never raw private values.
