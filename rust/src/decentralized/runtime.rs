@@ -919,7 +919,7 @@ async fn dispatch(
     if method == Method::POST && parts.as_slice() == ["v2", "link", "admissions"] {
         let capture = store.clone();
         let input = object.clone().unwrap_or_default();
-        let id = match tokio::task::spawn_blocking(move || {
+        let (id, retained) = match tokio::task::spawn_blocking(move || {
             super::ceremony_admin::open(&capture, &input)
         })
         .await
@@ -928,7 +928,7 @@ async fn dispatch(
             Ok(id) => id,
             Err(e) => return failure(e, network, "-", route.stage, None),
         };
-        if let Err(e) = requests_io::poll(store.clone(), &id).await {
+        if !retained && let Err(e) = requests_io::poll(store.clone(), &id).await {
             return failure(e, network, "-", route.stage, None);
         }
     }

@@ -25,7 +25,7 @@ const INPUT: &str = "code network_id person_public_key provider_id signature_for
 mod consent;
 pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
 
-pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
+pub(crate) fn open(store: &Store, input: &Obj) -> Result<(String, bool)> {
     fields(input, INPUT)?;
     input
         .get("approve")
@@ -152,9 +152,15 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
     if p.record.catalog_base64 == "-" {
         p.record.catalog_base64 = encode(&base_catalog.bytes);
     }
+    // Retention only removes a redundant carrier fetch. prepare() independently
+    // verifies this exact prefix and current authority before any approval.
+    let retained = p.record.owner_offer_id == text(input, "owner_offer_id")?
+        && p.record.owner_packet_base64 != "-"
+        && p.record.selection_id == text(input, "selection_id")?
+        && p.record.selection_packet_base64 != "-";
     requests::save(&tx, &p)?;
     tx.commit().map_err(db)?;
-    Ok(p.id)
+    Ok((p.id, retained))
 }
 struct Base {
     snapshot: Option<Snapshot>,
