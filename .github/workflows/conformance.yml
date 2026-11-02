@@ -63,6 +63,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install resource-helper test dependencies
+        if: matrix.suite == 'machine_return_prepare'
+        run: python3 -m pip install --disable-pip-version-check --only-binary=:all: -r conformance/slim/resource_mailbox_gate.requirements.txt
       - uses: actions/download-artifact@v4
         with:
           name: conformance-binaries
