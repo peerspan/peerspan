@@ -1444,7 +1444,7 @@ C6's [`addressed_to`](#addressed_to) opens with `Every joined participant still 
 ### Persistence
 
 - The parked mark lives in the notification's `record`, beside the C5 marks. No new column for it.
-- The agent description is a new nullable column `description` of `agents`, added in the next schema version (30 on `main` when this was written), which upgrades a host's state in place, as earlier schema versions do.
+- The agent description is a new nullable column `description` of `agents`, added in the next schema version (29, after schema 28 on `main` when this was written), which upgrades a host's state in place, as earlier schema versions do.
 
 ### Verification
 
