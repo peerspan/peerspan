@@ -352,3 +352,39 @@ Do not change product code, cache across an action or asynchronous transition,
 split a case, add an unsupported runner setting, or retry an unchanged failure
 until green. Run the complete440-case native suite after this narrow correction
 and retain full final-head CI/review as merge gates.
+
+Reference: [Claude mod public mounted test methods](https://code.claude.com/docs/en/plugins/mods/test#test-a-drawing).
+
+### Native file process isolation
+
+The helper-corrected full local run passed439/440 in84.82seconds: the corrected
+case passed, while a different unchanged invitation-preview case reached its
+5000ms deadline at5003ms. Preserve both failures and leave their exact causes
+unclassified. Stop making further helper changes in response to individual
+five-second failures. There is no supported concurrency option in the pinned
+public CLI. Execute the complete native suite with explicit file process
+isolation through its supported plugin-directory argument instead.
+
+An independently authored operational runner must discover all22 candidate
+native test files and execute each exactly once, serially, with the pinned
+public `claude plugin test` command. Each private temporary plugin mirror has
+byte-identical manifest/hooks and all non-test plugin resources at their original
+relative paths, plus that one original test file at its original relative path.
+Preserve all sibling non-test helpers if present. Verify source/mirror hashes
+and refuse symlinks, missing files, unknown discovery or changed sources. Never
+rewrite code, cases, assertions, mocked time, test configuration or5000ms case
+deadlines. No product implementation inspection is needed to copy/hash it.
+Keep HOME unchanged and isolate CLI configuration outside the mirrors. A failed
+file runs no second time; continue other files while recording its original
+exit/counts. Require all22 files and440 runtime cases, zero failures/skips and
+successful public CLI exits. Bound the complete gate to600seconds, record its
+actual elapsed time, and stop if exhausted. Sanitize the receipt to source
+hashes, original repo-relative file names, counts, fixed outcomes and elapsed
+times; do not copy private config or arbitrary files. Full native CI uses this
+same runner against the final candidate; validation, installed acceptance,
+all conformance, Rust and final review remain required.
+
+Selected: explicit independent file scheduling with byte-identical inputs and
+unchanged individual deadlines. Discarded: unsupported SDK environment knobs,
+repeating failed files, increasing test deadlines, dropping variants, splitting
+frozen cases, or claiming scheduling explains an unattributed failure.
