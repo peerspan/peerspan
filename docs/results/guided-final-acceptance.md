@@ -66,10 +66,29 @@ exception's cause. No authority predicate was relaxed.
 
 The local native run recorded nine unchanged five-second test deadlines during
 concurrent work. CI on the same production and test source passed all440 cases.
-These local failures remain recorded. Final CI runs all44 slim suites, Rust
+These local failures remain recorded. Final CI runs all45 slim suites, Rust
 format/tests/Clippy, native440, packaging, installed terminal, genuine upgrades
 and installed participants on one candidate. Its sanitized always-retained
 artifact supplies the exact CI source/archive hashes and original step outcomes.
 Raw keys, state, backups, terminal transcripts and message bodies stay private.
 
 Full recovery instructions: [Upgrading the preview](../upgrading-guided-onboarding.md).
+
+### Last final-head corrections
+
+The next full run also found redundant admission carrier polling, the advanced
+CLI looking for a daemon-owned host key in a person's SSH agent, and a rollback
+fixture whose moving raw clock could cross its creation boundary before dispatch.
+The exact retained-prefix path, daemon-owned slot handling and test-only dispatch
+precondition correction preserve consent and every frozen semantic assertion.
+A new independent unavailable-carrier check verifies wrong/missing evidence
+refusal, zero-fetch preview, retained explicit approval and signed T/P/H results.
+Its initial fixture assumptions and their failures remain retained.
+
+The corrected owner suites pass6/6 each, joining14/14 and targeted admission1/1.
+Machine consent passes6/6 semantically, with dispatch diagnostics showing the
+raw creation precondition had actually been lost and was reestablished. Local
+runs took125/127seconds; final CI must satisfy the required two-minute suite
+budget. These local runs alone do not close that timing gate. The final archive
+also passed terminal, both participant flows, genuine upgrades/restores and an
+authenticated original-conversation model reply after explicit reload/reconnect.

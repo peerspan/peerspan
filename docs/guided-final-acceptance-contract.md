@@ -131,7 +131,8 @@ existing one.
 
 ## 5. One final head and review
 
-Run the unchanged full native suite, all slim suites from both branches, Rust
+Run the unchanged full native suite, all slim suites from both branches plus
+the targeted retained-admission suite, Rust
 format/test/Clippy, packaging and real installed acceptance on one final source
 candidate. Rebuild affected artifacts after any product change. Record exact
 source head, main baseline, archive checksums, independent suite hashes, gate
