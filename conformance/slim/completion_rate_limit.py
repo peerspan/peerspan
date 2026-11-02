@@ -453,6 +453,180 @@ def bootstrap_owner_absence_gate():
     check(owner['status'] == 404 and owner['code'] == 'not_found', 'bootstrap owner route did not return required404/not_found under real rate pressure')
 
 
+def replay_marker(path, text):
+    """Publish complete private barrier bytes before the documented reader sees them."""
+    import tempfile
+    descriptor, name = tempfile.mkstemp(prefix='.replay-marker-', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(text.encode('ascii')); output.flush(); os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def replay_retained(f):
+    """Only documented immutable consent and the exact durably signed commit."""
+    pending = rows(f['b'], 'SELECT record FROM dec_pending WHERE request_id=?', (f['rid'],))
+    check(len(pending) == 1, 'framed requester record disappeared')
+    record = json.loads(pending[0][0])
+    raw_commit = base64.b64decode(record['commit_packet_base64'], validate=True)
+    packet = json.loads(raw_commit)
+    contents = json.loads(base64.b64decode(packet['payload_base64'], validate=True))
+    raw_manifest = base64.b64decode(contents['manifest_base64'], validate=True)
+    manifest = json.loads(raw_manifest)
+    mid = 'dm_' + hashlib.sha256(b'peerspan-decentralized-manifest-v1\n' + hashlib.sha256(raw_manifest).hexdigest().encode()).hexdigest()
+    aid = 'da_' + hashlib.sha256('\n'.join(('peerspan-decentralized-activation-v1', f['net']['context_id'], f['rid'], mid, packet_id(packet))).encode()).hexdigest()
+    check(record['manifest_id'] == mid and record['activation_id'] == aid
+          and packet['role'] == 'commit' and packet['request_id'] == f['rid'], 'framed commit/manifest/activation identity mismatch')
+    for field in ('request_packet_id', 'owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id'):
+        check(manifest[field] == f['view'][field], 'framed commit changed an original reviewed stage')
+    intent_id, raw_intent = consent(f['b'], f['rid'])[0]
+    intent = json.loads(raw_intent)
+    check(record['commit_intent_id'] == intent_id and record['commit_approved'] is True and intent['signatures'],
+          'framed commit lacks the single actual approved signing intent')
+    immutable = {key: value for key, value in intent.items() if key not in ('completed', 'terminal', 'result_base64')}
+    return raw_commit, raw_manifest, mid, aid, intent_id, immutable
+
+
+def replay_pair():
+    a, b = suite.host('replay-alice', start=False), suite.host('replay-bob', start=False)
+    b.barrier = b.root / 'barriers'; b.barrier.mkdir(mode=0o700)
+    b.extra_env = {'PEERSPAN_DEC_TEST_MODE': '1', 'PEERSPAN_DEC_TEST_BARRIER_DIR': str(b.barrier)}
+    for host in (a, b):
+        config = host.root / 'direct.json'
+        descriptor = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, 'w') as output:
+            json.dump({'format': 1, 'advertise_bootstrap': ['127.0.0.1:' + str(host.bootstrap_port)],
+                       'advertise_quic': [], 'rendezvous': [], 'relays': [], 'publish_contacts': False}, output)
+        host.extra_args = ['--transport-config', config]
+        host.start()
+    net = create_network(a, 'framed-replay', 'replay-alice')
+    key = ssh_key(b.root, 'replay-bob-original'); person = ssh_public_base64(key)
+    check(person != net['person_public_key'] and a.public_key != b.public_key, 'replay fixture people/hosts are not distinct')
+    originals = {path: hashlib.sha256(path.read_bytes()).digest() for path in (a.home / '.config/peerspan/person_ed25519', key)}
+    request = join_request(b, invite(a, 'replay-bob', net['id'])['invitation'], key)
+    rid, reply = request['request_id'], request['display_code']
+    b.ok_incomplete('link', 'approve', '--network', net['id'], '--person-key', key, '--code-stdin', '--approve', input=reply+'\n', timeout=30)
+    view = pull_until(b, rid, 'owner_offer_id', timeout=15)
+    if view['state'] == 'needs_selection':
+        select(b, view)
+    view = link_view(b, rid)
+    a.ok_incomplete('link', 'admit', '--network', net['id'], '--owner-offer', view['owner_offer_id'], '--selection', view['selection_id'],
+        '--person', person, '--expect-host-key', view['host_public_key'], '--expect-device-key', view['device_public_key'],
+        '--code-stdin', '--approve', input=reply+'\n', timeout=30)
+    view = pull_until(b, rid, 'administrator_offer_id', timeout=15)
+    finalize(b, view, key)
+    view = pull_until(b, rid, 'owner_finalization_id', timeout=15)
+    check(view['state'] == 'needs_commit' and view['selection_approved'] and not view['commit_approved']
+          and all(view[field] == '-' for field in ('manifest_id', 'activation_id', 'outcome_id')),
+          'replay fixture lacks actual uncommitted finalization')
+    body = stage_body(view, **{field: view[field] for field in ('owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id')}, approve=False)
+    status, preview = b.api('POST', '/v2/link/requests/' + rid + '/commit', body, timeout=5)
+    check(status == 200 and not preview['request']['commit_approved'] and preview['review']['scopes'] == 7,
+          'replay fixture lacks exact unapproved public review')
+    return dict(a=a, b=b, net=net, person=person, rid=rid, view=view, review=preview['review'],
+                body={**body, 'approve': True}, originals=originals)
+
+
+@suite.case('real_framed_requester_commit_exact_replay_controls_and_canonical_application',
+    'final acceptance exact replay after durable requester framing')
+def framed_replay_experiment():
+    from harness import wait_for
+    f = replay_pair(); a, b, rid = f['a'], f['b'], f['rid']
+    path = '/v2/link/requests/' + rid
+    files = {suffix: b.barrier / ('dec.frame.after_commit.' + suffix) for suffix in ('arm', 'entered', 'continue')}
+    check(operation(a, rid) is None and operation(b, rid) is None and get(b, '/v2/networks') == [],
+          'replay fixture applied before explicit requester consent')
+    first, errors = [], []
+    def initial_commit():
+        try:
+            first.append(b.api('POST', path + '/commit', f['body'], timeout=45))
+        except Exception as error:
+            errors.append(error)
+    caller = threading.Thread(target=initial_commit, daemon=True)
+    replay_marker(files['arm'], rid + '\n')
+    try:
+        caller.start()
+        def entered():
+            try:
+                marker = files['entered'].read_text()
+                return marker in (rid, rid + '\n')
+            except FileNotFoundError:
+                return False
+        wait_for(entered, timeout=5, interval=.02, message='actual exact requester commit frame barrier')
+        check(caller.is_alive() and not first and not errors, 'first real commit caller was not held at durable framing')
+        status, held = b.api('GET', path, timeout=5)
+        check(status == 200 and held['commit_approved'] and 'commit_persisted' in held['completed']
+              and held['state'] != 'linked' and 'locally_applied' not in held['completed'] and held['outcome_id'] == '-'
+              and all(held[field] != '-' for field in ('manifest_id', 'activation_id')),
+              'frame barrier did not expose actual persisted unapplied requester commitment')
+        check(operation(a, rid) is None and operation(b, rid) is None and get(b, '/v2/networks') == [],
+              'framed-phase control was already locally applied')
+        check(rows(b, "SELECT count(*) FROM dec_frames WHERE request_id=? AND role='commit'", (rid,))[0][0] > 0,
+              'frame barrier lacks the actual durably stored commit frame')
+        saved = replay_retained(f)
+        check((held['manifest_id'], held['activation_id']) == saved[2:4]
+              and all(held[field] == f['view'][field] for field in PINS), 'framed public view changed reviewed pins')
+        altered = f['body']['owner_finalization_id']
+        altered = altered[:4] + ('0' if altered[4] != '0' else '1') + altered[5:]
+        wrong_status, wrong = b.api('POST', path + '/commit', {**f['body'], 'owner_finalization_id': altered}, timeout=5)
+        emit({'phase': 'framed_altered_pin_control', 'response': public_view(wrong_status, wrong)})
+        check(wrong_status == 409, 'altered finalization pin was not refused while framed')
+        check(replay_retained(f) == saved, 'altered-pin refusal replaced immutable requester consent/signatures/commit')
+        check(caller.is_alive() and not first and not errors and operation(b, rid) is None,
+              'altered-pin control did not remain before first caller release and application')
+        replay_status, replay = b.api('POST', path + '/commit', dict(f['body']), timeout=35)
+        shared['framed_replay_status'] = replay_status
+        shared['framed_replay_result'] = replay_status, replay
+        emit({'phase': 'exact_framed_replay_before_release', 'response': public_view(replay_status, replay),
+              'first_caller_still_held': caller.is_alive() and not first and not errors})
+        check(caller.is_alive() and not first and not errors, 'exact replay response was not frozen before first caller release')
+        check(replay_status == 200 or (replay_status == 409 and type(replay) is dict and replay.get('code') == 'state_conflict'),
+              'exact framed replay returned an unsupported response outside the known gate')
+        if replay_status == 200:
+            check(replay['review'] == f['review'] and all(replay['request'][field] == f['view'][field] for field in PINS)
+                  and (replay['request']['manifest_id'], replay['request']['activation_id']) == saved[2:4],
+                  'successful framed replay changed retained review or canonical pins')
+        check(replay_retained(f) == saved, 'exact framed replay replaced immutable requester consent/signatures/commit')
+    finally:
+        replay_marker(files['continue'], 'continue\n')
+        files['arm'].unlink(missing_ok=True)
+        caller.join(timeout=15)
+    check(not caller.is_alive() and not errors and len(first) == 1 and first[0][0] == 200,
+          'released original requester commit did not complete successfully')
+    def both_applied():
+        return all(get(host, path)['state'] == 'linked' for host in (a, b))
+    wait_for(both_applied, timeout=15, interval=.1, message='actual both-host application of the single framed operation')
+    check(replay_retained(f) == saved, 'application replaced immutable requester consent/signatures/commit')
+    for host in (a, b):
+        applied = verify_application(host, f)
+        check(applied[2:4] == (saved[3], saved[2]), 'participants applied a different canonical operation')
+        activation = json.loads(base64.b64decode(json.loads(applied[4])['activation_base64'], validate=True))
+        check(activation['commit'] == json.loads(saved[0]), 'actual application substituted the durably signed commit')
+        current = get(host, path)
+        check(all(current[field] == f['view'][field] for field in PINS), 'application changed original reviewed pins')
+    check(all(hashlib.sha256(path.read_bytes()).digest() == value for path, value in f['originals'].items()),
+          'replay original keys did not remain owned and unchanged')
+    check(not (b.home / '.config/peerspan/person_ed25519').exists(), 'replay requester acquired another original source')
+    shared['framed_replay_complete'] = True
+    emit({'phase': 'framed_replay_controls_verified', 'real_hosts': 2, 'distinct_people': 2,
+          'actual_unapplied_frame_barrier': True, 'altered_pin_refused_before_exact_replay': True,
+          'exact_replay_dispatched_once': True, 'response_frozen_before_release': True,
+          'immutable_consent_and_commit': True, 'both_canonical_applications_verified': True,
+          'original_keys_stayed_owned': True})
+
+
+@suite.case('exact_already_approved_durably_framed_requester_commit_replay_returns200',
+    'final acceptance exact replay after durable requester framing',
+    known='durably framed exact requester replay incorrectly reconstructs a new authority candidate')
+def framed_replay_gate():
+    if not shared.get('framed_replay_complete'):
+        raise Skip('real framed replay controls and canonical applications were not established')
+    check(shared['framed_replay_status'] == 200, 'exact durably framed requester commit replay did not return200')
+
+
 try:
     suite.finish()
 finally:
