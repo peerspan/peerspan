@@ -4706,3 +4706,29 @@ all full-feature reload/model/physical/upgrade gates remain open.
   lifecycle counts and all first failures, then require fresh full tracking CI and
   review. The installed artifact's production and packaging trees are unchanged;
   the final-artifact live-model authorization/evidence-limit decision stays open.
+
+### GU.final.replay: recover the exact already-framed requester operation
+
+- **Evidence:** corrected trackingf0b356b passes51/52, with machine-owner6/6,
+  native440, Rust and every installed gate passing. The remaining ordinary
+  requester commit returns409/state_conflict without its durable phase recorded.
+  A receive-only local run passes6/6 in81seconds from an unframed approved prefix;
+  it does not resolve the CI conflict. Both first observations remain retained.
+- **Confirmed gap:** source audit finds preparation of an already-framed complete
+  activation can reject its own existing authority as a new generation. Approval
+  and signing phases already reload under the same store mutex; a stale signing
+  batch is not established. The original CI phase remains unattributed.
+- **Selected:** validate the exact approved, completed, durably framed retained
+  request/intent/activation and all supplied pins before returning retained
+  review/progress. Preserve existing ordinary preview wildcard behavior. Do not
+  construct another intent, sign, replace the catalog or write a decision clock
+  in this replay branch. Ordinary publication/application retains current guards.
+- **Discarded:** broad self-generation exceptions, suppressing conflicts, treating
+  a later repair as first completion, weakening authority/pin checks, or changing
+  the frozen history fixture to avoid the existing operation.
+- **Verification:** an independent real two-person public ceremony held at the
+  documented committed-frame barrier, altered-pin refusal, one exact replay,
+  unchanged signed commit/consent and actual application on both hosts. Separate
+  strict old-binary replay failure from controls; require XPASS on the correction
+  before removing only the known marker. Final source/archive/installed gates,
+  full tracking CI/review and explicit model authorization/limit decision apply.
