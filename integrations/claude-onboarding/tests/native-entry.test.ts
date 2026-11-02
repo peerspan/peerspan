@@ -167,8 +167,19 @@ function challenge(w: World, index = w.prompts.length - 1) {
   return match![1]
 }
 
+function resultOf(answer: any): any {
+  const value = answer.result
+  expect(typeof value, 'successful native tool result uses JSON text').toBe('string')
+  const parsed = JSON.parse(value)
+  expect(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed),
+    'successful native tool JSON is an object').toBe(true)
+  return parsed
+}
+
 async function acknowledge($: Engine, probe_id: unknown, agentId?: string) {
-  return $.tool.call({ tool: ACK, probe_id, ...(agentId ? { agentId } : {}) })
+  const answer = await $.tool.call({ tool: ACK, probe_id, ...(agentId ? { agentId } : {}) })
+  if (typeof answer?.deny !== 'string' && answer?.isError !== true) resultOf(answer)
+  return answer
 }
 
 function refused(answer: any, probe: string) {

@@ -46,6 +46,15 @@ const effects = { issue_adapter_credential: true, receive_authorized_work: true,
   grant_network_access: false, directory_access: false, outbound_routes: false, capability_calls: false,
   share_files: false, share_conversation: false }
 
+function resultOf(answer: any): any {
+  const value = answer.result
+  expect(typeof value, 'successful native tool result uses JSON text').toBe('string')
+  const parsed = JSON.parse(value)
+  expect(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed),
+    'successful native tool JSON is an object').toBe(true)
+  return parsed
+}
+
 function canonical(value: any): string {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
   if (value !== null && typeof value === 'object') return '{' + Object.keys(value).sort()
@@ -762,6 +771,7 @@ test('administrator navigation preserves established adapter messages and tasks 
   expect(w.prompts).toHaveLength(1)
   const challenge = w.prompts[0].text.match(/\b[0-9a-f]{32}\b/)!; expect(challenge).not.toBe(null)
   const ready = await $.tool.call({ tool: READY, nonce: challenge[0] }); expect(ready.isError ?? false).toBe(false)
+  resultOf(ready)
   await w.clock.settle(); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   const tools = w.tools.map(tool => tool.name), prompts = w.prompts.length
   const count = (path: string) => w.httpCalls.filter(call => call.url.endsWith(path)).length
