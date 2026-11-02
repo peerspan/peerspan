@@ -1,0 +1,6 @@
+# Test-only pinned-key mTLS resource helper (guided session contract section42).
+pyOpenSSL==26.4.0
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12
+typing_extensions==4.16.0
