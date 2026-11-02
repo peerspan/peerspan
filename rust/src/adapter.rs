@@ -461,7 +461,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        crate::live_delivery::return_items(self, &tx, &ss.agent_id)?;
         if let Some(handoff) = self.claim_returned_delivery(&tx, &a, &ss)? {
             tx.commit()?;
             return Ok(Some(handoff));
@@ -810,6 +810,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::live_delivery::adapter_routes())
         .merge(crate::agent_calls::adapter_routes())
         .merge(crate::approvals::adapter_routes())
+        .merge(crate::conversations::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

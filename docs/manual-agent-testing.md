@@ -77,7 +77,7 @@ a small non-secret input file:
 
 ```sh
 peerspan agents
-peerspan task bob/claude-laptop "Read the attached input and return the requested result" --file input.txt
+peerspan task bob/claude "Read the attached input and return the requested result" --file input.txt
 ```
 
 Use the actual address shown by the directory. Put a run-specific value and a

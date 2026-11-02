@@ -1,0 +1,3 @@
+# Test-only public terminal screen emulator; not packaged in any plugin.
+pyte==0.8.2
+wcwidth==0.9.4

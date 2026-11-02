@@ -16,7 +16,7 @@ jobs:
   claude-onboarding:
     name: Claude onboarding runtime
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       DISABLE_UPDATES: '1'
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
@@ -27,6 +27,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install pinned native test runtime
         run: npm install --prefix "$RUNNER_TEMP/peerspan-claude-test" --no-audit --no-fund --save-exact @anthropic-ai/claude-code@2.1.303
       - name: Validate native entry and run independent runtime checks
@@ -36,7 +39,19 @@ jobs:
           set -euo pipefail
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" --version
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin validate integrations/claude-onboarding --strict
-          "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin test integrations/claude-onboarding
+          python3 conformance/native_file_runner.py \
+            --claude "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" \
+            --plugin integrations/claude-onboarding \
+            --work-dir "$RUNNER_TEMP/peerspan-native-files" \
+            --receipt "$RUNNER_TEMP/peerspan-native-receipt.json"
+      - name: Retain native file scheduling receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-file-acceptance-receipt
+          path: ${{ runner.temp }}/peerspan-native-receipt.json
+          retention-days: 14
+          if-no-files-found: warn
 
   onboarding-bundle:
     name: Installed onboarding bundle
@@ -76,6 +91,103 @@ jobs:
           python conformance/installed_bundle.py --archive "$archive" --node "$(command -v node)"
           python conformance/onboarding_bundle.py --archive "$archive" \
             --claude "$RUNNER_TEMP/peerspan-claude-bundle/node_modules/.bin/claude"
+      - name: Install terminal acceptance dependency
+        run: python -m pip install --disable-pip-version-check -r conformance/requirements-terminal.txt
+      - name: Exercise the actual installed terminal
+        id: terminal-acceptance
+        run: |
+          set -euo pipefail
+          archive="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          python conformance/installed_terminal.py --archive "$archive" \
+            --claude "$RUNNER_TEMP/peerspan-claude-bundle/node_modules/.bin/claude" \
+            --work "$RUNNER_TEMP/peerspan-terminal-acceptance"
+      - name: Check out genuine common schema23 source
+        uses: actions/checkout@v4
+        with:
+          ref: 2719d9978ddb86fba003675217fd04922de77a9f
+          path: acceptance-sources/old23
+          persist-credentials: false
+      - name: Check out genuine main schema24 source
+        uses: actions/checkout@v4
+        with:
+          ref: 7d675b6f80304c82e1ad3162b94e5ba305ecdffb
+          path: acceptance-sources/main24
+          persist-credentials: false
+      - name: Check out genuine feature schema27 source
+        uses: actions/checkout@v4
+        with:
+          ref: a214ec687d820689269be95c5e31fb6001a443a3
+          path: acceptance-sources/feature27
+          persist-credentials: false
+      - name: Build genuine old binaries and verify complete upgrade and restore
+        id: upgrade-acceptance
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/peerspan-old-target
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/peerspan-old-binaries"
+          for history in old23 main24 feature27; do
+            manifest="acceptance-sources/$history/rust/Cargo.toml"
+            # Shared worktrees have the same package identity. Clear only this
+            # package so mtime-based reuse cannot substitute another history.
+            cargo clean --manifest-path "$manifest" -p peerspan-host
+            cargo build --locked --manifest-path "$manifest" --bin peerspan-host
+            cp "$CARGO_TARGET_DIR/debug/peerspan-host" "$RUNNER_TEMP/peerspan-old-binaries/$history"
+          done
+          archive="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          python conformance/installed_upgrade.py --archive "$archive" \
+            --old23 "$RUNNER_TEMP/peerspan-old-binaries/old23" \
+            --main24 "$RUNNER_TEMP/peerspan-old-binaries/main24" \
+            --feature27 "$RUNNER_TEMP/peerspan-old-binaries/feature27" \
+            --work "$RUNNER_TEMP/peerspan-upgrade-acceptance"
+      - name: Verify installed participant flows and receiver enforcement
+        id: participant-acceptance
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/peerspan-old-target
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: |
+          set -euo pipefail
+          cargo clean --manifest-path rust/Cargo.toml -p peerspan-host
+          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-peer-probe
+          archive="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          archive_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          python conformance/installed_participants.py --archive "$archive" --sha256 "$archive_sha" \
+            --probe "$CARGO_TARGET_DIR/debug/peerspan-peer-probe" --suite all \
+            --work-dir "$RUNNER_TEMP/peerspan-participant-acceptance"
+      - name: Retain sanitized acceptance evidence on every outcome
+        if: always()
+        env:
+          TERMINAL_OUTCOME: ${{ steps.terminal-acceptance.outcome }}
+          UPGRADE_OUTCOME: ${{ steps.upgrade-acceptance.outcome }}
+          PARTICIPANT_OUTCOME: ${{ steps.participant-acceptance.outcome }}
+        run: |
+          set -euo pipefail
+          python conformance/acceptance_receipts.py \
+            --terminal-work "$RUNNER_TEMP/peerspan-terminal-acceptance" \
+            --upgrade-work "$RUNNER_TEMP/peerspan-upgrade-acceptance" \
+            --participants-work "$RUNNER_TEMP/peerspan-participant-acceptance" \
+            --archive-dir dist --output "$RUNNER_TEMP/peerspan-acceptance-public"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          values = {key: os.environ.get(key, '') for key in
+                    ('TERMINAL_OUTCOME', 'UPGRADE_OUTCOME', 'PARTICIPANT_OUTCOME')}
+          allowed = {'success', 'failure', 'cancelled', 'skipped', ''}
+          assert all(value in allowed for value in values.values())
+          values['candidate_sha'] = os.environ['GITHUB_SHA']
+          destination = Path(os.environ['RUNNER_TEMP']) / 'peerspan-acceptance-public/gate-outcomes.json'
+          destination.write_text(json.dumps(values, sort_keys=True) + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-acceptance-receipts
+          path: ${{ runner.temp }}/peerspan-acceptance-public/*.json
+          retention-days: 14
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

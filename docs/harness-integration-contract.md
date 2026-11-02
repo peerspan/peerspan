@@ -60,7 +60,7 @@ Every response has `version: 1` and a `checks` array. Checks have `name` (letter
 | --- | --- | --- |
 | `prepare` | `state`: opaque JSON; `files`: filename → UTF-8 content | Check prerequisites and owner-supplied launch arguments, and describe configuration before the core creates an attachment. |
 | `check` | None | Read-only prerequisite/configuration checks; do not connect or consume messages. |
-| `launch` | `launch: {program, args}` | Validate owner-supplied arguments and describe the foreground command. `program` must be absolute; the core validates access and replaces itself with that process in the chosen workspace. |
+| `launch` | `launch: {program, args, terminal?}` | Validate owner-supplied arguments and describe the foreground command. `program` must be absolute; the core validates access and replaces itself with that process in the chosen workspace. `terminal`, a boolean defaulting to false, says this launch cannot work unless stdout is a terminal; `attach` and `up` then refuse without one ([launch contract](launch-contract.md#attach-launches)). Any other type is an invalid launch plan. |
 
 Guided `up` also runs the shipped providers' `prepare` operation in memory before enrollment. It passes the selected launch arguments, saves none of the returned artifacts, and issues no credentials. Providers retain the same prerequisite and argument checks when the actual attachment is prepared.
 

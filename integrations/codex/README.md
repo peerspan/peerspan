@@ -38,10 +38,12 @@ the integration bundles.
 ## Tools and delivery
 
 On attachment, Peerspan registers a uniquely named local MCP server in the
-backend's user configuration and requests a live MCP reload. It preauthorizes
-only the shared Peerspan tools: `list_destinations`, `send`, `send_status`, `reply`,
-and the task tools `task_accept`, `task_reject`, `task_progress`, `task_complete`,
-`task_cancelled`, `delegate_task`, `task_status`, and `artifact_save`. Native configuration
+backend's user configuration and requests a live MCP reload. The entry approves
+the whole Peerspan server (`default_tools_approval_mode`), so every shared Peerspan
+tool runs without a prompt, including `send`, `reply`, the task tools, and the
+conversation tools `list_conversations`, `conversation_start`, `conversation_send`,
+`conversation_history` and `conversation_manage`. Other tools keep their normal
+approvals. Native configuration
 versions protect concurrent edits; shutdown removes its entry if it still matches.
 If cleanup cannot be confirmed, the bridge reports that and owners can inspect
 its `peerspan_SESSION_SUFFIX` entry. A crashed bridge may leave a stale entry;

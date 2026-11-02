@@ -948,7 +948,7 @@ def _():
     applied = operation(f, h, parent, prepared, "apply")
     check(applied["application"] == {**marker, "state": "locally_applied"}, "explicit apply changed exact signed identity/proof")
     result = assert_application(h, prepared, old_action, old_receipt, old_events)
-    check(snapshot(h)[1:] == old_files and records(h)["$schema"] == f["schema"] and records(h)["$version"] == (27,),
+    check(snapshot(h)[1:] == old_files and records(h)["$schema"] == f["schema"] and records(h)["$version"] == (28,),
           "application created schema/key/private file state")
     check(get(h, f"/v2/networks/{f['net']}/members")["members"] == membership, "agent policy application changed network membership")
     entries = [entry for entry in peer_agents(f, f["a"], h) if entry["name"] == name]
@@ -1331,7 +1331,7 @@ def _():
         h.stop(kill=True)
         with closing(sqlite3.connect(database)) as db, db:
             db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, iid))
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (27,), "application continuation changed schema27")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (28,), "application continuation changed schema28")
     print("LIMIT cryptographic_capacity_acceptance: full catalog-closure corruption matrices, fork/quota/overflow, accepted message/task, native/model/installed/physical and full-state-upgrade boundaries are source/manual", flush=True)
 
 

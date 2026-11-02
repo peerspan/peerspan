@@ -660,8 +660,17 @@ pub(crate) async fn approver_worker(
                 let approved_owner = p.record.owner_intent_id != "-"
                     && super::ceremony::owner_intent(&c, &p)
                         .is_ok_and(|intent| intent.record.approved && intent.record.terminal == "-");
+                let approved_administrator = p.record.administrator_intent_id != "-"
+                    && super::intents::Intent::load(&c, &p.record.administrator_intent_id)
+                        .is_ok_and(|intent| {
+                            intent.kind == "administrator"
+                                && intent.record.approved
+                                && intent.record.terminal == "-"
+                        });
                 if p.record.terminal == "-"
-                    && (approved_owner || requester && p.record.commit_packet_base64 == "-")
+                    && (approved_owner
+                        || approved_administrator
+                        || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
                     due.push(id);

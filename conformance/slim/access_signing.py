@@ -1200,7 +1200,7 @@ def _():
             h.stop(kill=True)
             with closing(sqlite3.connect(database)) as db, db:
                 db.execute("UPDATE dec_intents SET record=? WHERE intent_id=?", (original, target))
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (27,), "signature continuation changed schema27")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (28,), "signature continuation changed schema28")
     print("LIMIT output_bounds: no genuine oversized/unsafe frozen section31 receipt or aggregate capacity boundary; no authority/template/seed fabricated", flush=True)
 
 

@@ -1156,7 +1156,7 @@ def _():
     check(not 200 <= status < 300, "nonsigning receipt reached ordinary action signature submission")
     public(denied)
     check(purity_whole_diagnostic(whole(f), before, "nonsigning_route") == before and purity_traffic_diagnostic(traffic(f), counters, "nonsigning_route") == counters, "nonsigning-route refusal mutated metadata, clock, signature or carrier")
-    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (27,), "new access metadata changed schema27 SQL/version")
+    check(records(h)["$schema"] == f["schema"] and records(h)["$version"] == (28,), "new access metadata changed schema28 SQL/version")
     absent = suite.host("absent", start=False)
     shutil.rmtree(absent.state)
     before = files(absent.root)

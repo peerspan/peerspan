@@ -1,0 +1,464 @@
+{
+  "acceptance_pr": "https://github.com/peerspan/peerspan/pull/107",
+  "artifact": {
+    "installed_host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+    "name": "peerspan-0.1.0-gu51-acceptance-linux-amd64-rust.tar.gz",
+    "production_paths": {
+      "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
+      "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
+      "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
+      "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
+      "rust/src": "9373cb19a745da484f2201ea47f5c893467ca73e",
+      "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
+    },
+    "release": {
+      "architecture": "amd64",
+      "implementation": "rust",
+      "node_requirement": ">=22",
+      "os": "linux",
+      "rust_libc": "glibc (builder baseline; rust bundles only)",
+      "source_dirty": false,
+      "source_revision": "390d27c3eddc6bd6399a87b1def1f6e45a7d433f",
+      "version": "0.1.0-gu51-acceptance"
+    },
+    "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
+  },
+  "authenticated_model": {
+    "authentication": "existing first-party Claude sign-in; no credential read or copy",
+    "claude_version": "2.1.303",
+    "log_sha256": "52f496b47615f5af049f0c3f9759acf02f1ecd978782d6f2b3b7d370f615a0e8",
+    "model_selector": "haiku",
+    "passed": true,
+    "plugin_loading": "exact plugin directory from verified archive on resume; marketplace installation proved in separate terminal suite",
+    "runs": [
+      {
+        "actual_model_readiness": true,
+        "actual_model_reply": true,
+        "after_component_reload": true,
+        "context_sha256": "8b4e9daab6cad12d16ff009c4439400c24d421c1673290eaf9ef48e488f04f02",
+        "explicit_stop_and_reconnect": true,
+        "manual_controller_sha256": "a48726ecc45a022cbb40a3269f30d99a038ade9c25564011418210dc1b513a26",
+        "nonce_match": true,
+        "original_native_context": true,
+        "originating_host_retrieved_reply": true,
+        "passed": true,
+        "private_evidence_sha256": {
+          "actual-model.actions.jsonl": "92a6897c0709f0828de4ed91902168b09c41d422a3f0075895847b633f0ec9d8",
+          "actual-model.pty": "c428dc3c337a46d2fd803e502db653592acfde781055ab9eebdfb33023af6b2b",
+          "project-lookup.private.json": "dac3d4ae69f243016529396e599b9d01d332204a94e6cc95acadb4be9546fbe7",
+          "resume-installed-plugin": "641535110daecac0f1e7e6195bacf0b4ba93b7a30d0266809809f5dbbed5e854",
+          "sender-reply.private.json": "f4c6746d0da81b70d869550bdc37bd10efab1de3db77554fcfd906580b674287",
+          "sent.private.json": "09397adda875f87f8869531d2165e0e222665446b1206acf13ac283ea381ab44"
+        },
+        "receiver_session_match": true,
+        "reply_elapsed_from_native_launch_seconds": 39.42,
+        "request_match": true
+      }
+    ]
+  },
+  "ci": {
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41390612009",
+    "installed_receipt_sha256": "542ab875b014158facb25939ecf3616c0d1f07ce178f357ebbbc4e4341a45da6",
+    "observed": "Previous7fb4853:50/51 CI checks passed, including native440 and the complete installed job; Codex review clear. Requester history purity passed but its separate final-guard barrier case returned409 with an unrecorded unexpected code. Renewal13/13 semantics took167seconds and also failed the120second timing gate. First failures retained. Atomic private fixture markers and optimized guarded debug conformance builds now correct identified hazards/configuration; final full-head CI/review and runtime audit still required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41390612019",
+    "required": true,
+    "slim_suites": 45,
+    "source": "7fb4853739beede447481181779c5d4c54e986e1",
+    "tested_merge_source": "654788b2300e9b33abc09e3e8e309b09a9f0b311"
+  },
+  "conformance_execution": {
+    "all45_suite_120second_runtime_audit_required": true,
+    "binaries_sha256": {
+      "peerspan-helper": "6e00592401928d9376ea832f003f5443092396aba141719947e5f82a96db705c",
+      "peerspan-host": "7ae7d92cea7c11a62fa83d54a288228e7ff0a8df7ac95ea7587d92bb9e4249a1",
+      "peerspan-peer-probe": "a6ab1af5f014e2d8ad031b9fe3f9ba495a29c2cd27f7159c020ad08d8574154e"
+    },
+    "build_log_sha256": "029fd039b5efce20641c18be848b8fe3fd12250eba281bde75cf7760c538cc43",
+    "debug_assertions": true,
+    "debug_symbols": false,
+    "incremental": false,
+    "optimization_level": 1,
+    "profile": "dev",
+    "source_tree_unchanged_from_artifact": true
+  },
+  "first_failures": [
+    {
+      "kind": "initial combined runtime failures",
+      "log_sha256": "8234693a6875d257cc2a24384d7aa9cb00d05173570919894b1cfb5e307ecfa2"
+    },
+    {
+      "kind": "administrator scheduling omission",
+      "log_sha256": "fcdc4a6684c4b9c84b8bf52e1cf9e415bf3648c9f3b3b9300c11eb8004bad0d0"
+    },
+    {
+      "kind": "unrelated network affected denial status",
+      "log_sha256": "167b1c03255f33e86b814caee8feeb268cdbfc4100ea81576d72f1f0252d821c"
+    },
+    {
+      "kind": "queued terminal focus navigation",
+      "log_sha256": "e72c5dbb1957e6cb384e3c4a9ceea93fe389b65242262de6ee0996905dbc016e"
+    },
+    {
+      "kind": "underclassified publication observation exception",
+      "log_sha256": "8a7723f57419ddd038815b921e101075552870b752d7887878968b0cb34af2b6"
+    },
+    {
+      "kind": "wrapped pane review observation",
+      "log_sha256": "c0797004e6490292168f7835e24810b9aa030ba39d0ec2b63ed231e9eed1bcb3"
+    },
+    {
+      "kind": "unsupported model tool result shape",
+      "log_sha256": "64957ba9a94ca7108c1a29ad67829ac01b1c50e1804a45dbf7f0913adf6a53ed"
+    },
+    {
+      "kind": "local nine unchanged five-second deadlines",
+      "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832"
+    },
+    {
+      "kind": "redundant admission carrier polling",
+      "log_sha256": "2c4e0eb697d0b2565fa9f5234788d62dd108613c345145ace432530fa945a6a2"
+    },
+    {
+      "kind": "advanced CLI host-key signer selection",
+      "log_sha256": "c9c9d3e0d0a3d61b06343fd6d225522f2dee523e0fbc5eecd6b1ecf4fab1578c"
+    },
+    {
+      "kind": "unclassified original clock denial failure",
+      "log_sha256": "3dcfb4ed3a478c9c4156b22a93c7891558bdfec39c141049394f9035436c5dac"
+    },
+    {
+      "kind": "new fixture assumed ordinary operation from carrier ACK",
+      "log_sha256": "df51cc950ddf586acfaa7fc42e57393b86caaa2c5ef15314833aad9c81bb036e"
+    },
+    {
+      "kind": "new fixture assumed administrator self endpoint",
+      "log_sha256": "de0e690f67ad3f15b255f2f9f778c6694870c63927f4a406c2190b3a5cc69189"
+    },
+    {
+      "kind": "new fixture assumed full review equality across derived signing progress",
+      "log_sha256": "ad4e482500206752eb3b75237e4d3e38ceaa91f926d4f8928bfa237397fdc5f3"
+    },
+    {
+      "kind": "requester history QUIC packet with stopped-peer directory still healthy; call-site attribution unresolved",
+      "log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb"
+    },
+    {
+      "kind": "native validation unchanged5000ms deadline at5022ms on eeb0987; cause unclassified",
+      "log_sha256": "f1bc344719df04d3739231362bc1fad4f0bfdccd43ed8c075e1b3d268e3806e4"
+    },
+    {
+      "kind": "helper-corrected full local native run: different unchanged invitation-preview5000ms deadline at5003ms; cause unclassified",
+      "log_sha256": "595a5d79f49729beef7dbb1b65b699d6d63f309048aab2c7ef6aaa335aa26ad7"
+    },
+    {
+      "kind": "requester pre-application barrier returned409 with unrecorded unexpected code on7fb4853",
+      "log_sha256": "87e4601af5eee05a39af9a0f29634bf7c56c5316fdf1c2b00e83df4f48c1d351"
+    },
+    {
+      "kind": "existing renewal13/13 semantic pass exceeded120second runtime budget at167seconds",
+      "runtime_audit_sha256": "21ba44fea418aa18ff400c4c52ab2e1a3f4eac2e3d54e2b86ef5db37dcecbb77"
+    }
+  ],
+  "installed_terminal": {
+    "cases": 3,
+    "log_sha256": "62e56e77a034dd8ef81db6e48be120430f3bd3391d5e142d16bf2df3ee0964a2",
+    "model_requests": 0,
+    "passed": true,
+    "source_sha256": "a466c90bf78cc48d6a7f1a2d37614b555d32cd5d051d3b606f13b6c8436ad853"
+  },
+  "limitations": [
+    "Two isolated host fixtures on one physical machine; direct loopback TCP/UDP, no helpers/coordinator; arbitrary NAT and separate physical machines not proved.",
+    "Actual model check uses the installed plugin directory on resuming an existing conversation. Marketplace installation and actual terminal controls are a separate no-inference gate.",
+    "Unchanged mod runtime may retain its lease across component reload; explicit Stop/reconnect and fresh model readiness were exercised.",
+    "Actual task model execution, onward delegation and non-Linux installation are outside this message-onboarding acceptance.",
+    "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
+    "Final-head CI and accepted review, then integration into tracking branch and its final checks, remain required; this receipt alone does not authorize merging35."
+  ],
+  "main_baseline": "7d675b6f80304c82e1ad3162b94e5ba305ecdffb",
+  "native": {
+    "ci_cases": 440,
+    "ci_result": "native440/440 passed on7fb4853 with complete exact-source file-isolation receipt; final corrected-head CI remains required",
+    "file_process_isolation": {
+      "all_inputs_byte_exact": true,
+      "audit_sha256": "346429db44e0643c2d0e702a3c66c899536cf89c4ec66e8d20a5e7756d9a78f0",
+      "ci": {
+        "failed": 0,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "38f44912f5518e609160e9c3a1965d25bbaced5a8dd3de5851eba0943bc3f434",
+        "seconds": 172.397,
+        "skipped": 0,
+        "source": "7fb4853739beede447481181779c5d4c54e986e1"
+      },
+      "expected_files": 22,
+      "expected_runtime_cases": 440,
+      "failed_file_retries": 0,
+      "gate_seconds": 600,
+      "individual_deadlines_unchanged": true,
+      "local": {
+        "failed": 0,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "450ec3ec1d9f9e62598deccadc581566a33df955cd82c6f78ab9f4c9c823eeb7",
+        "seconds": 226.86,
+        "skipped": 0,
+        "source": "7fb4853739beede447481181779c5d4c54e986e1"
+      },
+      "runner_source_sha256": "6d7ece22e12fdd51c2e5074c9e96f88f392eaac7a0d62019894ef1145b7f4957",
+      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526"
+    },
+    "local": {
+      "deadline_failures": 9,
+      "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832",
+      "passed": 431
+    },
+    "note": "Local cases hit their unchanged five-second budgets during concurrent work. All440 passed in CI in its separate runner; no deadline or semantic assertion was relaxed.",
+    "observation_correction": {
+      "case_deadline_ms_unchanged": 5000,
+      "cases_unchanged": 440,
+      "full_local_run": {
+        "corrected_case_passed": true,
+        "elapsed_seconds": 84.82,
+        "failed": 1,
+        "failure": "different unchanged invitation-preview5000ms deadline at5003ms; cause unclassified",
+        "log_sha256": "595a5d79f49729beef7dbb1b65b699d6d63f309048aab2c7ef6aaa335aa26ad7",
+        "passed": 439
+      },
+      "independent_audit_sha256": "ba14c603a66642fb16e9e2e6a36f796f06681f9d073dca5861670bcba100216f",
+      "other_files_byte_exact": 21,
+      "product_unchanged": true,
+      "redundant_public_queries_removed": 27,
+      "source_sha256": "3a124c27212e49818cd0119d1214b283ec05ce6aa785e593d8cd05f96b28e249",
+      "variants_unchanged": 9
+    }
+  },
+  "participants": [
+    {
+      "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+      "complete_final_acceptance": false,
+      "daemon_log_sha256": [
+        "29de7671a69cbd3c81bb36b367f3d06f60161bc14792b0b80215543472ae89bc",
+        "565940c9e04034f88d491bdf22c78369110908e7d3d6e9f12711d66910a543e9"
+      ],
+      "evidence": {
+        "adapter_connection": false,
+        "automatic_returns": 2,
+        "distinct_destinations": 2,
+        "distinct_people": 2,
+        "explicit_withdrawals": 1,
+        "guided_access_grants": 1,
+        "host_fixtures": 2,
+        "incoming_acknowledgment": false,
+        "invitations_same_endpoint": 2,
+        "main_applications": 2,
+        "model_receipt": false,
+        "outbound_peer_observation": true,
+        "physical_machines": 0,
+        "receiver_appends": 1,
+        "receiver_denials": 2,
+        "receiver_message_receipt": true,
+        "unavailable_manual_fallback": true
+      },
+      "host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+      "passed": true,
+      "probe_sha256": "f2e2c61f011b6e531a9970dda5f6a5494566c7ab8826e50d58310c10191dbbd6",
+      "required_separate_gates": [
+        "unchanged_negative_suites",
+        "native_terminal",
+        "upgrade",
+        "actual_model_receipt"
+      ],
+      "seconds": 13.321,
+      "source_sha256": {
+        "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+        "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
+        "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+        "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
+      },
+      "suite": "teammate",
+      "suite_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+      "complete_final_acceptance": false,
+      "daemon_log_sha256": [
+        "3d06a0085ba6aed9c23b0a414b52a2ddf275e5a4b3a2f6ff7ce490cd2d193f3b",
+        "f753c9bf0aaebb0c397cab48cd56774b583497011ee3680880ff64fee42b8ce4"
+      ],
+      "evidence": {
+        "adapter_connection": false,
+        "automatic_returns": 1,
+        "binding_scopes": 2,
+        "completion_invocations": 1,
+        "copied_original_keys": 0,
+        "distinct_device_keys": true,
+        "distinct_host_keys": true,
+        "distinct_people": 1,
+        "finite_device_scopes": 7,
+        "host_fixtures": 2,
+        "incoming_acknowledgment": false,
+        "lost_completion_recovered": true,
+        "main_applications": 2,
+        "model_receipt": false,
+        "new_agent_grants": 0,
+        "outbound_peer_observation": true,
+        "physical_machines": 0
+      },
+      "host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+      "passed": true,
+      "probe_sha256": "f2e2c61f011b6e531a9970dda5f6a5494566c7ab8826e50d58310c10191dbbd6",
+      "required_separate_gates": [
+        "unchanged_negative_suites",
+        "native_terminal",
+        "upgrade",
+        "actual_model_receipt"
+      ],
+      "seconds": 12.103,
+      "source_sha256": {
+        "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+        "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
+        "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+        "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
+      },
+      "suite": "machine",
+      "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
+    }
+  ],
+  "recorded_at": "2026-11-02T05:10:32.659342+00:00",
+  "runtime_test_candidate": "acebed964820eb2e9c3a51d2ae91a3fe5d1fab61",
+  "targeted_regressions": {
+    "admission_retained_prefix": {
+      "cases": 1,
+      "log_sha256": "63f3c59a6dd193e8eca5638d77f43a3afacb6b5e9311f4838e698946820f8b37",
+      "passed": true,
+      "seconds": 6,
+      "source_sha256": "7d26e5fd3f00fde7e1a43a7d506eeef4a48e80bdb8a92dd0eeb67728880532c9"
+    },
+    "join_onboarding": {
+      "cases": 14,
+      "log_sha256": "7d18d25c8c358837a3c3b414e6a79436ff9e434f2acf2aa83513577a5cfae72f",
+      "passed": true,
+      "seconds": 65
+    },
+    "machine_requester_consent": {
+      "ci_elapsed_seconds": 99,
+      "ci_job": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612467",
+      "ci_log_sha256": "a598b058139788a7bc729aa22fe7706c7bfcaab8efd37c9f8e738584845dec66",
+      "ci_source": "083c6b954df6a34f783a8597ba6959cbdd8a172a",
+      "local_elapsed_seconds": [
+        125,
+        127
+      ],
+      "log_sha256": [
+        "cbd042493620dc3d3db6fa8e7506c14e8923da9852cd7e7e8e13178e0e25db11",
+        "b2a3b737418b11926492476216a9aaa9ca7e268554900ac256277b7c19b8540f"
+      ],
+      "precondition_preserved_at_dispatch": true,
+      "raw_created_precondition_was_lost_before_rearm": true,
+      "semantic_cases_passed": 6,
+      "source_sha256": "f64122cb83123d400549127bca240565382ea127a527d3d06fed29e741b0f1d5",
+      "two_minute_runtime_gate": "passed on083c6b9; unchanged source must pass on corrected final head"
+    },
+    "owner_onboarding": {
+      "cases": 6,
+      "log_sha256": "195a1eadedbb09e44c86dee9d9ce6bcb212ba1f4c880e8dd6a587b6b12d6bcd1",
+      "passed": true,
+      "seconds": 66
+    },
+    "owner_signing": {
+      "cases": 6,
+      "log_sha256": "298a365b85651898cf36cd9325d79ae1ec4e8ab67fa8d6f71ab157af2061527e",
+      "passed": true,
+      "seconds": 111
+    },
+    "renewal_guarded_debug": {
+      "cases": 13,
+      "log_sha256": "b88215284ca4e8315d48b0bdf083325102196e7fe1c3602a8eef7b2cf334fda7",
+      "original_75second_windows_retained": true,
+      "passed": true,
+      "seconds": 45,
+      "source_sha256": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "suite_120second_budget_met": true
+    },
+    "requester_completion": {
+      "atomic_guarded_debug_local": {
+        "barrier_code": "review_changed",
+        "barrier_http_status": 409,
+        "cases": 6,
+        "history_purity_passed": true,
+        "log_sha256": "5f5e404f944bbbd350962e554f012afc91aa044e34f9f44087c5760c0ef1b3bd",
+        "passed": true,
+        "seconds": 93,
+        "suite_120second_budget_met": true
+      },
+      "atomic_marker_launcher_sha256": "6303a3fef07cc0cdff39710d849559e373bf4fa7fedc6cac7099909e87616338",
+      "cases": 6,
+      "ci_elapsed_seconds": 111,
+      "ci_job_failed": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612381",
+      "ci_log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb",
+      "ci_log_sha256_passed": "8c950bcedd08bf265c1366da620ead2eec1f96bfc4d27bf28206c4bdaab9f448",
+      "ci_passed": true,
+      "ci_source": "eeb098775a415d59f9a691f400a81de18a81a587",
+      "directory_prerequisite_source_sha256": "11f433f5af26b54366ea17af9e802d183a3eb16354464a43f63a8b6f94c5e740",
+      "final_two_minute_runtime_gate": "passed locally with atomic private markers and guarded optimized debug; final CI still required",
+      "first_packet_attribution": "unresolved; receive-only diagnostic matches requester endpoint and stale directory state but does not identify a call site",
+      "frozen_source_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "local_elapsed_seconds": 151,
+      "log_sha256": "d596ae8b2ca381838a19bf8c18542dce651fa31e5cc1d8f1ea7dc8dffaa7dbc2",
+      "precondition": "Existing bounded public directory refresh observes the stopped issuer as error before the strict baseline; no case/assertion/deadline or measured traffic comparison changed.",
+      "semantic_cases_passed": 6
+    }
+  },
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "upgrade": {
+    "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+    "contract": "guided-final-acceptance section1",
+    "elapsed_seconds": 10.04,
+    "histories": {
+      "feature27": {
+        "backup_manifest_sha256": "114e94c5bcb38094c5ad93cb5e96c9f9ff111951e26526c6d0db81021d0d608a",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 27,
+        "pending_review_retained": true,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      },
+      "main24": {
+        "backup_manifest_sha256": "885283a6d1870dac3c0e663794f3f25ec33a74044f427f6f2f7945613d82067d",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 24,
+        "pending_review_retained": false,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      },
+      "old23": {
+        "backup_manifest_sha256": "690480b92890312931e855dd85706c8914d70693f1870c7b6d39eff52ada0748",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 23,
+        "pending_review_retained": false,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      }
+    },
+    "installed_binary_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+    "log_manifest_sha256": "71203593f68cdeb72d13f9c0d6165a275fbbf28c7756d34921639d94984adf16",
+    "old_binary_sha256": {
+      "feature27": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
+      "main24": "dfd8a6343574357bdbdb9008850241e02b3e8891af045400709f652c0d0fb490",
+      "old23": "255e9e9bd0bbe19a0b68884b45dcf7873176ee562f4acd7eabf17ab673ab23ac"
+    },
+    "passed": true,
+    "source_sha256": "bfa463ec58e7d6983bc12b7135fe233d85e0527abfec4f3fd12e4752f6e3e860",
+    "suite": "installed_upgrade"
+  },
+  "version": 1
+}

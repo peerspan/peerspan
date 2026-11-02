@@ -24,6 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
+from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+
 from harness import Adapter, Suite, UnixHTTPConnection, check, create_network, parse_time, rfc3339
 
 suite = Suite("adapter_onboarding", __doc__)
@@ -767,6 +769,7 @@ def _():
           and any(row[2:5] == ("adapter_credentials", "adapter_id", "id") for row in foreign), "schema25 adapter foreign keys")
     legacy = clone_state(source, "legacy24")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        drop_conversations(db)
         db.execute("DROP TABLE onboarding_join_flows")
         db.execute("DROP TABLE onboarding_invitation_flows")
         db.execute("DROP TABLE onboarding_adapter_flows")
@@ -779,9 +782,11 @@ def _():
           and get(legacy, "/v1/sessions/" + attached["review"]["session_id"])["state"] == "detached", "migration resurrected historical attachment")
     legacy.stop()
     migrated = records(legacy)
-    check(migrated["$version"] == (27,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+          "migration did not add all empty schema28 conversation tables")
+    check(migrated["$version"] == (28,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not add empty schema25/26/27 tables")
-    check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows") == without(old, "$schema", "$version"),
+    check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES) == without(old, "$schema", "$version"),
           "schema24 migration changed project/DEC/registry/history records")
     check(migrated["$schema"] == baseline["$schema"], "schema24 migration changed old table definitions")
     for kind, ddl in (("table", "CREATE TABLE onboarding_adapter_flows (marker TEXT)"),
@@ -790,6 +795,7 @@ def _():
                       ("trigger", "CREATE TRIGGER onboarding_adapter_flows AFTER INSERT ON sessions BEGIN SELECT 1; END")):
         collision = clone_state(source, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            drop_conversations(db)
             db.execute("DROP TABLE onboarding_join_flows")
             db.execute("DROP TABLE onboarding_invitation_flows")
             db.execute("DROP TABLE onboarding_adapter_flows")
@@ -823,9 +829,9 @@ def _():
             db.execute("DROP TABLE onboarding_adapter_flows")
             db.execute("CREATE TABLE onboarding_adapter_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future28")
+    future = clone_state(source, "future29")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 28")
+        db.execute("PRAGMA user_version = 29")
     refuse_start(future)
 
 

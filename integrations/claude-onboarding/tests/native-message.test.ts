@@ -241,9 +241,11 @@ function nonce(w: World, at = 0) {
 }
 function resultOf(answer: any): any {
   const value = answer.result
-  if (typeof value === 'string') return JSON.parse(value)
-  if (Array.isArray(value?.content)) return JSON.parse(value.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join(''))
-  return value
+  expect(typeof value, 'successful native tool result uses JSON text').toBe('string')
+  const parsed = JSON.parse(value)
+  expect(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed),
+    'successful native tool JSON is an object').toBe(true)
+  return parsed
 }
 function denied(answer: any) {
   expect(typeof answer?.deny === 'string' || answer?.isError === true, 'controlled native refusal').toBe(true)
@@ -251,7 +253,11 @@ function denied(answer: any) {
   expect(JSON.stringify(answer)).not.toContain('PRIVATE_PROVIDER_ERROR')
   expect(JSON.stringify(answer)).not.toContain('/private/provider-path')
 }
-async function call($: Engine, tool: string, args: any) { return $.tool.call({ tool, ...args }) }
+async function call($: Engine, tool: string, args: any) {
+  const answer = await $.tool.call({ tool, ...args })
+  if (typeof answer?.deny !== 'string' && answer?.isError !== true) resultOf(answer)
+  return answer
+}
 async function connected($: Engine, w: World, savedVerified = false) {
   w.parent = await parentFlow(); w.child = await adapterFlow(w.parent, { state: 'authorized' })
   if (savedVerified) w.child.connection = connection(w.child, w.clock.now(), { ready: true, verified: true })

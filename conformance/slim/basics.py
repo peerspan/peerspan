@@ -7,15 +7,16 @@ docs/host-service-contract.md and docs/launch-contract.md (status).
 
 Not covered here: the installed-bundle smoke test (packaging a release bundle needs a release build and the
 Node integration bundles, several minutes on CI, over this suite's 2-minute budget). Legacy-network
-history compatibility (spec 14.1) has no fixture in this suite.
+history compatibility (spec 14.1) has no fixture in this suite, so `status_v1_same_as_v2` sees no legacy_history entry.
 """
 import json
 import shutil
 import sqlite3
 import subprocess
+import time
 
 from harness import (Suite, attention, check, create_network, invite, join_new_person, join_request, members,
-                     ssh_key, wait_for)
+                     ssh_key, ssh_public_base64, wait_for)
 
 suite = Suite("basics", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -113,6 +114,7 @@ def _():
 def _():
     (net,) = need("net")
     c = suite.host("carol")
+    state["carol"] = c
     request = join_request(c, invite(a, "carol", net)["invitation"], ssh_key(c.root, "carol"))
 
     def waiting():
@@ -121,6 +123,61 @@ def _():
 
     found = wait_for(waiting, timeout=10, message="link_request_waiting on the inviter")
     check(any("link approve" in d or request["request_id"] in d for d in found), f"item detail {found}")
+
+
+def differences(one, other, path="status"):
+    """The paths at which two JSON values differ, for a readable failure."""
+    if isinstance(one, dict) and isinstance(other, dict):
+        return [d for k in sorted(one.keys() | other.keys())
+                for d in differences(one.get(k, "<missing>"), other.get(k, "<missing>"), f"{path}.{k}")]
+    if isinstance(one, list) and isinstance(other, list) and len(one) == len(other):
+        return [d for i, pair in enumerate(zip(one, other)) for d in differences(*pair, f"{path}[{i}]")]
+    return [] if one == other else [f"{path}: v1 {one!r}, v2 {other!r}"]
+
+
+def same_status(host):
+    """/v1/status and /v2/status as one object. No field is dropped: the contract lets the object change as the
+    host's state changes, and names no field that differs by route or by call. A background sync or renewal may
+    land between the two requests, so a difference is retried; a real one between the routes persists and fails."""
+    found = []
+    for _ in range(5):
+        v1_status, v1 = host.api("GET", "/v1/status")
+        v2_status, v2 = host.api("GET", "/v2/status")
+        check(v1_status == 200 and v2_status == 200, f"{host.name}: status answers {v1_status} {v2_status}")
+        found = differences(v1, v2)
+        if not found:
+            return v1
+        time.sleep(1)
+    raise AssertionError(f"{host.name}: /v1/status and /v2/status differ: {found}")
+
+
+@suite.case("status_v1_same_as_v2", "launch Status: the same object; DEC-OWN13")
+def _():
+    net, bert, c, bob_key = need("net", "bert", "carol", "bob_key")
+    status = {h.name: same_status(h) for h in (a, b, c)}  # a joiner still waiting, so with no membership, too
+
+    for host, member in ((a, "alice"), (b, "bob")):
+        got = status[host.name]
+        check(got["host_id"] == host.id, f"{host.name}: host_id {got['host_id']}, want {host.id}")
+        entries = [n for n in got["networks"] if n.get("id") == net]
+        check(len(entries) == 1, f"{host.name}: {len(entries)} entries for the network: {got['networks']}")
+        entry = entries[0]
+        check(entry.get("mode") == "decentralized" and entry.get("name") == "basics", f"{host.name}: entry {entry}")
+        code, view = host.api("GET", f"/v2/networks/{net}")
+        check(code == 200, f"{host.name}: network view: {code} {view}")
+        check(entry.get("member") == member, f"{host.name}: member {entry.get('member')}, want {member}")
+        check(entry.get("person_public_key") and entry["person_public_key"] == view["person_public_key"],
+              f"{host.name}: person_public_key {entry.get('person_public_key')}, want {view['person_public_key']}")
+    check(status["bob"]["networks"][0]["person_public_key"] == ssh_public_base64(bob_key),
+          "bob's entry does not carry bob's person key")
+
+    agents = [x for x in status["bob"]["agents"] if x["id"] == bert.id]
+    check(len(agents) == 1 and agents[0]["name"] == "bert", f"bob's agents: {status['bob']['agents']}")
+    sessions = agents[0]["sessions"]
+    check([s["id"] for s in sessions] == [bert.session_id] and sessions[0]["adapter_id"] == bert.adapter_id,
+          f"bert's sessions: {sessions}")
+    kinds = [item["kind"] for item in status["alice"]["attention"]]  # the waiting request from `link_request_waiting`
+    check("link_request_waiting" in kinds, f"alice's attention: {kinds}")
 
 
 @suite.case("removed_commands", "spec 15: network migrate and network resolve-root are removed")
@@ -183,7 +240,7 @@ def _():
     check(got["request"]["content"] == "after the restart", f"bert got {got['request']}")
 
 
-@suite.case("schema_27_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; 20 item 59")
+@suite.case("schema_28_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; 20 item 59")
 def _():
     path, db = database(a)
     try:
@@ -195,9 +252,11 @@ def _():
         db.close()
     want = {"dec_contexts", "dec_objects", "dec_admissions", "dec_restrictions", "dec_activations", "dec_heads",
             "dec_highwater", "dec_signers", "dec_clock", "dec_intents", "dec_pending", "dec_frames", "dec_operations",
-            "dec_outbox", "dec_contacts", "dec_helpers", "dec_migrations", "onboarding_project_flows", "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows"}
+            "dec_outbox", "dec_contacts", "dec_helpers", "dec_migrations", "onboarding_project_flows", "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows",
+            "conversations", "conversation_messages", "conversation_targets", "conversation_invites",
+            "conversation_roster_outbound", "conversation_notifications", "conversation_reads", "conversation_events"}
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 27, f"{path.name}: schema version {version}, want 27")
+    check(version == 28, f"{path.name}: schema version {version}, want 28")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 
@@ -214,7 +273,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 28")
+    db.execute("PRAGMA user_version = 29")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -223,10 +282,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 28 database")
+    check(code not in (None, 0), "a daemon opened a schema 29 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 28, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 29, "the refused database was changed")
     finally:
         db.close()
 

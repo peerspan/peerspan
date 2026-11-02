@@ -518,7 +518,7 @@ async function readyMessages($, event, next) {
         !await messageCurrent($, active, attempt)) return { deny: 'No current message delivery check.' };
     if (attempt.state === 'ready') {
       if (!await inspectMessageAuthorization($, active, attempt) || !await messageCurrent($, active, attempt, true)) throw new Error('Changed message context');
-      return { result: { ready: true } };
+      return { result: JSON.stringify({ ready: true }) };
     }
     if (attempt.state !== 'waiting') return { deny: 'No current message delivery check.' };
     checking = true;
@@ -530,7 +530,7 @@ async function readyMessages($, event, next) {
     attempt.state = 'ready';
     $.ui.invalidate('ui.render');
     void pollMessages($, active, attempt);
-    return { result: { ready: true } };
+    return { result: JSON.stringify({ ready: true }) };
   } catch {
     if (checking) messageFailure($, active, attempt);
     return { deny: 'Message delivery check unavailable. Retry incoming messages in Peerspan.' };
@@ -584,7 +584,7 @@ async function messageWrite($, event, next, operation) {
     active.messageCounts.seen.add(args.delivery_id);
     if (operation === 'reply') active.messageCounts.replied.add(args.delivery_id);
     $.ui.invalidate('ui.render');
-    return { result };
+    return { result: JSON.stringify(result) };
   } catch { return { deny: 'Message operation unavailable or outcome unknown. No automatic retry was made.' }; }
   finally { attempt.writeBusy = false; }
 }
@@ -700,7 +700,7 @@ async function taskWrite($, event, next, operation) {
     active.taskCounts.observed.add(key);
     active.taskCounts.changes.add(`${key}/${value.last_event}`);
     $.ui.invalidate('ui.render');
-    return { result };
+    return { result: JSON.stringify(result) };
   } catch { return { deny: 'Task operation unavailable or outcome unknown. No automatic retry was made.' }; }
   finally { attempt.writeBusy = false; }
 }
@@ -3471,7 +3471,7 @@ export function register(on, configured = {}) {
     expiration?.cancel();
     check = { state: 'verified' };
     $.ui.invalidate('ui.render');
-    return { result: { state: 'verified' } };
+    return { result: JSON.stringify({ state: 'verified' }) };
   }).catch(() => ({ deny: 'Conversation check unavailable.' }));
   on('tool.call', { tool: 'mcp__peerspan__adapter_ready' }, ($, e, next) => readyMessages($, e, next))
     .catch(() => ({ deny: 'Message delivery check unavailable.' }));

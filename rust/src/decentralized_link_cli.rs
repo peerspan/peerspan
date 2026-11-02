@@ -544,6 +544,11 @@ async fn signatures(
             );
             id = Some(intent);
             let public = text(entry, "public_key")?;
+            // The daemon owns this key and already advances approved host work.
+            // A concurrent batch must not send its host slot to a person's agent.
+            if text(entry, "role")? == "host" && public == host {
+                continue;
+            }
             let provider = &response["review"]["provider"];
             let path = if provider["kind"] == "network_root" {
                 root_key
@@ -602,6 +607,11 @@ async fn signatures(
             batch.push(
                 json!({"slot_id":entry["slot_id"],"role":entry["role"],"signature":signature}),
             );
+        }
+        if batch.is_empty() {
+            // Report the actual pending request; do not infer completion or
+            // repeat consent while the existing worker finishes owned work.
+            return Ok(response);
         }
         let path = format!(
             "{}/signed",

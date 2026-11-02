@@ -25,6 +25,138 @@ pub struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum ConversationCommand {
+    /// Start a conversation with agents (PERSON/AGENT or HOST_ID/AGENT) and
+    /// people (person:LABEL, person:PERSON_ID, or a bare label)
+    Start {
+        #[arg(value_name = "TARGET", required = true, num_args = 1..)]
+        targets: Vec<String>,
+        #[arg(long, value_name = "TEXT")]
+        title: Option<String>,
+        /// Send this as the first message
+        #[arg(long, value_name = "TEXT")]
+        message: Option<String>,
+        /// The first message's ID (cmsg_ and 32 hex digits)
+        #[arg(long, value_name = "ID", requires = "message")]
+        message_id: Option<String>,
+        /// A note the new participants see with their invite
+        #[arg(long, value_name = "TEXT")]
+        note: Option<String>,
+        /// Start as this local agent (name or ID) instead of this host's person
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// The task this conversation is about; shown only, it grants nothing
+        #[arg(long, value_name = "HOST_ID/TASK_ID")]
+        about: Option<String>,
+    },
+    /// Add an agent or a person to a conversation you created
+    Add {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TARGET")]
+        target: String,
+        /// Act as this local agent (name or ID), the conversation's creator
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Remove a participant from a conversation you created
+    Remove {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// A participant ID or label
+        #[arg(value_name = "PARTICIPANT")]
+        participant: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Close a conversation you created; it stays readable
+    Close {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Leave a conversation, or take a local agent out of it
+    Leave {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// The local agent (name or ID) to take out
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+    },
+    /// Send a message as this host's person
+    Say {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Reuse an ID to retry a send without sending twice
+        #[arg(long, value_name = "ID")]
+        message_id: Option<String>,
+        /// Who this is mainly for, by participant ID or label; everyone
+        /// still receives it
+        #[arg(long = "to", value_name = "PARTICIPANT")]
+        to: Vec<String>,
+    },
+    /// Print new messages and changes as they arrive, until interrupted
+    Watch {
+        /// Only this conversation
+        #[arg(value_name = "ID")]
+        id: Option<String>,
+        /// Watch as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+    },
+    /// Mark everything in a conversation as read
+    Read {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Delete this host's copy of a conversation no one here is still in
+    Forget {
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Do not ask first
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Join a conversation you were invited to, on this host
+    Join {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Decline a conversation invite
+    Decline {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Catch up a conversation now: fetch its roster from home, then
+    /// what other participants' hosts sent here that this host lacks
+    Sync {
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show a conversation and its latest messages
+    Show {
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long, value_name = "N", default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+        #[arg(long, value_name = "MESSAGE_ID")]
+        before: Option<String>,
+        /// Read as this local agent (name or ID)
+        #[arg(long = "as", value_name = "AGENT")]
+        as_agent: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// Link or renew this machine without copying an original person key
     Link(crate::link_cli::LinkArgs),
@@ -211,6 +343,21 @@ pub enum Command {
         #[arg(last = true, allow_hyphen_values = true, value_name = "HARNESS_ARGS")]
         harness_args: Vec<String>,
     },
+    /// List conversations of this host's person and agents
+    Conversations {
+        /// Include closed conversations
+        #[arg(long, conflicts_with = "invites")]
+        all: bool,
+        /// List pending invites to conversations
+        #[arg(long)]
+        invites: bool,
+        /// Print the daemon's answer as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start, send in, and show conversations
+    #[command(subcommand)]
+    Conversation(ConversationCommand),
     /// Show the agents you can reach, your own, and who can reach yours
     Agents {
         #[arg(long, value_name = "ID")]
@@ -1582,7 +1729,7 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 20] = [
+pub const MAIN_COMMANDS: [&str; 22] = [
     "status",
     "up",
     "install",
@@ -1594,6 +1741,8 @@ pub const MAIN_COMMANDS: [&str; 20] = [
     "agents",
     "send",
     "task",
+    "conversations",
+    "conversation",
     "allow",
     "deny",
     "block",
@@ -1666,7 +1815,10 @@ fn about(command: &clap::Command, path: &str) -> String {
         .unwrap_or_default()
 }
 fn leaves(command: &clap::Command, prefix: &str, entries: &mut Vec<(String, String)>) {
-    for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
+    for sub in command
+        .get_subcommands()
+        .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+    {
         let path = format!("{prefix}{}", sub.get_name());
         if sub.has_subcommands() {
             // A group that also runs by itself, like `task TARGET TEXT`.
@@ -1805,6 +1957,8 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)
+            | Self::Conversations { .. }
+            | Self::Conversation(_)
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))
@@ -2591,7 +2745,13 @@ mod tests {
                 .iter()
                 .chain(&["grant create", "network group set", "activity", "info"])
         {
-            assert!(advanced.iter().any(|p| p == path), "{path}");
+            // A group the root help names by itself lists its leaves here.
+            assert!(
+                advanced
+                    .iter()
+                    .any(|p| p == path || p.starts_with(&format!("{path} "))),
+                "{path}"
+            );
         }
     }
 

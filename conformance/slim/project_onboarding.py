@@ -23,6 +23,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+
 from harness import (Suite, UnixHTTPConnection, check, create_network, join_new_person,
                      parse_time, ssh_key)
 
@@ -641,6 +643,7 @@ def _():
     check(any(row[2:5] == ("sessions", "session_id", "id") for row in foreign), "flow outcome session foreign key")
     legacy = clone_state(source, "legacy23")
     with closing(sqlite3.connect(db_path(legacy))) as db, db:
+        drop_conversations(db)
         db.execute("DROP TABLE onboarding_join_flows")
         db.execute("DROP TABLE onboarding_invitation_flows")
         db.execute("DROP TABLE onboarding_adapter_flows")
@@ -653,10 +656,12 @@ def _():
     check(get(legacy, "/v1/sessions/" + session["id"])["state"] == "detached", "migration attached historical session")
     legacy.stop()
     migrated = records(legacy)
-    check(migrated["$version"] == (27,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+          "migration did not add all empty schema28 conversation tables")
+    check(migrated["$version"] == (28,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
           and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not create empty schema-24/25/26/27 flow tables")
-    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows")}
+    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES)}
           == {key: value for key, value in old.items() if key not in ("$schema", "$version")},
           "additive migration changed legacy registry/DEC logical records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed existing table definitions")
@@ -665,6 +670,7 @@ def _():
                       ("index", "CREATE INDEX onboarding_project_flows ON sessions(id)")):
         collision = clone_state(source, "collision-" + kind)
         with closing(sqlite3.connect(db_path(collision))) as db, db:
+            drop_conversations(db)
             db.execute("DROP TABLE onboarding_join_flows")
             db.execute("DROP TABLE onboarding_invitation_flows")
             db.execute("DROP TABLE onboarding_adapter_flows")
@@ -696,9 +702,9 @@ def _():
             db.execute("DROP TABLE onboarding_project_flows")
             db.execute("CREATE TABLE onboarding_project_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future28")
+    future = clone_state(source, "future29")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 28")
+        db.execute("PRAGMA user_version = 29")
     refuse_start(future)
 
 

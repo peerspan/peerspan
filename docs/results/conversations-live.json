@@ -1,0 +1,299 @@
+{
+  "checked_at": "2026-10-30T20:50:00+00:00",
+  "source_revision": "6358521991725b35267a478fd6a9b1eed012c759",
+  "pr": 76,
+  "branch": "feat/conversations-c6",
+  "decisions": [
+    "CONV-25",
+    "CONV-27"
+  ],
+  "scope": "One manual run on one machine with two hosts, each with its own state directory. A multi-machine run is still a separate follow-up (CONV-27).",
+  "what_ran": {
+    "hosts": {
+      "A": {
+        "person": "alice",
+        "peer_listen": "127.0.0.1:47101",
+        "bootstrap_listen": "127.0.0.1:47102"
+      },
+      "B": {
+        "person": "bob",
+        "peer_listen": "127.0.0.1:47201",
+        "bootstrap_listen": "127.0.0.1:47202"
+      }
+    },
+    "binary": "debug build of peerspan-host, run in the foreground with --state",
+    "person": "alice on host A, using the CLI (start, say, watch, show, conversations, activity)",
+    "agents": {
+      "bob/claude": {
+        "harness": "Claude Code",
+        "version": "2.1.312 at first launch, 2.1.314 after its own auto-update (see home_changes)",
+        "model": "claude-haiku-5-5"
+      },
+      "bob/codex-b": {
+        "harness": "Codex CLI TUI with a private app-server",
+        "version": "0.160.0",
+        "model": "gpt-5.6-luna, reasoning low"
+      },
+      "bob/opencode-b": {
+        "harness": "OpenCode serve",
+        "version": "1.18.31",
+        "model": "opencode/deepseek-v4.1-flash-free"
+      }
+    },
+    "conversation": "conv_a81b4ff09a098d4eceacbf39790aa85a, title Live run, 4 participants, 12 messages",
+    "person_messages": [
+      {
+        "text": "Each of you, say which agent you are.",
+        "addressed_to": null,
+        "purpose": "start"
+      },
+      {
+        "text": "Only codex-b should answer this.",
+        "addressed_to": "bob/codex-b",
+        "purpose": "addressing"
+      },
+      {
+        "text": "(not recorded)",
+        "addressed_to": null,
+        "purpose": "informational note, sent while Claude Code was stopped"
+      },
+      {
+        "text": "(not recorded)",
+        "addressed_to": null,
+        "purpose": "asked every agent to call conversation_history and report the count, right after /clear in Claude Code"
+      },
+      {
+        "text": "(not recorded)",
+        "addressed_to": null,
+        "purpose": "informational note, sent while the Codex and OpenCode sidecars were stopped"
+      }
+    ]
+  },
+  "checks": {
+    "conversation_event_received": {
+      "result": "pass",
+      "detail": "All three agents received a conversation_roster event, then a conversation event for every message from another participant."
+    },
+    "window_on_first_event": {
+      "result": "pass",
+      "detail": "The session's first message event carried the window. The very first event of a fresh conversation has an empty window, as the contract says, so it was checked on each new session after a restart: claude 'last 5 of 5', codex-b 'last 10 of 10', opencode-b 'last 10 of 11' (the older message was cut off by the 10-message limit and conversation_history had it). Later events in a session had none. Own messages were marked (you)."
+    },
+    "addressed_differs_by_recipient": {
+      "result": "pass",
+      "detail": "For the message sent with --to bob/codex-b, meta.addressed was true for codex-b and false for opencode-b and claude. Claude's own replies were addressed to alice by default, so they were addressed=false for the other agents."
+    },
+    "agents_use_conversation_send": {
+      "result": "pass",
+      "detail": "All replies went through conversation_send: none was left only as plain text where a reply was asked for."
+    },
+    "agents_do_not_answer_everything": {
+      "result": "pass",
+      "detail": "Asked 'Only codex-b should answer this.', only codex-b posted. claude and opencode-b stayed silent and said so locally. Informational notes got no posted reply from anyone. Other agents' messages got no posted reply, with one exception listed under misreadings."
+    },
+    "catch_up_after_restart": {
+      "result": "pass",
+      "detail": "claude after exit and re-attach: a catch_up=true, redelivered=true event with the window, then the message sent while offline as an ordinary catch_up=false event. codex-b after a sidecar restart: the same. opencode-b after a sidecar restart: it had marked everything seen, so no catch-up was owed, and it got the offline message with the window."
+    },
+    "catch_up_after_clear": {
+      "result": "pass",
+      "detail": "Claude Code /clear ran the SessionStart hook; 'session pending --hook' added the conversation with its latest message to the new context. The same Peerspan session continued, so no window was repeated. Claude answered the next request correctly."
+    },
+    "conversation_history": {
+      "result": "pass",
+      "detail": "All three called it and reported 8, 9 and 10 messages. The numbers differ because each call happened after a different number of replies had arrived; each was correct at its moment."
+    },
+    "codex_prompts_for_conversation_tools": {
+      "result": "no prompts",
+      "detail": "Codex ran conversation_send and conversation_history without any approval prompt, in a thread with Read Only (Ask for approval). No approval event is in its rollout. The MCP entry sets default_tools_approval_mode=approve for the whole server, so the README's list of preauthorized tools is narrower than what happens."
+    },
+    "status_doctor_agents": {
+      "result": "pass",
+      "detail": "status showed all three ready, session doctor reported adapter_ready=true with no failed check in each project, and agents --refresh on A showed all three connected."
+    },
+    "conversations_and_activity": {
+      "result": "pass",
+      "detail": "conversations listed the conversation on A. activity showed on A: conversation.created 1, message_sent 5, message_received 7, roster_changed 3. On B: message_sent 7, message_received 5, roster_changed 2. Those were counted before the agents' final local turns; none of those turns posted."
+    },
+    "watch": {
+      "result": "pass",
+      "detail": "conversation watch printed every message, including 'to LABEL' for addressed ones."
+    }
+  },
+  "timings_seconds": {
+    "note": "Approximate. Measured on one loaded machine over loopback, from CLI return or watch timestamps. Reply times include the model's turn.",
+    "start_command": 0.9,
+    "person_message_to_codex_event": {
+      "addressed": "about 1",
+      "source": "Codex rollout timestamps, 1 s resolution"
+    },
+    "first_reply_after_start": {
+      "bob/opencode-b": 3.7,
+      "bob/codex-b": 5.4,
+      "bob/claude": 8.5
+    },
+    "addressed_reply_from_codex": 2.6,
+    "reply_seen_by_watch_on_host_A": "under 0.5"
+  },
+  "misreadings_and_model_behaviour": [
+    {
+      "agent": "bob/claude",
+      "observation": "After a restart it read the earlier 'Only codex-b should answer this.' as covering the whole conversation, saying alice had said only codex-b should answer this thread. It still handled the next message addressed to everyone correctly."
+    },
+    {
+      "agent": "bob/claude",
+      "observation": "After replying with its count, it added a comment on the other agents' differing numbers that nobody asked for. This was the only unrequested post in the run."
+    },
+    {
+      "agent": "bob/claude and bob/codex-b",
+      "observation": "Neither called mark_seen for events it chose not to answer, despite the instruction, so those stayed unseen and came back as catch-up after a restart. opencode-b called mark_seen on every such event, which costs a tool call each time. All of this is allowed by the contract and caused no wrong behaviour."
+    },
+    {
+      "agent": "all",
+      "observation": "Every event starts a model turn even when the agent then does nothing, usually a one-word local reply. A busy conversation costs a turn per agent per message."
+    },
+    {
+      "agent": "bob/codex-b",
+      "observation": "The metadata footer is visible in the Codex TUI, as its README says, and takes up several lines per event."
+    }
+  ],
+  "deviations": [
+    {
+      "command": "up claude --create / up claude --join",
+      "change": "Used run, network create, invite, join, link approve/admit/finalize/commit and attach instead.",
+      "reason": "From reading rust/src/service.rs, ensure_up installs and enables a systemd user unit, and refuses a second state directory once a unit exists. It would have changed the user's services and cannot serve two hosts on one machine. up was not run, so this reading is not confirmed by execution."
+    },
+    {
+      "command": "alice's Claude Code on host A",
+      "change": "Not started; alice took part only as a person through the CLI.",
+      "reason": "Saves quota; the run needs one person and the three agents."
+    },
+    {
+      "command": "attach in one project directory",
+      "change": "Each agent got its own project directory.",
+      "reason": "One project holds one session; a second attach is refused while the first holds its lease (see product_findings)."
+    },
+    {
+      "command": "Codex socket from app-server daemon version",
+      "change": "Ran a private 'codex app-server --listen unix://...' and connected the TUI with --remote, on a socket under /dev/shm.",
+      "reason": "Avoids a live MCP reload on the user's running shared Codex daemon. The MCP entry still went to the user's config.toml, and was removed at exit."
+    },
+    {
+      "command": "Codex /status, then attach",
+      "change": "Sent one model turn first.",
+      "reason": "A thread with no turn cannot be attached (see product_findings)."
+    },
+    {
+      "command": "opencode plugin install",
+      "change": "Plugin set in the project's opencode.json; session created and first message sent through the HTTP API.",
+      "reason": "Leaves global OpenCode configuration alone. 'opencode run --attach' hung for 90 s and was killed, and it created no session; not investigated."
+    },
+    {
+      "command": "attach options",
+      "change": "Added --integrations, --runner, --no-calls, and for OpenCode --option bindings. Claude also got -- --model haiku; XDG_CONFIG_HOME and XDG_STATE_HOME were set per host for Peerspan commands.",
+      "reason": "Source checkout, cheapest model, and keeping Peerspan's profiles and keys out of the real HOME."
+    },
+    {
+      "command": "bob/claude address",
+      "change": "Attached with --name claude after a first attach chose a hostname-suffixed name.",
+      "reason": "See product_findings. The unused first agent stayed offline on host B."
+    }
+  ],
+  "failures_and_not_run": [
+    {
+      "item": "--person-key on network create and the first link admit",
+      "detail": "The first network could not admit bob: 'error: invalid request: no ssh-agent: SSH_AUTH_SOCK is not set', and with --person-key or --signer auto the same; with a test ssh-agent, 'the ssh-agent does not hold that key'. A direct admin call showed two issuer signing requests for the network root key. Recreating the hosts and following the conformance harness's sequence worked. Three later scratch runs (create with and without --person-key, admit by request ID and by --code-stdin) did not reproduce it, so the cause is unknown."
+    },
+    {
+      "item": "up, including the hidden invite prompt and interactive link review",
+      "detail": "Not run, see deviations."
+    },
+    {
+      "item": "link commit",
+      "detail": "Done through the admin API as the conformance harness does, not through the interactive prompt."
+    },
+    {
+      "item": "Compaction and resume in Claude Code; Codex /clear; OpenCode new session",
+      "detail": "Not run. Sidecar restarts were the restart test for Codex and OpenCode."
+    },
+    {
+      "item": "Rate limit, about, forget, read cursor, home_unavailable",
+      "detail": "Not exercised; fixture suites cover them."
+    },
+    {
+      "item": "Multiple machines",
+      "detail": "Not run (CONV-27)."
+    }
+  ],
+  "product_findings": [
+    {
+      "severity": "medium",
+      "title": "Attaching Codex to a thread with no turn fails with a code only",
+      "output": "Codex rejected the request (RPC -32600).",
+      "detail": "thread/read succeeds and session doctor's existing_session check says the selected thread is running, then thread/resume is rejected. After one turn the same command works. The failed attempt leaves a session in state registered. The README mentions a first message only for a missing /status line."
+    },
+    {
+      "severity": "low",
+      "title": "The default agent name carries the machine's hostname",
+      "detail": "Help says the default is claude for claude-code, suffixed when taken. A free name still became claude-HOSTNAME (default_name in rust/src/integration.rs), and it is visible to the network. So the bob/claude address in the run commands needs --name claude. Help or code should change; the owner may want to weigh the hostname exposure."
+    },
+    {
+      "severity": "low",
+      "title": "Codex README's preauthorized list is out of date",
+      "detail": "It lists shared tools by name and omits the conversation tools, while the entry approves the whole server."
+    },
+    {
+      "severity": "low",
+      "title": "mark_seen's argument error omits conversation IDs",
+      "detail": "integrations/shared/adapter.mjs: 'give ids, 1 to 100 delivery, request, task, or call IDs.', while the tool's schema also takes conversation and conversation message IDs. Seen in the source, not triggered in the run."
+    },
+    {
+      "severity": "low",
+      "title": "Refused second attach gives no way forward",
+      "output": "error: the session for PROJECT is already running (adapter ADAPTER has a live lease)",
+      "detail": "It does not mention --directory or that one project holds one session. Anyone attaching several agents from one project hits this."
+    },
+    {
+      "severity": "info",
+      "title": "Claude Code channel banner",
+      "output": "server:peerspan · no MCP server configured with that name",
+      "detail": "Shown at launch though channels worked throughout. It comes from Claude Code, but a user may read it as a failure."
+    }
+  ],
+  "home_changes": [
+    {
+      "path": "Codex config.toml",
+      "change": "mcp_servers.peerspan_SESSION entry added at each attach and removed by the bridge at Ctrl-C.",
+      "restored": "Identical to the backup."
+    },
+    {
+      "path": "Claude Code auto-update",
+      "change": "Launching Claude Code installed 2.1.314 and moved the launcher link from 2.1.312.",
+      "restored": "No. This is Claude Code's own updater and would recur; left in place."
+    },
+    {
+      "path": "Claude Code user state file",
+      "change": "Ordinary counters and caches change whenever Claude Code runs; other sessions were writing to it during the run. The run added no project entry and no MCP server.",
+      "restored": "Not rolled back, since that would discard other sessions' writes."
+    },
+    {
+      "path": "Claude Code transcripts",
+      "change": "Two project transcript directories created.",
+      "restored": "Deleted."
+    },
+    {
+      "path": "OpenCode test session",
+      "change": "One session in OpenCode's store.",
+      "restored": "Deleted through its API."
+    },
+    {
+      "path": "Codex thread",
+      "change": "One rollout file, its thread index rows and two sqlite log stores updated.",
+      "restored": "Not removed; left for the owner, since editing Codex's stores by hand is riskier than one leftover thread."
+    },
+    {
+      "path": "Global OpenCode configuration, Claude Code settings, peerspan and systemd user directories",
+      "change": "None.",
+      "restored": "Checksums or listings match the backups."
+    }
+  ]
+}

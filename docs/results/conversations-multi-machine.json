@@ -1,0 +1,441 @@
+{
+  "checked_at": "2026-10-31T07:55:00+00:00",
+  "source_revision": "9a79b9b2267b8e15c5fabe193491d83f81836da5",
+  "branch": "main",
+  "decisions": [
+    "CONV-25",
+    "CONV-27",
+    "DEC-OWN12"
+  ],
+  "scope": "One manual run with hosts on two real machines over the public internet (machine-1 and machine-2, about 91 ms apart). It follows the one-machine run in conversations-live.json. The Codex CLI and 'peerspan up' were not run, see failures_and_not_run.",
+  "what_ran": {
+    "machines": {
+      "machine-1": {
+        "os": "Linux x86_64",
+        "node": "22 or newer",
+        "role": "host A"
+      },
+      "machine-2": {
+        "os": "Ubuntu Linux x86_64, glibc 2.39, node 22.23.2",
+        "role": "hosts B and C",
+        "rust": "not installed; release binary copied from machine-1 and ran unchanged"
+      }
+    },
+    "hosts": {
+      "A": {
+        "machine": "machine-1",
+        "person": "alice",
+        "peer_listen": "machine-1:47301 (UDP)",
+        "bootstrap_listen": "machine-1:47302 (TCP)"
+      },
+      "B": {
+        "machine": "machine-2",
+        "person": "bob, joined by invite",
+        "peer_listen": "machine-2:47301 (UDP)",
+        "bootstrap_listen": "machine-2:47302 (TCP)"
+      },
+      "C": {
+        "machine": "machine-2",
+        "person": "alice, linked as her second host with no key copied",
+        "peer_listen": "machine-2:47311 (UDP)",
+        "bootstrap_listen": "machine-2:47312 (TCP)"
+      }
+    },
+    "binary": "release build of peerspan-host, run in the foreground with --state",
+    "person": "alice on host A through the CLI (start, say, add, watch, show, conversations, activity). bob also joined as a person from host B, to send from machine-2 without a model turn.",
+    "agents": {
+      "alice/claude": {
+        "host": "A, machine-1",
+        "harness": "Claude Code",
+        "version": "2.1.314",
+        "model": "claude-haiku-5-5",
+        "name_source": "default"
+      },
+      "alice/claude-8e17": {
+        "host": "C, machine-2",
+        "harness": "Claude Code",
+        "version": "2.1.312",
+        "model": "claude-haiku-5-5",
+        "name_source": "default"
+      },
+      "bob/claude": {
+        "host": "B, machine-2",
+        "harness": "Claude Code",
+        "version": "2.1.312",
+        "model": "claude-haiku-5-5",
+        "name_source": "default"
+      },
+      "bob/opencode": {
+        "host": "B, machine-2",
+        "harness": "OpenCode serve",
+        "version": "1.18.35",
+        "model": "opencode/deepseek-v4.1-flash-free",
+        "name_source": "default"
+      }
+    },
+    "conversation": "conv_84d68af25dd9f59087d94aa62e15ac9c, title Multi machine, 6 participants, 20 messages, home host A",
+    "person_messages": [
+      {
+        "author": "alice",
+        "text": "Each of you, say which agent you are.",
+        "addressed_to": null,
+        "purpose": "start"
+      },
+      {
+        "author": "alice",
+        "text": "Only bob/claude should answer this.",
+        "addressed_to": "bob/claude",
+        "purpose": "addressing"
+      },
+      {
+        "author": "bob",
+        "text": "Bob here on the second machine. No reply needed.",
+        "addressed_to": null,
+        "purpose": "person on machine-2 to machine-1"
+      },
+      {
+        "author": "alice",
+        "text": "bob/claude: send one short message addressed to alice/claude saying ping. alice/claude: answer it with pong. Nobody else should post.",
+        "addressed_to": null,
+        "purpose": "agent to agent across machines"
+      },
+      {
+        "author": "alice",
+        "text": "Informational note while alice/claude is away. No reply needed.",
+        "addressed_to": null,
+        "purpose": "sent while alice/claude was stopped"
+      },
+      {
+        "author": "alice",
+        "text": "Each of you: call conversation_history, then post the message count in one short line.",
+        "addressed_to": null,
+        "purpose": "history"
+      },
+      {
+        "author": "alice",
+        "text": "Partition note two while host B is down. No reply needed.",
+        "addressed_to": null,
+        "purpose": "partition"
+      },
+      {
+        "author": "alice",
+        "text": "Partition note three while host B is down. No reply needed.",
+        "addressed_to": null,
+        "purpose": "partition"
+      },
+      {
+        "author": "bob",
+        "text": "Second partition: bob writes while host A is down. No reply needed.",
+        "addressed_to": null,
+        "purpose": "partition, other direction"
+      },
+      {
+        "author": "alice",
+        "text": "Only bob/opencode should answer this: say which agent you are.",
+        "addressed_to": "bob/opencode",
+        "purpose": "OpenCode across machines"
+      }
+    ],
+    "agent_replies": [
+      {
+        "author": "bob/claude",
+        "to": "alice/claude",
+        "text": "ping"
+      },
+      {
+        "author": "alice/claude",
+        "to": "bob/claude",
+        "text": "pong"
+      },
+      {
+        "author": "bob/claude",
+        "to": "alice",
+        "text": "bob/claude: conversation_history shows 12 messages."
+      },
+      {
+        "author": "alice/claude-8e17",
+        "to": "alice",
+        "text": "alice/claude-8e17: conversation_history shows 12 messages."
+      },
+      {
+        "author": "alice/claude",
+        "to": "alice",
+        "text": "alice/claude: conversation_history shows 12 messages in this conversation."
+      },
+      {
+        "author": "bob/opencode",
+        "to": null,
+        "text": "I am bob/opencode."
+      }
+    ]
+  },
+  "network_path": {
+    "path": "direct",
+    "detail": "QUIC over UDP between the machines' public addresses, with TCP for the pairing listener. No transport configuration, rendezvous or relay was configured on any host, so no other path existed. Host C and host B were on one machine; A to B and A to C crossed the internet. Neither firewall blocked either direction. The run didn't try the relay path."
+  },
+  "checks": {
+    "invite_and_join_across_machines": {
+      "result": "pass",
+      "detail": "The invite's request came back to the inviter by itself, through the invite's direct address: link_request_waiting showed on host A within 2 s of join returning, and the psl2 fallback code wasn't needed. join returned exit 1 with 'linking is incomplete; follow the returned next step', as documented for a pending request."
+    },
+    "same_person_link_across_machines": {
+      "result": "pass",
+      "detail": "alice's second host on machine-2 linked with 'link' and 'link approve' and a private code. It has its own host and device keys and the same person key. No private key left machine-1."
+    },
+    "delivery_both_directions": {
+      "result": "pass",
+      "detail": "Every message reached every joined participant on both machines: person to agent and agent to person in both directions, and agent to agent across machines (bob/claude ping, alice/claude pong)."
+    },
+    "addressed_differs_by_recipient": {
+      "result": "pass",
+      "detail": "For the message with --to bob/claude, alice/claude's event had addressed=false and it stayed silent; bob/claude answered. For the unaddressed messages all had addressed=true. For a reply addressed to another participant, the others saw addressed=false."
+    },
+    "window_on_first_event": {
+      "result": "pass",
+      "detail": "The first event of the fresh conversation had no earlier messages, as the contract says. The first message event of each new session carried the window: alice/claude after a restart 'last 10 of 10'; bob/claude after a restart 'last 10 of 17'. Own messages were marked (you). Later events had none."
+    },
+    "catch_up_after_restart": {
+      "result": "pass",
+      "detail": "alice/claude had no unseen messages when stopped and got the message sent while it was away as an ordinary catch_up=false event, with the window. bob/claude had 3 unseen when restarted and got a catch_up=true, redelivered=true, unseen=3 event with the window."
+    },
+    "catch_up_after_clear": {
+      "result": "pass",
+      "detail": "/clear in bob/claude on machine-2 ran the SessionStart hook; 'session pending --hook' added the conversation with unseen=2 and the latest message's preview. It answered the next request correctly."
+    },
+    "conversation_history": {
+      "result": "pass",
+      "detail": "alice/claude on machine-1 and bob/claude and alice/claude-8e17 on machine-2 each called it and reported 12 messages, the same number."
+    },
+    "agents_use_conversation_send": {
+      "result": "pass",
+      "detail": "All posted replies went through conversation_send. No reply was left only as plain text where one was asked for."
+    },
+    "agents_do_not_answer_everything": {
+      "result": "pass",
+      "detail": "Informational notes got no reply from anyone. Asked 'Only bob/claude should answer this.', the other agents stayed silent."
+    },
+    "default_names_across_machines": {
+      "result": "pass",
+      "detail": "Real Claude Code launches, no --name: alice/claude on host A (machine-1), then alice/claude-8e17 on host C (machine-2), the same person's second host; 8e17 is the start of host C's ID. bob/claude on host B: another person's agent keeps the plain name. No host name appears in any name. bob/claude kept its name after a restart. OpenCode's default was bob/opencode. Host C attached seconds after linking and already saw alice/claude, so the suffix was chosen with current data."
+    },
+    "partition_host_b_down": {
+      "result": "pass",
+      "detail": "Host B's daemon stopped with Ctrl-C, nothing else touched. Two messages from alice stayed 'sending' with rising attempts (4 about 38 s after the first was sent) and no error code, while host C got them in about 0.1 s. agents --refresh on A showed 'connected, host error'. After host B restarted, both arrived within 2.4 s. The running Claude Code session reconnected by itself, and adapter_ready was true again. Each message reached bob/claude once, in order, with no duplicate. The watch on B survived the restart."
+    },
+    "partition_host_a_down": {
+      "result": "pass",
+      "detail": "The home host's daemon was stopped and bob sent from host B. Host C got it in 0.09 s, and bob/claude locally at once; alice and alice/claude stayed 'sending'. After host A restarted it arrived within about 1 s, once, after about 15 s of outage. home_unavailable stayed false, which is right: it follows membership, not whether a host is up."
+    },
+    "no_duplicates": {
+      "result": "pass",
+      "detail": "Each conversation message_id appeared once in each Claude Code session's transcripts across restarts, /clear and partitions, apart from the catch-up window's quoted text. conversation show gave 20 distinct messages on hosts A and C, 16 on host B's person view (bob joined after the first 4, and joined people see messages from then on), and 20 for bob/claude."
+    },
+    "opencode_across_machines": {
+      "result": "pass",
+      "detail": "bob/opencode on machine-2 answered an addressed message from alice on machine-1. See product_findings for its first failed send."
+    },
+    "status_doctor_agents": {
+      "result": "pass",
+      "detail": "status showed sessions ready on each host. session doctor reported adapter_ready=true on each host. agents --refresh on A and B showed the others connected. The only attention item was service_not_installed, as the daemons ran in the foreground."
+    },
+    "activity": {
+      "result": "pass",
+      "detail": "Host A: created 1, message_sent 11, message_received 9, roster_changed 6. Host B: message_sent 7, message_received 13, roster_changed 4. Host C: message_sent 2, message_received 18, roster_changed 4."
+    },
+    "real_harness_launch_with_default_name": {
+      "result": "pass",
+      "detail": "Three Claude Code launches used default names through attach: alice/claude, bob/claude and alice/claude-8e17."
+    },
+    "up_on_either_machine": {
+      "result": "not run",
+      "detail": "See failures_and_not_run."
+    }
+  },
+  "timings_seconds": {
+    "note": "Approximate. Both clocks were NTP synchronized but their offset wasn't measured to better than tens of milliseconds, so the small numbers are good to about that. CLI step times include about 1.4 s of SSH setup for each machine-2 command. Reply times include the model's turn.",
+    "round_trip_between_machines_ms": 91,
+    "join_command": 2.9,
+    "invite_request_back_at_inviter": "under 2 after join returned",
+    "new_person_approve_to_linked": 18.9,
+    "same_person_request_to_linked": "about 16, including the commit step",
+    "conversation_start_command": 0.48,
+    "message_sent_to_received_on_the_other_host": {
+      "count": 33,
+      "min": 0.082,
+      "median": 0.109,
+      "max": 0.241,
+      "first_message_to_a_host": 1.57
+    },
+    "first_reply_after_start": {
+      "alice/claude": 7.0,
+      "bob/claude": 7.1,
+      "alice/claude-8e17": 7.3
+    },
+    "note_on_first_reply": "bob/claude first spent a model turn on the roster event; its message event waited 3 s in the queue for that.",
+    "addressed_reply_from_bob_claude": 3.2,
+    "ping_to_pong": 2.1,
+    "addressed_reply_from_bob_opencode": 11.2,
+    "partition_host_b": {
+      "note_two_sent_to_received": 53.6,
+      "note_three_sent_to_received": 22.2,
+      "after_restart": "0.8 and 2.4"
+    },
+    "partition_host_a": {
+      "sent_to_received": 13.1,
+      "after_restart": "about 1"
+    },
+    "daemon_stop_after_ctrl_c": "about 15 on host A, between 2 and 33 on host B"
+  },
+  "misreadings_and_model_behaviour": [
+    {
+      "agent": "bob/claude",
+      "observation": "After a restart with catch-up it reported that it had not done the earlier conversation_history request, though its previous session had. It had only the window, and it asked rather than acting, so this caused no wrong post."
+    },
+    {
+      "agent": "bob/claude",
+      "observation": "Asked 'Only bob/claude should answer this.', with nothing else to answer, it posted an acknowledgement."
+    },
+    {
+      "agent": "bob/claude and alice/claude-8e17",
+      "observation": "Their introductions included the local project path, and alice/claude's included its Peerspan session ID. Nothing asks for these; agents volunteer them to everyone in the conversation."
+    },
+    {
+      "agent": "bob/opencode",
+      "observation": "Its first conversation_send used addressed_to person:alice and failed; it retried with no addressed_to and succeeded. See product_findings."
+    },
+    {
+      "agent": "all",
+      "observation": "Each event still starts a model turn, usually a short local note. Roster events do too."
+    }
+  ],
+  "deviations": [
+    {
+      "command": "up claude --create / --join, and up or attach on the second machine",
+      "change": "Used run, network create, invite, join --invite-stdin, link, link approve, link admit, link finalize, link commit --approve and attach.",
+      "reason": "up installs and starts a systemd user unit and enables lingering (rust/src/service.rs, ensure_up). machine-2 has a live unit of another Peerspan host and is in use, so up couldn't be run there without risking it; on machine-1 it would change the user's services."
+    },
+    {
+      "command": "Second agent for the same person",
+      "change": "A third host, C, on machine-2, for alice's second host, beside bob's host B.",
+      "reason": "The second-machine name needs one person on both machines, and bob stayed a separate person."
+    },
+    {
+      "command": "person",
+      "change": "bob joined as a second person as well as alice.",
+      "reason": "It lets machine-2 send without a model turn, for timing and the second partition."
+    },
+    {
+      "command": "attach options",
+      "change": "Added --integrations, --runner, --no-calls and --option bindings for OpenCode, and -- --model haiku for Claude. XDG_CONFIG_HOME and XDG_STATE_HOME were set per host; DISABLE_AUTOUPDATER=1 for Claude Code.",
+      "reason": "Source build, cheapest model, keeping Peerspan's files out of HOME, and stopping Claude Code from updating itself on an in-use machine."
+    },
+    {
+      "command": "OpenCode",
+      "change": "Plugin set in the project's opencode.json, data and config directories under the run directory, session created and first turn sent through the HTTP API. No sign-in: only a free model.",
+      "reason": "Leaves the user's OpenCode store and configuration alone."
+    }
+  ],
+  "failures_and_not_run": [
+    {
+      "item": "up on either machine",
+      "detail": "Not run, see deviations. Name selection was exercised through attach. Whether up reaches the same code path is from reading the code, not from a run. The hidden invite prompt and interactive link review were therefore also not run; the --approve and stdin forms were."
+    },
+    {
+      "item": "Codex CLI",
+      "detail": "Not run. It is installed with a sign-in file on machine-2, but a thread writes a rollout file and sqlite rows into its store that can't be cleanly removed (conversations-live.json), and isolating it would need a copy of its sign-in, which risks the user's own sessions on that machine. The one-machine run covers Codex."
+    },
+    {
+      "item": "Relay or rendezvous path, NAT",
+      "detail": "Not run. Both machines have public addresses and open ports."
+    },
+    {
+      "item": "Network faults",
+      "detail": "Not run by instruction. Partitions were daemon stops, so a peer's host stops answering at once rather than dropping packets."
+    },
+    {
+      "item": "Compaction and resume in Claude Code; rate limit; about; forget",
+      "detail": "Not exercised."
+    }
+  ],
+  "product_findings": [
+    {
+      "severity": "low",
+      "title": "addressed_to refuses a person: label form that conversation start accepts",
+      "output": "{\"conversation_id\":\"conv_…\",\"code\":\"not_found\",\"error\":\"No such participant in that conversation.\",\"recovery\":null}",
+      "detail": "bob/opencode called conversation_send with addressed_to [\"person:alice\"]. conversation start takes person:LABEL, and the roster names alice '(person)', so the form is a natural guess. The plain 'alice' works, as the Claude agents used it. It costs a retry, and the first retry dropped the addressing."
+    },
+    {
+      "severity": "low",
+      "title": "conversation show refuses without --as on a host that holds only an agent participant",
+      "output": "error: not_participant: This participant is not in that conversation.",
+      "detail": "On host C, 'conversations' lists the conversation, but 'conversation show ID' fails, with no mention of --as; '--as claude-8e17' works. 'conversation watch' there prints only its 'Watching' line and never a message, with no hint why."
+    },
+    {
+      "severity": "low",
+      "title": "watch printed held-back messages out of order after a restart",
+      "output": "07:45:41.300 … 07:45  alice  Partition note three …\n07:45:41.338 … 07:44  alice  Partition note two …",
+      "detail": "On host B after the restart, the later message printed first, as it happened to arrive first. The agent's events came in order. The message times are shown, so the reader can tell. Stamps at line start are the run's own."
+    },
+    {
+      "severity": "low",
+      "title": "Daemon takes up to about 15 s to stop with connected adapters",
+      "detail": "After Ctrl-C, host A kept its listeners for about 15 s. On host B they were still bound 2 s after and gone within about 33 s. It stopped cleanly in both cases. The cause wasn't investigated."
+    },
+    {
+      "severity": "low",
+      "title": "attach with stdout piped launches Claude Code into a failing --print mode",
+      "output": "Error: Input must be provided either through stdin or as a prompt argument when using --print",
+      "detail": "Running 'attach claude ... | tee log' sets the session up, then the harness exits with that line. Nothing tells the user that a terminal is needed. Rerunning attach on a terminal worked."
+    },
+    {
+      "severity": "info",
+      "title": "Claude Code channel banner",
+      "output": "server:peerspan · no MCP server configured with that name",
+      "detail": "Shown again at each launch while channels worked. Already recorded in conversations-live.json."
+    }
+  ],
+  "home_changes": [
+    {
+      "machine": "both",
+      "path": "Claude Code project transcripts, session-env entries, per-project scratch directories",
+      "change": "Created by the runs.",
+      "restored": "Deleted; the project listing matches the backup."
+    },
+    {
+      "machine": "both",
+      "path": "Claude Code prompt history",
+      "change": "The run's /clear and /exit lines were added.",
+      "restored": "Those lines removed; no mention of the run remains."
+    },
+    {
+      "machine": "machine-2",
+      "path": "Claude Code user state file",
+      "change": "Folder trust accepted for two project directories added project entries. Starts also changed counters and caches.",
+      "restored": "Project entries removed; projects and mcpServers match the backup. Not rolled back: startup counters, last release notes seen, a dismissed-prompt time and profile fetch time, since live sessions write the same file and rollback could lose their writes."
+    },
+    {
+      "machine": "machine-1",
+      "path": "Claude Code user state file",
+      "change": "Counters and caches; other sessions were writing too. No project entry was added.",
+      "restored": "Not rolled back, for the same reason. Projects and mcpServers match the backup."
+    },
+    {
+      "machine": "both",
+      "path": "Claude Code rolling backups, plugin and skill sync markers, model catalog and changelog caches",
+      "change": "Ordinary updates when Claude Code starts.",
+      "restored": "Not rolled back."
+    },
+    {
+      "machine": "both",
+      "path": "Claude Code auto-update",
+      "change": "None; DISABLE_AUTOUPDATER=1 was set, and the launcher links are unchanged.",
+      "restored": "Not needed."
+    },
+    {
+      "machine": "both",
+      "path": "Codex config, Claude Code settings, peerspan and systemd user directories, global OpenCode configuration",
+      "change": "None.",
+      "restored": "Diffs and checksums match the backups. One timestamp-only marker on machine-2, the plugin sweep file, differs."
+    }
+  ]
+}

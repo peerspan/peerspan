@@ -2827,7 +2827,7 @@ fn approval_review(record: &Value, name: &str, read_only: &dyn Fn(&str) -> bool)
 /// Writes every character below U+0020, U+007F, and U+0080 to U+009F as
 /// `\u` and four lowercase hex digits, so caller-supplied text carries no
 /// terminal escape sequence.
-fn escaped(text: &str) -> String {
+pub(crate) fn escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if (c as u32) < 0x20 || c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c) {

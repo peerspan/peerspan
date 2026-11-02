@@ -1,7 +1,7 @@
 # Peerspan in an existing Claude conversation
 
 Feature-branch preview for [tracking PR #35](https://github.com/peerspan/peerspan/pull/35).
-Requires Claude Code 2.1.303 or newer in a terminal. This slice provides a
+Requires Claude Code 2.1.303 or newer in a terminal. This preview provides a
 host view, an explicit local conversation check, native human reviews for
 project attachment and scoped adapter credentials, and a local adapter lease.
 Explicit incoming-message and assigned-task paths use scoped native tools.
@@ -11,7 +11,7 @@ with an existing or explicitly created local original identity are available.
 A published request also offers exact new-original owner consent, original-offer
 signing, original finalization and separate requester consent/completion.
 The inviting computer has separate incoming administrator review/consent. Sharing permissions and
-live model acceptance remain later work. Owner actions stay in the human pane;
+live message receipt are covered by the [final acceptance receipt](../../docs/results/guided-final-acceptance.json). Owner actions stay in the human pane;
 no model setup tool is added.
 
 ## Install from a host archive
@@ -37,7 +37,7 @@ it, then `/peerspan`. Installation does not start the host, attach a project or
 verify delivery. Run the host through the ordinary Peerspan setup first. Mods
 must be allowed by your Claude installation and organization policy. Native
 installation is checked separately from actual reload, model receipt and
-cross-machine acceptance; those full-feature gates remain open.
+cross-machine acceptance. See the final receipt for the separate installed, terminal and authenticated model checks and their limitations.
 
 The bundle's marketplace layout follows Claude's
 [local marketplace interface](https://code.claude.com/docs/en/plugin-marketplaces)
@@ -123,8 +123,7 @@ Reveal again retrieves the same code with its original expiry. **Invite another
 person** explicitly starts another choice and review; it does not revoke an
 older exported invitation. Declined, expired or invalidated outcomes similarly
 require an explicit replacement review. An introduction is not admission or
-agent access: the recipient's guided join and each participant's permissions
-are subsequent slices. There is no recipient import control in this preview.
+agent access. Use the separate recipient joining, participant approval and agent-access controls below.
 
 ## Review an invitation you received
 
@@ -146,7 +145,7 @@ This inspection pane is read-only; use the separate **Join a network** action
 for explicit identity choice and request-publication consent.
 Inspection itself creates no person key or request and proves no key
 possession, membership or access.
-This preview has no Join/Approve control. **Inspect another invitation** starts an empty draft.
+This read-only inspection has no Join/Approve control. Use **Join a network** separately. **Inspect another invitation** starts an empty draft.
 Refresh, Back, Close, context changes, reload and expiry discard the volatile
 preview. Re-entry requires pasting privately again. No code is stored in plugin
 files or sent to the model; your terminal or screenshots may retain displayed
@@ -201,7 +200,7 @@ ordinary request. It shows recorded stages, requester selection/final-commit
 consent, and the next participant's task. **Local application recorded** is a
 historical protocol result; current authority, agent access and readiness still
 need separate checks. A pending-delivery observation does not prove arrival.
-Remaining approvals use advanced linking in this preview. Checking progress
+Use the separate original-owner, administrator and requester review controls below for the remaining approvals. Checking progress
 never signs, resumes the protocol, polls a peer, retrieves a code or inventories
 person keys. A failed check clears older progress and preserves publication;
 Check again explicitly. Refresh/navigation discard the progress snapshot.
@@ -279,7 +278,7 @@ retrying or preparing anything. If the snapshot remains unconfirmed, any later
 attempt requires another explicit Sign press; the CLI checks for existing proof
 before using the key again. Leaving or navigation clears local confirmation and
 cannot retract an already-dispatched signature. No signature state is persisted
-by the plugin. Actual terminal signing and installed/model acceptance remain open.
+by the plugin. Installed participant signing is covered by the final receipt; an actual multi-person terminal signing session is not claimed.
 
 ## Review incoming connections
 
@@ -336,8 +335,7 @@ both local owner/finalization controls. Leave is available during signing;
 navigation, Refresh, context loss and reload discard pending callback authority.
 They cannot retract an already dispatched signature or committed submission.
 The native process has a95s bound, separate from the backend's90s asynchronous
-deadline; timeout is not proof that no work committed. Installed, physical-machine
-and actual-model acceptance remain open.
+deadline; timeout is not proof that no work committed. The final receipt distinguishes installed loopback host fixtures, terminal controls and actual-model receipt; separate physical machines were not exercised.
 
 ## Review and complete requester consent
 
@@ -389,10 +387,7 @@ action cancels an initial connection that has not been confirmed. **Stop
 adapter** halts renewal without revoking the credential; the last accepted
 lease expires within 15 seconds, subject to an already sent request completing.
 Ending the conversation, changing the project, losing the terminal surface,
-expiry or a failed renewal stops the runtime. Plugin reload clears it and never
-reconnects automatically. Reopen the project, review its retained outcome and
-press Connect to reuse the original approved instance. Expired, declined or
-invalidated reviews offer **Review a replacement adapter**.
+expiry or a failed renewal stops the runtime. An actual mod runtime restart clears it and never reconnects automatically. On Claude2.1.303, `/reload-plugins --force` can retain an unchanged mod runtime and its lease. For an explicit fresh connection, press **Stop adapter**, reload, reopen the project, then **Review adapter connection**, **Connect adapter** and **Enable incoming messages**. This reuses the original approved instance and requires a fresh model readiness acknowledgment. Expired, declined or invalidated reviews offer **Review a replacement adapter**.
 
 The native Unix transport requires an absolute socket path of at most 103 UTF-8
 bytes. An unsupported path or unavailable host produces a controlled failure.
@@ -601,7 +596,7 @@ review replacement. Leave/reopen after advanced explicit replacement.
 
 Refresh, Leave and Close discard actionable native evidence. Unknown outcomes
 require explicit Check; fixed original windows never restart. The requester-side
-selection/completion and installed two-machine/model acceptance remain open.
+selection/completion controls are described below. The final receipt covers installed two-host fixtures and separate actual-model delivery.
 
 ## Verify
 
@@ -610,9 +605,7 @@ claude plugin validate integrations/claude-onboarding --strict
 claude plugin test integrations/claude-onboarding
 ```
 
-The independent native suite includes415 cases:22 machine-owner cases,12 machine-request cases,16 outbound-connection cases,16 current-status cases,16 access-completion cases,21 access inspection/consent
-cases,20 requester consent/completion cases,20 original-finalization cases,20 incoming administrator cases and the original252 project/adapter/
-message/task/invitation/joining/owner cases. The tests use Claude's actual mod runtime with public API effects
+The independent native suite includes440 cases across22 files, covering project, adapter, message/task, invitation, participant, access, readiness and machine-link controls. The tests use Claude's actual mod runtime with public API effects
 stubbed. They require no sign-in, network or inference. CI pins Claude 2.1.303.
 These fixtures do not satisfy real-model acceptance. On 2.1.303, the actual
 terminal pane, close, `/reload-plugins` and reopening `/peerspan` worked in the
@@ -627,8 +620,7 @@ and explicit reconnect after plugin reload, with one retained authorization.
 It used a temporary single host and no inference. The subsequent [message smoke](../../docs/results/guided-native-message-smoke.json)
 submitted the actual readiness prompt, but the account's weekly usage limit
 refused inference. The host remained unverified and claimed no messages.
-Real-model acknowledgment, message/reply and installed two-machine acceptance
-remain outstanding; deterministic runtime fixtures do not replace those checks.
+Those older receipts retain their original limitations. The final receipt separately records successful authenticated model acknowledgment/message/reply, same-conversation reload and installed two-host acceptance. Deterministic runtime fixtures do not replace those checks.
 Assigned-task receipt, lifecycle calls and cancellation also remain live-model
 acceptance gates. The unchanged quota-refused probe is not repeated for this
 slice, and no live task smoke is claimed. Independent native task fixtures and
@@ -691,5 +683,4 @@ need separate checks. An uncertain action offers pure **Check machine requester
 consent**, without automatically retrying. **Leave machine requester review**
 closes controls and cannot retract dispatched work or revoke consent. Refresh,
 Close, context changes and reload discard frontend evidence; reopen and read
-the retained result. Actual terminal/reload/installed/two-machine/model acceptance
-and the complete feature PR remain open.
+the retained result. The final receipt records terminal/reload, installed two-host and actual-model acceptance separately; it makes no separate physical-machine claim.

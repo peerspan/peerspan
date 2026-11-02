@@ -20,6 +20,8 @@ jobs:
     env:
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_OPT_LEVEL: '1'
+      CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion, guided_machine]
+        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, admission_retained_prefix, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +78,11 @@ jobs:
           elif [ '${{ matrix.suite }}' = 'join_onboarding' ]; then
             python3 conformance/slim/join_onboarding_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'requester_completion' ]; then
-            python3 conformance/slim/requester_completion_prerequisite.py --bin bin
+            python3 conformance/slim/requester_completion_barrier_prerequisite.py --bin bin
+          elif [ '${{ matrix.suite }}' = 'machine_requester_consent' ]; then
+            python3 conformance/slim/machine_requester_consent_prerequisite.py --bin bin
+          elif [ '${{ matrix.suite }}' = 'machine_owner' ]; then
+            python3 conformance/slim/combined_purity_diagnostic.py machine_owner --bin bin
           elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then
             python3 conformance/slim/owner_finalization_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_requester_completion' ]; then

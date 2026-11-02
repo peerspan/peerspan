@@ -41,6 +41,15 @@ const effects = { issue_adapter_credential: true, receive_authorized_work: true,
   grant_network_access: false, directory_access: false, outbound_routes: false, capability_calls: false,
   share_files: false, share_conversation: false }
 
+function resultOf(answer: any): any {
+  const value = answer.result
+  expect(typeof value, 'successful native tool result uses JSON text').toBe('string')
+  const parsed = JSON.parse(value)
+  expect(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed),
+    'successful native tool JSON is an object').toBe(true)
+  return parsed
+}
+
 function canonical(value: any): string {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
   if (value !== null && typeof value === 'object') return '{' + Object.keys(value).sort()
@@ -803,6 +812,7 @@ test('machine-owner controls preserve authorized messages tasks and the separate
   expect(w.prompts).toHaveLength(1)
   const nonce = w.prompts[0].text.match(/\b[0-9a-f]{32}\b/)!; expect(nonce).not.toBe(null)
   const ready = await $.tool.call({ tool: READY, nonce: nonce[0] }); expect(ready.isError ?? false).toBe(false)
+  resultOf(ready)
   await w.clock.settle(); await press(ui, 'Enable incoming tasks'); await w.clock.settle()
   const toolNames = w.tools.map(t => t.name), prompts = clone(w.prompts)
   const count = (path: string) => w.httpCalls.filter(c => c.url.endsWith(path)).length

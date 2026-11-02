@@ -664,8 +664,10 @@ def finalize(host, view, key=None):
     return host.ok_incomplete(*args)
 
 
-def link_machine(owner, machine, network_id, person_public_key, key=None, scopes=None):
-    """`link` on a second machine of the owner's person, approved on the owner's host (spec 8.1, 8.2)."""
+def link_machine(owner, machine, network_id, person_public_key, key=None, scopes=None, admin=None):
+    """`link` on a second machine of the owner's person, approved on the owner's host (spec 8.1, 8.2).
+
+    ADMIN signs the administrator stage when the owner's person is not an administrator (default: the owner)."""
     request = machine.cli("link", "--network", network_id, "--expect-person", person_public_key, timeout=90).json
     check(request and request.get("display_code"), f"{machine.name}: link printed no request code")
     rid, code = request["request_id"], request["display_code"]
@@ -681,10 +683,12 @@ def link_machine(owner, machine, network_id, person_public_key, key=None, scopes
     view = link_view(machine, rid)
     if view["state"] == "needs_administrator":
         # Not folded: the owner's host also signs the administrator stage (root signer by default).
-        owner.ok_incomplete("link", "admit", "--network", network_id, "--owner-offer", view["owner_offer_id"],
-                            "--selection", view["selection_id"], "--person", person_public_key,
-                            "--expect-host-key", view["host_public_key"], "--expect-device-key",
-                            view["device_public_key"], "--code-stdin", "--approve", *signer, input=code + "\n")
+        admitter, admit_signer = (owner, signer) if admin is None else (admin, [])
+        admitter.ok_incomplete("link", "admit", "--network", network_id, "--owner-offer", view["owner_offer_id"],
+                               "--selection", view["selection_id"], "--person", person_public_key,
+                               "--expect-host-key", view["host_public_key"], "--expect-device-key",
+                               view["device_public_key"], "--code-stdin", "--approve", *admit_signer,
+                               input=code + "\n")
         view = pull_until(machine, rid, "administrator_offer_id")
         owner.ok_incomplete("link", "finalize", rid, "--network", network_id, "--context", view["context_id"],
                             "--expect-person", person_public_key, "--expect-host-key", view["host_public_key"],
@@ -726,3 +730,89 @@ def attention(host):
     check(status == 200, f"{host.name}: status: {status} {body}")
     items = body.get("attention") or body.get("needs_attention") or []
     return {(i.get("kind"), i.get("detail") or "") for i in items}, body
+
+
+# Conversations (docs/conversations-contract.md): helpers shared by conversations.py and conversations_people.py.
+
+def refused(result, code, text):
+    """A CLI refusal: exit 1 and `error: CODE: TEXT` on stderr (C1 Errors)."""
+    want = f"error: {code}: {text}"
+    check(result.code == 1 and want in result.stderr,
+          f"`{' '.join(result.args[:3])}`: exit {result.code}, stderr {result.stderr.strip()[-300:]!r}, want {want!r}")
+
+
+def api_error(status, body, http, code, text=None):
+    ok = status == http and isinstance(body, dict) and body.get("code") == code
+    if text is not None:
+        ok = ok and body.get("error") == text
+    check(ok, f"answer {status} {body}, want {http} {code} {text or ''}")
+
+
+def message_id():
+    return "cmsg_" + os.urandom(16).hex()
+
+
+def find_message(view, mid):
+    found = [m for m in view["messages"] if m["message_id"] == mid]
+    check(len(found) == 1, f"message {mid} appears {len(found)} times in {[m['message_id'] for m in view['messages']]}")
+    return found[0]
+
+
+def target_of(message, participant):
+    check(isinstance(message["targets"], list), f"own message {message['message_id']} has targets {message['targets']}")
+    found = [t for t in message["targets"] if t["participant"] == participant]
+    check(len(found) == 1, f"target {participant} in {message['targets']}")
+    return found[0]
+
+
+def peer(sender, receiver, method, path, body=None):
+    """One raw peer request with `peerspan-peer-probe` from SENDER's state; returns (status, body)."""
+    args = [str(sender.suite.probe_bin), "--address", receiver.peer_address, "--alpn", "peerspan-peer/1", "--path", path,
+            "--method", method, "--state", str(sender.state)]
+    if body is not None:
+        args.append("--body-stdin")
+    p = subprocess.run(args, input=json.dumps(body).encode() if body is not None else b"", capture_output=True,
+                       timeout=45)
+    check(p.returncode == 0, f"probe {method} {path}: exit {p.returncode} {p.stderr.decode(errors='replace')[-300:]}")
+    answer = json.loads(p.stdout)
+    return answer["status"], answer["body"]
+
+
+def view_as(host, conv, participant):
+    status, body = host.api("GET", f"/v1/conversations/{conv}?participant={participant}")
+    check(status == 200, f"{host.name}: view of {conv} as {participant}: {status} {body}")
+    return body
+
+
+def departed_of(view):
+    return {d["id"]: d for d in view.get("departed") or []}
+
+
+def wait_view(host, conv, participant, predicate, what, timeout=20):
+    last = {}
+
+    def ok():
+        last["v"] = view_as(host, conv, participant)
+        return last["v"] if predicate(last["v"]) else None
+    try:
+        return wait_for(ok, timeout=timeout, interval=0.5, message=what)
+    except AssertionError:
+        raise AssertionError(f"{host.name}: {what} not seen within {timeout}s; last view {last.get('v')}") from None
+
+
+def show_targets(host, conv, mid, participant, want, as_agent=None, timeout=30):
+    """Poll HOST's message view of MID until its target for PARTICIPANT leaves `sending`."""
+    extra = ("--as", as_agent) if as_agent else ()
+    last = {}
+
+    def settled():
+        view = host.ok("conversation", "show", conv, "--json", "--limit", "100", *extra)
+        t = target_of(find_message(view, mid), participant)
+        last["t"] = t
+        return t if t["state"] != "sending" else None
+    try:
+        t = wait_for(settled, timeout=timeout, interval=0.5, message=f"{mid} target {participant}")
+    except AssertionError:
+        raise AssertionError(f"target of {mid} for {participant} still {last.get('t')}, want {want}") from None
+    check(t["state"] == want, f"target of {mid} for {participant}: {t}, want {want}")
+    return t
