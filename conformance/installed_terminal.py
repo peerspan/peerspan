@@ -254,6 +254,7 @@ class Terminal:
         trace_started = time.monotonic()
         trace_last, trace_count = None, 0
         text, lower = '', ''
+        stable_view, stable_since = None, None
         prompts = (
             ('style', ('text style', 'choose the text style', 'choose a theme'), None),
             ('key', ('custom api key', 'use this api key'), '\x1b[A'),
@@ -286,10 +287,18 @@ class Terminal:
         while time.monotonic() < until:
             text = self.text()
             lower = text.lower()
+            now = time.monotonic()
+            view = (tuple(name for name, phrases, _ in prompts
+                          if any(phrase in lower for phrase in phrases)), selected_yes(text))
+            if view != stable_view:
+                stable_view, stable_since = view, now
+            # Cold-start native dialogs can briefly render a selection before
+            # settling. Pace only these public setup answers, inside the same30s.
+            settled = now - stable_since >= .250
             trace()
             if active is not None:
                 name, phrases, phase = active
-                if phase == 'select' and selected_yes(text):
+                if phase == 'select' and name in view[0] and selected_yes(text) and settled:
                     # Selection must be rendered before Enter is a separate event.
                     trace('send', 'confirm')
                     self.send('\r')
@@ -301,6 +310,8 @@ class Terminal:
             else:
                 for name, phrases, arrow in prompts:
                     if name not in answered and any(phrase in lower for phrase in phrases):
+                        if not settled:
+                            break
                         if arrow is not None and not selected_yes(text):
                             trace('send', 'arrow_up' if arrow == '\x1b[A' else 'arrow_down')
                             self.send(arrow)
