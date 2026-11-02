@@ -13,6 +13,7 @@ from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
+import re
 import select as socket_select
 import signal
 import socket
@@ -23,8 +24,44 @@ import threading
 import time
 from datetime import timedelta
 
-from harness import Clock, Failure, Suite, check, create_network, link_view, pull_until, select, ssh_key, ssh_public_base64, wait_for
+from harness import Clock, Failure, Suite, check, create_network, link_view, parse_time, pull_until, select, ssh_key, ssh_public_base64, wait_for
 import owner_publication_prerequisite as publication
+
+
+DERIVED_REVIEW_FIELDS = ('administrator_offer_id', 'person_lease_id', 'host_lease_id')
+STATIC_REVIEW_FIELDS = tuple('stage network_id context_id person_id person_public_key host_public_key '
+    'device_public_key root_state_id provider owner_offer_id selection_id binding_lease_id '
+    'device_lease_id scopes not_after authority_warning'.split())
+FIXED_INTENT_FIELDS = tuple('provider root_state_id person_public_key host_public_key device_public_key '
+                           'scopes not_after created_at expires_at'.split())
+ERROR_CODES = frozenset('invalid forbidden authority_expired device_revoked not_yet_valid '
+    'authority_would_be_invalidated not_found proof_required state_conflict operation_conflict '
+    'version_exhausted quota_exceeded clock_rollback review_required signer_unavailable '
+    'recovery_required expired upgrade_required rate_limited internal transport_unavailable'.split())
+
+
+def approved_review(status, preview, decision):
+    before = preview.get('review') if type(preview) is dict else None
+    after = decision.get('review') if type(decision) is dict else None
+    fields = set(STATIC_REVIEW_FIELDS) | set(DERIVED_REVIEW_FIELDS)
+    shape = type(before) is dict and type(after) is dict and set(before) == set(after) == fields
+    mismatches = [field for field in STATIC_REVIEW_FIELDS if not shape or before[field] != after[field]]
+    progress = {}
+    for field in DERIVED_REVIEW_FIELDS:
+        old, new = (before[field], after[field]) if shape else (None, None)
+        prefix = 'dpk_' if field == 'administrator_offer_id' else 'ds_'
+        filled = old == '-' and type(new) is str and re.fullmatch(prefix + r'[0-9a-f]{64}', new) is not None
+        progress[field] = {'unchanged': shape and old == new, 'filled_from_unresolved': filled}
+    code = decision.get('code') if type(decision) is dict else None
+    print('admission_prefix_approval_public=' + json.dumps({
+        'http_status': status if type(status) is int and 100 <= status <= 599 else 'unknown',
+        'refused': status != 200, 'error_code': code if type(code) is str and code in ERROR_CODES else 'none_or_unknown',
+        'review_shape_matches': shape, 'static_changed_fields': mismatches,
+        'derived_progress': progress}, sort_keys=True), flush=True)
+    check(status == 200, 'explicit unavailable-carrier approval refused exact terms')
+    check(shape and not mismatches and all(value['unchanged'] or value['filled_from_unresolved']
+          for value in progress.values()), 'explicit approval changed static review terms or replaced resolved IDs')
+    return after
 
 
 def helpers(suite):
@@ -67,13 +104,14 @@ def verify_ed25519(suite, key, signature, message, label):
     check(result.returncode == 0, 'independent signed-result Ed25519 verification failed')
 
 
-def verify_lease(suite, envelope, kind, network, view, person, label):
+def verify_lease(suite, envelope, kind, network, view, person, label, maximum_not_after):
     check(type(envelope) is dict and envelope['format'] == 1 and envelope['kind'] == kind
           and envelope['context_id'] == network['context_id'], 'admission grant envelope changed kind/context')
     payload = base64.b64decode(envelope['payload_base64'], validate=True)
     body = json.loads(payload)
     check(body['root_state_id'] == network['root_state_id'] and body['operation_id'] == view['request_id']
           and body['issuer']['kind'] == 'root', 'admission grant changed exact root/request/issuer')
+    check(parse_time(body['not_after']) <= parse_time(maximum_not_after), 'signed admission grant extended reviewed lifetime')
     subject = body['subject']
     check(subject['scopes'] == 0, 'administrator person/host grant widened scopes')
     check(subject['person_public_key'] == (person if kind == 'person_lease' else '-')
@@ -88,6 +126,7 @@ def verify_lease(suite, envelope, kind, network, view, person, label):
           and signatures[0]['format'] == 'ed25519', 'admission grant changed root signature role/key')
     message = '\n'.join(('peerspan-decentralized-signature-v1', statement, 'issuer', network['root_public_key'])).encode()
     verify_ed25519(suite, network['root_public_key'], signatures[0]['signature'], message, label)
+    return statement
 
 
 def run_case(suite, ns):
@@ -212,11 +251,15 @@ def run_case(suite, ns):
         status, preview = issuer.api('POST', '/v2/link/admissions', body)
         check(status == 200 and counts() == before, 'exact retained unapproved preview polled unavailable carriers')
         check(preview['review'] == live_preview['review'], 'unavailable-carrier preview changed exact administrator terms')
+        unapproved, _ = ns['pending'](issuer, rid)
+        fixed_intent = ns['intent'](issuer, unapproved['administrator_intent_id'])['record']
         status, decision = issuer.api('POST', '/v2/link/admissions', {**body, 'approve': True})
-        check(status == 200 and decision['review'] == preview['review'], 'explicit unavailable-carrier approval changed/refused exact terms')
+        review = approved_review(status, preview, decision)
         rec, _ = ns['pending'](issuer, rid)
         admin_intent = ns['intent'](issuer, rec['administrator_intent_id'])['record']
         check(admin_intent['approved'] is True, 'exact explicit administrator approval was not retained')
+        check(all(admin_intent[field] == fixed_intent[field] for field in FIXED_INTENT_FIELDS),
+              'approval changed fixed provider/root/target/scopes/lifetime or intent deadline')
         def signed():
             record, _ = ns['pending'](issuer, rid)
             return record if record.get('administrator_packet_base64', '-') not in ('', '-') else None
@@ -234,8 +277,12 @@ def run_case(suite, ns):
         payload = json.loads(base64.b64decode(packet['payload_base64'], validate=True))
         check(payload['owner_offer_id'] == body['owner_offer_id'] and payload['selection_id'] == body['selection_id']
               and payload['root_state_id'] == network['root_state_id'], 'signed administrator packet substituted the exact retained prefix')
-        verify_lease(suite, payload['person_lease'], 'person_lease', network, view, person, 'person-lease')
-        verify_lease(suite, payload['host_lease'], 'host_lease', network, view, person, 'host-lease')
+        person_id = verify_lease(suite, payload['person_lease'], 'person_lease', network, view, person, 'person-lease', review['not_after'])
+        host_id = verify_lease(suite, payload['host_lease'], 'host_lease', network, view, person, 'host-lease', review['not_after'])
+        derived_ids = {'administrator_offer_id': record['administrator_offer_id'],
+                       'person_lease_id': person_id, 'host_lease_id': host_id}
+        check(all(response['review'][field] in ('-', expected) for response in (preview, decision)
+                  for field, expected in derived_ids.items()), 'review derived IDs do not match actual signed packet/grants')
         check(all(record[field] == value for field, value in prefix.items()), 'approval/signing changed retained O/S bytes')
         print('admission_retained_prefix_public=' + json.dumps({'missing_bytes_refused': True,
             'wrong_ids_refused': True, 'exact_preview_carrier_changes': False,
