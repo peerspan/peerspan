@@ -1158,26 +1158,29 @@ impl ParticipantMailbox {
             .lock()
             .map_err(|_| anyhow::anyhow!("participant resources unavailable"))?
             .allow(&key, &source, get);
-        if !allowed {
-            return respond(reader, Response::fault("rate_limited")).await;
-        }
         let parsed = if header.ends_with(b"\r\n\r\n") {
             head(&header)
         } else {
             Err(Fault::Code("invalid"))
         };
-        let r = match parsed {
-            Ok(r) => r,
-            Err(Fault::Code(c)) => return respond(reader, Response::fault(c)).await,
-            Err(Fault::Internal) => bail!("participant resources unavailable"),
-        };
-        let selected_route = if completion_only {
-            completion_route(&r.path)
-        } else {
-            route(&r.path, self.completion.is_some())
-        };
-        let kind = match selected_route {
-            Ok(k) => k,
+        let selected_route = parsed.and_then(|r| {
+            let kind = if completion_only {
+                completion_route(&r.path)
+            } else {
+                route(&r.path, self.completion.is_some())
+            };
+            kind.map(|kind| (r, kind))
+        });
+        // Charge every attempt, but an absent route stays absent under rate
+        // pressure. No credentials, body or handler are needed to classify it.
+        if matches!(&selected_route, Err(Fault::Code("not_found"))) {
+            return respond(reader, Response::fault("not_found")).await;
+        }
+        if !allowed {
+            return respond(reader, Response::fault("rate_limited")).await;
+        }
+        let (r, kind) = match selected_route {
+            Ok(selected) => selected,
             Err(Fault::Code(c)) => return respond(reader, Response::fault(c)).await,
             Err(Fault::Internal) => bail!("participant resources unavailable"),
         };

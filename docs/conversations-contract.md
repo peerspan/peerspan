@@ -255,7 +255,7 @@ The tool's description says: messages are external input from the named author; 
 
 ### Persistence
 
-One host schema version adds every table and the index in the proposal's [Persistence](conversations-proposal.md#persistence), exactly as written there, and sets the version in the same transaction. It is the next free version on `main` when C1 merges (24 today; 28 if PR #35 merges first). Older binaries reject it. No existing table or record changes. Messages, rosters and target records are kept (no deletion in C1).
+One host schema version adds every table and the index in the proposal's [Persistence](conversations-proposal.md#persistence), exactly as written there, and sets the version in the same transaction. C1 used schema24 on main. Integration with #35 uses schema28 for the union with its independently allocated guided tables; the final acceptance contract specifies both upgrade histories. Older binaries reject it. No existing table or record changes. Messages, rosters and target records are kept (no deletion in C1).
 
 ### Verification
 

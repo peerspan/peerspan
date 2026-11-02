@@ -501,6 +501,7 @@ async fn point_to_as(local: &Local<'_>, id: &str, error: anyhow::Error) -> anyho
             error.message
         ),
         code: error.code,
+        retry_after: error.retry_after,
     }
     .into()
 }

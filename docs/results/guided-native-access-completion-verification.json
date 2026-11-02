@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "scope": "Native explicit Finish composes exact approved signing/application with pure Check recovery. Historical local evidence is not current permission, peer delivery, readiness or model receipt.",
+  "status": "Strict validation passes. First local full suite347/349 in63.71s: all333 unchanged cases and14/16 new cases pass, two new cases reach default5s without semantic mismatch. Final exact-head all28 CI/four PR checks/fresh bot and root review will be recorded on the slice/tracking PR after this evidence commit. No unchanged local retry or increased deadline.",
+  "base": "a0ea55dc57f81881badf9b81cc0cf28538db29aa",
+  "contract_first": "7f26ffe8e6971a1fc8329d2c346a9f526661c448",
+  "contract_clarification": "325509e",
+  "initial_frontend": "d6b36c546707d3d049bd5adcef19c19f870e96a3",
+  "pre_execution_source_review_correction": "0b5c622: preserve prior public owner/participant/agent/baseline terms, review creation/hash and broader-permission disclosures in historical completion; no action change.",
+  "verified_local_source": "6a639b42b711ca5101219b3e861c01083e590b21",
+  "source_sha256": {
+    "integrations/claude-onboarding/hooks/register.mjs": "61ddb630198d6727c6f58010266efbb061013dbc347ecaaa0601d9b04aaf40f4",
+    "integrations/claude-onboarding/hooks/access-completion.mjs": "55c26521f9c57fd6c021e58c8c1ff6e5ff1c4f96ba8ec47cf52f68cb11eaf846",
+    "integrations/claude-onboarding/tests/access-completion.test.ts": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0"
+  },
+  "rust_unchanged_tree": "9805516cd82dcb33736983852055ccf6199fa5c1",
+  "required_local_rust_gates_reused": "Unchanged merged82/80 Rust4842404 tree:155passed/2ignored,fmt/Clippy/shipped binaries. No Rust/API/schema/protocol/host test changed. Final required CI executes every Rust gate again.",
+  "required_native_runtime": "Claude Code2.1.303",
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-native-access-completion-conformance",
+    "source": "96c15f6fe030fb9740871c3020966180eae2d148",
+    "integration": "6a639b42b711ca5101219b3e861c01083e590b21",
+    "cases": 16,
+    "declaration": "Contract/independent-test source only; no hooks/Rust/product reads, runtime/build/process/network/inference. Committed before root execution. Root reviewed source and runs runtime serially. All actual delays signal dispatch plus virtual sleep registration; no timeout override.",
+    "clarification": "Existing section35 may retain late valid signature history; elapsed post-sign result may instead show fixed unknown with Check. Always no fresh Apply/no Finish after expiry."
+  },
+  "local_runs": [
+    {
+      "gate": "strict_native_validation",
+      "head": "d6b36c546707d3d049bd5adcef19c19f870e96a3",
+      "exit": 0,
+      "seconds": 0.85,
+      "log": "/dev/shm/gu35/native-validation-first.log",
+      "log_sha256": "5d1e012935c5cbfb8d97d1356d952090ea1d800f8404c8a1156494aae19d7659"
+    },
+    {
+      "gate": "native-validation-integrated",
+      "head": "6a639b42b711ca5101219b3e861c01083e590b21",
+      "exit": 0,
+      "seconds": 0.67,
+      "log": "/dev/shm/gu35/native-validation-integrated.log",
+      "log_sha256": "5d1e012935c5cbfb8d97d1356d952090ea1d800f8404c8a1156494aae19d7659",
+      "preflight": "No cargo/rustc activity; original46 test files byte-identical and unchanged Rust tree9805516."
+    },
+    {
+      "gate": "native-combined-first",
+      "head": "6a639b42b711ca5101219b3e861c01083e590b21",
+      "exit": 1,
+      "seconds": 63.71,
+      "log": "/dev/shm/gu35/native-combined-first.log",
+      "log_sha256": "5f21107270cbe119549363eba622ffd67fdd9ee3e67fcffcd6265afa8556030a",
+      "preflight": "No cargo/rustc activity; original46 test files byte-identical and unchanged Rust tree9805516."
+    }
+  ],
+  "first_run_observations": {
+    "result": "347pass/2fail of349 in17files,63.53s runtime /63.71s wall",
+    "unchanged_cases": "333/333 pass",
+    "new_cases": "14/16 pass",
+    "failures": [
+      "closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing: default5s timeout5009.72ms",
+      "late preflight signer application and old timers cannot resurrect a departed or newer selected completion view: default5s timeout5011.68ms"
+    ],
+    "semantic_mismatch_reported": false,
+    "environment": "No Cargo/rustc at preflight or progress check. Host load16.65/9.21/6.85 observed. Timeout cause unclassified; no assertion of environmental causation. No local unchanged retry, test change or deadline increase."
+  },
+  "preservation": {
+    "base": "a0ea55dc57f81881badf9b81cc0cf28538db29aa",
+    "old_host_helper_native_test_files_byte_identical": 46,
+    "all333_existing_native_and_all28_host_suites_unchanged": true,
+    "only_new_native_test_file": "integrations/claude-onboarding/tests/access-completion.test.ts"
+  },
+  "limits": [
+    "Frontend fixtures validate closed public projections/effects; daemon crypto/evaluator/storage/protocol behavior stays in unchanged host evidence.",
+    "Historical signing/application do not identify the interface that performed work or prove current permission, peer delivery, readiness or actual model receipt.",
+    "Obsolete rendered closures and microscopic final dispatch races stay source/manual where pinned public kit cannot deliver them.",
+    "Actual terminal/reload/installed/physical/model/schema23-to27/full-state/observed-readiness/final feature acceptance remain open. Earlier quota-refused model probes not repeated.",
+    "Earlier PR79/80/82 UDP/contact/history callers remain unclassified; subsequent passes do not retroactively identify them.",
+    "Two new default5s local timeouts remain retained and unclassified; final CI is a separate required exact-head gate."
+  ],
+  "merge_policy": "Leave this slice and tracking35 unmerged for owner review."
+}

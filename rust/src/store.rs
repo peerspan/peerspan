@@ -174,10 +174,33 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=24).contains(&version) {
+        if !(0..=28).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
+        // Main and the guided feature each used schema24 before integration.
+        // Only the two actual histories are accepted; missing required tables
+        // at a later version remain corruption, not a reason to recreate them.
+        let main_conversations = version == 24
+            && tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='conversations') AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='onboarding_project_flows')",
+                [], |row| row.get::<_, bool>(0),
+            )?;
+        if version < 28 && !main_conversations {
+            crate::conversations::check_namespace(&tx)?;
+        }
+        if version < 27 || main_conversations {
+            crate::onboarding_join::check_namespace(&tx)?;
+        }
+        if version < 26 || main_conversations {
+            crate::onboarding_invitation::check_namespace(&tx)?;
+        }
+        if version < 25 || main_conversations {
+            crate::onboarding_adapter::check_namespace(&tx)?;
+        }
+        if version < 24 || main_conversations {
+            crate::onboarding::check_namespace(&tx)?;
+        }
         if version < 23 {
             crate::decentralized::storage::check_migration_namespace(&tx)?;
         }
@@ -250,10 +273,28 @@ impl Store {
         if version < 23 {
             tx.execute_batch(crate::decentralized::storage::SCHEMA)?;
         }
-        if version < 24 {
+        if version < 24 || main_conversations {
+            tx.execute_batch(crate::onboarding::SCHEMA)?;
+        }
+        if version < 25 || main_conversations {
+            tx.execute_batch(crate::onboarding_adapter::SCHEMA)?;
+        }
+        if version < 26 || main_conversations {
+            tx.execute_batch(crate::onboarding_invitation::SCHEMA)?;
+        }
+        if version < 27 {
+            tx.execute_batch(crate::onboarding_join::SCHEMA)?;
+        }
+        if version < 28 && !main_conversations {
             tx.execute_batch(crate::conversations::SCHEMA)?;
         }
+        crate::conversations::check_schema(&tx)?;
+        crate::onboarding_join::check_schema(&tx)?;
+        crate::onboarding::check_schema(&tx)?;
+        crate::onboarding_adapter::check_schema(&tx)?;
+        crate::onboarding_invitation::check_schema(&tx)?;
         crate::decentralized::storage::check_schema(&tx)?;
+        tx.execute_batch("PRAGMA user_version = 28;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")

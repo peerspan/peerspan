@@ -683,6 +683,19 @@ fn signed_request(
     Ok((id, packet))
 }
 pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
+    let mut c = store.connection().map_err(|_| Error::new("internal"))?;
+    let tx = c.transaction().map_err(db)?;
+    let result = create_in(store, &tx, input)?;
+    tx.commit().map_err(db)?;
+    drop(c);
+    if result.0 == 201 {
+        let v = parse(&result.1, MAX_OBJECT)?;
+        after_create_commit(store, text(object(&v)?, "request_id")?)?;
+    }
+    Ok(result)
+}
+/// Shared protocol operation; the caller commits its exact consent atomically.
+pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(u16, Vec<u8>)> {
     fields(
         input,
         "mode network_id person_public_key migration_proposal_id contact_invitation helpers",
@@ -698,8 +711,6 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     check(person == "-" || key(&person))?;
     let mut helpers =
         bootstrap::helpers(input.get("helpers").ok_or_else(|| Error::new("invalid"))?)?;
-    let mut c = store.connection().map_err(|_| Error::new("internal"))?;
-    let tx = c.transaction().map_err(db)?;
     let mut now = controls::local_decision_time()?;
     let mut context = empty();
     let mut descriptor = empty();
@@ -716,7 +727,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     // In-place migration is removed (DEC-OWN3).
     require(migration == "-", "not_found")?;
     if present {
-        let s = Snapshot::load(&tx, &network, &store.identity().public_key)?;
+        let s = Snapshot::load(tx, &network, &store.identity().public_key)?;
         let p = s.project(&now)?;
         now = p.decision_time.clone();
         context = s.descriptor.context_id();
@@ -811,7 +822,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         helpers.dedup();
         bootstrap::helpers(&Value::Array(helpers.clone()))?;
     }
-    cleanup(&tx, &now)?;
+    cleanup(tx, &now)?;
     let mut carrier_endpoints = helpers
         .iter()
         .map(|h| json!({"kind":"helper","address":h["address"],"public_key":h["public_key"]}))
@@ -820,8 +831,8 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         .as_ref()
         .map(|i| encode(&i.body))
         .unwrap_or_else(empty);
-    for id in ids_in(&tx)? {
-        let p = load(&tx, &id)?;
+    for id in ids_in(tx)? {
+        let p = load(tx, &id)?;
         let r = &p.record;
         if r.roles.iter().any(|r| r == "requester")
             && r.terminal == "-"
@@ -841,14 +852,13 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
             )?;
             let mut view = p.view(&now)?;
             let code = p
-                .code(&tx, &now)?
+                .code(tx, &now)?
                 .ok_or_else(|| Error::new("recovery_required"))?;
             view["display_code"] = Value::from(code);
-            tx.commit().map_err(db)?;
             return Ok((200, bytes(&view)?));
         }
     }
-    let rows = ids_in(&tx)?;
+    let rows = ids_in(tx)?;
     // Every pending row counts toward the 4096 total, invitation rows too;
     // only join requests count toward the 8 active ones (DEC-Q32).
     let total: i64 = tx
@@ -857,13 +867,13 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     require(total < 4096, "quota_exceeded")?;
     let active = rows
         .iter()
-        .map(|id| load(&tx, id))
+        .map(|id| load(tx, id))
         .collect::<Result<Vec<_>>>()?
         .iter()
         .filter(|p| matches!(p.record.terminal.as_str(), "-" | "migration_prepared"))
         .count();
     require(active < 8, "quota_exceeded")?;
-    let contact = super::bootstrap_io::own_contact(&tx, store, &now, &network, &context)?;
+    let contact = super::bootstrap_io::own_contact(tx, store, &now, &network, &context)?;
     for address in array(object(&contact.payload)?, "bootstrap_addresses")? {
         carrier_endpoints.push(
             json!({"kind":"participant","address":address,"public_key":contact.host_public_key}),
@@ -960,7 +970,7 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
     if migration == "-" {
         tx.execute("INSERT INTO link_device_keys(public_key,seed,created_at) VALUES(?1,?2,?3) ON CONFLICT(public_key) DO NOTHING",rusqlite::params![device_public_key,device.to_bytes().as_slice(),now]).map_err(db)?;
     }
-    save(&tx, &p)?;
+    save(tx, &p)?;
     tx.execute("INSERT INTO dec_frames(request_id,role,writer_key,frame_id,record) VALUES(?1,'request',?2,?3,?4)",rusqlite::params![id,host,frame.frame_id,json!({"frame_base64":encode(&frame.body)}).to_string()]).map_err(db)?;
     if present {
         tx.execute(
@@ -973,12 +983,17 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
         .map_err(db)?;
     }
     let mut view = p.view(&now)?;
-    view["display_code"] = Value::from(p.code(&tx, &now)?.ok_or_else(|| Error::new("internal"))?);
-    tx.commit().map_err(db)?;
-    drop(c);
-    controls::barrier(store, "dec.frame.after_commit", &id)?;
-    controls::barrier(store, "dec.request.after_commit", &id)?;
+    view["display_code"] = Value::from(p.code(tx, &now)?.ok_or_else(|| Error::new("internal"))?);
     Ok((201, bytes(&view)?))
+}
+pub(crate) fn after_create_commit(store: &Store, id: &str) -> Result<()> {
+    controls::barrier(store, "dec.frame.after_commit", id)?;
+    controls::barrier(store, "dec.request.after_commit", id)
+}
+/// Public request views within the caller's existing read snapshot. Never
+/// returns pairing material or advances the request's state.
+pub(crate) fn views_in(c: &Connection, now: &str) -> Result<Vec<Value>> {
+    ids_in(c)?.iter().map(|id| load(c, id)?.view(now)).collect()
 }
 pub(crate) fn get(store: &Store, id: Option<&str>, display: bool) -> Result<Vec<u8>> {
     let mut c = store.connection().map_err(|_| Error::new("internal"))?;
@@ -992,12 +1007,7 @@ pub(crate) fn get(store: &Store, id: Option<&str>, display: bool) -> Result<Vec<
         }
         bytes(&view)
     } else {
-        bytes(
-            &ids_in(&tx)?
-                .iter()
-                .map(|id| load(&tx, id)?.view(&now))
-                .collect::<Result<Vec<_>>>()?,
-        )
+        bytes(&views_in(&tx, &now)?)
     }?;
     tx.commit().map_err(db)?;
     Ok(result)

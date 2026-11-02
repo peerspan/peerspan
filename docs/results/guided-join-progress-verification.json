@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-29",
+  "kind": "contract-derived read-only request-progress verification",
+  "contract_commit": "a03e42a",
+  "contract_clarification_commit": "efec155",
+  "production_and_test_source_commit": "f852757be0dd0965b0daad02132b4190e8d08f36",
+  "rust_source_commit": "4c1e5790518d3ca172e11f5dc9c0b3aebb6bce37",
+  "binary_sha256_observed_after_local_checks": "810036ef9b934f29710b7db783fd7702158505351085580a427113ec0cdbe5ab",
+  "native_runtime": "Claude Code 2.1.303; updates disabled; no inference",
+  "local_results": {
+    "native": {
+      "passed": 212,
+      "failed": 0,
+      "seconds": 24.57,
+      "original_cases_unchanged": 200,
+      "new_cases": 12,
+      "negative_corpus_variants": 29,
+      "negative_corpus_milliseconds": 3874.61
+    },
+    "join_onboarding": {
+      "passed": 14,
+      "failed": 0,
+      "seconds": 61,
+      "original_case_bodies_unchanged": 11,
+      "new_cases": 3,
+      "evidence": "independent author completed PTY60132, exit0; no persistent local log",
+      "real_protocol_transition_seconds": 38.8
+    },
+    "rust": {
+      "passed": 155,
+      "ignored": 2,
+      "failed": 0
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "native_strict_validation": "pass"
+  },
+  "coverage": [
+    "Exact pending snapshot/API/CLI bounds and owner/adapter/authenticated-peer/quiet-bootstrap separation",
+    "Read-only pending/history purity, cancellation/idle expiry, replacement/restart and historical context",
+    "Two real temporary hosts: guided publication followed by explicit ordinary owner/admission/finalization/commit actions; observed pending, needs_administrator and linked",
+    "Native mocked effects cover all ten mapped states, exact full public snapshots, independent consent flags and local-application/readiness limits",
+    "Native shape/pin/host-key-hash/stage/UTF8/private-value validation, failed reads, navigation, freshness, late callbacks and runtime preservation"
+  ],
+  "fixture_corrections": [
+    "New positive native fixture initially demanded wire stage enum spelling; now checks every corresponding human stage meaning required by the presentation contract",
+    "New29-variant validation corpus outer deadline15s; actual process budget remains5s and every negative assertion is retained"
+  ],
+  "observed_scheduling_limit": "One original adapter doubleConnect start assertion failed under concurrent compilation; original200 baseline and complete212 rerun passed unchanged. No original assertions or fixtures changed.",
+  "limits": [
+    "Progress reads do not advance, repair, consume incoming evidence, poll peers, inventory original keys, sign or grant authority/access",
+    "Missing/corrupt/mismatched retained-record fault branches remain source/fault-injection evidence; no fabricated protocol/authority rows",
+    "Native effects are mocked; no actual terminal progress, reload or model receipt acceptance claimed",
+    "Real protocol transitions use existing explicit advanced approval commands, not new guided participant approval controls",
+    "The separate manual outcome-reopen/creation checks, installed two-machine/distinct-person flow and schema23-to27 upgrade/recovery remain full-feature gates",
+    "Final-head CI and bot review are recorded in PR52 and tracking PR35"
+  ]
+}

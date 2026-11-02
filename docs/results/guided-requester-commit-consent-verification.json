@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/66",
+  "scope": "Exact durable requester final-commit consent backend; guided session contract section 27. Bounded completion and native controls follow separately.",
+  "base_merge": "12a838e4464d4302333f0f84ddfd13cf5cf5b6f3",
+  "contract_first_commit": "5e041b9b854f6d8ade608ac4bea91a64988f01c8",
+  "clarifications": [
+    "817b4a2/GU.impl27a: real needs_commit has no manifest/activation/outcome; schema-only rollback triggers and keyless limits.",
+    "1550bfa/GU.impl27b: coherent atomic approval evidence is separate from concurrent owned worker signatures/publication.",
+    "08da1e3/GU.impl27c: early raw time is commit_review_unavailable; actual elapsed bounds are review_expired.",
+    "4d9bb25/GU.impl27d: pure null lookup before F; fresh preparation still requires F.",
+    "GU.impl27e: unchanged join suite has 12 cases; correct stale join14 label without changing tests."
+  ],
+  "frozen_production": "daf53e439c623a9a6c2cd765510fc65f75e83840",
+  "combined_local_verification_head": "db7766e4beeea44c55be21844bf5a4aa26ace62b",
+  "schema_protocol_and_existing_suites_unchanged": true,
+  "binary_sha256": {
+    "peerspan-host": "28d23232bc75d683dfa30192b3891ae4492b67db01b7ea04e0320c53484c0b35",
+    "peerspan-peer-probe": "b327f0c34631d2b1512e13bb5744a24e3f42e999b625f9c97afab0c1b015059a",
+    "peerspan-helper": "66489204981e9c4ffe9aa4391c7575239eaeef0502012016771febcf01c97d65"
+  },
+  "source_sha256": {
+    "rust/src/decentralized.rs": "11bbc94a2e196fe0a19f726f20900d0c8b874e33f3c97a0e87bdcbf83b997074",
+    "rust/src/decentralized/requester.rs": "e581cb6455f0faa20b4f8918b5cb4b8167ab7b2f0f6b0b528a959f9984bdf3ea",
+    "rust/src/decentralized/requester_commit.rs": "f1b043638d5d3965c8c89e8a0fe512b83779560195625bca9dd006d810b7d8f5",
+    "rust/src/decentralized/requester_commit/consent.rs": "ab82cee7a4d4b61d615b2943fe55ab493a0bf945820140224bff009f734b08fb",
+    "rust/src/onboarding_join.rs": "6a336cdf7b4f34f9c78e93f5d4aebc6c84956542a9a39da2b812754ad82625bf",
+    "rust/src/onboarding_join/owner.rs": "6cb7738f401ce08cbc70529e8146a9bbcc9b419d5580db2e8ef8850ba2b9ebb4",
+    "rust/src/onboarding_join/owner/commit.rs": "7370531539e401443aefa72c1e865fb3fbe66faffa85ddb155e8645a915da465",
+    "rust/src/onboarding_cli.rs": "3582ebba18de99e2c59e38d4c808a13a5e39d9411012784dd567393d94b00f7d",
+    "rust/src/main.rs": "71929841d93b285babb0b3477503931e2f23f908229043a460869a4d79edd470",
+    "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+    "conformance/slim/owner_finalization_signing.py": "6dfd60ef946fdb791b52a1650ed5f6fb32ef4919f4ec435f8fdb84049f5956e9",
+    "conformance/slim/join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+    ".github/workflows/conformance.yml": "64ccee0103c69295535ca9ddec05ca3e885010955e91d58cad936f8e384f0b8e",
+    "integrations/claude-onboarding/hooks/register.mjs": "3553de5ec9c0cc84581cf34471fc0248f9fd00aa799948dcb5258aa2ba1e36e5",
+    "conformance/slim/delivery.py": "4e8fbb38376d4472b802b0006459c1922ead8187660ed26ee9192c58cbc15971"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "contract_only": true,
+    "implementation_read": false,
+    "committed_before_execution": true,
+    "registration_author_commit": "124050fc4861786d7f43f221cdff6af0e258661e",
+    "registration_integrated_commit": "4022cb8",
+    "suite_author_commit": "eb1feb93a5e4542f7d1862308628321a063f4679",
+    "suite_integrated_commit": "db7766e4beeea44c55be21844bf5a4aa26ace62b",
+    "cases": 6,
+    "suite_file": "conformance/slim/requester_commit.py",
+    "preservation": "All old host cases, assertions, protocol actions, delays and timeouts and all 292 native tests/files remain unchanged. Delivery alone gains a failure-only bounded public observer under GU.impl27f; the original delivery AST is identical after removing that observer, result capture and failure wrapper. requester_commit source is unchanged after its first execution."
+  },
+  "local": {
+    "exclusive_execution": "Rust/build, native, old host suites and new suite ran serially without local runtime overlap.",
+    "required_rust": {
+      "source": "daf53e439c623a9a6c2cd765510fc65f75e83840",
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "fmt": "pass",
+      "clippy": "pass",
+      "all_bins_build": "pass"
+    },
+    "native": {
+      "runtime": "Claude Code 2.1.303",
+      "strict_validation": "pass",
+      "passed": 292,
+      "failed": 0,
+      "files": 14,
+      "seconds": 42.55
+    },
+    "existing_finalization_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 146,
+      "source_unchanged": true,
+      "limit": "Above the two-minute slim target locally; no assertion, stimulus, delay or timeout changed."
+    },
+    "existing_join": {
+      "passed": 12,
+      "failed": 0,
+      "seconds": 99,
+      "source_unchanged": true
+    },
+    "requester_commit": {
+      "first_complete_run": true,
+      "passed": 6,
+      "failed": 0,
+      "expected_failures": 0,
+      "unexpected_passes": 0,
+      "skipped": 0,
+      "seconds": 123,
+      "case_order": [
+        1,
+        4,
+        3,
+        5,
+        2,
+        6
+      ],
+      "limit": "Three seconds above the two-minute slim target locally; same unchanged suite passed in 92s in CI. No retry or timeout weakening."
+    },
+    "failures_and_corrections": {
+      "failed_cases": 0,
+      "test_source_corrections_after_execution": 0,
+      "product_source_changes_after_freeze": 0,
+      "notes": "All first complete local and combined-head CI gates passed. The existing signing proxy emits BrokenPipeError during its deliberate timeout/fault case; that case and the full suite passed. The join-suite count correction is documentation only."
+    }
+  },
+  "preceding_ci": {
+    "head": "db7766e4beeea44c55be21844bf5a4aa26ace62b",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41026639378",
+    "conformance_suites": 23,
+    "conformance_conclusion": "success",
+    "requester_commit": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 92,
+      "job_id": 123966703176
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41026639285",
+    "pr_checks_conclusion": "success",
+    "native": {
+      "passed": 292,
+      "failed": 0,
+      "files": 14,
+      "seconds": 54.37
+    },
+    "rust": {
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "fmt": "pass",
+      "clippy": "pass",
+      "all_bins_build": "pass"
+    }
+  },
+  "initial_review": {
+    "head": "daf53e439c623a9a6c2cd765510fc65f75e83840",
+    "completed": true,
+    "findings": 0,
+    "unresolved_threads": 0,
+    "receipt": "https://github.com/peerspan/peerspan/pull/66#issuecomment-6518394802"
+  },
+  "final_exact_head_gates": "After the diagnostic/evidence commits, PR66 records all 23 conformance suites, standard PR checks and fresh Codex review on the final combined head. Preserve the first final-head CI failure above; do not infer a final pass from prior CI or classify that timeout from a later pass.",
+  "runtime_log_sha256": {
+    "peerspan-gu-requester-commit-rust-final.log": "b19c2464ec3ed7f61f3df181c3280696cb39058fff12f9b8eacb29ba0fa95033",
+    "peerspan-gu66-clippy.log": "55db97644d4032f0f519cfb67db58fccdf68595bedb14a6da6665f301f0f19db",
+    "peerspan-gu66-build.log": "8ef86975ac9dcf85df9e98440d2da09fba50e1fd47caca15726ba3a3344d8b81",
+    "peerspan-gu66-native-validate.log": "2c1ba45804741e99094ff7d091c2903aaaa3c396bec24f356e93b9f5962250a6",
+    "peerspan-gu66-native.log": "fb803a51e40524bff7ce4fe5c798338f35affc25b39bde090c2672b30da55a1d",
+    "peerspan-gu66-owner-finalization-signing.log": "51d933d74036e0860416ab5c25e3e93fc82b344a5724caed7696d0af79a93066",
+    "peerspan-gu66-join.log": "1a2baf67c0953b8dcadf1bee95275535363e7ccd403c6ece892d938ce23f42dc",
+    "peerspan-gu66-requester-commit-first.log": "5c55cec1a6e3ccb6ae39a006be1650b8500be91c741fb2c0a0aced3adcab82ed"
+  },
+  "evidence_boundaries": [
+    "Real distinct people and two temporary loopback hosts reach genuine original/admin/F evidence through existing public protocol and signing operations. No protocol or authority rows are fabricated.",
+    "Pure measured calls compare complete logical DB/schema/version, state/home files and BOTH full carrier connection/byte counters, with confirmed consumed ClientHello transport holds. No worker disabling or category omissions.",
+    "Only temporary schema-only ABORT triggers inject genuine intent INSERT and approval UPDATE faults; they are removed before strict rollback comparison.",
+    "One coherent intent/request snapshot proves the ordinary approved flag, approved_at and both pending commit pins. Independently scheduled owned worker signatures/publication may appear before the approval response; no global absence or route attribution is inferred.",
+    "No route-driven signature, transport or local application is a reviewed source boundary without genuine public synchronization. Existing explicit ordinary completion/application is a separate fixture action.",
+    "The external original key was never installed in the recipient home, and its sole fixture file is removed before historical replay. No SSH agent or generated original source is available. Missing owned-device seed has no public deletion stimulus and remains a source/fault limit.",
+    "Unavailable owned-device/root/corrupt/pruned evidence, fresh incompatible adoption and microscopic final parent/time-check-to-transaction crossings remain source/fault limits; they are not claimed as black-box coverage.",
+    "No installed bundle, physical-machine, actual-model receipt, schema23-to27/full-state upgrade/recovery or complete feature readiness is inferred. Earlier rejected terminal/quota probes were not retried."
+  ],
+  "remaining_feature_work": [
+    "Bounded requester completion and native commit review/approval/recovery controls",
+    "Explicit agent-access review and observed connection readiness",
+    "Connect my other computer/device flow",
+    "Installed distinct-person/two-machine exchange, actual Claude receipt, schema23-to27/full-state upgrade/recovery and final combined feature review"
+  ],
+  "merge_policy": "Owner reviews/merges PR66 into the feature branch. Leave tracking PR35 unmerged and full acceptance gates incomplete.",
+  "first_final_head_ci": {
+    "head": "93350937c54276fa5fc3742c0196df488c692b04",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41027449436",
+    "conformance_conclusion": "failure",
+    "other_suites_passed": 22,
+    "delivery": {
+      "job_id": 123969444790,
+      "passed": 11,
+      "failed": 5,
+      "seconds": 90,
+      "primary_failure": "join_with_no_direct_path: timed out after 60s waiting for erin applying link_30e09e3",
+      "dependent_failures": [
+        "work_through_relay",
+        "completion_routes_participants_only",
+        "resume_resends_and_reports_transport",
+        "helper_replacement_changes_no_record"
+      ],
+      "cause": "unclassified; original CI retained host state was discarded with the runner"
+    },
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41027449479",
+    "pr_checks_conclusion": "success",
+    "fresh_review": {
+      "completed": true,
+      "findings": 0,
+      "summary": "https://github.com/peerspan/peerspan/pull/66#issuecomment-6518367602"
+    },
+    "source_comparison": "db7766e..9335093 changes documentation only; production, all tests and workflow are identical. Preceding delivery passed; this does not classify the timeout.",
+    "follow_up": "Independent retained local diagnosis, no unchanged CI retry or weakened assertions/timeouts."
+  },
+  "retained_local_delivery_diagnosis": {
+    "source": "eecf651e9d55eb6c2796e5b1956f5a193d582e32; runtime and delivery test unchanged from db7766e",
+    "binary_sha256": "28d23232bc75d683dfa30192b3891ae4492b67db01b7ea04e0320c53484c0b35",
+    "test_sha256": "81ab1ecc97a0fa63c658ec23be7bdf056b96e2d1c80a3e7a9204a2d82ba809b8",
+    "command": "env PYTHONDONTWRITEBYTECODE=1 TMPDIR=/dev/shm/peerspan-gu-ci-temp python3 -u conformance/slim/delivery.py --bin /dev/shm/peerspan-gu-target/debug --keep",
+    "passed": 16,
+    "failed": 0,
+    "seconds": 67,
+    "previously_failing_join_seconds": 27.9,
+    "runs": 1,
+    "log": "/dev/shm/peerspan-gu66-delivery-diagnostic-first.log",
+    "log_sha256": "0ca957a50bef0ff8a88966db1e7d2d23aaee297fd55dd38db15de9a21ef6c7f4",
+    "retained_fixture": "/dev/shm/peerspan-gu-ci-temp/slim-delivery-767ml9mi",
+    "classification": "Original CI inviter-application timeout remains unclassified, not established as an infrastructure flake or product fix. The failing CI runner discarded its retained state.",
+    "follow_up": "Independent failure-only bounded public diagnostics under contract eecf651 before fresh CI of the changed diagnostic source. No unchanged CI retry."
+  },
+  "delivery_failure_diagnostics": {
+    "contract_commit": "eecf651e9d55eb6c2796e5b1956f5a193d582e32",
+    "author_commit": "ebe8534aae1fad3702c3010c7f007d991c6a4a68",
+    "integrated_commit": "eacc5a8",
+    "author": "/root/guided_onboarding_conformance",
+    "implementation_read": false,
+    "committed_before_execution": true,
+    "scope": "Only after original join wait fails: reuse the existing commit response, at most one pure request-view GET per participant with timeout=2; one closed summary of whitelisted HTTP/state/stage/attention values and presence/approval/application booleans. Unknown values become a fixed marker. Original failure is rethrown even if diagnostics fail.",
+    "static_verification": "Syntax/diff pass; independent author and primary AST comparisons preserve all original source after removing only diagnostic helper/result capture/failure wrapper. Closed whitelist source review excludes raw bodies/errors, keys, codes, labels, paths, templates and DB records.",
+    "source_limit": "Failure-only observer was not exercised by the passing retained local run; no forced failure, modified assertion or extra protocol driver was added. Fresh final-head CI validates unchanged successful delivery and can retain closed failure evidence if it recurs.",
+    "classification": "The original CI timeout remains unclassified. No production fix, infrastructure flake or eliminated delivery risk is claimed."
+  }
+}

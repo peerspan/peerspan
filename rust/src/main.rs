@@ -17,6 +17,11 @@ mod decentralized_up;
 mod discovery;
 mod integration;
 mod link_cli;
+mod onboarding_cli;
+mod onboarding_identity_cli;
+mod onboarding_identity_create;
+mod onboarding_owner_finalization_sign;
+mod onboarding_owner_sign;
 mod service;
 mod sign_in_cli;
 mod up;
@@ -92,7 +97,78 @@ async fn main() {
     let cli = cli::command_line(program())
         .try_get_matches()
         .and_then(|matches| Cli::from_arg_matches(&matches))
-        .unwrap_or_else(|e| e.exit());
+        .unwrap_or_else(|e| {
+            if e.use_stderr()
+                && raw
+                    .windows(3)
+                    .any(|p| p == ["onboarding", "join", "machine-commit"])
+            {
+                if raw
+                    .windows(4)
+                    .any(|p| p == ["onboarding", "join", "machine-commit", "inspect"])
+                {
+                    eprintln!("error: invalid machine requester inspection arguments");
+                } else {
+                    eprintln!("error: invalid machine requester consent arguments");
+                }
+                std::process::exit(e.exit_code());
+            }
+            // Clap may echo rejected arguments before private stdin validation.
+            if e.use_stderr()
+                && raw.iter().any(|arg| arg == "onboarding")
+                && raw.iter().any(|arg| arg == "machine")
+            {
+                eprintln!("error: invalid machine owner inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            // This selects only error redaction; typed parsing still owns dispatch.
+            if e.use_stderr()
+                && raw.iter().any(|arg| arg == "onboarding")
+                && raw.iter().any(|arg| arg == "reachability")
+            {
+                eprintln!("error: invalid project reachability arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw.iter().any(|arg| arg == "onboarding")
+                && raw.iter().any(|arg| arg == "readiness")
+            {
+                eprintln!("error: invalid project readiness arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw.iter().any(|arg| arg == "onboarding")
+                && raw.iter().any(|arg| arg == "access")
+            {
+                eprintln!("error: invalid project access inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw
+                    .windows(3)
+                    .any(|path| path == ["onboarding", "join", "commit"])
+            {
+                eprintln!("error: invalid requester commit consent arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw
+                    .windows(4)
+                    .any(|path| path == ["onboarding", "join", "owner", "finalization"])
+            {
+                eprintln!("error: invalid original finalization inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            if e.use_stderr()
+                && raw
+                    .windows(2)
+                    .any(|path| path == ["onboarding", "admission"])
+            {
+                eprintln!("error: invalid administrator admission inspection arguments");
+                std::process::exit(e.exit_code());
+            }
+            e.exit()
+        });
     let outcome = run(cli).await;
     log_total();
     if let Err(error) = outcome {
@@ -239,6 +315,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 /// Runs a command through the local daemon and returns what it prints.
 async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Value> {
     let socket = directory.join("admin.sock");
+    if let Some(value) = onboarding_cli::command(&command, &socket).await? {
+        return Ok(value);
+    }
     if let cli::Command::Task(cli::TaskCommand::To(args)) = command {
         return addressing::task_to(&socket, args).await;
     }
@@ -1329,6 +1408,22 @@ async fn call_inner(
         .body(Full::new(Bytes::from(encoded)))?;
     let response = sender.send_request(request).await?;
     let status = response.status();
+    let retry_after = if status == hyper::StatusCode::TOO_MANY_REQUESTS {
+        let mut values = response
+            .headers()
+            .get_all(hyper::header::RETRY_AFTER)
+            .iter();
+        match (values.next(), values.next()) {
+            (Some(value), None) => value
+                .to_str()
+                .ok()
+                .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|s| s.parse::<u64>().ok()),
+            _ => None,
+        }
+    } else {
+        None
+    };
     let bytes = http_body_util::Limited::new(response.into_body(), RESPONSE_LIMIT)
         .collect()
         .await
@@ -1343,6 +1438,7 @@ async fn call_inner(
                 .unwrap_or("request failed")
                 .to_owned(),
             code: value["code"].as_str().unwrap_or_default().to_owned(),
+            retry_after,
         }
         .into());
     }
@@ -1473,6 +1569,7 @@ async fn failure(response: hyper::Response<hyper::body::Incoming>) -> anyhow::Er
             .unwrap_or("request failed")
             .to_owned(),
         code: value["code"].as_str().unwrap_or_default().to_owned(),
+        retry_after: None,
     }
     .into()
 }

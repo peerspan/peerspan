@@ -22,8 +22,10 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 const INPUT: &str = "code network_id person_public_key provider_id signature_format owner_offer_id selection_id expected_host_public_key expected_device_public_key approve";
+mod consent;
+pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
 
-pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
+pub(crate) fn open(store: &Store, input: &Obj) -> Result<(String, bool)> {
     fields(input, INPUT)?;
     input
         .get("approve")
@@ -150,9 +152,15 @@ pub(crate) fn open(store: &Store, input: &Obj) -> Result<String> {
     if p.record.catalog_base64 == "-" {
         p.record.catalog_base64 = encode(&base_catalog.bytes);
     }
+    // Retention only removes a redundant carrier fetch. prepare() independently
+    // verifies this exact prefix and current authority before any approval.
+    let retained = p.record.owner_offer_id == text(input, "owner_offer_id")?
+        && p.record.owner_packet_base64 != "-"
+        && p.record.selection_id == text(input, "selection_id")?
+        && p.record.selection_packet_base64 != "-";
     requests::save(&tx, &p)?;
     tx.commit().map_err(db)?;
-    Ok(p.id)
+    Ok((p.id, retained))
 }
 struct Base {
     snapshot: Option<Snapshot>,
@@ -236,6 +244,75 @@ fn resolve(c: &Connection, b: &Base, provider: &str, format: &str) -> Result<Res
     let _ = (c, provider, format);
     Err(Error::new("forbidden"))
 }
+/// Verify a retained incoming prefix without opening/preparing an admission,
+/// resolving a signer, updating a clock or importing anything from transport.
+pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    require(
+        p.record.roles.iter().any(|r| r == "administrator")
+            && !p.record.roles.iter().any(|r| r == "requester")
+            && p.record.mode == "new"
+            && p.record.migration_proposal_id == "-"
+            && p.record.owner_offer_id != "-"
+            && p.record.selection_id != "-"
+            && p.record.administrator_offer_id == "-"
+            && p.record.owner_finalization_id == "-"
+            && p.record.commit_packet_base64 == "-"
+            && p.record.manifest_id == "-"
+            && p.record.activation_id == "-"
+            && p.record.outcome_packet_base64 == "-",
+        "state_conflict",
+    )?;
+    let b = base(
+        c,
+        store,
+        p,
+        &p.record.owner_offer_id,
+        &p.record.selection_id,
+    )?;
+    let request = p.view(&b.now)?;
+    require(
+        request["state"] == "needs_administrator"
+            && stamp(&b.now)? >= stamp(field(&request, "created_at")?)?
+            && (p.record.stage_at == "-" || stamp(&b.now)? >= stamp(&p.record.stage_at)?),
+        "state_conflict",
+    )?;
+    let fixed_end = original_terms(p, &b.offer)?;
+    check(
+        p.record.expected_network_id == b.descriptor.network_id
+            && p.record.expected_context_id == b.descriptor.context_id(),
+    )?;
+    Ok(json!({"observed_at":b.now,"request":request,
+        "network":{"id":b.descriptor.network_id,"name":b.descriptor.name,
+            "context_id":b.descriptor.context_id(),"genesis_root_public_key":b.descriptor.genesis_root_public_key},
+        "root_state_id":b.projection.root_state_id()?,"member":b.offer.owner.payload["member"],
+        "scopes":7,"not_after":fixed_end}))
+}
+/// The fixed guided new-original policy over an ordinarily verified offer.
+pub(super) fn original_terms(p: &Pending, offer: &Offer) -> Result<String> {
+    let owner = &offer.owner;
+    let payload = &owner.payload;
+    let signed_request = p.packet()?;
+    let fixed_end = (stamp(text(&signed_request.payload, "created_at")?)?
+        + chrono::TimeDelta::days(7))
+    .format("%Y-%m-%dT%H:%M:%SZ")
+    .to_string();
+    check(
+        offer.provider["kind"] == "original_person"
+            && text(payload, "root_state_id")? == "-"
+            && text(payload, "person_lease_id")? == "-"
+            && ids(payload, "issuer_lease_ids", "ds_")?.is_empty()
+            && text(payload, "renewed_device_lease_id")? == "-"
+            && num(payload, "scopes")? == 7
+            && text(payload, "not_after")? == fixed_end
+            && text(&owner.object, "authority_signature_format")? == "sshsig"
+            && text(&owner.object, "writer_host_public_key")? == p.record.host_public_key
+            && p.record.expected_network_id == offer.descriptor.network_id
+            && p.record.expected_context_id == offer.descriptor.context_id()
+            && p.record.expected_person_public_key == text(&owner.object, "person_public_key")?,
+    )?;
+    Ok(fixed_end)
+}
+
 fn issuer(base: &Base, r: &Resolved) -> Result<(Value, BTreeMap<String, String>)> {
     if r.provider.kind == "root" {
         return Ok((
@@ -984,19 +1061,34 @@ pub(crate) fn resume(store: &Store, id: &str) -> Result<()> {
         let mut p = requests::load(&tx, id)?;
         let mut current = load(&tx, &p)?;
         let (b2, r2) = check_current(&tx, store, &p, &current)?;
-        require(
-            current
+        require(current.id == i.id, "state_conflict")?;
+        if !current
+            .record
+            .signatures
+            .iter()
+            .map(|s| (s.slot_id, &s.role, &s.signature))
+            .eq(i
                 .record
                 .signatures
                 .iter()
-                .map(|s| (&s.slot_id, &s.role, &s.signature))
-                .eq(i
-                    .record
-                    .signatures
-                    .iter()
-                    .map(|s| (&s.slot_id, &s.role, &s.signature))),
-            "state_conflict",
-        )?;
+                .map(|s| (s.slot_id, &s.role, &s.signature)))
+        {
+            // The CLI and the normal worker can advance the same exact approved
+            // intent concurrently. Reload a verified append-only extension;
+            // never overwrite another signer or repeat a consent decision.
+            require(
+                current.record.signatures.len() > i.record.signatures.len()
+                    && i.record.signatures.iter().all(|prior| {
+                        current.record.signatures.iter().any(|now| {
+                            now.slot_id == prior.slot_id
+                                && now.role == prior.role
+                                && now.signature == prior.signature
+                        })
+                    }),
+                "state_conflict",
+            )?;
+            continue;
+        }
         let barrier = if !generated.is_empty() {
             for sig in generated {
                 let object = current

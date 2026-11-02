@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-30",
+  "kind": "independent contract-derived exact durable incoming administrator consent verification",
+  "merged_base": "36a18639bb678d58aa4259704c82ea5279d7d410",
+  "contract_commit": "e4c1b6b",
+  "contract_clarification_commits": [
+    "6446773a0aa04720ea0ef7acf17994596f116cef",
+    "172cc8b",
+    "db437a8"
+  ],
+  "initial_production_source_commit": "a499bf584351e6e11ede6d954350aff44011b2d6",
+  "production_source_commit": "ab0aff0250b6b547c4ca5db0d2bc300c9b3ae2cd",
+  "binary_sha256": "7c530e502b1b56fa41f7426ccd9f850c1c154ea8466cf90f635f19be08e4bed8",
+  "independent_test_commits": [
+    "6071e5e",
+    "e8ed67f",
+    "3e36cb8",
+    "f8922c5"
+  ],
+  "integrated_test_commits": [
+    "eaf198405d81275a9ec679c64030085e39cb07c2",
+    "b640a05785189f4d156ae01457741c3b87d312b7",
+    "e525be0c0f88fe1d7945228239edb871cef6a04e",
+    "cae42d3dc6dc76b16a4937e18b75cd63fe72b978"
+  ],
+  "preserved_admission6_signing6_owner6_join14_and_native252_sources_unchanged": true,
+  "local_results": {
+    "rust": {
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "final_frozen_source": true
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "admission_consent": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 80,
+      "final_frozen_source": true,
+      "all_six_assertions_preserved": true
+    }
+  },
+  "coverage": [
+    "Genuine two-host/two-person returned selected original and explicit setup retention, pure null lookup, one ordinary unapproved administrator intent, exact current owned ed25519 root/P/H/public terms/effects/digest and stable pure preparation",
+    "Exact same-transaction approval and schema-only ABORT rollback, committed response-loss recovery, normal allowed background root/host signing, same retained intent and stable global historical consent without frontend attribution",
+    "Wrong context/digest/parent, raw local clock before first consent creation, stage/request expiry, detachment, cancellation and unsupported original profile/lifetime refuse without approval or intent replacement",
+    "Authentic public SSH-root rotation with no owned raw root seed and intentionally unapproved ordinary SSH-root provider; guided consent refuses and preserves incompatible intent",
+    "Strict64KiB stdin/API JSON, duplicates/unknown/null/type/positional IDs, missing daemon/no initialization, controlled redaction, alternate methods and scoped adapter/authenticated peer/TLS-bootstrap isolation",
+    "Same exact administrator intent publishes ordinary root offer, external original F and requester commit complete the link, pure lookup/prepare/exact approval retries preserve original root/P/H/review and never recreate absent history"
+  ],
+  "findings_and_corrections": [
+    {
+      "kind": "fixture",
+      "observed": "First local consent5/6 in57s and initial CI5/6 in31s: changed native-session ID contained whitespace and correctly received malformed400.",
+      "correction": "Independent author uses syntactically valid different-conversation for the409 changed-binding stimulus; malformed400 and all binding assertions unchanged.",
+      "independent_commit": "3e36cb8"
+    },
+    {
+      "kind": "clock_contract_clarification_and_product_fix",
+      "observed": "Corrected local5/6 in56s: approval succeeded after120s raw local rollback because ordinary five-minute clock guard clamped to retained intent creation.",
+      "decision": "GU.impl21a",
+      "contract_commit": "172cc8b",
+      "fix_commit": "ab0aff0250b6b547c4ca5db0d2bc300c9b3ae2cd",
+      "correction": "Fresh preparation/first approval require raw local and guarded time >= request/intent/stage creation, including before commit. Shared ordinary rollback smoothing and pure approved-history recovery unchanged. No test assertions/stimuli/timeouts changed."
+    },
+    {
+      "kind": "fixture_and_stale_documentation",
+      "observed": "Clock-fixed local5/6 in77s and CI5/6 in51s: later negative-only ordinary SSH-root preview sent code:- plus extra request_id and received400. All clock/detach/expiry/cancel/profile/lifetime checks before it passed.",
+      "decision": "GU.impl21b",
+      "correction": "Use genuine retained private reply code and omit request_id per exact runtime contract; reconcile stale contradictory DEC-Q3 wire sentence. Preserve retained incompatible-provider/purity assertions and do not expand the ordinary HTTP API.",
+      "independent_commit": "f8922c5"
+    }
+  ],
+  "limits": [
+    "Positive guided consent requires an existing retained incoming request plus verified original/selection evidence; ordinary explicit setup resumes later packets before the measured guided operation. No new import/progress/native admission control is provided.",
+    "Fixed current locally owned network-root ed25519 provider only; no auto/original/device fallback or external key flow. Approval permits ordinary background owned-root/host signatures and administrator publication, not requester F/commit or agent access.",
+    "No genuine bounded missing/pruned/corrupt-proof, narrow final-check/commit race, or isolated15min review expiry beyond the earlier10min stage-bound fixture; these remain source/fault limits.",
+    "Response-loss test discards the body after committed success headers; it does not claim every uncertain transport interval was exercised.",
+    "The previous PR57 signing historical-purity intermittence remains documented and unclassified. New unchanged-suite passes do not diagnose it.",
+    "No actual terminal/native/physical/installed two-machine/distinct-person, real model receipt or schema23-to27 full-state upgrade/recovery acceptance is claimed; earlier rejected terminal actions and unchanged quota-refused probes were not retried.",
+    "Final-head all19 CI suites, native252/Rust gates and fresh bot review are recorded in PR58 and tracking PR35; full feature acceptance remains open."
+  ],
+  "preserved_verification": {
+    "source": "ab0aff0250b6b547c4ca5db0d2bc300c9b3ae2cd",
+    "method": "CI on frozen production before documentation/evidence-only changes",
+    "existing18_suites": "pass",
+    "rust_and_native252": "pass",
+    "conformance_run": 40981908166,
+    "pr_checks_run": 40981908208,
+    "note": "New consent suite on that head was5/6 solely due the stale ordinary request-ID fixture, corrected independently before final local6/6. Final evidence-head all19 reruns are recorded in PR58."
+  }
+}

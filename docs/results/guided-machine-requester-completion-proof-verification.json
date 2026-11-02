@@ -1,0 +1,569 @@
+{
+  "milestone": "GU.impl47",
+  "source_head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+  "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+  "prior_encrypted_candidate_ci": [
+    {
+      "kind": "conformance",
+      "id": 41281099921,
+      "head_sha": "2b05ea92d94ac615968bb64ae13bec04474b833f",
+      "attempt": 1,
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "id": 124773023251,
+          "name": "Build host, peer probe and helper",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315170,
+          "name": "work",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315171,
+          "name": "capabilities",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315172,
+          "name": "join",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315182,
+          "name": "renewal",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315205,
+          "name": "project_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315209,
+          "name": "onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315213,
+          "name": "delivery",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315217,
+          "name": "root",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315230,
+          "name": "sync",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315253,
+          "name": "basics",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315286,
+          "name": "owner_finalization_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315290,
+          "name": "owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315293,
+          "name": "join_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315294,
+          "name": "live",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315301,
+          "name": "access_application",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315304,
+          "name": "policy",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315305,
+          "name": "peer_reachability",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315313,
+          "name": "machine_owner_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315317,
+          "name": "access_signing",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315321,
+          "name": "access_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315325,
+          "name": "machine_requester_inspection",
+          "conclusion": "failure"
+        },
+        {
+          "id": 124773315327,
+          "name": "access_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315329,
+          "name": "machine_requester_completion",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315335,
+          "name": "machine_owner",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315337,
+          "name": "owner_finalization",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315342,
+          "name": "owner_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315344,
+          "name": "admission_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315354,
+          "name": "invitation_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315355,
+          "name": "requester_commit",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315373,
+          "name": "machine_requester_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315387,
+          "name": "adapter_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315388,
+          "name": "readiness",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315393,
+          "name": "admission_onboarding",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315446,
+          "name": "incoming_progress",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315466,
+          "name": "machine_owner_consent",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773315478,
+          "name": "requester_completion",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "kind": "checks",
+      "id": 41281099929,
+      "head_sha": "2b05ea92d94ac615968bb64ae13bec04474b833f",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 124773023191,
+          "name": "Rust format",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773023279,
+          "name": "Rust tests and build",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773023335,
+          "name": "Rust Clippy",
+          "conclusion": "success"
+        },
+        {
+          "id": 124773023382,
+          "name": "Claude onboarding runtime",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "prior_bot": {
+    "head": "2b05ea92d94ac615968bb64ae13bec04474b833f",
+    "receipt": 6554470746,
+    "findings": false
+  },
+  "encrypted_diagnostic_provenance": {
+    "artifact": 13072474677,
+    "head": "2b05ea92d94ac615968bb64ae13bec04474b833f",
+    "ciphertext_sha256": "84b39e240ceb6fe1133956ed0fec3cacfcccc97d2cbb7c1e20d5893bbf30381c",
+    "byte_count": 34,
+    "raw_error_logged": false,
+    "fixed_cause_class": "daemon_proof_required",
+    "raw_line_logged": false
+  },
+  "identified_scope": "Only the captured2b05ea9 CLI error is classified daemon proof_required. The exact missing proof and failed continuation phase are unknown; no retrospective cause attribution for earlier failures.",
+  "selected_fix": {
+    "commit": "193c971",
+    "contract": "79173c3dd3eb23c5595624441fdbe7e6891554d9",
+    "behavior": "Only ordinary link finalize structured DaemonError.code proof_required retains original error/cause and nonzero exit, with fixed incomplete/inspect-same-request-before-resume context. No stdout/success/state/authority claim, new IO, proof fetch, retry, key/provider selection, API/schema change; other commands/errors unchanged.",
+    "discarded": [
+      "suppress error",
+      "invent completed/approved state",
+      "retry failed mutation",
+      "guess missing proof/provider fix",
+      "change existing guard/assertion/timeouts"
+    ]
+  },
+  "temporary_capture_retirement": {
+    "author_commit": "b6369edb498190741c4fcbdf2627f410b30e80ec",
+    "root_cherry_pick": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+    "audit": {
+      "launcher_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e",
+      "full_ast_sha256": "19f6f305c9d73459b24216615186615cb2a3a4b86bcda3a620cd54871e34d6ec",
+      "protected_files_byte_exact": 68,
+      "public_pem_deleted": true,
+      "changed_paths": [
+        "conformance/slim/inspection_finalization_diagnostic.py",
+        "conformance/slim/inspection_finalization_diagnostic_public.pem"
+      ]
+    },
+    "launcher_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e",
+    "public_fixture_removed": true,
+    "upload_removed": true,
+    "private_key_committed": false,
+    "raw_decrypted_line_published": false
+  },
+  "gates": [
+    {
+      "gate": "rust-fmt-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu47-runtime/rust-fmt-final-proof-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 24.14,
+      "log": "/tmp/gu47-runtime/rust-test-final-proof-first.log",
+      "sha256": "4f26e81254aeabdd1b5b7e5b1abfa1a95e6f997f234a447a5d63f9913e09099e",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "1803623",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 8.01,
+      "log": "/tmp/gu47-runtime/rust-clippy-final-proof-first.log",
+      "sha256": "cc49da64e4ebe7f4422c102e1a87869642e296ab2e81099874f53ce5d05364df",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 11.01,
+      "log": "/tmp/gu47-runtime/rust-build-final-proof-first.log",
+      "sha256": "1fddf5252d6a9afde9758da5253a48e35d0e3a307fdea6c922eda093653b5ed7",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "inspection-finalization-diagnostic-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "python3",
+        "conformance/slim/inspection_finalization_diagnostic.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-final-proof-first"
+      ],
+      "exit": 0,
+      "seconds": 70.29,
+      "log": "/tmp/gu47-runtime/inspection-finalization-diagnostic-final-proof-first.log",
+      "sha256": "5708217e558800a3e93cabf70fad1c920848b10affcd3b2a286e41cdffcd6474",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.2,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "c002f829e32419328610bb54b17ceed066a8df6044553ccefca66969fb37027e"
+    },
+    {
+      "gate": "machine-requester-completion-final-proof-first",
+      "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion.py",
+        "--bin",
+        "/tmp/gu47-runtime/final-bin-rust-build-final-proof-first"
+      ],
+      "exit": 0,
+      "seconds": 120.55,
+      "log": "/tmp/gu47-runtime/machine-requester-completion-final-proof-first.log",
+      "sha256": "19283569175e6d5b4d7816ed2718f2c9dbbce0001bceb45d432dae52c453936e",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.19,
+          "active": []
+        },
+        {
+          "seconds": 75.26,
+          "active": []
+        },
+        {
+          "seconds": 90.32,
+          "active": []
+        },
+        {
+          "seconds": 105.39,
+          "active": []
+        },
+        {
+          "seconds": 120.45,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "8f1154efbfeb7f468bf229c2166cd1b162b897d9c80eba8e4d1f1162f4887166"
+    }
+  ],
+  "binaries": {
+    "head": "d17c7c68c6d6377fa63a934ed203af6af0298607",
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "directory": "/tmp/gu47-runtime/final-bin-rust-build-final-proof-first",
+    "sha256": {
+      "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+      "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+      "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+    }
+  },
+  "preservation": {
+    "base": "a025f289e6c2628d9006924b2400d335f740a4a3",
+    "files": 67,
+    "sha256": {
+      "conformance/agent_adapter.py": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
+      "conformance/claude_setup.py": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+      "conformance/fixtures/gh/gh.py": "4afd0f0505e0d2fbf89d6af91aa00c39200c2e19d1a858b7f24480f0c47a2d81",
+      "conformance/fixtures/mcp/server.py": "3e24b43f4b8f2bb713dfa32518d35cd9e36362e2f2cb929eaf1cc2339a1f1da6",
+      "conformance/fixtures/remote/remote.py": "2be308e4bf93ccd58113b59e30bb7aec686f5c1470b7227fa2af127c174d3550",
+      "conformance/host_service.py": "2b7aae580c610fe7270b837b76be4acead89e72555d7964b4a069974c88e01af",
+      "conformance/installed_bundle.py": "1f61d9c11c13649a5e5157fe659a5c318f049556b7fe98c947cc64f852ff6f9a",
+      "conformance/peer_messaging.py": "ed735dcc9360997add4abfa3ddd6da430110b0d7757ff57acbced297b61722a4",
+      "conformance/slim/access_application.py": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+      "conformance/slim/access_consent.py": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+      "conformance/slim/access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "conformance/slim/access_signing.py": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "conformance/slim/adapter_onboarding.py": "d07d1ed9b7088b71ce0af54db50ecfcbbb2cd32d5c48200c511a736e4b2a5714",
+      "conformance/slim/admission_consent.py": "bb1e4a1a9513beaca28621b57eb1c0688c112fb453a38d5fa160566de787f8c6",
+      "conformance/slim/admission_onboarding.py": "e3fa6b749a5225135c23cf5799291d7598b99066434640d403a77da5c9888e08",
+      "conformance/slim/basics.py": "55828ce8de9efeb01c5b83a07574ea31d4374e3a00c10cadb146eb5b23ad0185",
+      "conformance/slim/capabilities.py": "7c07428b7da068866fa65541913fa915cce27498cd8bcd32c4262aa003435b81",
+      "conformance/slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+      "conformance/slim/delivery.py": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "conformance/slim/harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "conformance/slim/incoming_progress.py": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc",
+      "conformance/slim/invitation_onboarding.py": "819425617254996c02bc2825c971ef31e156c24b4584e9f5529190f16ecd6286",
+      "conformance/slim/join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+      "conformance/slim/join_onboarding.py": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+      "conformance/slim/live.py": "6a3296a8ee3f6a2d6a0cd3777b59417620362e55540ae6d34078cfcc3bc3ec0b",
+      "conformance/slim/machine_owner.py": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+      "conformance/slim/machine_owner_consent.py": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+      "conformance/slim/machine_owner_signing.py": "0cd90eeb046ae54f67371806f0c32ea384184aa07bcd6d10422834a18487f8ae",
+      "conformance/slim/onboarding.py": "25a5a8d0f4dc9aebff038b4a212d7db854bb479a5fb9d1d762c61d4642fbbfe1",
+      "conformance/slim/owner_finalization.py": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+      "conformance/slim/owner_finalization_signing.py": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+      "conformance/slim/owner_onboarding.py": "beb06d9a6194bf617ac20d941803c753bf2eed7663bd0079a9558c0eefa6b668",
+      "conformance/slim/owner_signing.py": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0",
+      "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+      "conformance/slim/policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "conformance/slim/project_onboarding.py": "9990241a3a5f7f23c6887aa03293f10bcdcfcb21c0ef9dc0a0718c01c2aa1b5e",
+      "conformance/slim/readiness.py": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "conformance/slim/renewal.py": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+      "conformance/slim/requester_completion.py": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "conformance/slim/root.py": "58cdb05b0cfef63504b24e2a0a8fc918662153320919cd31e6cc26c4ac89bf29",
+      "conformance/slim/sync.py": "dcf42dd76b6f238f4a6089412e0afe66c737b88a7c8b8f071e086711aaf254b3",
+      "conformance/slim/work.py": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af",
+      "conformance/test_package_release.py": "fd3e1045836ecf687498cf14b6a09b324f39030a69cf286ac207659d932ca10b",
+      "integrations/claude-onboarding/tests/access-completion.test.ts": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0",
+      "integrations/claude-onboarding/tests/access-review.test.ts": "65d903019d7bfabb6086d7725d1925fdc020103d4c82e52bda8e011bc4c0bc98",
+      "integrations/claude-onboarding/tests/adapter-review.test.ts": "bebb2ba5d8703e63fbbb5781f2adbe318d40101766a05d50e224158feb229941",
+      "integrations/claude-onboarding/tests/admission-review.test.ts": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts": "7e1b662a12b5190e578a7b4be77793a823d9cb7a979af056249d2caa42adda31",
+      "integrations/claude-onboarding/tests/invitation-review.test.ts": "d7d0dc37392844df4a2b1873a6718769ad2239b3a640bed6e2bcc699a8e87f39",
+      "integrations/claude-onboarding/tests/join-progress.test.ts": "21db445cf0421adfc6e4e9951b00d4d56b189c51b45eeae5afb964af30e9cecb",
+      "integrations/claude-onboarding/tests/join-review.test.ts": "09e2d5d546711bc60d1ec55ffac2f1e359e6cc4163ca45f827a7eb591839b982",
+      "integrations/claude-onboarding/tests/machine-owner.test.ts": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f",
+      "integrations/claude-onboarding/tests/machine-request.test.ts": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+      "integrations/claude-onboarding/tests/native-entry.test.ts": "6a71c73a641247870a9b2a8a7c6e987cfea57eb981b7b4f80d2ae675cf0acfbf",
+      "integrations/claude-onboarding/tests/native-message.test.ts": "58fde146a5e31e661c83c95cb4573d7f2ed965ffb2c1e24fc3a19334053f51da",
+      "integrations/claude-onboarding/tests/native-task.test.ts": "becc4f8f1e41ea708166bb9f7eca6b46154b657dd1cd27f80f77a72a90fa9518",
+      "integrations/claude-onboarding/tests/new-identity.test.ts": "a24abf5a887c6eb63aae1dd007233482c1658ce9635ce12f496946af7988faf2",
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+      "integrations/claude-onboarding/tests/owner-review.test.ts": "2083ea5e72369e22df2bf5a345065b5cda8f3e9cbd7378c124a81277b8336aa7",
+      "integrations/claude-onboarding/tests/owner-signing.test.ts": "5efae8ad77d509e842cdc1d642ec1699f35ecb49796a48ade179d85fbf39bdf1",
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "integrations/claude-onboarding/tests/project-review.test.ts": "f9430f52ddc0f0c5b7da5833a3e923df29ae4ba55bfd481504b2c820c9b2c330",
+      "integrations/claude-onboarding/tests/readiness.test.ts": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a",
+      "integrations/claude-onboarding/tests/requester-commit.test.ts": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653",
+      "conformance/slim/machine_requester_inspection.py": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+      "conformance/slim/machine_requester_consent.py": "c75244caa9c75d5e635c036bd748dee7fbec0ce9843e04c67ded9f47a1c8aaad"
+    },
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "all_byte_identical": true
+  },
+  "observed": [
+    "Format,155existingRust tests/2ignored,Clippy all-targets warningsdenied and fresh build pass serially.",
+    "Existing unchanged inspection6/6in70s (runner70.29) verifies actual original F; no narrower local proof-error-branch attribution claimed.",
+    "Independent new completion6/6in118s (runner120.55), compiler-idle throughout. Outer runner exceeds120s by0.55; suite reports118s. Retain both; no timeout/target/fixture change or unchanged retry.",
+    "All67prior files/new47/fullnative415 tree exact; only independently authored finite failure observer remains. No RSA/key dependency in final source."
+  ],
+  "retained_limits": [
+    "First compile/runtime/CI/no-starts and unclassified TCP/UDP/contact/finalization failures remain committed in all preceding records. Final passing sample does not classify them.",
+    "Advanced-only/no-guided-metadata,cancellation,original-provider positive completion,isolated unsigned-stage/fixed powers expiry,complex authority/corruption/pruned/reused/separateadmin,exactkey/commit/90s races/globalworker attribution remain source/fault-only or unexecuted.",
+    "Native requester controls and full35terminal/reload/installed/physical/model/schema23through27/fullstatebackup/recovery/final acceptance remain open; local application is not connection readiness."
+  ],
+  "final_gate": "Required exact pushed head: all36suites+build37jobs, all4checks/native415/Rust155+2ignored, fresh bot/root review. Final receipts on PR100; owner merges100;35unmerged."
+}

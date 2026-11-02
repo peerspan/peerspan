@@ -1,0 +1,510 @@
+{
+  "slice": "GU.impl45",
+  "pull_request": "https://github.com/peerspan/peerspan/pull/98",
+  "tracking_pr": 35,
+  "base": "2a503e93c5e517040139f08a5b2f470f86ea85b3",
+  "source_head": "811858dd047b093bb6b80f7ba79838ef7f710292",
+  "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+  "independent_author": {
+    "commit": "1f27aadb657f50ad8eb5286901a194057a2ce77e",
+    "branch": "codex/gu-machine-requester-inspection-tests",
+    "file": "conformance/slim/machine_requester_inspection.py",
+    "sha256": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c",
+    "cases": 6,
+    "no_product_reads_or_runtime_execution": true,
+    "no_sql_writes": true,
+    "committed_and_published_before_root_first_execution": true,
+    "source_unchanged_after_first_execution": true
+  },
+  "preservation": {
+    "base": "2a503e93c5e517040139f08a5b2f470f86ea85b3",
+    "all_byte_identical": true,
+    "files": 65,
+    "native_files": 21,
+    "sha256": {
+      "conformance/agent_adapter.py": "b0ed74a412cd7533aa2b8c6ecc808072d5450870694c4d700c52282bacdc68b1",
+      "conformance/claude_setup.py": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+      "conformance/fixtures/gh/gh.py": "4afd0f0505e0d2fbf89d6af91aa00c39200c2e19d1a858b7f24480f0c47a2d81",
+      "conformance/fixtures/mcp/server.py": "3e24b43f4b8f2bb713dfa32518d35cd9e36362e2f2cb929eaf1cc2339a1f1da6",
+      "conformance/fixtures/remote/remote.py": "2be308e4bf93ccd58113b59e30bb7aec686f5c1470b7227fa2af127c174d3550",
+      "conformance/host_service.py": "2b7aae580c610fe7270b837b76be4acead89e72555d7964b4a069974c88e01af",
+      "conformance/installed_bundle.py": "1f61d9c11c13649a5e5157fe659a5c318f049556b7fe98c947cc64f852ff6f9a",
+      "conformance/peer_messaging.py": "ed735dcc9360997add4abfa3ddd6da430110b0d7757ff57acbced297b61722a4",
+      "conformance/slim/access_application.py": "56b20830b2a4b8283f2d99c0c670216e85f2ac817838cf0e25d6a078c689e7d6",
+      "conformance/slim/access_consent.py": "4f0b2d5cd3538bd56c359aa7ea24943720bb6a3d34d746b09300e3be6d6310c6",
+      "conformance/slim/access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "conformance/slim/access_signing.py": "1fb2b92379c238c84af7ab391c45e15caf54160d51e86fd9d6cf7b000927a156",
+      "conformance/slim/adapter_onboarding.py": "d07d1ed9b7088b71ce0af54db50ecfcbbb2cd32d5c48200c511a736e4b2a5714",
+      "conformance/slim/admission_consent.py": "bb1e4a1a9513beaca28621b57eb1c0688c112fb453a38d5fa160566de787f8c6",
+      "conformance/slim/admission_onboarding.py": "e3fa6b749a5225135c23cf5799291d7598b99066434640d403a77da5c9888e08",
+      "conformance/slim/basics.py": "55828ce8de9efeb01c5b83a07574ea31d4374e3a00c10cadb146eb5b23ad0185",
+      "conformance/slim/capabilities.py": "7c07428b7da068866fa65541913fa915cce27498cd8bcd32c4262aa003435b81",
+      "conformance/slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+      "conformance/slim/delivery.py": "107b539c84b90e9fed33285ba61f77df860fcded6961a81484cd14dbcc65746d",
+      "conformance/slim/harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "conformance/slim/incoming_progress.py": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc",
+      "conformance/slim/invitation_onboarding.py": "819425617254996c02bc2825c971ef31e156c24b4584e9f5529190f16ecd6286",
+      "conformance/slim/join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+      "conformance/slim/join_onboarding.py": "479f4ba8877229c2e914ffe326084f53edafd78913547c76133e29363261a23b",
+      "conformance/slim/live.py": "6a3296a8ee3f6a2d6a0cd3777b59417620362e55540ae6d34078cfcc3bc3ec0b",
+      "conformance/slim/machine_owner.py": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+      "conformance/slim/machine_owner_consent.py": "4892ab362bd34295994b574c9b8be3ec2e03c6a7725af69a136c945f0d3cbd8f",
+      "conformance/slim/machine_owner_signing.py": "0cd90eeb046ae54f67371806f0c32ea384184aa07bcd6d10422834a18487f8ae",
+      "conformance/slim/onboarding.py": "25a5a8d0f4dc9aebff038b4a212d7db854bb479a5fb9d1d762c61d4642fbbfe1",
+      "conformance/slim/owner_finalization.py": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+      "conformance/slim/owner_finalization_signing.py": "71b69d0e18090d8511eb7504a899d4238ac8310c7e1ac09579477e7802815da9",
+      "conformance/slim/owner_onboarding.py": "beb06d9a6194bf617ac20d941803c753bf2eed7663bd0079a9558c0eefa6b668",
+      "conformance/slim/owner_signing.py": "b3700f489d4cc54fde5bd3f4dda6dfbcfe23f3b5d5af0ac6ca22e6cfa20a53d0",
+      "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+      "conformance/slim/policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "conformance/slim/project_onboarding.py": "9990241a3a5f7f23c6887aa03293f10bcdcfcb21c0ef9dc0a0718c01c2aa1b5e",
+      "conformance/slim/readiness.py": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "conformance/slim/renewal.py": "e4304ce4316cc7cdd1182788105aeb6fb4c1ce080fcf982000a16780a6b468f7",
+      "conformance/slim/requester_commit.py": "9dc63e700a3ef4477527b6a1cae0d09d14137b16da536dc35ca6bc57637bfc97",
+      "conformance/slim/requester_completion.py": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "conformance/slim/root.py": "58cdb05b0cfef63504b24e2a0a8fc918662153320919cd31e6cc26c4ac89bf29",
+      "conformance/slim/sync.py": "dcf42dd76b6f238f4a6089412e0afe66c737b88a7c8b8f071e086711aaf254b3",
+      "conformance/slim/work.py": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af",
+      "conformance/test_package_release.py": "fd3e1045836ecf687498cf14b6a09b324f39030a69cf286ac207659d932ca10b",
+      "integrations/claude-onboarding/tests/access-completion.test.ts": "00e28d243e14a454e1f8a10015c412f8aa03ffd24edf2dc056c1675d702c25e0",
+      "integrations/claude-onboarding/tests/access-review.test.ts": "65d903019d7bfabb6086d7725d1925fdc020103d4c82e52bda8e011bc4c0bc98",
+      "integrations/claude-onboarding/tests/adapter-review.test.ts": "bebb2ba5d8703e63fbbb5781f2adbe318d40101766a05d50e224158feb229941",
+      "integrations/claude-onboarding/tests/admission-review.test.ts": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+      "integrations/claude-onboarding/tests/invitation-preview.test.ts": "7e1b662a12b5190e578a7b4be77793a823d9cb7a979af056249d2caa42adda31",
+      "integrations/claude-onboarding/tests/invitation-review.test.ts": "d7d0dc37392844df4a2b1873a6718769ad2239b3a640bed6e2bcc699a8e87f39",
+      "integrations/claude-onboarding/tests/join-progress.test.ts": "21db445cf0421adfc6e4e9951b00d4d56b189c51b45eeae5afb964af30e9cecb",
+      "integrations/claude-onboarding/tests/join-review.test.ts": "09e2d5d546711bc60d1ec55ffac2f1e359e6cc4163ca45f827a7eb591839b982",
+      "integrations/claude-onboarding/tests/machine-owner.test.ts": "3524bb441d19832f96df48120907e143f7e2a57b3dc4e3052c5fba014aa2784f",
+      "integrations/claude-onboarding/tests/machine-request.test.ts": "a55072b9378ee5129e2b32a8a8e41b88a2f20d12878c1751e12d04bdcdf5b219",
+      "integrations/claude-onboarding/tests/native-entry.test.ts": "6a71c73a641247870a9b2a8a7c6e987cfea57eb981b7b4f80d2ae675cf0acfbf",
+      "integrations/claude-onboarding/tests/native-message.test.ts": "58fde146a5e31e661c83c95cb4573d7f2ed965ffb2c1e24fc3a19334053f51da",
+      "integrations/claude-onboarding/tests/native-task.test.ts": "becc4f8f1e41ea708166bb9f7eca6b46154b657dd1cd27f80f77a72a90fa9518",
+      "integrations/claude-onboarding/tests/new-identity.test.ts": "a24abf5a887c6eb63aae1dd007233482c1658ce9635ce12f496946af7988faf2",
+      "integrations/claude-onboarding/tests/owner-finalization.test.ts": "155a8d606122d0ac20eff574b803be03b01677bae7726246945dd228d149d5d9",
+      "integrations/claude-onboarding/tests/owner-review.test.ts": "2083ea5e72369e22df2bf5a345065b5cda8f3e9cbd7378c124a81277b8336aa7",
+      "integrations/claude-onboarding/tests/owner-signing.test.ts": "5efae8ad77d509e842cdc1d642ec1699f35ecb49796a48ade179d85fbf39bdf1",
+      "integrations/claude-onboarding/tests/peer-reachability.test.ts": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "integrations/claude-onboarding/tests/project-review.test.ts": "f9430f52ddc0f0c5b7da5833a3e923df29ae4ba55bfd481504b2c820c9b2c330",
+      "integrations/claude-onboarding/tests/readiness.test.ts": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a",
+      "integrations/claude-onboarding/tests/requester-commit.test.ts": "27c55b967401425726811711739c743f7e6777bdb462ed01dc48a15208ea9653"
+    },
+    "native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "base_native_tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6"
+  },
+  "binaries": {
+    "head": "bc0bbbc12866b07dccaef03a308c2caf6acddbd2",
+    "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+    "directory": "/tmp/gu45-runtime/final-bin-rust-build-first",
+    "sha256": {
+      "peerspan-host": "5f027428e09de55d8f50895a49b7824c2233bb01f01aba76329b88fb5ce96533",
+      "peerspan-peer-probe": "4a41b39d9c9c6cbec4272a1ddf9d8b6b8a326376f6d76c2424d276d85264c703",
+      "peerspan-helper": "f44180f107e503f00edf8210e5b7a3430988c4f544f2e83161bf4e85b332b3c7"
+    }
+  },
+  "records": [
+    {
+      "gate": "rust-fmt-first",
+      "head": "a489bd32a33c6ea711bd44a469a441ee16a10d22",
+      "rust_tree": "1fc9e749b4b783dd4f63be4ea3d5e5f2fd0596ee",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.0,
+      "log": "/tmp/gu45-runtime/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "a489bd32a33c6ea711bd44a469a441ee16a10d22",
+      "rust_tree": "1fc9e749b4b783dd4f63be4ea3d5e5f2fd0596ee",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 101,
+      "seconds": 2.01,
+      "log": "/tmp/gu45-runtime/rust-test-first.log",
+      "sha256": "bbcf1825e7ae3f6d5a61be7c7610efe51db18f8c579a3140a2d840f76d996fff",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "head": "601b98c60b6b5e0b9b6444194704113fb67add79",
+      "outcome": "format_parse_failure",
+      "reason": "Root JSON-extraction edit retained an extra closing brace; corrected before another compiler/runtime launch.",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ]
+    },
+    {
+      "gate": "rust-test-corrected-first",
+      "head": "c1fe6221c97c9647dbb79b2c9b861e6e65cf3f39",
+      "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 100.54,
+      "log": "/tmp/gu45-runtime/rust-test-corrected-first.log",
+      "sha256": "0ebe785d82a64720e1d5f58b8b9f45b2c169a99c7340ad1e44aa4fc084338b2c",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ],
+            [
+              "2897378",
+              "rustc"
+            ],
+            [
+              "2897379",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ],
+            [
+              "2897378",
+              "rustc"
+            ],
+            [
+              "2897379",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ],
+            [
+              "2897378",
+              "rustc"
+            ],
+            [
+              "2897379",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.22,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ],
+            [
+              "2897378",
+              "rustc"
+            ],
+            [
+              "2897379",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 75.39,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ],
+            [
+              "2905115",
+              "rustc"
+            ],
+            [
+              "2905684",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 90.47,
+          "active": [
+            [
+              "2897347",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-fmt-corrected-first",
+      "head": "bc0bbbc12866b07dccaef03a308c2caf6acddbd2",
+      "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 4.01,
+      "log": "/tmp/gu45-runtime/rust-fmt-corrected-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "bc0bbbc12866b07dccaef03a308c2caf6acddbd2",
+      "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 36.14,
+      "log": "/tmp/gu45-runtime/rust-clippy-first.log",
+      "sha256": "54650c5e5ecc5425ac7fb220c0e96d1ca7c7b667e0c5bb58846735fc4c93d503",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "2919485",
+              "cargo"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "2919485",
+              "cargo"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "bc0bbbc12866b07dccaef03a308c2caf6acddbd2",
+      "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 72.28,
+      "log": "/tmp/gu45-runtime/rust-build-first.log",
+      "sha256": "e9c705e693d285fad5a4d82d2533928589bd224215e0b09e5574029d7c63156e",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": [
+            [
+              "2927425",
+              "cargo"
+            ],
+            [
+              "2927446",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 30.07,
+          "active": [
+            [
+              "2927425",
+              "cargo"
+            ],
+            [
+              "2927446",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 45.14,
+          "active": [
+            [
+              "2927425",
+              "cargo"
+            ],
+            [
+              "2927446",
+              "rustc"
+            ]
+          ]
+        },
+        {
+          "seconds": 60.21,
+          "active": [
+            [
+              "2927425",
+              "cargo"
+            ],
+            [
+              "2927446",
+              "rustc"
+            ]
+          ]
+        }
+      ],
+      "postflight_active": []
+    },
+    {
+      "gate": "machine-requester-inspection-first",
+      "head": "811858dd047b093bb6b80f7ba79838ef7f710292",
+      "rust_tree": "398f4d4771b921b5df2eead5cc15e748c07b367f",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_inspection.py",
+        "--bin",
+        "/tmp/gu45-runtime/final-bin-rust-build-first"
+      ],
+      "exit": 0,
+      "seconds": 70.34,
+      "log": "/tmp/gu45-runtime/machine-requester-inspection-first.log",
+      "sha256": "8d72158a36b0b85503a70fe41c47fd97126b0e0b13c05bf06ab45237928785da",
+      "preflight_active": [],
+      "noncompiling_other_cargo_test_pids": [],
+      "parallel_external_compile": [],
+      "compiler_samples": [
+        {
+          "seconds": 15.0,
+          "active": []
+        },
+        {
+          "seconds": 30.07,
+          "active": []
+        },
+        {
+          "seconds": 45.13,
+          "active": []
+        },
+        {
+          "seconds": 60.2,
+          "active": []
+        }
+      ],
+      "postflight_active": [],
+      "test_sha256": "dcbcfec490c37fffc3e5a720336b1d45fd33edfff9fd802ce8235e122053956c"
+    }
+  ],
+  "first_local_suite": {
+    "passed": 6,
+    "failed": 0,
+    "expected_failures": 0,
+    "skips": 0,
+    "reported_seconds": 70,
+    "runner_seconds": 70.34,
+    "log_sha256": "8d72158a36b0b85503a70fe41c47fd97126b0e0b13c05bf06ab45237928785da",
+    "compiler_idle_before_during_after": true
+  },
+  "language_checks": {
+    "Rust_tests": "155 pass,2 ignored",
+    "format": "pass on corrected398f4d47 tree",
+    "Clippy": "pass all targets with warnings denied",
+    "fresh_build": "pass all shipped debug bins",
+    "compile_failure": "First oversized JSON macro hits recursion limit; effects split into separate unchanged-shape value, no crate recursion-limit increase.",
+    "format_edit_failure": "First extraction edit retains an extra closing brace; formatter catches it before another compiler/runtime launch, then corrected.",
+    "unchanged_retry": false
+  },
+  "native": {
+    "tree": "95c1ca6a924463a91ba51e90c36b90560f9bf2b6",
+    "unchanged_from_merged97": true,
+    "cases": 415,
+    "local_optional_rerun": false,
+    "prior_final_ci_run": 41250952237,
+    "prior_native_job": 124684162505,
+    "prior_native_log_sha256": "61bb1d081847a99dc74f34bdb557f9007b248bc5c990a8e9a6061defbd7c619c",
+    "new_exact_head_full_ci": "required; receipts on PR"
+  },
+  "first_ci": {
+    "head": "811858dd047b093bb6b80f7ba79838ef7f710292",
+    "conformance_run": 41252747127,
+    "checks_run": 41252747129,
+    "status_at_record": "running; later outcomes retained on PR",
+    "final_exact_head_all34_suites_build_four_checks_native415_fresh_bot_root": "required"
+  },
+  "measured_scope": [
+    "Two genuine requester pairs, remote selected device15 and remote original-person with signed finite inherited cap; guided public-key-only requester publication and exact existing-owner consent.",
+    "Actual received signed owner/selection/folded host admission/F; target P/H/B/D and no fictitious administrator packet/stage; independently recomputed canonical review digest.",
+    "Requester never receives/loads an original; existing original source/finalization stays on old computer.",
+    "Existing computer is offline only after verified F and before whole-state baselines. Requester stays live/held, both-host DB/schema/state/home and counted bidirectional TCP/UDP paths stay strict. No both-live worker attribution claim.",
+    "Exact input/types/duplicates/null/bounds, malformed arguments, no-startup, context/review mismatch, real missing prefix and unreferenced unapproved ordinary commit work refuse.",
+    "Actual stage/request expiry, cancellation/restart/detachment and scoped adapter/peer/bootstrap absence are exercised without repair, consent or adoption."
+  ],
+  "limits": [
+    "Separate administrator/device7/reused-binding/current root/revoked/pruned/corrupt-authority cases lack bounded genuine stimuli; ordinary verifier/source review only.",
+    "Wrong-role/renew/unpinned/new-original/existing-network exclusions are source-only in this new suite; missing-prefix and genuine unapproved commit work are actual negative stimuli.",
+    "Unsafe signed aggregate, isolated powers expiry, unseen remote revocation, exact5s cutoff and microscopic timing/syscall attribution remain source/fault-only.",
+    "Restart detaches the old exact requested-flow parent. That refusal does not prove corrupt-catalog verification; no invented restoration or positive corrupt grants.",
+    "Read-only backend only: no machine requester consent, bounded completion, native continuation or readiness.",
+    "No new installed/terminal/reload/physical two-machine/model/schema23-to27/full-state/full35 acceptance. Prior97/96/94 unclassified failures remain in their committed records; this passing suite does not diagnose them."
+  ],
+  "attachment": "PR98 attach attempted; app reports thread attachment identity count exceeds100. No unrelated artifact removed."
+}

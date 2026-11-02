@@ -193,6 +193,65 @@ fn base(c: &Connection, store: &Store, p: &Pending, i: &Intent) -> Result<Base> 
         folded,
     })
 }
+/// Public eligibility from the same verified prefix as ordinary finalization,
+/// without materializing timestamped drafts or resolving any signing provider.
+pub(crate) fn inspect_original(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    require(
+        p.record.roles.iter().any(|r| r == "requester")
+            && p.record.mode == "new"
+            && p.record.migration_proposal_id == "-"
+            && p.record.host_public_key == store.identity().public_key
+            && p.record.owner_offer_id != "-"
+            && p.record.selection_id != "-"
+            && p.record.selection_approved
+            && p.record.administrator_offer_id != "-"
+            && p.record.owner_finalization_id == "-"
+            && !p.record.commit_approved
+            && p.record.commit_packet_base64 == "-"
+            && p.record.manifest_id == "-"
+            && p.record.activation_id == "-"
+            && p.record.outcome_packet_base64 == "-",
+        "state_conflict",
+    )?;
+    let adopted: bool = c
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
+            [&p.record.expected_network_id],
+            |r| r.get(0),
+        )
+        .map_err(db)?;
+    require(!adopted, "state_conflict")?;
+    let i = owner_intent(c, p)?;
+    check(i.record.provider.kind == "original" && i.record.provider.signature_format == "sshsig")?;
+    let b = base(c, store, p, &i)?;
+    check(b.folded.is_none() && b.offer.staging.is_none())?;
+    let end = super::ceremony_admin::original_terms(p, &b.offer)?;
+    check(i.record.scopes == 7 && i.record.not_after == end)?;
+    let request = p.view(&b.now)?;
+    require(request["state"] != "expired", "expired")?;
+    require(
+        request["state"] == "needs_owner_finalization"
+            && stamp(&b.now)? >= stamp(field(&request, "created_at")?)?
+            && (p.record.stage_at == "-" || stamp(&b.now)? >= stamp(&p.record.stage_at)?)
+            && stamp(&b.now)? < stamp(&end)?,
+        "state_conflict",
+    )?;
+    let admin = b
+        .administrator
+        .as_ref()
+        .ok_or_else(|| Error::new("proof_required"))?;
+    Ok(json!({"observed_at":b.now,"request":request,
+        "network":{"id":b.descriptor.network_id,"name":b.descriptor.name,
+            "context_id":b.descriptor.context_id(),"genesis_root_public_key":b.descriptor.genesis_root_public_key},
+        "member":b.offer.owner.payload["member"],"owner_offer_id":b.offer.owner.id,
+        "selection_id":b.selection.id,"administrator_offer_id":admin.id,
+        "root_state_id":b.admissions.root,"person_lease_id":b.admissions.person.id,
+        "host_lease_id":b.admissions.host.id,"scopes":7,"not_after":end,
+        "administrator":{"signer_public_key":admin.object["signer_public_key"],
+            "host_public_key":admin.object["writer_host_public_key"],
+            "signature_format":admin.object["authority_signature_format"],
+            "issuer_id":admin.object["issuer_id"]}}))
+}
 fn generation(b: &Base, kind: &str, p: &Pending) -> Result<(u64, Vec<String>)> {
     let stream = if kind == "binding_lease" {
         vec!["binding".into(), p.record.host_public_key.clone()]

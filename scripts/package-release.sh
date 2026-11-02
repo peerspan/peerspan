@@ -149,6 +149,7 @@ copy_integration() {
       echo "missing or linked integration source: $integration/$source" >&2
       exit 1
     fi
+    mkdir -p "$integrations/$integration/$(dirname -- "$source")"
     cp "$repo/integrations/$integration/$source" "$integrations/$integration/$source"
   done
 }
@@ -160,6 +161,44 @@ copy_integration codex integration.json package.json package-lock.json README.md
   bridge.mjs configuration.mjs connection.mjs mcp.mjs provider.mjs thread.mjs
 copy_integration opencode integration.json package.json package-lock.json README.md \
   binding.mjs bridge.mjs client.mjs inspection.mjs plugin.mjs provider.mjs
+
+# Keep the native frontend self-contained. Copy only shipped runtime sources,
+# never a developer's tests, credentials or other files in the plugin directory.
+for directory in \
+  "$repo/integrations/claude-onboarding" \
+  "$repo/integrations/claude-onboarding/.claude-plugin" \
+  "$repo/integrations/claude-onboarding/hooks"
+do
+  if [ -L "$directory" ] || [ ! -d "$directory" ]; then
+    echo "missing or linked native plugin directory" >&2
+    exit 1
+  fi
+done
+copy_integration claude-onboarding .claude-plugin/plugin.json README.md hooks/hooks.json \
+  hooks/access-completion.mjs hooks/access.mjs hooks/adapter.mjs hooks/admission.mjs \
+  hooks/finalization.mjs hooks/invitation.mjs hooks/join-progress.mjs hooks/join.mjs \
+  hooks/machine-owner.mjs hooks/machine-request.mjs hooks/machine-requester.mjs \
+  hooks/messages.mjs hooks/observation.mjs hooks/owner.mjs hooks/project.mjs \
+  hooks/reachability.mjs hooks/readiness.mjs hooks/recipient.mjs hooks/register.mjs \
+  hooks/requester-commit.mjs hooks/tasks.mjs
+
+# Claude caches installed plugins by version. Stamp only the packaged manifest;
+# the source plugin and every runtime module retain their original bytes.
+node - "$integrations/claude-onboarding/.claude-plugin/plugin.json" "$version" <<'NODE'
+const fs = require('node:fs');
+const [path, version] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
+manifest.version = version;
+fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
+NODE
+
+marketplace="$repo/integrations/claude-onboarding-marketplace.json"
+if [ -L "$marketplace" ] || [ ! -f "$marketplace" ]; then
+  echo "missing or linked native plugin marketplace" >&2
+  exit 1
+fi
+mkdir -p "$bundle/share/peerspan/.claude-plugin"
+cp "$marketplace" "$bundle/share/peerspan/.claude-plugin/marketplace.json"
 
 for integration in claude-channel codex opencode; do
   npm ci --omit=dev --ignore-scripts \
@@ -189,6 +228,10 @@ for required in \
   "$bundle/share/peerspan/integrations/claude-channel/integration.json" \
   "$bundle/share/peerspan/integrations/codex/integration.json" \
   "$bundle/share/peerspan/integrations/opencode/integration.json" \
+  "$bundle/share/peerspan/.claude-plugin/marketplace.json" \
+  "$bundle/share/peerspan/integrations/claude-onboarding/.claude-plugin/plugin.json" \
+  "$bundle/share/peerspan/integrations/claude-onboarding/hooks/hooks.json" \
+  "$bundle/share/peerspan/integrations/claude-onboarding/hooks/register.mjs" \
   "$bundle/share/peerspan/integrations/claude-channel/node_modules/@modelcontextprotocol/sdk/package.json" \
   "$bundle/share/peerspan/integrations/codex/node_modules/ws/package.json" \
   "$bundle/share/peerspan/integrations/opencode/node_modules/@opencode-ai/plugin/package.json"

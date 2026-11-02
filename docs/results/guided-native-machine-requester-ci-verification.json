@@ -1,0 +1,865 @@
+{
+  "slice": "GU.impl48 diagnostic follow-up",
+  "source_head": "56c887c15ebb6fc3e67ae8345068be3568d1b8fd",
+  "first_ci": {
+    "head": "bf76635b910bb803ff203f342c2258c7047a55f8",
+    "conformance_run": 41326223098,
+    "checks_run": 41326223265,
+    "attempt": 1,
+    "conformance": {
+      "conclusion": "failure",
+      "headSha": "bf76635b910bb803ff203f342c2258c7047a55f8",
+      "jobs": [
+        {
+          "databaseId": 124906608969,
+          "name": "Build host, peer probe and helper",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906608969",
+          "startedAt": "2026-11-01T16:25:09Z",
+          "completedAt": "2026-11-01T16:26:37Z"
+        },
+        {
+          "databaseId": 124906988175,
+          "name": "invitation_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988175",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:00Z"
+        },
+        {
+          "databaseId": 124906988209,
+          "name": "root",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988209",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:35Z"
+        },
+        {
+          "databaseId": 124906988233,
+          "name": "admission_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988233",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:29Z"
+        },
+        {
+          "databaseId": 124906988256,
+          "name": "renewal",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988256",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:28:57Z"
+        },
+        {
+          "databaseId": 124906988268,
+          "name": "delivery",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988268",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:52Z"
+        },
+        {
+          "databaseId": 124906988280,
+          "name": "adapter_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988280",
+          "startedAt": "2026-11-01T16:26:40Z",
+          "completedAt": "2026-11-01T16:26:56Z"
+        },
+        {
+          "databaseId": 124906988290,
+          "name": "onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988290",
+          "startedAt": "2026-11-01T16:26:58Z",
+          "completedAt": "2026-11-01T16:27:24Z"
+        },
+        {
+          "databaseId": 124906988292,
+          "name": "join",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988292",
+          "startedAt": "2026-11-01T16:27:34Z",
+          "completedAt": "2026-11-01T16:28:38Z"
+        },
+        {
+          "databaseId": 124906988293,
+          "name": "owner_signing",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988293",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:06Z"
+        },
+        {
+          "databaseId": 124906988299,
+          "name": "incoming_progress",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988299",
+          "startedAt": "2026-11-01T16:27:09Z",
+          "completedAt": "2026-11-01T16:28:25Z"
+        },
+        {
+          "databaseId": 124906988301,
+          "name": "capabilities",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988301",
+          "startedAt": "2026-11-01T16:27:05Z",
+          "completedAt": "2026-11-01T16:27:50Z"
+        },
+        {
+          "databaseId": 124906988304,
+          "name": "join_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988304",
+          "startedAt": "2026-11-01T16:27:24Z",
+          "completedAt": "2026-11-01T16:28:07Z"
+        },
+        {
+          "databaseId": 124906988310,
+          "name": "policy",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988310",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:08Z"
+        },
+        {
+          "databaseId": 124906988311,
+          "name": "work",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988311",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:32Z"
+        },
+        {
+          "databaseId": 124906988323,
+          "name": "admission_consent",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988323",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:23Z"
+        },
+        {
+          "databaseId": 124906988330,
+          "name": "owner_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988330",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:04Z"
+        },
+        {
+          "databaseId": 124906988336,
+          "name": "basics",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988336",
+          "startedAt": "2026-11-01T16:27:36Z",
+          "completedAt": "2026-11-01T16:28:07Z"
+        },
+        {
+          "databaseId": 124906988339,
+          "name": "sync",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988339",
+          "startedAt": "2026-11-01T16:27:24Z",
+          "completedAt": "2026-11-01T16:28:26Z"
+        },
+        {
+          "databaseId": 124906988351,
+          "name": "peer_reachability",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988351",
+          "startedAt": "2026-11-01T16:26:40Z",
+          "completedAt": "2026-11-01T16:27:26Z"
+        },
+        {
+          "databaseId": 124906988356,
+          "name": "machine_requester_inspection",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988356",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:34Z"
+        },
+        {
+          "databaseId": 124906988365,
+          "name": "readiness",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988365",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:03Z"
+        },
+        {
+          "databaseId": 124906988374,
+          "name": "machine_requester_completion",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988374",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:28:28Z"
+        },
+        {
+          "databaseId": 124906988376,
+          "name": "machine_owner_consent",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988376",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:23Z"
+        },
+        {
+          "databaseId": 124906988382,
+          "name": "owner_finalization_signing",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988382",
+          "startedAt": "2026-11-01T16:27:06Z",
+          "completedAt": "2026-11-01T16:28:57Z"
+        },
+        {
+          "databaseId": 124906988389,
+          "name": "requester_commit",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988389",
+          "startedAt": "2026-11-01T16:27:02Z",
+          "completedAt": "2026-11-01T16:28:45Z"
+        },
+        {
+          "databaseId": 124906988391,
+          "name": "access_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988391",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:45Z"
+        },
+        {
+          "databaseId": 124906988399,
+          "name": "live",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988399",
+          "startedAt": "2026-11-01T16:27:44Z",
+          "completedAt": "2026-11-01T16:28:18Z"
+        },
+        {
+          "databaseId": 124906988417,
+          "name": "machine_owner_signing",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988417",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:27:43Z"
+        },
+        {
+          "databaseId": 124906988421,
+          "name": "access_application",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988421",
+          "startedAt": "2026-11-01T16:26:39Z",
+          "completedAt": "2026-11-01T16:28:05Z"
+        },
+        {
+          "databaseId": 124906988468,
+          "name": "owner_finalization",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988468",
+          "startedAt": "2026-11-01T16:27:08Z",
+          "completedAt": "2026-11-01T16:28:22Z"
+        },
+        {
+          "databaseId": 124906988475,
+          "name": "access_consent",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988475",
+          "startedAt": "2026-11-01T16:27:30Z",
+          "completedAt": "2026-11-01T16:28:45Z"
+        },
+        {
+          "databaseId": 124906988485,
+          "name": "requester_completion",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988485",
+          "startedAt": "2026-11-01T16:27:26Z",
+          "completedAt": "2026-11-01T16:28:59Z"
+        },
+        {
+          "databaseId": 124906988500,
+          "name": "access_signing",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988500",
+          "startedAt": "2026-11-01T16:27:37Z",
+          "completedAt": "2026-11-01T16:29:02Z"
+        },
+        {
+          "databaseId": 124906988505,
+          "name": "machine_owner",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988505",
+          "startedAt": "2026-11-01T16:27:27Z",
+          "completedAt": "2026-11-01T16:28:06Z"
+        },
+        {
+          "databaseId": 124906988546,
+          "name": "machine_requester_consent",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988546",
+          "startedAt": "2026-11-01T16:27:46Z",
+          "completedAt": "2026-11-01T16:29:28Z"
+        },
+        {
+          "databaseId": 124906988569,
+          "name": "project_onboarding",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223098/job/124906988569",
+          "startedAt": "2026-11-01T16:27:51Z",
+          "completedAt": "2026-11-01T16:28:17Z"
+        }
+      ],
+      "status": "completed"
+    },
+    "checks": {
+      "conclusion": "success",
+      "headSha": "bf76635b910bb803ff203f342c2258c7047a55f8",
+      "jobs": [
+        {
+          "databaseId": 124906609481,
+          "name": "Rust Clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609481",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "completedAt": "2026-11-01T16:26:04Z"
+        },
+        {
+          "databaseId": 124906609641,
+          "name": "Claude onboarding runtime",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609641",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "completedAt": "2026-11-01T16:26:32Z"
+        },
+        {
+          "databaseId": 124906609758,
+          "name": "Rust tests and build",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609758",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "completedAt": "2026-11-01T16:28:11Z"
+        },
+        {
+          "databaseId": 124906609782,
+          "name": "Rust format",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41326223265/job/124906609782",
+          "startedAt": "2026-11-01T16:25:10Z",
+          "completedAt": "2026-11-01T16:25:17Z"
+        }
+      ],
+      "status": "completed"
+    },
+    "bot_receipt": "https://github.com/peerspan/peerspan/pull/101#issuecomment-6560675801",
+    "bot_clean_exact_head": true,
+    "unresolved_threads": 0,
+    "native": {
+      "passed": 440,
+      "failed": 0,
+      "seconds": 71.85
+    },
+    "failure": {
+      "suite": "requester_completion",
+      "passed": 5,
+      "failed": 1,
+      "seconds": 84,
+      "case": "expired/API/wrong-review replay carrier purity",
+      "observed": "issuerUDP+2datagrams/+2400bytes; zero returned UDP and TCP changes; directory current row/stateok",
+      "cause": "unclassified"
+    },
+    "logs": {
+      "ci-requester-completion-first.log": {
+        "sha256": "46083dc4090c0757a00f9df500dbe0f3b692398dee84827149c526e03b70f962",
+        "bytes": 18898
+      },
+      "ci-native-first.log": {
+        "sha256": "c5b549529119505fb8ccb18fb11305c188e0cfdd5026cd3c756fccf571102bf7",
+        "bytes": 87415
+      },
+      "ci-rust-first.log": {
+        "sha256": "b6dddeee26caaae8cb5e3f6123077cf6513671a190b542e6678e9c4935c19a2c",
+        "bytes": 37066
+      }
+    },
+    "full_metadata_snapshot": {
+      "path": "/tmp/gu48-runtime/first-ci-receipt.json",
+      "sha256": "121c21eb0956b2aa5b172b08eb8e20b8bb0e52649af3916c5ea7ce0b29a9a3e5"
+    }
+  },
+  "diagnostic_contract": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+  "independent_author": {
+    "commit": "d00409c06e4341ecc6b4097eb9b8d24bc3f6ab5f",
+    "branch": "codex/gu-requester-completion-carrier-diagnostic-tests",
+    "path": "conformance/slim/requester_completion_carrier_diagnostic.py",
+    "sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+    "source_only": true,
+    "no_product_reads_or_runtime": true,
+    "audit": {
+      "source_sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+      "source_ast_sha256": "caea76a9b78805e3ebacbc88a27a29df758ed6a0277d7d9887e7ccb836264263",
+      "protected_files_byte_exact": 70,
+      "base": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+      "removal": "delete only conformance/slim/requester_completion_carrier_diagnostic.py; every prior tracked test/helper byte and AST unchanged",
+      "bounds": {
+        "events_per_endpoint": 32,
+        "endpoints": 256,
+        "printed_events_per_crossed_endpoint": 8
+      },
+      "fake_checks": "/tmp/gu48-requester-carrier-static-check.py",
+      "limits": [
+        "no actual sockets/hosts/native/model/runtime executed",
+        "source port/header class does not establish daemon task or route attribution",
+        "unregistered/startup events and truncated windows remain unknown"
+      ]
+    }
+  },
+  "root_fake_checks": {
+    "exit": 0,
+    "command": [
+      "python3",
+      "/tmp/gu48-requester-carrier-static-check.py"
+    ],
+    "check_sha256": "cac6edc17c956abaee3b15808b533aa88344f382d9c116ebf07f9927a05fc3b1",
+    "source_hash_matches_integrated_copy": true,
+    "scope": "Fake socket/process/decorator only; no host/socket/native/model runtime. One-call/result/exception/argv/restoration,32/256/8 bounds, ordinal filtering, finite headers, silent success and private canaries."
+  },
+  "fresh_build": {
+    "gate": "rust-build-diagnostic-first",
+    "head": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "rust/Cargo.toml",
+      "--bins"
+    ],
+    "env_overrides": {
+      "CARGO_TARGET_DIR": "/tmp/peerspan-gu47-target",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "exit": 0,
+    "seconds": 71.53,
+    "sha256": "0c664488bbfc9dca6d9a87a46ed9abda914467716fb582147c4ebc08635bd36f",
+    "preflight_active": [],
+    "binaries": {
+      "peerspan-host": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-host",
+        "sha256": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "bytes": 113941296
+      },
+      "peerspan-peer-probe": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-peer-probe",
+        "sha256": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "bytes": 13904776
+      },
+      "peerspan-helper": {
+        "path": "/tmp/gu48-runtime/bin-rust-build-diagnostic-first/peerspan-helper",
+        "sha256": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a",
+        "bytes": 14533032
+      }
+    }
+  },
+  "affected_run": {
+    "gate": "requester-completion-diagnostic-first",
+    "head": "56c887c15ebb6fc3e67ae8345068be3568d1b8fd",
+    "command": [
+      "python3",
+      "conformance/slim/requester_completion_carrier_diagnostic.py",
+      "--bin",
+      "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+    ],
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+    "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+    "observer_sha256": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+    "preflight_active": [
+      [
+        "3504988",
+        "peerspan-host"
+      ]
+    ],
+    "fresh_build_head": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+    "bin_hashes": {
+      "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+      "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+      "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+    },
+    "exit": 0,
+    "seconds": 147.04,
+    "log": "/tmp/gu48-runtime/requester-completion-diagnostic-first.log",
+    "sha256": "f084718c0405b825c27647f6ddbc24e925455f30f5f213cc7d8b312ecdb90144"
+  },
+  "local_outcome": {
+    "passed": 6,
+    "failed": 0,
+    "seconds": 146,
+    "target_seconds": 120,
+    "target_exceeded": true,
+    "failure_observer_output": false,
+    "prior_cause": "unclassified",
+    "product_fix_claimed": false
+  },
+  "preservation": {
+    "base": "bf76635b910bb803ff203f342c2258c7047a55f8",
+    "prior_test_helper_files": 70,
+    "prior_bytes_and_AST_unchanged": true,
+    "native_440_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+    "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+    "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+    "workflow_change": "Only requester_completion uses the new receive-only launcher; all other commands unchanged."
+  },
+  "limits": [
+    "Passing changed diagnostic sample does not explain the first CI crossing or prior local native timeout/zero-dispatch causes.",
+    "Observer changes no test verdict, forwarding/result/exception, case/action/wait/default timeout, host lifecycle or authority.",
+    "Packet class and source-role equality do not establish daemon task/route attribution.",
+    "Startup/unregistered/truncated receive windows remain unknown.",
+    "Final-head full37jobs/fourchecks/native440 and fresh bot/root review remain required, with receipt on PR101.",
+    "Physical/terminal/reload/installed/actual-model/schema23\u219227/full-state/final35 acceptance remains open."
+  ],
+  "attachment": "PR101 app attachment attempted; thread attachment identity count exceeds100. No unrelated artifacts removed.",
+  "second_ci": {
+    "head": "449c80094f3da9a1a24028329da39e973a4e884c",
+    "conformance_run": 41328130758,
+    "checks_run": 41328130755,
+    "attempt": 1,
+    "checks": "all4pass",
+    "native": {
+      "passed": 440,
+      "seconds": 109.12
+    },
+    "bot_receipt": "https://github.com/peerspan/peerspan/pull/101#issuecomment-6560917003",
+    "bot_clean": true,
+    "failures": [
+      {
+        "suite": "requester_completion",
+        "passed": 5,
+        "failed": 1,
+        "seconds": 90,
+        "boundary": "prebaseline terminal outbox retirement5s",
+        "new_requester_proofs_row": {
+          "attempts_before_alignment": 0,
+          "attempts_after_failure": 1,
+          "due_now": true,
+          "seconds_until_next": 0,
+          "error_code": "transport_unavailable"
+        },
+        "old_requester_proofs_row": {
+          "attempts": 4,
+          "seconds_until_next_before_alignment": 12,
+          "retired_by_failure": true
+        },
+        "issuer_outbox_count": 0,
+        "both_sync_attempted": 1,
+        "both_sync_unavailable": 0,
+        "carrier_observer_reached": false,
+        "cause": "unclassified; actual observed incomplete setup, not UDP purity crossing"
+      },
+      {
+        "suite": "owner_finalization",
+        "passed": 5,
+        "failed": 1,
+        "seconds": 62,
+        "boundary": "after_expiry pure finalization inspect",
+        "changed": [
+          "dec_contacts:requester sequence/message/issued/expiry"
+        ],
+        "payload_changed": false,
+        "issued_and_expiry_now_after_request_deadline": true,
+        "files_and_tcp_changed": false,
+        "cause": "contact refresh crossing; route/task attribution unproven"
+      }
+    ],
+    "logs": {
+      "ci-requester-completion-diagnostic.log": {
+        "sha256": "3416e713f8c7c74e551be47f090319f41766de1a8dd35c8672c9e182fb6196fb",
+        "bytes": 20318
+      },
+      "ci-owner-finalization-diagnostic.log": {
+        "sha256": "554f72961f2d1a295bc3b28b35265f89d2da53326621e07cb156fa5d2fcc5969",
+        "bytes": 19397
+      },
+      "ci-native-final.log": {
+        "sha256": "066afc1aaad683d6b44167cd1de735e89c0ad891325aacc1cc634d702f2d58c8",
+        "bytes": 87509
+      }
+    },
+    "conformance": {
+      "conclusion": "failure",
+      "headSha": "449c80094f3da9a1a24028329da39e973a4e884c",
+      "jobs_total": 37,
+      "jobs_success": 35,
+      "jobs_failed": [
+        {
+          "name": "requester_completion",
+          "conclusion": "failure",
+          "databaseId": 124912692869,
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41328130758/job/124912692869"
+        },
+        {
+          "name": "owner_finalization",
+          "conclusion": "failure",
+          "databaseId": 124912692952,
+          "url": "https://github.com/peerspan/peerspan/actions/runs/41328130758/job/124912692952"
+        }
+      ],
+      "full_snapshot_sha256": "58c283c7e30a9eaff386048097bcdbb93d5cc5dd547a418ff9eeb86c6d9d524d"
+    }
+  },
+  "prerequisite_contract": {
+    "commit": "68ee627",
+    "selection": "completed-attempt read-only prerequisite before one existing alignment; genuine current signed own-contact and expired temporary reference retirement before unchanged history",
+    "product_and_native_unchanged": true,
+    "cause_limits": "No second-CI UDP crossing observed; async caller/transport failure attribution remains unknown."
+  },
+  "prerequisite_verification": {
+    "contract_commits": [
+      "68ee627f3227610bec7edd6ca8f578d82ae839e0",
+      "a736560"
+    ],
+    "independent_author": {
+      "commit": "57fb58c79cfc980832855fa95d4da37ed64f9b73",
+      "integrated_commit": "dd8d85a",
+      "branch": "codex/gu-readonly-prerequisite-tests",
+      "new_files_only": true,
+      "no_product_reads_or_host_runtime": true,
+      "static_audit": {
+        "source_files": {
+          "conformance/slim/owner_finalization_prerequisite.py": {
+            "sha256": "7fe5f031338c31e305a814e2381b2999db059fa9c2c3ed275c90a316a3474fc8",
+            "ast_sha256": "63f1f5c2b84a0146ad436124f53f2f3d0f7b9abeb394816c8452029afcfefc41"
+          },
+          "conformance/slim/requester_completion_prerequisite.py": {
+            "sha256": "33eb917d5c53958ef671997c0ea9d6329f268fce68176e92a2b3475f69cfa294",
+            "ast_sha256": "52cf0084150fbefc336726c2b236a0c04b64004f7ab44933b3f1d52b823f3403"
+          }
+        },
+        "protected_files_byte_exact": 71,
+        "preservation_base": "68ee627f3227610bec7edd6ca8f578d82ae839e0",
+        "critical_preserved_sha256": {
+          "conformance/slim/owner_finalization.py": "f9e1389e3fdc7eb96271ffe31d986540c82e8b0524bd9db1f4c9aca68fa5c6fd",
+          "conformance/slim/requester_completion.py": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+          "conformance/slim/requester_completion_carrier_diagnostic.py": "a7e23b04555b7cb998294b9710ea142cffcbe8a9507d06736d0381973466e35a",
+          "integrations/claude-onboarding/tests/machine-requester.test.ts": "d8a37e8747c1c4634346ebfafebf85463a697bbf11b52b692d98935eb7736144"
+        },
+        "restoration": "remove only the two new prerequisite launchers; every prior tracked conformance/native/helper byte and full AST remains unchanged",
+        "fake_checks": "/tmp/gu48-prerequisite-static-check.py",
+        "author_limits": [
+          "no actual suite, host, socket, protocol or crypto execution",
+          "source derived only from public contracts and independent fixtures",
+          "phase witnesses do not identify earlier asynchronous callers or claim a transport repair"
+        ]
+      }
+    },
+    "root_review": {
+      "source_head": "5c4255bfcf466d4c82b8f183c216508e8793bfe0",
+      "findings": [],
+      "fake_check_exit": 0,
+      "root_bytes_match_author_sources": true,
+      "old_assertions_actions_waits_and_full_comparisons_unchanged": true,
+      "sql_readonly": true
+    },
+    "runs": [
+      {
+        "head": "5c4255bfcf466d4c82b8f183c216508e8793bfe0",
+        "command": [
+          "python3",
+          "conformance/slim/requester_completion_prerequisite.py",
+          "--bin",
+          "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+        ],
+        "entry_sha256": "33eb917d5c53958ef671997c0ea9d6329f268fce68176e92a2b3475f69cfa294",
+        "exit": 0,
+        "seconds": 143.62,
+        "sha256": "6c4b4fdd16016247f25d5a8c7365d074f3ccc50fd2dbd0fe726fe029637b5757",
+        "suite": "requester_completion",
+        "passed": 6,
+        "failed": 0,
+        "suite_seconds": 142,
+        "target_seconds": 120,
+        "target_exceeded": true
+      },
+      {
+        "head": "5c4255bfcf466d4c82b8f183c216508e8793bfe0",
+        "command": [
+          "python3",
+          "conformance/slim/owner_finalization_prerequisite.py",
+          "--bin",
+          "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+        ],
+        "entry_sha256": "7fe5f031338c31e305a814e2381b2999db059fa9c2c3ed275c90a316a3474fc8",
+        "exit": 0,
+        "seconds": 82.4,
+        "sha256": "4c04b08308ffd2eebb9920ec92d2186754b265dfd88eb343da9ac6c7e30f51ef",
+        "suite": "owner_finalization",
+        "passed": 6,
+        "failed": 0,
+        "suite_seconds": 82,
+        "target_seconds": 120,
+        "target_exceeded": false
+      }
+    ],
+    "binaries": {
+      "build_head": "7615bbeac273e7115ea57aee5c0b4abacb7116d7",
+      "rust_tree": "918d3745ee6f20d23d5e4ee1fb35fbd4b68229c7",
+      "hashes": {
+        "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+      },
+      "fresh_hashes_verified_before_each_run": true
+    },
+    "limits": [
+      "requester142s/runner143.62s exceeds120s target; owner82s/runner82.4s",
+      "all71 prior files/native440/hooks/Rust remain exact",
+      "same original five-second retirement and all schema/table/files/TCP/UDP comparisons stay intact",
+      "no new host send/probe, queue edits, fabricated ACKs, worker suppression or unchanged local retry",
+      "one genuine unused65s invitation/current signed-contact and actual cleanup before owner history",
+      "passes do not establish earlier asynchronous caller attribution or general transport repair",
+      "pre-existing unrelated host3504988 left untouched; no compiler/native overlap",
+      "fresh full combined CI and bot/root review still required before ready"
+    ]
+  },
+  "third_ci": {
+    "head": "8f7349f38b1bc6fe424ed4b87e0502f3c08d98e9",
+    "conformance_run": 41330928039,
+    "checks_run": 41330928002,
+    "attempt": 1,
+    "conformance_jobs_passed": 36,
+    "conformance_jobs_total": 37,
+    "all4_checks_pass": true,
+    "native": {
+      "passed": 440,
+      "seconds": 107.06
+    },
+    "bot_receipt": [
+      "https://github.com/peerspan/peerspan/pull/101#issuecomment-6561307724"
+    ],
+    "bot_clean": true,
+    "failure": {
+      "suite": "machine_requester_completion",
+      "job": 124921054644,
+      "passed": 5,
+      "failed": 1,
+      "seconds": 65,
+      "boundary": "pre-measurement actual terminal proof outbox and journal retirement; original5s timeout",
+      "cause": "unclassified; neither failing row nor incomplete attempt observed in this job, no replay purity assertion reached"
+    },
+    "logs": {
+      "candidate-machine-completion-failed.log": {
+        "sha256": "aeeea465947d275941fd927b9bb46ef23b8a6024ef019acc71f6e83d3b668cda",
+        "bytes": 18928
+      },
+      "candidate-native.log": {
+        "sha256": "f0e54e715305e2a62d1f889f1831a306acfaa9946145725fdc50444f558f9ef2",
+        "bytes": 87509
+      }
+    },
+    "full_snapshot_sha256": "a62676ab7259f19e7fb94f5ba6ce51d41611344f3bfe5500b2d7b2bbaf0f1b56"
+  },
+  "machine_history_prerequisite_verification": {
+    "contract_commit": "64eb756eafa4e21a43809cee026ba40de0761f5d",
+    "independent_author": {
+      "commit": "3ae5df083876b6e4890935db2d28c025d521b57e",
+      "integrated_commit": "1442049",
+      "branch": "codex/gu-machine-history-prerequisite-tests",
+      "path": "conformance/slim/machine_requester_completion_prerequisite.py",
+      "sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+      "new_file_only": true,
+      "no_product_reads_or_host_runtime": true,
+      "static_audit": {
+        "source_sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+        "source_ast_sha256": "3d4dad59857e1f47c0b600722941719085dd0dbf61bbbe5351bb332b323bf9fd",
+        "protected_files_exact": 73,
+        "base": "64eb756eafa4e21a43809cee026ba40de0761f5d",
+        "fake_checks": "/tmp/gu48-machine-history-prerequisite-static-check.py",
+        "restoration": "delete only new machine_requester_completion_prerequisite.py; all73 prior file bytes/full ASTs remain exact",
+        "scope": "one final-case terminal_baseline, requester existing exact successful sync; reused completed_attempts unchanged; no added IO/retry/clock or modified5s retirement",
+        "limits": [
+          "no actual hosts/native/model/runtime",
+          "prior CI row/journal/caller not classified; passing phase witness claims no generic transport repair"
+        ]
+      }
+    },
+    "root_source_review": {
+      "head": "45ed815140f0fe1347de6373ca7bddda256eb593",
+      "findings": [],
+      "fake_check_exit": 0,
+      "root_integrated_bytes_match": true,
+      "original_guards_and_5s_retirement_unchanged": true
+    },
+    "first_run": {
+      "head": "45ed815140f0fe1347de6373ca7bddda256eb593",
+      "command": [
+        "python3",
+        "conformance/slim/machine_requester_completion_prerequisite.py",
+        "--bin",
+        "/tmp/gu48-runtime/bin-rust-build-diagnostic-first"
+      ],
+      "entry_sha256": "dd343c8026274ed0d8d2670ecb5210c0ef8ee5171e3964b2b8d52b249da7c5e5",
+      "exit": 0,
+      "seconds": 115.37,
+      "sha256": "68496daa001aa5551899d6cada1b9781f80f1837e9f1aeea71221b99c6710c97",
+      "passed": 6,
+      "failed": 0,
+      "suite_seconds": 112,
+      "target_seconds": 120,
+      "target_exceeded": false,
+      "bin_hashes": {
+        "peerspan-host": "20062a1c1118be00ebace5cc4ea44991f1d2adbecc0449032b763a443686c80f",
+        "peerspan-peer-probe": "52e73c8ba2b0828a819a3564bbcf11248c1753d50216b7bd6ee26d1f52a7e363",
+        "peerspan-helper": "0699d5a7e2a2515a49c7c89c11fe8c4bf9babf3446cf7bcaa5228080b5e27c2a"
+      }
+    },
+    "limits": [
+      "all73 prior files, native440/hooks/Rust918d exact; no added sync/send/probe/retry/clock write",
+      "precondition is a real completed-generation observation, not an attribution of the prior CI timeout",
+      "advanced-only without guided receipt is source-only here; original-provider positive Complete, cancellation, isolated powers/stage expiry, complex grants and final90s/key/commit/microscopic races remain unexecuted",
+      "schema23\u219227/full-state upgrade/recovery and actual terminal/reload/installed/physical/model/final35 acceptance remain open",
+      "one first changed affected run; no unchanged local rerun, original5s extension, forced ACK or worker suppression",
+      "fresh full final-head CI and bot/root review remain required"
+    ]
+  }
+}

@@ -1,0 +1,422 @@
+{
+  "version": 1,
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "branch": "codex/gu-peer-reachability",
+  "scope": "Explicit owner-local exact-project/network/person/selected remote host outbound pinned ordinary peer directory GET over current routes only. No contact-learning sync, remote body projection, durable observation, permission/model/incoming-delivery/overall-ready inference or native controls.",
+  "status": "All6 new host cases pass in53.07s on frozen1e78059 binaries after independent public fixture corrections; unchanged readiness6/6 and Rust155passed/2ignored/fmt/Clippy/bins pass. All15 first local gate outcomes retained. Final exact-head all30/four CI checks and fresh bot/root review follow on PR89/35.",
+  "slice_pr": "https://github.com/peerspan/peerspan/pull/89",
+  "base": "c112cdde19359d16ccb6c40d070d3209adc8df83",
+  "contract_first": "96f1a90d1dbdbb20e89824b083e5f50d1b455d8e",
+  "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+  "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+  "verified_local_source": "161528c78815e64100fc4b8e29a5291a462eddae",
+  "source_sha256": {
+    "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+    "rust/src/api.rs": "7254723cd9af26c9ef113c25acb362220e7fd7289b39ad3c531a4ebdd2ddc174",
+    "rust/src/lib.rs": "81a2a68a1300f141e60971925096f8d65f95c652ef4487b18ffdac2aade85667",
+    "rust/src/main.rs": "869f9a8941c562f3ed7e003fb8726e4678d0217816199eb8277dc91161cc7030",
+    "rust/src/onboarding_cli.rs": "cecb5cc48991a87a96f99786f00ef1e44e65eb0acebaac5c2682cf3c38cbb98e",
+    "rust/src/onboarding_reachability.rs": "23910ace7ca69362b1faddf03cc896fb484d150c74af34063c8f1a61bfe0c93e",
+    "rust/src/quic.rs": "e25f9206cc5bca0e896b10471a66153937b9d8505516f46ce1f21c1be5aa6fe2"
+  },
+  "final_binary_directory": "/dev/shm/gu38/final-bin",
+  "final_binary_sha256": {
+    "peerspan-host": "43c79e423530fb5da21f34e177fdeb1c674e2ea24deee47141d38a817bf0b0d5",
+    "peerspan-peer-probe": "e3c5f355ce7d61ff6a9f69a725a8447b7b0566e431ef4269785808bb81de4ec8",
+    "peerspan-helper": "c42d8859549df2dbf38d186e3200a9810b91b174af0d572da3ccb549dc34d60c"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-peer-reachability-conformance",
+    "initial_source": "73372ee9900a456d665f2132b19fa64196d50ab8",
+    "pre_execution_error_alternative": "6c5c2d535dab23897c4c7663df43a80cad36854b",
+    "retry_window": "19d68418196e9ed538a8e9a3696d101e317f7e7e",
+    "bootstrap_diagnostics": "db1a27ce07498906e1f003773a14d8317f0be569",
+    "outcome_diagnostics": "c8ef151014b924bb55a4b89be233aa2a42a85510",
+    "drained_contact_setup": "ef6217d67417068691e5eb240fed1156a7af1b67",
+    "listener_staging_correction": "e5a59646005a05adf88d4fc071450dec0019b301",
+    "recovery_diagnostics": "48d254903ab51f1105c15a43b8ab742fde8f0fa8",
+    "current_failure_delta": "ba42bd1996cc0097cf5468bf19a204f54b6bac56",
+    "independent_failure_probe": "c64b305f1ca94c7e5bd3151b4d3388b851b31ab1",
+    "proxy_frame_diagnostics": "cda0858ef5756d3641345cdcd7b2852627502259",
+    "nonblocking_proxy_correction": "913d64fc3f18a7d651e51ddb67aadddad5fae1f9",
+    "nonblocking_proxy_integration": "161528c78815e64100fc4b8e29a5291a462eddae",
+    "cases": 6,
+    "declaration": "Contract/public-spec/independent-helper source only. No Rust/product/hooks reads or runtime/build/host/process/network/inference by author. Sources committed before root execution; root serializes all runtime/build gates. All six decorated case ASTs/assertions/actions/delays/timeouts remain exact after explicitly contracted pre-execution post-IO error alternative. Shared old helpers unchanged."
+  },
+  "local_runs": [
+    {
+      "gate": "rust-fmt-first",
+      "head": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 3.02,
+      "log": "/dev/shm/gu38/rust-fmt-first.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight_active": [],
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "rust-test-first",
+      "head": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 99.85,
+      "log": "/dev/shm/gu38/rust-test-first.log",
+      "sha256": "956b14ef586127f7a061cc65ba65a3c9a0aca9c993c417f35c1388d59ce5a4f0",
+      "preflight_active": [],
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "rust-clippy-first",
+      "head": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 34.61,
+      "log": "/dev/shm/gu38/rust-clippy-first.log",
+      "sha256": "1e0d3088881b24621d6ca92aba5b21e61c4365e5a3fd0b7e12a2e465b399ccf6",
+      "preflight_active": [],
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "rust-build-first",
+      "head": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--bins"
+      ],
+      "exit": 0,
+      "seconds": 69.27,
+      "log": "/dev/shm/gu38/rust-build-first.log",
+      "sha256": "1ad8bee3123e8284fc6f9da76cfc606911013951f12fd3dae4e08598088f6bdf",
+      "preflight_active": [],
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "readiness-first",
+      "head": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+      "command": [
+        "python3",
+        "conformance/slim/readiness.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 45.6,
+      "log": "/dev/shm/gu38/readiness-first.log",
+      "sha256": "8ad0491fdcc5c8d33347e499718f2f7c06471d96577cbfabf2f27d5d59812857",
+      "test_sha256": "f226a77dc7a85eef8e4d2328744516d1fb6550491d0e379fba1820b976c97e3e",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-first",
+      "head": "fce26cd35997d5b39628369e0545b58d266cace8",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 32.3,
+      "log": "/dev/shm/gu38/peer-reachability-first.log",
+      "sha256": "fd247a67923e0f25b1a9e47dad23f79d378d81dcaca4828f98a7c24a7c040772",
+      "test_sha256": "b95d7dd16eec3fa8d9c14951ed76cec79db0e309b57c3d46829a5ee4d5edbe7d",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-retry-window",
+      "head": "92685631c6d4a4b239b1526e879a3da9a17faca2",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 31.38,
+      "log": "/dev/shm/gu38/peer-reachability-retry-window.log",
+      "sha256": "7a07c23243f8fab5ec720159ba5f2eabba428713ef2e68634a299e7172b601cd",
+      "test_sha256": "6736a1ea758855489e3d066949a8a2003c4c32e7df40aa77e3e4ba160553a2f3",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-bootstrap-diagnostic",
+      "head": "8e132186133fd65e58025f1ab7c26781e3530ded",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 62.82,
+      "log": "/dev/shm/gu38/peer-reachability-bootstrap-diagnostic.log",
+      "sha256": "64577e179046bb06db4d2841de8b0d40cbaa2b452d5676f02478d7917304aec4",
+      "test_sha256": "53788677438070b3b5be2d2cd9777cfaa30377502fb47d91eefbfa4cd4eae040",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-outcome-diagnostic",
+      "head": "069c88685a22b5ac81c4657cb062bfe9c6c02e00",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 32.51,
+      "log": "/dev/shm/gu38/peer-reachability-outcome-diagnostic.log",
+      "sha256": "eaae03f410156d07abae02e1fa461e24951c3fbe6ccb8276321e5add95249bb1",
+      "test_sha256": "2f160ebf69280c12189d7f7ba656462b7535e38dcf34820222be594dddcc010a",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-drained-contacts",
+      "head": "dc21a260fc6a911a0f0c32bdf7223fd6790b616a",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 29.97,
+      "log": "/dev/shm/gu38/peer-reachability-drained-contacts.log",
+      "sha256": "f09926b4285e654472390ca13e5acdcc102d5109cc046351a4e3387d81641a8e",
+      "test_sha256": "6406f4fcb332a027e0b79da04c3a766f646201a3f1d182d3b7247fe2eb3ebcfa",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-staged-withdrawal",
+      "head": "fba1bee590e2ddbb2cc029d064933e26b0d60357",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 62.4,
+      "log": "/dev/shm/gu38/peer-reachability-staged-withdrawal.log",
+      "sha256": "75b3a192d476fdc33dc138ebce5df2795f32a1abcbd38b2f1bc2aa76782b2e43",
+      "test_sha256": "eb432c823a124b180c2e098ac2591c69890664512e2e702b4d99f936669efd02",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-recovery-diagnostic",
+      "head": "4a532c162dace75bb457dd93c7fae04450148f67",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 63.79,
+      "log": "/dev/shm/gu38/peer-reachability-recovery-diagnostic.log",
+      "sha256": "8d97f4e79d12d4c3804df6331f894734581519a70de9279e4088c9c7c4e3f4c2",
+      "test_sha256": "64698fa338a7a22df6bb6182d379417c250418ea9398b7e32e1e579a652b7031",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-independent-probe",
+      "head": "bae104540b5149b5f1564e3555ea6551c3ff1218",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 69.98,
+      "log": "/dev/shm/gu38/peer-reachability-independent-probe.log",
+      "sha256": "bf444abbbf616604708ecc0552f3fea2529e17cbb44cf31e8c3db47628a22a6c",
+      "test_sha256": "b8643e57ee0aea7cdbebc51f6f87959ad4155fed56ab9bfe943c2eccb03054cc",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-proxy-frame-diagnostic",
+      "head": "73920502fefcf935f77dae61ed6a3a33390c8ab9",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 1,
+      "seconds": 71.02,
+      "log": "/dev/shm/gu38/peer-reachability-proxy-frame-diagnostic.log",
+      "sha256": "323ad3934fe722dc9775ad46fd629305fee1318aa338d4179c19dddb0a7b7722",
+      "test_sha256": "e662dad175c6a912759efd41536f9d51f8e873552fa1c88241a6b99c915f63e1",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    },
+    {
+      "gate": "peer-reachability-nonblocking-proxy",
+      "head": "161528c78815e64100fc4b8e29a5291a462eddae",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 53.07,
+      "log": "/dev/shm/gu38/peer-reachability-nonblocking-proxy.log",
+      "sha256": "2a66d0ee4cc836284c874e4aa15c45445f928c38854ee365fcc30b403c39cb67",
+      "test_sha256": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4"
+    }
+  ],
+  "preflight_deferral": "First attempt to start recovery-diagnostic4a532c1 stopped before any fixture/endpoint run because external cargo/rustc mmfix-target build was observed. Waited for completion without stopping it; next preflight clear, diagnostic started once. No unchanged runtime retry.",
+  "first_failures": [
+    {
+      "gate": "peer-reachability-first",
+      "result": "0/6 in32.30s; bootstrap prerequisite failed before new endpoint; later five are dependent.",
+      "classification": "Predicate required empty normal proof outboxes although bootstrap-only peers cannot drain proof publication. Retained A1/B2 proof rows, no pending secrets/readcaps/frames. Corrected independently to contracted real retry window; no product change."
+    },
+    {
+      "gate": "peer-reachability-retry-window",
+      "result": "0/6 in31.38s; five-second quiet/retry-window prerequisite failed before endpoint.",
+      "classification": "No contemporaneous failure categories; actual missed predicate remains unclassified. Later diagnostics do not establish this run cause."
+    },
+    {
+      "gate": "peer-reachability-bootstrap-diagnostic",
+      "result": "5/6 in62.82s; cases1/2/3/4/6 pass, case5 expected explicit transport result mismatch.",
+      "classification": "No contemporaneous expected/actual/phase; stopped-target versus restart recovery unresolved. Bootstrap gate passed so its diagnostic did not trigger. Subsequent observer adds only fixed safe mismatch categories; no guessed transport fix."
+    },
+    {
+      "gate": "peer-reachability-outcome-diagnostic",
+      "result": "0/6 in32.51s; bootstrap prerequisite before endpoint.",
+      "classification": "Last8 original samples stable DB/files/all carriers, secrets/readcaps/frames/journals0; B one retry only0.440s ahead, below required2s margin. This run measured condition only. Choose actual public proof drain and signed empty-contact withdrawal rather than relaxed margin or longer wait."
+    },
+    {
+      "gate": "peer-reachability-drained-contacts",
+      "result": "0/6 in29.97s; public signed empty-QUIC handoff prerequisite fails before endpoint.",
+      "classification": "Empty configured advertise_quic with enabled listener auto-advertises bound endpoint (existing private-handoff default, earlier GU.impl33g). Fixture corrected to issue genuine empty contacts while bootstrap-only, temporary counted imports, then final bootstrap-only. No runtime advertising change."
+    }
+  ],
+  "independent_probe_failure": {
+    "gate": "peer-reachability-independent-probe",
+    "result": "5/6 in69.98s; independent new-process peer probe also fails after8.004s with exact manual identity/key/address match and zeroALLcarriers.",
+    "classification": "Cannot attribute failure specifically to daemon connection reuse; target forwarding thread alive may still be blocked. Subsequent fixed frame diagnostics required before correction."
+  },
+  "proxy_frame_failure": {
+    "gate": "peer-reachability-proxy-frame-diagnostic",
+    "result": "5/6 in71.02s; recovery5147ms zeroALLcarriers, independent probe8.004s zeroALLcarriers/manualhinttrue.",
+    "classification": "Measured target forwarding thread alive but in upstream_receive; project selector_wait. This run locates a blocked blocking UDP receive after prior target loss. Contract849570f chooses nonblocking selector sockets in NEW suite only; no product transport or shared-helper fix claimed. Earlier missing-category failures remain unclassified."
+  },
+  "initial_draft_ci": {
+    "head": "56372d5bdd34d8a728f9ded355203908b71b29d7",
+    "pr_checks_run": 41183611897,
+    "conformance_run": 41183612116,
+    "all_four_pr_checks": "success; native365/365 in69.12s",
+    "failed_jobs": [
+      {
+        "job": 124486183130,
+        "suite": "owner_finalization",
+        "result": "5/6 in62s; later application/expiry changed or recreated first immutable owner consent",
+        "classification": "Unchanged old suite; cause remains unclassified. Final corrected-source CI required without editing its assertions/deadlines or rerunning unchanged to green.",
+        "log": "/dev/shm/gu38/ci-first-owner-finalization.log",
+        "log_sha256": "fa17ed5283e4a34aec4864002483732d94ce607e82caad309b583d51c709fa04"
+      },
+      {
+        "job": 124486183148,
+        "suite": "peer_reachability",
+        "result": "5/6 in54s, stopped-target negative then zero-traffic recovery; fresh independent probe also zeroALLcarriers, manualhinttrue.",
+        "classification": "Matches measured recovery phase, but this earlier CI has no proxy frame so no direct contemporaneous blocked-receive attribution. Later local frame diagnostic precedes independent new-helper nonblocking correction.",
+        "log": "/dev/shm/gu38/ci-first-peer-reachability.log",
+        "log_sha256": "17cb1b7e2b0b1e2f54dac755a5cf30169030c811356b6a0ca81d99d4879c9839"
+      }
+    ],
+    "pagination": "30 suites plus build=31 jobs; connector first page omits31st. Verify all pages via gh api per_page100 for final receipts."
+  },
+  "recovery_diagnostic_failure": {
+    "gate": "peer-reachability-recovery-diagnostic",
+    "result": "5/6 in63.79s; actual restart recovery mismatch follows three successful authenticated reads and a successful stopped-target negative.",
+    "classification": "Original negative5112ms, selected proxy3 sent datagrams/zero returns. After restart5157ms, target running/both proxy threads alive, all4 carrier deltas exactly0. Target cumulative socket errors receive2/send1/loop0; project receive1/send0/loop0. This locates the phase but does not yet establish a transport or fixture cause. A one-probe post-failure diagnostic was independently added before another run."
+  },
+  "staged_withdrawal_failure": {
+    "gate": "peer-reachability-staged-withdrawal",
+    "result": "5/6 in62.40s; cases1/2/3/4/6 pass. Case5 mismatch expected authenticated_response, actual not_verified/null; target process running and both UDP proxy threads alive.",
+    "classification": "No preceding phase history retained; earlier repeated-success versus restart recovery not conclusively attributed. Safe bounded observation history/socket-error counters added contract-first. No guessed transport fix."
+  },
+  "preservation": {
+    "base": "c112cdde19359d16ccb6c40d070d3209adc8df83",
+    "all_prior_plugin_conformance_files_byte_identical": 78,
+    "all365_native_and_all29_old_host_suites_unchanged": true,
+    "new_slim_suite_only": "peer_reachability",
+    "final_ci_suites": 30,
+    "no_schema_protocol_provider_authority_or_permission_change": true
+  },
+  "unchanged_native_local_evidence": {
+    "source": "merged PR87 reviewed442ff9eb99e3e4d0e144bd5ea9a2705522b24e8f",
+    "strict_pinned_validation": "passes Claude2.1.303",
+    "ci": "365/365 in91.86s; https://github.com/peerspan/peerspan/actions/runs/41178635157",
+    "retained_local": "First361/365 and corrected363/365; all16 new pass, two old default5s timeouts unclassified. No unchanged local rerun; full final-head CI required."
+  },
+  "evidence_limits": [
+    "Real temporary local two-person/two-host DEC ceremony. Selected outbound pinned response proves only that direction at observation time. It proves no incoming work, model receipt, physical/other-computer or overall readiness.",
+    "No helper/relay fixture, independent encrypted GET count/reused-retry attribution, genuine403/404/500/partial/oversized encrypted response customserver, concurrent root/policy change or valid>2MiB aggregate fixture. Existing transport behavior source reviewed; limits remain explicit.",
+    "No native reachability controls yet. Entire plugin unchanged; final-head full native365 CI required. Earlier local native timeout causes and PR79/80/82 UDP/contact/relay callers remain unclassified.",
+    "Actual terminal/reload/installed/physical/model/other-computer/schema23-to27/full-state upgrade/recovery/final combined/full-feature acceptance remain open. Earlier quota-refused model probes not repeated."
+  ],
+  "merge_policy": "Leave this slice and tracking35 unmerged for owner review.",
+  "final_ci_policy": "All30 host suites, four PR checks, fresh exact-head bot and root source review follow after evidence commit; record receipts on slice/tracking PR without implying past failures classified."
+}

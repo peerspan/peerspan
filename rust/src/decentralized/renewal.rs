@@ -246,7 +246,7 @@ pub(super) fn reconcile(c: &Connection, before: &Snapshot, after: &Projection) -
     }
     Ok(())
 }
-fn cap(
+pub(super) fn cap(
     p: &Projection,
     id: &str,
     seen: &mut BTreeSet<String>,

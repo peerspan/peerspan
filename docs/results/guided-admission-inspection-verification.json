@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-30",
+  "kind": "independent contract-derived read-only incoming administrator admission inspection verification",
+  "merged_base": "7e34095c6a428bdae0ca4a0df8badd258377419c",
+  "contract_commit": "6708faffb64bc9df23003d70e177d7b29d94d74b",
+  "production_source_commit": "85c683294ebf27685e98d0589e75ff9de07c1457",
+  "initial_inspection_source_commit": "5e8d60c2115f9d8afecb2b3990da24021439f21e",
+  "independent_test_commits": [
+    "7fee955",
+    "08d7849",
+    "03ce41a",
+    "eafd617",
+    "3c6badb"
+  ],
+  "integrated_test_commits": [
+    "869b53d4307ac804f6f7b04d20c2caca9585f691",
+    "f37b2103f9d671b1c756b1bb83a8f425f9674086",
+    "053c9236f844d1b99a64fbd8c89bd724a94a7717",
+    "83623af4d839ba31e461dc1907b55ec3d0f6c264",
+    "ac7839e0fd01eb4fa86ec09013aff5b512dd29a7"
+  ],
+  "binary_sha256": "f504abefb505b15a861e7ecd2d325c9235d1ea2c0771be10f7008a6674430bba",
+  "native_source_and_252_existing_cases_unchanged": true,
+  "local_results": {
+    "admission_onboarding": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 58,
+      "final_frozen_source": true
+    },
+    "owner_onboarding": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 64,
+      "source_unchanged": true,
+      "source_commit": "5e8d60c2115f9d8afecb2b3990da24021439f21e"
+    },
+    "join_onboarding": {
+      "passed": 14,
+      "failed": 0,
+      "seconds": 67,
+      "source_unchanged": true,
+      "source_commit": "5e8d60c2115f9d8afecb2b3990da24021439f21e"
+    },
+    "native": {
+      "passed": 252,
+      "failed": 0,
+      "seconds": 30.97,
+      "isolated": true,
+      "source_unchanged": true
+    },
+    "rust": {
+      "passed": 155,
+      "failed": 0,
+      "ignored": 2,
+      "final_frozen_source": true
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "all_bin_build": "pass",
+    "native_strict_validation": "pass",
+    "owner_signing": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 48,
+      "final_frozen_source": true,
+      "fixture_isolation": "GU.impl20a",
+      "six_original_case_bodies_preserved": true
+    }
+  },
+  "coverage": [
+    "Two real hosts and original people, real automatic incoming request return, ordinary setup retention of later packets, independently verified original SSHSIG and exact requester selection",
+    "Exact closed public identities, adopted network/root, profile7 and request-created+7day terms, canonical times/effects and stable domain-separated canonical review digest",
+    "Pure retry over whole logical database/schema and durable private files with remote stopped and transport settled; no intent, approval, signature, guarded clock advance, network poll, authority or journal mutation",
+    "Strict 64KiB stdin/API JSON, duplicate/unknown/null/type/ID/private-input refusal and static parser errors; absent daemon never initializes state",
+    "Changed parent/context, owner-local methods, scoped adapter, authenticated peer and mutual TLS bootstrap boundaries",
+    "Authentic pending/requester-side, unsupported profile/lifetime, cancellation, future/stale time, stage/request expiry, restart/context replacement and seven plain/bidi private label families",
+    "Same exact request proceeds using explicit ordinary administrator admission, original F and requester commit; fresh inspection refuses later stages read-only and does not claim administrator authority, membership/access or readiness"
+  ],
+  "findings_and_fixture_corrections": [
+    {
+      "kind": "fixture",
+      "decision": "GU.impl20a",
+      "observed": "Initial concurrent existing owner_signing5/6: approved original already signed by daemon before CLI, proxy saw0 submissions.",
+      "correction": "Independent author configures daemon absent person-key-file/no agent; normal CLI generated key and all six original case bodies/count/proof/privacy/history assertions preserved."
+    },
+    {
+      "kind": "fixture",
+      "decision": "GU.impl20b",
+      "observed": "Initial admission0/6 stopped during setup: automatic invitation return retained request, not later owner/selection packets.",
+      "correction": "Ordinary explicit incoming resume fetches later packets during setup before inspection/purity; shared setup failure no longer recreates project. No admissions preview/import or fabricated authority."
+    },
+    {
+      "kind": "product",
+      "decision": "GU.impl20c",
+      "observed": "Corrected admission5/6: Clap echoed rejected positional request ID.",
+      "fix_commit": "85c683294ebf27685e98d0589e75ff9de07c1457",
+      "correction": "Static failed-admission argument diagnostic before stdin; typed Clap dispatch and normal help preserved. All six independent cases pass without weakened assertions."
+    },
+    {
+      "kind": "load",
+      "observed": "Concurrent native251/252; unchanged invitation-preview corpus exceeded its existing5s default timeout.",
+      "verification": "One isolated full252/252 in30.97s with all host suites/builds idle; no assertion or timeout changes."
+    },
+    {
+      "kind": "unclassified_existing_signing_intermittence",
+      "observed": "Corrected isolated full owner_signing5/6 in48s; historical composite logical-record/private-file purity assertion failed after full real admission/F/commit.",
+      "diagnostic": "Independent diagnostic-only helper preserves original condition and six case bodies; labels phase/table/file categories without raw values. Purposeful targeted full-ceremony case passed1/1 in29.4s, so no changed category was observed and prior failure remains unclassified."
+    }
+  ],
+  "limits": [
+    "No bounded genuine fixtures for unavailable no-selection, already-admitted/root/device provider, renewal/migration or missing/pruned/corrupt-proof retention intervals; these remain source/fault coverage.",
+    "Existing signing historical purity intermittence is retained explicitly; later passes do not classify its cause.",
+    "Inspection verifies retained public protocol evidence; administrator provider/root consent and signing, manual incoming code import and native admission controls follow separately.",
+    "Native cases use pinned Claude Code2.1.303 test runtime without inference; no actual terminal signing, physical/installed two-machine/distinct-person, real model receipt or schema23-to27 full-state upgrade/recovery acceptance is claimed.",
+    "Earlier rejected terminal action and unchanged quota-refused model probe were not retried; full-feature acceptance and tracking PR35 remain open.",
+    "Final-head all18 CI and fresh bot review are recorded in PR57 and tracking PR35."
+  ]
+}

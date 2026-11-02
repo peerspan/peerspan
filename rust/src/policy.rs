@@ -1016,6 +1016,16 @@ impl Store {
             if own.person_id.as_deref() != Some(cited.person_id.as_str()) {
                 continue;
             }
+            // A policy citation is meaningful only in a network shared with
+            // this sender. Another network's lower version cannot turn a
+            // definitive denial here into an unavailable-policy response.
+            let Some(sender_member) = self
+                .product_members(connection, &network)?
+                .into_iter()
+                .find(|m| m.host_id == sender && m.host_id != self.identity().id)
+            else {
+                continue;
+            };
             let Some(key) = self.product_person_key(connection, &network, &cited.person_id)? else {
                 continue;
             };
@@ -1033,13 +1043,6 @@ impl Store {
             if !policy.in_window(at) || deadline > time(&policy.valid_until)? {
                 continue;
             }
-            let Some(sender_member) = self
-                .product_members(connection, &network)?
-                .into_iter()
-                .find(|m| m.host_id == sender && m.host_id != self.identity().id)
-            else {
-                continue;
-            };
             let groups = self.product_groups(connection, &network)?;
             let matches = |p: &str| {
                 crate::decentralized::product::principal_matches(

@@ -258,6 +258,16 @@ pub(crate) fn own_contact(
         .read()
         .map_err(|_| Error::new("internal"))?
         .clone();
+    own_contact_with_settings(c, store, now, network, context, &settings)
+}
+pub(crate) fn own_contact_with_settings(
+    c: &rusqlite::Connection,
+    store: &Store,
+    now: &str,
+    network: &str,
+    context: &str,
+    settings: &Settings,
+) -> Result<Contact> {
     let previous:Option<(rusqlite::types::Value,String)>=c.query_row("SELECT sequence,record FROM dec_contacts WHERE network_id=?1 AND context_id=?2 AND host_key=?3",rusqlite::params![network,context,store.identity().public_key],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(db)?;
     if let Some((number, raw)) = &previous {
         let sequence = super::storage::decode_u64(number, true)?;

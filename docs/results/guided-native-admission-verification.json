@@ -1,0 +1,161 @@
+{
+  "date": "2026-10-30",
+  "kind": "independent contract-derived native incoming proof progress and exact administrator consent verification",
+  "merged_base": "5700d014f001f34248310ebfbb2d6d135898aede",
+  "contract_commit": "77f41cb6d73c0c22a79c53a2fc7a90bddbaa3348",
+  "contract_clarification_commits": [
+    "c9e0c90",
+    "44d949f",
+    "d165957",
+    "0acc27a",
+    "214e40c",
+    "7480fa5"
+  ],
+  "initial_production_source_commit": "4e369cc616b535f8ce272e091bbd6014033c3313",
+  "production_source_commit": "19d2ce980f8ff5c2be633372a3fda449e42fbae4",
+  "host_source_commit": "d0fa9e9cdae5622fd92d25fcb5c49da0cc0de671",
+  "host_binary_sha256": "0e4e631964052be9c8070b4fd4d58a7947914585cd120ededb039fc539eaa671",
+  "native_runtime": "Claude2.1.303 pinned local binary; updates/nonessential traffic disabled; isolated RAM config",
+  "independent_test_commits": [
+    "1b4ebf1",
+    "9747431",
+    "2f58d20",
+    "ceccd65",
+    "109de13",
+    "48624f4",
+    "a0f36eb"
+  ],
+  "integrated_test_commits": [
+    "d2cf58f75d99cc1f55c634fab01b12d6b055b3bd",
+    "501dacb",
+    "11654c4",
+    "3193cd019c798a815e29bebd76d87ad6fa5c62d4",
+    "4cb159ed8197044582f0df41a8a1f97802599192",
+    "60ee6b170cb775dd6d74352fe0d7eb4597ccc746",
+    "1aaa24b16d31f05663e85c543f3c69b6f4232f60"
+  ],
+  "original252_native_test_files_assertions_delays_timeouts_unchanged": true,
+  "rust_and_host_runtime_sources_unchanged": true,
+  "existing_host_suites_note": "incoming_progress setup-only genuine invitation-return retirement and ordinary creation/cancel expiry maintenance corrected independently; all six measured bodies and strict no-IO/DB/file/history assertions plus other19 suite sources unchanged",
+  "local_results": {
+    "native": {
+      "passed": 272,
+      "failed": 0,
+      "seconds": 35.07,
+      "new_cases": 20,
+      "original_cases": 252,
+      "final_frozen_source": true,
+      "command": "DISABLE_UPDATES=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CONFIG_DIR=/dev/shm/peerspan-gu-native-admission-config TMPDIR=/dev/shm/peerspan-gu-ci-temp /root/.local/share/claude/versions/2.1.303 plugin test integrations/claude-onboarding"
+    },
+    "strict_native_validation": "pass on final frozen19d2ce9",
+    "js_syntax": "pass",
+    "git_diff_check": "pass",
+    "admission_consent": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 78,
+      "final_frozen_host": true
+    },
+    "rust": "Unchanged source; initial CI Rust155/2ignored/fmt/Clippy/all-bin pass; final-head CI required. No redundant local rebuild claimed.",
+    "incoming_progress": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 96,
+      "final_frozen_host": true,
+      "all_six_measured_assertions_preserved": true,
+      "command": "TMPDIR=/dev/shm/peerspan-gu-ci-temp PYTHONDONTWRITEBYTECODE=1 python3 -u conformance/slim/incoming_progress.py --bin /dev/shm/peerspan-gu-target/debug"
+    }
+  },
+  "coverage": [
+    "Inert/headless/Refresh/model paths; attached-only explicit entry with validated bounded4096 sorted unique request inventory,10-item pages, explicit duplicate-identity choice and no arbitrary ID/code input",
+    "Lookup-first selection and pure approved/cancelled/expired/invalidated history; separate explicit Fetch waiting/verified-prefix actions with no automatic preparation and competing-intent recheck",
+    "Closed public inspection and exact digest validation before explicit prepare; exact existing review reuse and full current root/P/H/person/host/device/network/profile7/fixed-time/effects presentation",
+    "One exact configured executable/state five-second private-stdin approval after fresh native context/terminal, authoritative parent/host, immutable selected tuple, exact retained review and raw/observed deadline checks; double-press exclusion",
+    "Returned-view authoritative parent/host rechecks; signed request deadlines for null/fetched controls, review deadlines, in-flight timer/navigation/context/host/terminal invalidation and lookup-only uncertain-result recovery",
+    "Recursive private-prefix/control/bidi/zero-width corpus and unknown-field refusals; no displayed request/flow/session/review/intent IDs or raw subprocess errors",
+    "Established adapter lease/message/task runtime survives permitted navigation; no additional prompt, model owner tool, frontend persistence/key/signature, direct owner HTTP or ordinary broad resume"
+  ],
+  "findings_and_corrections": [
+    {
+      "kind": "initial_bot_P2s",
+      "observed": "Review on4e369cc found cached-only post-IO parent/host checks could display delayed stale controls and null-consent/prefix views lacked signed request expiry timers.",
+      "decision": "GU.impl23a",
+      "contract_commit": "44d949f",
+      "fix_commit": "19d2ce980f8ff5c2be633372a3fda449e42fbae4",
+      "correction": "Fresh authoritative parent/host before installing each view; request deadlines plus pre-dispatch raw/observed liveness for null/prefix actions, preserving lookup-only approved history.",
+      "review_comments": [
+        4420034139,
+        4420034145
+      ]
+    },
+    {
+      "kind": "first_native_fixture_failures",
+      "observed": "First full frozen19d2ce9 native run:270pass/2fail in34.38s. Original252 and new1–18 pass; new19 tried choosing immediately after Leave; new20 generic Back left the parent project before incoming entry.",
+      "decision": "GU.impl23b",
+      "correction": "Explicitly reopen incoming choice after Leave; choose documented adapter Back to project. All20/old252 assertions/delays/timeouts preserved.",
+      "independent_commits": [
+        "9747431",
+        "2f58d20"
+      ]
+    },
+    {
+      "kind": "existing_incoming_fixture_quiescence_failure",
+      "observed": "Unchanged host/incoming suite first run:5pass/1fail in80s. Final same-request ceremony purity assertion saw carrier IO. Retained authentic state proves both locally applied, but administrator retained one terminal outcome with zero carrier acknowledgments, while other host had no outbound frames.",
+      "decision": "GU.impl23b",
+      "correction": "First attempt independently adds terminal acknowledgment drain after full application while participants/carriers remain available; it does not change measured assertions. That attempt subsequently failed as recorded below.",
+      "independent_commit": "ceccd65"
+    },
+    {
+      "kind": "terminal_acknowledgment_setup_failure",
+      "observed": "Corrected incoming run:5pass/1fail in115s; final case timed out waiting35s for terminal publication quiescence. Retained applied administrator still had one outcome ack0/frame; the terminal-resume transport return was discarded by that fixture, so its exact transport cause remains unclassified.",
+      "decision": "GU.impl23c",
+      "contract_commit": "0acc27a",
+      "correction": "Use the other documented storage retirement boundary: after genuine full ceremony stop remote/drop relays, advance only administrator debug clock past signed request expiry, observe ordinary applied history retained/outbound empty/secret and terminal cap NULL/no request frames, then the unchanged strict settled DB/file/zeroIO/history checks. No authority/storage row mutation, longer timeout, measured-call retry or weakened assertion.",
+      "independent_commit": "109de13",
+      "coverage_limit": "Historical completed/expired purity is measured after documented transport retirement; immediate post-application background scheduling attribution is not established. Live cached no-IO and live post-intent refusal remain measured separately."
+    },
+    {
+      "kind": "retirement_setup_and_unclassified_combined_diagnostic",
+      "observed": "Deadline-only setup run4/6 in78s. Cases1/2/4/5 passed; case3's combined DB/file/carrier assertion failed after0.7s without preserving its category; final case timed out5s waiting for cleanup not explicitly driven. The exact earlier case3 category is unclassified.",
+      "decision": "GU.impl23d",
+      "contract_commit": "214e40c",
+      "correction": "Isolate the documented independent invitation-return poller by expiring a genuine short contact invitation after automatic return and remote original/selection publication, advancing both fixture clocks while its3600s request remains live. Separate strict DB/file and carrier diagnostics without removing either assertion. At terminal request expiry explicitly drive ordinary resume/cleanup before observing retirement. Exact final corrected run recorded separately.",
+      "known_independent_activity": "Inviter return mailboxes are polled every2s while the invitation remains live; both saved carriers must remain covered by the strict no-IO assertion.",
+      "independent_commit": "48624f4",
+      "corrected_setup": "Minimum-valid invitation with65s caller/server margin; actual public invitation ID/expiry captured, genuine return+remote owner/selection followed by synchronized clocks and observed invitation return-row cleanup. Public signed-deadline terminal resume verifies HTTP200 linked before documented transport retirement. No implementation/authority row edits."
+    },
+    {
+      "kind": "terminal_resume_cleanup_assumption",
+      "observed": "Isolated invitation-poller run5/6 in99s: all five live/strict/atomic cases pass. Final same-request terminal resume returned HTTP200 linked, but documented transport retirement did not appear within5s. No longer waits or unchanged retries.",
+      "correction": "GU.impl23e selects one genuine fresh unapproved requester creation followed by immediate public cancellation after the full original ceremony/deadline, driving documented capacity/expiry maintenance before original retirement and unchanged historical purity measurement. No invitation/helper/participant approval, manual rows, extra measured-call retry or timeout extension.",
+      "coverage_limit": "Periodic terminal cleanup and terminal-resume-driven retirement are not established by these observations.",
+      "independent_commit": "a0f36eb"
+    }
+  ],
+  "preserved_verification": {
+    "candidate": "4e369cc616b535f8ce272e091bbd6014033c3313",
+    "conformance_run": 40994422136,
+    "pr_checks_run": 40994422141,
+    "all20_host_suites": "pass",
+    "native252_and_Rust_gates": "pass",
+    "note": "Early CI predates the two frontend review fixes and independent20 additions; final-head all20/native272/Rust gates and fresh review are required."
+  },
+  "limits": [
+    "Pinned native fixtures stub public effects; they do not verify protocol cryptography or disk mutations. Genuine unchanged-host incoming_progress/admission_consent suites cover those boundaries separately.",
+    "Actual old drawing callback retention and actual plugin reload are not exposed by the pinned kit; closure/token checks and clearing module-local state remain source/manual evidence. New tests execute current drawings, actual dispatched effects and registered delays/timers.",
+    "No actual terminal/native signing smoke, physical/installed two-machine/distinct-person, model receipt or schema23-to27 full-state upgrade/recovery acceptance is claimed. Earlier rejected terminal actions and unchanged quota-refused probes were not retried.",
+    "Prior PR57 signing historical-purity intermittence remains documented and unclassified. The independently established terminal delivery fixture race here does not diagnose that separate issue.",
+    "Native consent reports global ordinary approval without frontend/signature attribution. Background root/host signing is allowed after consent; original F/requester commit, device flow, agent access and readiness remain separate.",
+    "Final candidate CI all20/native272/Rust results and fresh bot review are recorded in PR60/tracking35 after this local evidence commit; full feature acceptance remains open.",
+    "Terminal no-IO history is measured after signed-request-deadline retirement. Immediate post-application scheduling attribution remains unproven; the failed acknowledgment setup does not prove transport acknowledgment is impossible.",
+    "The exact case3 category in the earlier combined cached/invalid purity assertion is unclassified because baseline categories were not retained; final diagnostic separation and poller isolation do not retroactively establish that cause.",
+    "The final historical fixture may create/cancel one genuine unapproved spare request before its baseline to drive ordinary capacity/expiry maintenance. That setup does not grant authority; direct periodic or terminal-resume expiry retirement is not claimed.",
+    "Earlier full-ceremony relay counts could include both invitation-return polling and retained terminal publication. Their exact per-connection attribution was not established; final live and historical quiescent baselines isolate documented activity instead."
+  ],
+  "source_sha256": {
+    "admission_mjs": "5fd15e59cc38edbe5c5369a41b591dc9bf37d1b0446f6ef1825e4069b7e1dfc6",
+    "register_mjs": "bf047903772ce6ed6510c3f4111bb8982ec9a0f07ae6cc9c4c57c7c8e887d62c",
+    "admission_review_test_ts": "24af6d332618349c45c643809837163b29e0621a5078701beda26b48f273d24e",
+    "incoming_progress_py": "e89a02b99f619d20c7246231e5a2e6e551393002916766e6cc63f54148c045dc"
+  }
+}

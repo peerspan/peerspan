@@ -409,6 +409,16 @@ impl Store {
     /// of `network`, may reach now, with every current authorization.
     pub fn reachable_agents(&self, caller: &str, network: &str) -> Result<Vec<PeerAgent>, Error> {
         let conn = self.connection()?;
+        self.reachable_agents_in(&conn, caller, network)
+    }
+
+    /// The ordinary receiver projection, inside a caller's read snapshot.
+    pub(crate) fn reachable_agents_in(
+        &self,
+        conn: &Connection,
+        caller: &str,
+        network: &str,
+    ) -> Result<Vec<PeerAgent>, Error> {
         let known: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM networks WHERE id = ?1)",
             [network],
@@ -417,20 +427,20 @@ impl Store {
         if !known {
             return Err(Error::NotFound);
         }
-        if caller == self.identity().id || self.product_member(&conn, network, caller)?.is_none() {
+        if caller == self.identity().id || self.product_member(conn, network, caller)?.is_none() {
             return Err(Error::Forbidden);
         }
         let now = crate::clock::now();
-        let own = self.own_members(&conn)?;
+        let own = self.own_members(conn)?;
         let persons: BTreeSet<String> = own
             .iter()
             .filter_map(|(_, m)| m.person_id.clone())
             .collect();
         let mut self_access = false;
         for person in &persons {
-            self_access |= self.self_bound(&conn, caller, person)?;
+            self_access |= self.self_bound(conn, caller, person)?;
         }
-        let blocked = self.blocked(&conn, caller)?;
+        let blocked = self.blocked(conn, caller)?;
         // The verified, current policy of this host's person in the queried
         // network, with the caller's member record and groups there.
         let mut policies = Vec::new();
@@ -439,10 +449,10 @@ impl Store {
                 let Some(person) = &m.person_id else {
                     continue;
                 };
-                let Some(key) = self.product_person_key(&conn, net, person)? else {
+                let Some(key) = self.product_person_key(conn, net, person)? else {
                     continue;
                 };
-                let Some(policy) = self.product_policy(&conn, net, &key)? else {
+                let Some(policy) = self.product_policy(conn, net, &key)? else {
                     continue;
                 };
                 // With this host's unsettled withdrawals applied.
@@ -450,10 +460,10 @@ impl Store {
                 if !policy.in_window(now) {
                     continue;
                 }
-                let Some(sender) = self.product_member(&conn, net, caller)? else {
+                let Some(sender) = self.product_member(conn, net, caller)? else {
                     continue;
                 };
-                let groups = self.product_groups(&conn, net)?;
+                let groups = self.product_groups(conn, net)?;
                 policies.push((policy, sender, groups));
             }
         }
@@ -461,7 +471,7 @@ impl Store {
             Vec::new()
         } else {
             crate::peer_store::records::<crate::peer_store::Grant>(
-                &conn,
+                conn,
                 "SELECT record FROM grants ORDER BY id",
             )?
             .into_iter()
@@ -523,7 +533,7 @@ impl Store {
             if authorizations.is_empty() {
                 continue;
             }
-            let channel = self.agent_channel(&conn, &id)?;
+            let channel = self.agent_channel(conn, &id)?;
             result.push(PeerAgent {
                 connected: channel == Some("verified"),
                 channel: channel.map(str::to_owned),
