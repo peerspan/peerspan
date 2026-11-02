@@ -1,0 +1,160 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "capture": {
+    "relay-r1-helpers": {
+      "left": {
+        "bytes": 2906386,
+        "sha256": "b89a986be1659489ca78d6ad55eea88fb1b18334a8166258fa7714cf85ee99c4"
+      },
+      "right": {
+        "bytes": 2882922,
+        "sha256": "71b7254659eb01e1a3dadaeddce82d0fc61714d19ec72d4531e0b4dc5e270310"
+      }
+    },
+    "relay-r1-peers": {
+      "left": {
+        "bytes": 1464582,
+        "sha256": "a68c0329cc67524ab71af2bb867662cee7e8bae0b18eaf3df80ad03ce820512d"
+      },
+      "right": {
+        "bytes": 1450716,
+        "sha256": "26ffaf3597c1f163efb6ff571356f4b7b71e3f618f3ea49b7941850afa416c76"
+      }
+    }
+  },
+  "consumer_router_nat": false,
+  "direct_peer_udp_blocked": true,
+  "fleet_sha256": "d6875b5849ef0374d77a77c4e53790748ecc22db86867e0306998d766aa8aa36",
+  "format": 1,
+  "helper_count": 2,
+  "helper_public_key_sha256": [
+    "7c12878d5fe085ef4968ced6ae4b4965d31af310375f98e903b74be1aea90c1c",
+    "5275b9f9b8c08c8106b2c969773d4c66baeea5b66f47077593bbbe668c9792bf"
+  ],
+  "helper_sha256": [
+    "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+    "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b"
+  ],
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_transport_pins": 0,
+  "model_receipt": false,
+  "nat_qualification": false,
+  "native_terminal_receipt": false,
+  "operator_observation_sha256": {
+    "relay-r1-firewall.private.json": "a9f5dc5cc5d06ee0d670eb64c829707de145bc78d75f19ed3f4292a5ac06f76a",
+    "relay-r1-packet-summary.private.json": "527a42370582d70e4abd7644d9f003c7fd8ca39e321d291a098fb4e0630057ad",
+    "relay-r1-primary.private.json": "8aad4cdfcaff06b5fb6694416f6c37635e29ae810628b4955de69989151e2dab",
+    "relay-r1-replacement.private.json": "c982794b6aa2ac84a9c09afd5e736a8f45f05f093dcf6489e36d091b9a0882b7"
+  },
+  "original_key_transfers": 0,
+  "passed": true,
+  "phase_gate_sha256": null,
+  "port_base": 27540,
+  "primary_payload_packets": 2794,
+  "primary_running": true,
+  "qualification": "r1_protocol_relay_path_observation",
+  "replacement_running": false,
+  "requires_operator_capture_confirmation": false,
+  "results": [
+    {
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_control_evidence_index_sha256": "b4e9cbbdd1e2d33fd44c06acd119e995007f4767edaaba179206bd5a5bc3b7dd",
+      "scenario": "machine",
+      "seconds": 23.564,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "adapter_connection": false,
+        "addressed_appends": 2,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "receiver_rejections": 0,
+        "relay_path_reported": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "work",
+      "private_control_evidence_index_sha256": "d94cc25f9353257a981933991a0c4badda397d9905729c8dd493ea56e6decca9",
+      "scenario": "machine",
+      "seconds": 17.187,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_control_evidence_index_sha256": "645c612afcadafe8f87e80ab199b29661367c25ccf35a51202f86f085eb21835",
+      "scenario": "teammate",
+      "seconds": 27.505,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "adapter_connection": false,
+        "addressed_appends": 1,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 1,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "receiver_rejections": 2,
+        "relay_path_reported": true,
+        "withdrawals": 1
+      },
+      "passed": true,
+      "phase": "work",
+      "private_control_evidence_index_sha256": "a2dcb86c39a11adada5da206456ab3e146f2ddd1e1dc571563c667222053d6c8",
+      "scenario": "teammate",
+      "seconds": 19.217,
+      "stage": "complete",
+      "transport_unavailable": false
+    }
+  ],
+  "retained_owned_hosts": true,
+  "root_capture_qualification": true,
+  "separate_machines": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true
+}

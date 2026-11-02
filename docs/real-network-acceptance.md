@@ -47,8 +47,13 @@ ceremony23.564s/work17.187s and distinct-person ceremony27.505s/work19.217s.
 The latter verifies a narrow guided grant, one receiver append, and actual
 receiver refusals before grant and after withdrawal. Direct peer UDP is dropped
 at both test hosts; the primary helper carries payload traffic and the second
-helper is stopped. Helper replacement is running against the same retained
-identities and signed authority. These controlled firewall results do not
+helper is stopped. [Replacement](results/real-network-relay-r2.json) passes on those same retained
+identities and signed authority: same-person work34.102s and withdrawn teammate
+refusal17.444s. Captures show replacement-helper payload traffic and zero
+primary-helper payload traffic after the primary stopped. Membership, policy,
+requester approval and original key custody remain unchanged. The
+[first-phase receipt](results/real-network-relay-r1.json) and replacement receipt
+bind private controls, packet captures and scoped firewall observations. These controlled firewall results do not
 establish consumer-router NAT behavior.
 
 A native attempt observed fresh model readiness and an exactly correlated
@@ -61,6 +66,10 @@ corrected manual check will use a fresh explicitly reviewed local agent in the
 same existing native conversation, and wait within the unchanged model budget
 for the exact first-party reply call and successful result before cleanup.
 Earlier private outputs and the failed receipt assertion remain retained.
+The transcript follow-up first refused fixture startup in0.056s because its
+controller reused the previous attempt's PID metadata filename. No Claude
+process/model turn started. The corrected controller uses unique owned process
+metadata; it does not remove or overwrite the retained prior record.
 
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
