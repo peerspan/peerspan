@@ -7,6 +7,11 @@ opaque TLS is never terminated or inspected for an HTTP URI. B-to-A automatic
 return is genuine. Before measuring local calls, already-established A-side
 streams park at acknowledged relay-thread boundaries. Bootstrap permits only
 one HTTP request per TLS connection; new connections and all UDP stay counted.
+An atomic empty snapshot is already drained; snapshot streams closing before
+acknowledgment are drained only after removal from the established set. Do not
+wait for or create a stream merely to satisfy a setup timing assumption. The
+first barrier fixture failed because no established stream remained, not
+because of product IO or preparation behavior.
 The earlier diagnostic identified existing-stream byte movement, not its URI
 or originating operation. One narrow read-only frame-absence observation immediately
 precedes exact owner inspection/preparation. No SQL polling, fabricated request,
@@ -84,6 +89,7 @@ class FirstFetchGate:
         self.live = {}
         self.established = {}
         self.park_targets,self.parked = set(),set()
+        self.last_barrier = None
         self.sockets = set()
         if not held:
             self.released.set()
@@ -202,13 +208,18 @@ class FirstFetchGate:
         with self.condition:
             check(not self.park_targets,'established transport was already parked')
             self.park_targets = set(self.established)
-            check(self.park_targets,'no established original-return stream to park')
+            snapshot_counts = self.connections,self.sent,self.returned
             while (self.park_targets & self.established.keys())-self.parked:
                 remaining = until-time.monotonic()
                 check(remaining>0,'established relay-thread barrier unavailable')
                 self.condition.wait(remaining)
             held = tuple(sorted(self.park_targets & self.parked))
-        check(held and set(held)<=set(self.live_established_generations()),'no live acknowledged established-stream hold')
+            self.last_barrier = dict(snapshot_streams=len(self.park_targets),parked_streams=len(held),
+                drained_streams=len(self.park_targets-self.established.keys()),snapshot_counts=list(snapshot_counts),
+                acknowledged_counts=[self.connections,self.sent,self.returned])
+            check(self.last_barrier['snapshot_streams']==self.last_barrier['parked_streams']+self.last_barrier['drained_streams'],
+                  'snapshot stream is neither parked nor actually drained')
+        check(set(held)<=set(self.live_established_generations()),'still-established stream lacks a live acknowledged hold')
         return held
 
     def live_established_generations(self):
@@ -389,6 +400,7 @@ def _():
                     prepare_code=observed_code if observed_code in {'invalid','not_found','review_changed','review_expired',
                         'machine_owner_consent_unavailable'} else ('none' if observed_code is None else 'other'),
                     seconds=round(elapsed,3),same_held_generation=same_held_generation,same_existing_hold=same_existing_hold,
+                    existing_stream_barrier=a.relay.last_barrier,
                     captured_review_receipt=status==200 and isinstance(prepared,dict)
                         and isinstance(prepared.get('consent'),dict) and prepared['consent'].get('state')=='review',
                     traffic={name:dict(before=list(traffic[index]),after=list(after_traffic[index]))
