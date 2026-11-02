@@ -114,7 +114,19 @@ The key `(sender_host_id, request_id)` identifies a received request. While auth
 
 ## Outbound recovery and persistence
 
-The local send body contains `peer_host_id` plus the five message fields. `request_id` may be omitted or empty for daemon generation. Persist the immutable request and `message.queued` event before attempting any network send. Reusing its `(peer_host_id, request_id)` with different fields is a local 409 conflict.
+The owner-local send body is exactly `{peer_host_id,target_agent_id,deadline,content}`
+plus optional `request_id`, `grant_id` and `origin`. `request_id` may be omitted
+or empty for daemon generation. With a grant, use that explicit authorization;
+without one, the daemon selects self access or the target owner's newest verified
+policy under the coordination contract. `policy` and `self` are peer-wire and
+stored-request fields, not caller-selected owner-send fields. Unknown owner-send
+fields are400. Direct host/agent owner sends do not apply addressed-directory
+permission filtering; the authenticated receiver enforces the selected citation.
+This permits an actual receiver refusal check before an access grant and after
+withdrawal, without inventing a policy argument or a temporary unrelated grant.
+Persist the immutable request and `message.queued` event before attempting any
+network send. Reusing its `(peer_host_id, request_id)` with different fields is
+a local409 conflict.
 
 Outbound records contain `peer_host_id`, `request`, `state`, nullable `receipt`, nullable `error`, `attempts` (every network attempt so far, submissions and receipt queries, automatic or explicit), nullable `next_attempt_at`, and `receipt_queries` (receipt queries made at or after the deadline, written only when nonzero):
 
