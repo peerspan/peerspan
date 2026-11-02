@@ -28,7 +28,7 @@
     "applies_to_archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
     "authentication": "existing first-party Claude sign-in; no credential read or copy",
     "claude_version": "2.1.303",
-    "current_artifact_repeat": "blocked by automatic approval review before enabling incoming messages; explicit authorization requested; no new model turn executed",
+    "current_artifact_repeat": "Passed after explicit authorization; current_artifact_model records the final archive and two logical turns. This authenticated_model object retains the historical archive receipt.",
     "log_sha256": "52f496b47615f5af049f0c3f9759acf02f1ecd978782d6f2b3b7d370f615a0e8",
     "model_selector": "haiku",
     "passed": true,
@@ -60,38 +60,55 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41411975001",
-    "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
-    "final_status_location": "Current exact-head final checks/review and model authorization/evidence-limit decision are recorded on tracking PR35; earlier run identities remain historical.",
-    "installed_receipt_sha256": "c1caff8290d46115182151657d451bea122da368801191697afaa0a6932c7cab",
+    "checks_failed": 0,
+    "checks_passed": 52,
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41414534931",
+    "final_status_location": "The documentation-only receipt commit receives final CI/review; its exact-head evidence is recorded on tracking PR35 without another self-referential repository edit.",
+    "installed": {
+      "archive_sha256": "6fdcc16fc172205e0f4d518373fb5ecbb2bac31bc2d9a189ed66eaca9757217f",
+      "collector_is_observation_only": true,
+      "installed_job_log_sha256": "83b5b0d6e66f3eb3d8551c66834c631cfd61521325dad93a3694cdc24ca6706a",
+      "original_terminal_participant_upgrade_steps": "all_success",
+      "receipt_sha256": "fb763b6c0c79b1041a2464f0240f851329504f4ba282e9fc8a33704391a9bfce",
+      "step_outcomes_sha256": "94ed55d9bc73aabfc022249771e2ba89be224afb2ce273883aabb9e7ccec6605",
+      "terminal_assertions_verified_directly_from_successful_job_log": true,
+      "terminal_cases": 3,
+      "terminal_collector_metadata": "missing; original gate outcomes plus three successful assertions verified separately",
+      "terminal_model_requests": 0
+    },
     "latest_exact_review": {
-      "commit": "bbdc5960565fa519aaece1524eee387075302885",
-      "result": "no major issues found",
-      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6572442296"
+      "commit": "a95ff0d353d5b9803d8ac9eb738e92d106091ad5",
+      "result": "clear",
+      "unresolved_threads": 0,
+      "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6572781382"
     },
     "native": {
-      "cases": 440,
-      "elapsed_seconds": 180.884,
+      "failed": 0,
       "files": 22,
+      "maximum_allowed_seconds": 600,
       "passed": 440,
-      "receipt_sha256": "fc6507ee62ad241c42415a9212f2379105e6025fee187da0124af1064be3f776"
+      "receipt_sha256": "f122bc73656b5d6bc1a604eaf2e94cee8e93f49e6fda3cd46968790c6d0976c1",
+      "seconds": 167.797,
+      "skipped": 0,
+      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526",
+      "todo": 0
     },
-    "observed": "bbdc596 completed51/52: all Rust/native440/installed gates and45/46 slim suites pass. Completion6/6, requester_commit6/6 and machine_owner6/6 pass. Machine requester completion has one ambiguous pure-clock-refusal HTTP200 instead of409 and a dependent case failure. Source audit finds no ordinary-replay bypass and repeated raw creation/signed expiry checks. Independent test-only prerequisite now preserves the exact raw-before-consent target before baseline and observes both original phases; no production or packaging change. Full corrected-head CI/review remains required, with model authorization/limit decision separate.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41411975080",
+    "observed": "All52 checks pass, all46 slim suites pass within120seconds (maximum89), native440/440 in167.797seconds and every original installed terminal/participant/upgrade/full-restore gate passes. No unresolved review threads.",
+    "preceding_exact_head_receipt": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6572995829",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41414534867",
     "required": true,
     "required_final_check_count": 52,
     "slim_suites": 46,
-    "source": "bbdc5960565fa519aaece1524eee387075302885",
+    "source": "a95ff0d353d5b9803d8ac9eb738e92d106091ad5",
     "suite_runtime_audit": {
-      "failed_suites": 1,
-      "log_sha256": "f4592baaf1260b2444f5cc6a4eee3e2e324c0fee10a0759066b1d32a20329a5b",
+      "all_failed_xfail_xpass_skipped_zero": true,
+      "log_sha256": "c443abb4925c3af2e25d42c96f5a329015b0f6fffda58c529a04e1c1fb45bb48",
+      "maximum_allowed_seconds": 120,
       "maximum_seconds": 89,
-      "over_120_seconds": 0,
-      "passing_suites": 45,
-      "suites": 46,
-      "summary_sha256": "2be7a03de114055d81b6a9bdc5b377ec44bef3a2973075d58b18e9b5d1da7d7a"
+      "runtime_audit_sha256": "3dd142db5cf998b6f150e01c82ad1aaf7636be154272fcc4fd44f3657435874a",
+      "suites": 46
     },
-    "tested_merge_source": "dc3469a758b46dff4fdb4d33d2fbe12e6e5322ae"
+    "tested_merge_source": "8ee19ef4fd7f2e84a679fca128f251e1b083b1be"
   },
   "conformance_execution": {
     "all46_suite_120second_runtime_audit_required": true,
@@ -109,15 +126,69 @@
     "source_tree_unchanged_from_artifact": true
   },
   "current_artifact_model": {
+    "after_component_reload": true,
     "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
+    "authorization": "Owner approved the bounded live-model check before enabling incoming delivery.",
+    "claude_version": "2.1.303",
+    "cleanup": "Controller finally closes its owned terminal and both fixture hosts. A later manual cleanup request found the controller socket already closed; no extra model turn ran.",
+    "controller_completed_normally": true,
+    "correlation": {
+      "agent_match": true,
+      "host_match": true,
+      "nonce_match": true,
+      "original_native_context": true,
+      "request_match": true,
+      "session_match": true
+    },
+    "counting": "First-party user/assistant conversation records only; API request blobs and terminal repaints are not additional logical turns.",
     "credentials_read_or_copied": false,
-    "model": "haiku",
+    "explicit_stop_and_reconnect": true,
+    "explicitly_authorized": true,
+    "fresh_authority_fixture_receipt_sha256": "0c00173bf78624cc1ad56f6a2ca7bf9d79f5197496d81c31a0fcfb1d71fc5bc4",
+    "fresh_authority_fixture_seconds": 11.885,
+    "hard_controller_bound_seconds": 290,
+    "installed_host_sha256": "a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e",
+    "limits": "Actual model loading uses the verified installed plugin directory; marketplace installation is a separate zero-inference terminal gate. Separate physical computers, arbitrary NAT and task-model execution are not proved.",
+    "logical_model_turns": 2,
+    "logical_turn_started_at": [
+      "2026-11-02T15:20:13.937Z",
+      "2026-11-02T15:21:03.133Z"
+    ],
+    "manual_controller_sha256": "6419fa29e58e6e99de87c6e0f8e9c8fce906a8de230d54938d8c25f5e72856d4",
+    "model_selector": "haiku",
+    "nonce_reply_turns": 1,
+    "nonce_sha256": "a298017f6274b374e26aa613daeca6e2fc2d00a8729b3fe70425d9a12dbb1d3d",
+    "observed_models": [
+      "claude-haiku-5-5"
+    ],
     "original_conversation": true,
-    "passed": false,
-    "planned_nonce_reply_turns": 1,
-    "planned_readiness_turns": 1,
-    "reason": "Automatic approval review blocked external Claude activity/normal usage cost on the preceding archive before enable. No new model turn executed; the final-artifact check awaits explicit authorization or owner acceptance of that evidence limit.",
-    "status": "awaiting_explicit_authorization"
+    "original_person_key_copied": false,
+    "originating_host_retrieved_reply": true,
+    "passed": true,
+    "private_evidence_sha256": {
+      "actual-model.actions.jsonl": "03ea53d72e7dbecad75db5a5c0bc0cc3e083cf432bb13d323c5b347c44bafa57",
+      "actual-model.pty": "f040a7e27f2625067fdd3f8070312c305e914953ddb84355b345ff36afd1af9e",
+      "actual-model.startup.jsonl": "06ac731520da4cacff163f451f1342ba462eccd58a86e62cf8790a12ccbfc208",
+      "project-lookup.private.json": "710b1614d71f158d5f36d7c3253a4cbd260f333fa19f73e421598c295e1975ed",
+      "roundtrip-verified.private.json": "31fc5ddd94b5fd8e98e617b81e497a61793c6b2b03afd390a1d8a013918f140c",
+      "sender-reply.private.json": "064718b9aa84a353b0ac2a6819f0f9c1c9cec99a3b778a56bbca5c494709f01a",
+      "sent.private.json": "7448f83692ee9645a357a748a8f54ba68df43b5f5fd53cb0ba7d2fc655588476"
+    },
+    "readiness_tool_at": "2026-11-02T15:20:15.674Z",
+    "readiness_turns": 1,
+    "ready_true": true,
+    "reply_tool_at": "2026-11-02T15:21:05.974Z",
+    "required_bound_seconds": 300,
+    "roundtrip_driver_sha256": "e667109734210fcf412f5d57965a2e3df12f242e4122da31eca0464e2bf74742",
+    "source_revision": "d819cf8eef38509ad14151af8501ae2c62a2f7f5",
+    "status": "passed",
+    "topology": {
+      "coordinator": false,
+      "direct_loopback": true,
+      "fixture_hosts": 2,
+      "helpers": false,
+      "physical_machines": 1
+    }
   },
   "expiry_purity_prerequisite": {
     "closed_pre_baseline_observation": {
@@ -509,8 +580,53 @@
         "summary_sha256": "1105ae33712765cc1be1320189ed90e71a76ba84811325cdebb495ab5eee4f8d"
       },
       "tested_merge_source": "417e9f6014bb6d8c3e9c72481fa660f894fcedf7"
+    },
+    {
+      "conformance": "https://github.com/peerspan/peerspan/actions/runs/41411975001",
+      "final_candidate_requirement": "All52 current-head checks; all46 slim suite runtimes<=120seconds; zero failed/XFAIL/XPASS/skipped acceptance cases; native440 within600seconds; exact-head review; manual model permission/limit decision recorded separately.",
+      "final_status_location": "Current exact-head final checks/review and model authorization/evidence-limit decision are recorded on tracking PR35; earlier run identities remain historical.",
+      "installed_receipt_sha256": "c1caff8290d46115182151657d451bea122da368801191697afaa0a6932c7cab",
+      "latest_exact_review": {
+        "commit": "bbdc5960565fa519aaece1524eee387075302885",
+        "result": "no major issues found",
+        "url": "https://github.com/peerspan/peerspan/pull/35#issuecomment-6572442296"
+      },
+      "native": {
+        "cases": 440,
+        "elapsed_seconds": 180.884,
+        "files": 22,
+        "passed": 440,
+        "receipt_sha256": "fc6507ee62ad241c42415a9212f2379105e6025fee187da0124af1064be3f776"
+      },
+      "observed": "bbdc596 completed51/52: all Rust/native440/installed gates and45/46 slim suites pass. Completion6/6, requester_commit6/6 and machine_owner6/6 pass. Machine requester completion has one ambiguous pure-clock-refusal HTTP200 instead of409 and a dependent case failure. Source audit finds no ordinary-replay bypass and repeated raw creation/signed expiry checks. Independent test-only prerequisite now preserves the exact raw-before-consent target before baseline and observes both original phases; no production or packaging change. Full corrected-head CI/review remains required, with model authorization/limit decision separate.",
+      "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41411975080",
+      "required": true,
+      "required_final_check_count": 52,
+      "slim_suites": 46,
+      "source": "bbdc5960565fa519aaece1524eee387075302885",
+      "suite_runtime_audit": {
+        "failed_suites": 1,
+        "log_sha256": "f4592baaf1260b2444f5cc6a4eee3e2e324c0fee10a0759066b1d32a20329a5b",
+        "maximum_seconds": 89,
+        "over_120_seconds": 0,
+        "passing_suites": 45,
+        "suites": 46,
+        "summary_sha256": "2be7a03de114055d81b6a9bdc5b377ec44bef3a2973075d58b18e9b5d1da7d7a"
+      },
+      "tested_merge_source": "dc3469a758b46dff4fdb4d33d2fbe12e6e5322ae"
     }
   ],
+  "historical_model_authorization": {
+    "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
+    "credentials_read_or_copied": false,
+    "model": "haiku",
+    "original_conversation": true,
+    "passed": false,
+    "planned_nonce_reply_turns": 1,
+    "planned_readiness_turns": 1,
+    "reason": "Automatic approval review blocked external Claude activity/normal usage cost on the preceding archive before enable. No new model turn executed; the final-artifact check awaits explicit authorization or owner acceptance of that evidence limit.",
+    "status": "awaiting_explicit_authorization"
+  },
   "installed_terminal": {
     "archive_sha256": "de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08",
     "cases": 3,
@@ -525,7 +641,7 @@
     "Unchanged mod runtime may retain its lease across component reload; explicit Stop/reconnect and fresh model readiness were exercised.",
     "Actual task model execution, onward delegation and non-Linux installation are outside this message-onboarding acceptance.",
     "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
-    "Full final tracking CI and accepted review on the corrected head remain required; the final-artifact actual-model repeat separately awaits explicit authorization or owner acceptance of its historical evidence limit. This receipt does not authorize merging35."
+    "Final documentation-only-head CI/review is recorded on tracking PR35. The owner retains the final main merge decision. The approved final-artifact actual-model check passed; no historical-evidence waiver is used."
   ],
   "machine_completion_clock_prerequisite": {
     "contract_only_author": true,
@@ -587,7 +703,7 @@
   "main_baseline": "8bc1b922e7b29f030f6799f98e96a0304b6bc8cd",
   "native": {
     "ci_cases": 440,
-    "ci_result": "native440/440 passed on7fb4853 with complete exact-source file-isolation receipt; final corrected-head CI remains required",
+    "ci_result": "440/440 on a95ff0d; final documentation-only head evidence is on tracking PR35.",
     "file_process_isolation": {
       "all_inputs_byte_exact": true,
       "audit_sha256": "346429db44e0643c2d0e702a3c66c899536cf89c4ec66e8d20a5e7756d9a78f0",
@@ -620,13 +736,14 @@
     "latest_ci": {
       "failed": 0,
       "files": 22,
-      "gate_seconds": 600,
+      "maximum_allowed_seconds": 600,
       "passed": 440,
-      "receipt_sha256": "d0af55461f575c07a7c115ca34679bb809d2321e60be7a24b5fb8cb10fb1afa8",
-      "seconds": 181.3,
+      "receipt_sha256": "f122bc73656b5d6bc1a604eaf2e94cee8e93f49e6fda3cd46968790c6d0976c1",
+      "seconds": 167.797,
       "skipped": 0,
-      "source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
-      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526"
+      "source": "a95ff0d353d5b9803d8ac9eb738e92d106091ad5",
+      "source_manifest_sha256": "6e40b2b14deeba3ceb2a2a6057e23905a5402f4dbb76f2b3de2f470c61cd5526",
+      "todo": 0
     },
     "local": {
       "deadline_failures": 9,
@@ -768,7 +885,7 @@
     },
     "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
   },
-  "recorded_at": "2026-11-02T08:16:11.160191+00:00",
+  "recorded_at": "2026-11-02T15:29:27.461171+00:00",
   "requester_commit_prefix_diagnostic": {
     "actual_commit_http_status": 200,
     "actual_result_state": "linked",
@@ -785,7 +902,7 @@
     "seconds": 81,
     "source_sha256": "1fae4585517298f6f7561e3eb93b0284fba96b1a7d35c41dc321e287d917f04b"
   },
-  "runtime_test_candidate": "97fdb9b2b45c788d703fcf2bfe7ceae3583e4401",
+  "runtime_test_candidate": "a95ff0d353d5b9803d8ac9eb738e92d106091ad5",
   "targeted_regressions": {
     "access_onboarding_bootstrap_boundary": {
       "failed": 0,

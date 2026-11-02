@@ -28,9 +28,49 @@ keeps its current authority guards. Archive SHA256:
 - This fresh archive passes actual installed terminal3/3 with zero model requests,
   distinct-person teammate12.615seconds, second computer11.996seconds, and all
   genuine three-history upgrade/full restores in10.001seconds.
-- Full corrected tracking CI and review remain required. The final-artifact
-  actual-model repeat remains awaiting explicit authorization or owner acceptance
-  of its historical evidence limit; no new model pass is claimed.
+- Tracking head a95ff0d passes all52 checks and clear combined review. All46
+  slim suites meet120seconds (maximum89); native440/440 passes in167.797seconds.
+- After explicit owner authorization, this exact installed archive passes the
+  bounded actual-model check: readiness and one correlated nonce reply in the
+  original conversation after reload and explicit Stop/reconnect.
+- Final CI/review for the documentation-only evidence commit is recorded on
+  tracking PR35. The owner retains the final main merge decision.
+
+
+## Approved final-archive actual-model check (2026-11-02)
+
+The owner explicitly approved the bounded live-model check. Using first-party
+Claude2.1.303 with the installed archive above, the existing test conversation
+completed one fresh readiness turn and one nonce-reply turn with observed model
+`claude-haiku-5-5`. The originating fixture host retrieved the reply and verified
+the exact nonce, request, target agent, receiving host, attached local session
+and unchanged native conversation. The native controls exercised component
+reload and explicit Stop/reconnect before incoming delivery was enabled once.
+
+The first-party conversation records contain exactly two new logical turns:
+readiness started at15:20:13.937Z, with the actual adapter-ready tool at
+15:20:15.674Z; peer input started at15:21:03.133Z, with the actual message-reply
+tool at15:21:05.974Z. API-request blobs and terminal repaints are duplicate
+representations, not additional logical turns. Both results completed within
+the unchanged300second gate and the controller's stricter290second bound.
+The controller ended normally and closed its owned terminal and fixture hosts.
+
+This check used two isolated hosts on one physical machine over direct loopback,
+without a helper or coordinator. The expired preparation fixture was replaced
+by a fresh genuine machine-link ceremony before model use (11.885seconds);
+the original person key stayed on its owning host. Existing first-party sign-in
+was used without reading or copying authentication secrets. Loading the installed
+plugin directory for this model check and marketplace installation through actual
+terminal controls remain separate verified gates. Arbitrary NAT, separate physical
+machines and task-model execution are outside this evidence.
+
+The sanitized `current_artifact_model` receipt records the exact archive/source,
+turn timestamps, boolean correlation results and private evidence hashes. The
+round-trip proof SHA256 is
+`31fc5ddd94b5fd8e98e617b81e497a61793c6b2b03afd390a1d8a013918f140c`.
+Private nonces, conversation/host identifiers, paths and credentials are omitted.
+The earlier automatic-approval block and old-archive success remain historical;
+this final-archive pass resolves that gate without a waiver or extra model turn.
 
 ### Previous charged-bootstrap candidate d61a314
 
@@ -349,3 +389,10 @@ the raw relation already lost before rearm; it does not identify the earlier
 CI phase or cause. No product or packaging change: verified archive de999b56
 and its installed proofs remain current. Full final tracking CI/review and the
 explicit live-model authorization/evidence-limit decision remain required.
+
+
+The final recorded engineering head a95ff0d passes52/52 checks and combined
+review with zero unresolved threads. The approved final-archive model check
+above also passes. Earlier pending statements describe retained historical
+observations; the final documentation-only head CI/review receipt on PR35 is the
+merge-readiness record. No additional product or packaging change was needed.

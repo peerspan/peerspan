@@ -4781,3 +4781,26 @@ history assertions passing. Its local raw precondition was not already lost
 before rearm; this is not attribution of the original ambiguous CI failure.
 No product/packaging change or new archive; full corrected tracking CI/review
 and explicit model authorization/evidence-limit decision remain open.
+
+
+### GU.final.model: complete the explicitly approved final-archive check
+
+- **Authority:** the owner explicitly approved the previously blocked bounded
+  live-model check: two logical Haiku turns in the existing test conversation.
+- **Selected:** enable the installed adapter through actual native controls,
+  establish fresh model readiness, then retrieve one correlated nonce reply
+  between the two local fixture hosts. Preserve the original conversation,
+  component reload, explicit Stop/reconnect and the existing300second bound.
+- **Evidence:** verified archive de999b56 passes. First-party conversation
+  records show exactly one readiness and one reply turn (`claude-haiku-5-5`);
+  the originating host verifies nonce/request/agent/host/local-session matches.
+  The stricter290second controller ends normally and closes owned processes.
+  No authentication secrets are read/copied; the original person key is not copied.
+- **Discarded:** accepting historical model evidence as a waiver, issuing extra
+  model turns, copying credentials/keys, claiming terminal readiness alone proves
+  a reply, or claiming separate physical machines/NAT from loopback fixtures.
+- **Verification:** [final receipt](results/guided-final-acceptance.json) and
+  [readable evidence](results/guided-final-acceptance.md). Product/packaging
+  trees remain byte-identical to the verified release. Require final CI/review
+  on the documentation-only receipt commit; record that exact head on PR35
+  without another repository edit. The owner retains the final main merge.
