@@ -17,6 +17,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import signal
 import sqlite3
@@ -24,6 +25,7 @@ import struct
 import subprocess
 import threading
 import time
+import traceback
 
 from harness import (Failure, Skip, Suite, check, create_network, finalize, invite,
                      join_request, link_view, parse_time, pull_until, select, ssh_key,
@@ -62,7 +64,11 @@ def public_view(status, value):
 
 
 def rows(host, query, params=()):
-    databases = list(host.state.glob('*.db'))
+    databases = []
+    for path in host.state.glob('*.db'):
+        with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as database:
+            if database.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
+                databases.append(path)
     check(len(databases) == 1, 'expected one actual host database')
     with closing(sqlite3.connect(f'file:{databases[0]}?mode=ro', uri=True)) as database:
         return database.execute(query, params).fetchall()
@@ -312,8 +318,20 @@ def experiment():
             'first_original_participant_linked': first_alice_linked, 'one_commit': True, 'one_diagnostic_resume': True,
             'repair_applied_both': True, 'signed_authority_verified': True, 'requester_consent_unchanged': True,
             'requester_application_unchanged': True, 'original_keys_stayed_owned': True})
-    except Exception:
-        emit({'phase': phase, 'experiment_complete': False})
+    except Exception as error:
+        # Receive-only stack frames identify the exact failed assertion without
+        # retaining locals or printing exception text/protocol bodies publicly.
+        category = 'assertion' if isinstance(error, AssertionError) else 'missing_local_file' if isinstance(error, FileNotFoundError) else (
+            'missing_response_field' if isinstance(error, KeyError) else 'bounded_process_timeout' if isinstance(error, subprocess.TimeoutExpired)
+            else 'read_only_database' if isinstance(error, sqlite3.Error) else 'other_fixture_error')
+        try:
+            descriptor = os.open(suite.work / 'completion-rate-failure.private.log', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, 'w') as output:
+                traceback.print_tb(error.__traceback__, file=output)
+                output.write('closed_category=' + category + '\n')
+        except OSError:
+            pass
+        emit({'phase': phase, 'experiment_complete': False, 'failure_category': category})
         raise Failure('completion rate-pressure diagnostic prerequisite or proof failed at ' + phase) from None
     finally:
         if pressure is not None:
