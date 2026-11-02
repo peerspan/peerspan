@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Immediate machine consent from genuine automatic return (guided42).
 
-Independent public-contract regression. Both hosts advertise empty direct and
-relay contacts and one fresh independent resource helper. Before join approval,
+Independent public-contract regression. Both hosts explicitly advertise counted
+bootstrap refusal proxies, counted QUIC endpoints, no relays and one fresh
+independent resource helper. Each refusal proxy targets an owned bound but
+non-listening socket until cleanup; the actual daemon bootstrap listener is
+used only for pinned public certificate discovery. QUIC serves no mailboxes.
+Before join approval,
 that helper holds every original link_ mailbox GET before any response bytes;
 the distinct invitation-ID return mailbox and genuine B publication pass.
 It preserves exact opaque frame bytes and owns only its transport key. Public
@@ -28,6 +32,7 @@ Root executes committed source; the author performs static checks only.
 from __future__ import annotations
 
 import base64
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import json
@@ -140,7 +145,7 @@ def resume_requester(value):
 
 class FirstFetchGate:
     """Count opaque bytes; hold a complete ClientHello before server bytes."""
-    def __init__(self,target,held=False):
+    def __init__(self,target,held=False,forbidden_ports=()):
         self.target = target
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
@@ -263,7 +268,7 @@ class FirstFetchGate:
                     if upstream:
                         upstream.close()
         self.server = Server(('127.0.0.1',0),Handler)
-        while self.server.server_address[1]==target[1]:
+        while self.server.server_address[1] in (target[1],*forbidden_ports):
             self.server.server_close()
             self.server = Server(('127.0.0.1',0),Handler)
         self.address = '127.0.0.1:'+str(self.server.server_address[1])
@@ -367,10 +372,17 @@ class FirstFetchGate:
 def host(name,helper):
     value = i.InstalledHost(suite,name)
     suite.hosts.append(value)
-    value.relay = FirstFetchGate(('127.0.0.1',value.bootstrap_port))
+    value.refusal_reservation = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    value.refusal_reservation.bind(('127.0.0.1',0))
+    while value.refusal_reservation.getsockname()[1]==value.bootstrap_port:
+        value.refusal_reservation.close()
+        value.refusal_reservation = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        value.refusal_reservation.bind(('127.0.0.1',0))
+    # Never listen or release this owned refusal target while a host is live.
+    value.relay = FirstFetchGate(value.refusal_reservation.getsockname(),forbidden_ports=(value.bootstrap_port,))
     value.counted_peer = CountedUDP(('127.0.0.1',value.peer_port))
     config = value.root/'transport.json'
-    config.write_bytes(g.compact(dict(format=1,advertise_bootstrap=[],advertise_quic=[],
+    config.write_bytes(g.compact(dict(format=1,advertise_bootstrap=[value.relay.address],advertise_quic=[value.counted_peer.address],
                                      rendezvous=[helper.pin()],relays=[],publish_contacts=False)))
     config.chmod(0o600)
     value.extra_args = ['--transport-config',str(config)]
@@ -381,7 +393,7 @@ def invitation(a,parent,network,person,member,helper):
     body = dict(context=g.context(parent),network_id=network['id'],member=member,expected_person_public_key=person)
     prepared = g.api(a,'POST',i.INVITATIONS,body,expected=201)
     review = prepared['review']
-    expected_transport = dict(bootstrap_addresses=[],quic_addresses=[],relays=[],
+    expected_transport = dict(bootstrap_addresses=[a.relay.address],quic_addresses=[a.counted_peer.address],relays=[],
                               helpers=[dict(address=helper.address,public_key=helper.public_key)])
     check(prepared['state']=='review' and prepared['invitation'] is None
           and prepared['review_id']==g.digest('peerspan-invitation-review-v1',review)
@@ -397,6 +409,26 @@ def invitation(a,parent,network,person,member,helper):
           and handoff['invitation_id']==issued['invitation']['invitation_id'],'private genuine invitation handoff failed')
     code = handoff['invitation']
     g.shared['secrets'].append(code)
+    # Independently verify the exact signed carrier hints before requester approval.
+    encoded = code[5:]
+    outer = json.loads(base64.urlsafe_b64decode(encoded+'='*(-len(encoded)%4)))
+    raw_payload = base64.b64decode(outer['payload_base64'],validate=True)
+    payload = json.loads(raw_payload)
+    check(outer['context_id']==network['context_id'] and outer['inviter_host_public_key']==a.public_key
+          and payload['helpers']==expected_transport['helpers'] and payload['contacts'],
+          'signed invitation lacks the exact sole helper and refusing contact')
+    message = '\n'.join(['peerspan-decentralized-contact-invitation-v1',network['context_id'],a.public_key,
+                         hashlib.sha256(raw_payload).hexdigest()]).encode()
+    g.ed25519(a.public_key,outer['signature'],message,'resource-invitation')
+    for index,contact in enumerate(payload['contacts']):
+        raw_hints = base64.b64decode(contact['payload_base64'],validate=True)
+        check(contact['context_id']==network['context_id'] and contact['host_public_key']==a.public_key
+              and json.loads(raw_hints)=={name:expected_transport[name] for name in ('bootstrap_addresses','quic_addresses','relays')},
+              'signed invitation acquired an alternate direct resource endpoint')
+        message = '\n'.join(['peerspan-decentralized-contact-v1',contact['context_id'],a.public_key,
+                             str(contact['sequence']),contact['issued_at'],contact['expires_at'],
+                             hashlib.sha256(raw_hints).hexdigest()]).encode()
+        g.ed25519(a.public_key,contact['signature'],message,'resource-contact-'+str(index))
     return code
 
 
@@ -468,7 +500,9 @@ def _():
         check(preview['review_id']==g.digest('peerspan-invitation-preview-v1',preview['review'])
               and preview['review']['invitation']['automatic_return'] is True
               and preview['review']['helpers']==[dict(address=helper.address,public_key=helper.public_key)]
-              and all(contact['bootstrap_addresses']==contact['quic_addresses']==contact['relays']==[]
+              and preview['review']['contacts']
+              and all(contact['bootstrap_addresses']==[a.relay.address]
+                      and contact['quic_addresses']==[a.counted_peer.address] and contact['relays']==[]
                       for contact in preview['review']['contacts']), 'authentic exclusive-resource automatic-return preview missing')
         flow = g.api(b,'POST',i.JOINS,dict(context=g.context(pb),invitation=code,person_public_key=person),expected=201)
         check(flow['state']=='review' and flow['outcome'] is None and flow['review_id']==g.digest('peerspan-join-review-v1',flow['review'])
@@ -497,7 +531,8 @@ def _():
                       and packet['request_id']==f['rid'] and packet['writer_host_public_key']==b.public_key
                       and packet['signer_public_key']==incoming['device_public_key']
                       and g.packet_id(packet)==incoming['request_packet_id'],'retained authenticated request/capability mismatch')
-                check(pending['carrier_endpoints']==[dict(kind='helper',address=helper.address,public_key=helper.public_key)],
+                check(pending['carrier_endpoints']==[dict(kind='helper',address=helper.address,public_key=helper.public_key),
+                      dict(kind='participant',address=b.relay.address,public_key=b.public_key)],
                       'returned request acquired an alternate original-frame carrier')
                 g.ed25519(b.public_key,packet['host_signature'],g.packet_message(packet),'returned-host')
                 g.ed25519(packet['signer_public_key'],packet['device_signature'],g.packet_message(packet),'returned-device')
@@ -595,6 +630,7 @@ def _():
                 h.relay.close()
                 h.counted_peer.close()
                 h.stop()
+                h.refusal_reservation.close()
 
 
 @suite.case('immediate_exact_prepare_requires_no_original_frame','guided42 retained request/capability')
