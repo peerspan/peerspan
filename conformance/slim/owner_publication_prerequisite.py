@@ -64,6 +64,9 @@ def publication_complete(namespace, host, result, *, require_all):
         inviter = invitation.get('inviter_host_public_key') if type(invitation) is dict else None
     database = namespace['db_path'](host)
     last = {'satisfied': False, 'all_participants_required': require_all}
+    observation_errors = {'busy_read_observations': 0, 'locked_read_observations': 0,
+                          'fatal_sqlite_observations': 0, 'fatal_value_observations': 0,
+                          'fatal_type_observations': 0, 'fatal_key_observations': 0}
     def observed():
         nonlocal last
         try:
@@ -74,14 +77,30 @@ def publication_complete(namespace, host, result, *, require_all):
             record = json.loads(row[0]) if row is not None else None
             ready, last = witness(host, outcome, record, frames, require_all=require_all, inviter=inviter)
             return ready
-        except (sqlite3.Error, ValueError, TypeError, KeyError):
+        except sqlite3.Error as error:
+            # Contention is an unavailable observation, never an ACK. Keep the
+            # same bounded wait and require the complete unchanged witness.
+            code = getattr(error, 'sqlite_errorcode', None)
+            primary = code & 0xff if type(code) is int else None
+            if primary == sqlite3.SQLITE_BUSY:
+                observation_errors['busy_read_observations'] += 1
+                return False
+            if primary == sqlite3.SQLITE_LOCKED:
+                observation_errors['locked_read_observations'] += 1
+                return False
+            observation_errors['fatal_sqlite_observations'] += 1
+            check(False, 'owner initial-publication witness unavailable')
+        except (ValueError, TypeError, KeyError) as error:
+            field = ('fatal_value_observations' if isinstance(error, ValueError) else
+                     'fatal_type_observations' if isinstance(error, TypeError) else 'fatal_key_observations')
+            observation_errors[field] += 1
             check(False, 'owner initial-publication witness unavailable')
     try:
         namespace['wait_for'](observed, timeout=5, interval=.1,
             message='actual owner-fixture initial request storage acknowledgment')
     finally:
         try:
-            print('owner_publication_prerequisite_public=' + json.dumps(last, sort_keys=True), flush=True)
+            print('owner_publication_prerequisite_public=' + json.dumps({**last, **observation_errors}, sort_keys=True), flush=True)
         except BaseException:
             pass
 
