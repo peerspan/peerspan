@@ -86,9 +86,18 @@ refusal, zero-fetch preview, retained explicit approval and signed T/P/H results
 Its initial fixture assumptions and their failures remain retained.
 
 The corrected owner suites pass6/6 each, joining14/14 and targeted admission1/1.
-Machine consent passes6/6 semantically, with dispatch diagnostics showing the
-raw creation precondition had actually been lost and was reestablished. Local
-runs took125/127seconds; final CI must satisfy the required two-minute suite
-budget. These local runs alone do not close that timing gate. The final archive
-also passed terminal, both participant flows, genuine upgrades/restores and an
+Machine consent passes6/6, with dispatch diagnostics showing the raw creation
+precondition had actually been lost and was reestablished. Local runs took125/127
+seconds; unchanged source then passed CI in99seconds on083c6b9. That head passed
+50 of51 checks, including native440 and the complete installed terminal,
+participant and genuine upgrade/restore job. The final archive also passed an
 authenticated original-conversation model reply after explicit reload/reconnect.
+
+The remaining requester-history check retained identical state but observed one
+QUIC packet; receive-only diagnostics showed the stopped issuer's directory row
+still reported healthy. The packet's call site remains unattributed. An independent
+fixture correction performs the existing bounded public directory refresh before
+the strict baseline, requiring truthful stopped-peer error state. It changes no
+frozen case, assertion, counter comparison or deadline. All6 cases pass locally
+in151seconds; the corrected final CI must also meet the120second suite budget.
+Full corrected-head CI and review remain required before integration.

@@ -76,7 +76,7 @@ jobs:
           elif [ '${{ matrix.suite }}' = 'join_onboarding' ]; then
             python3 conformance/slim/join_onboarding_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'requester_completion' ]; then
-            python3 conformance/slim/combined_purity_diagnostic.py requester_completion --bin bin
+            python3 conformance/slim/requester_completion_directory_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_requester_consent' ]; then
             python3 conformance/slim/machine_requester_consent_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_owner' ]; then

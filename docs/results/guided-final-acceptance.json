@@ -57,12 +57,12 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41383547852",
-    "observed": "Full final-head CI and review required. Prior e21e6d6 installed CI passed; three prior conformance failures corrected and locally verified. Machine-consent local semantic checks passed but exceeded120s; final CI runtime gate remains required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41383547960",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41387704359",
+    "observed": "Previous083c6b9:50 of51 checks passed, including native440 and the complete installed terminal/upgrade/participant job. Requester history failed with one QUIC packet and a stale stopped-peer directory entry; its cause remains unattributed. A new contract-derived directory prerequisite passes all6 cases locally. Full CI and review of the corrected head remain required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41387704277",
     "required": true,
     "slim_suites": 45,
-    "source": "a8e4958b7e7986f3cab348445158f81240499f34"
+    "source": "083c6b954df6a34f783a8597ba6959cbdd8a172a"
   },
   "first_failures": [
     {
@@ -120,6 +120,10 @@
     {
       "kind": "new fixture assumed full review equality across derived signing progress",
       "log_sha256": "ad4e482500206752eb3b75237e4d3e38ceaa91f926d4f8928bfa237397fdc5f3"
+    },
+    {
+      "kind": "requester history QUIC packet with stopped-peer directory still healthy; call-site attribution unresolved",
+      "log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb"
     }
   ],
   "installed_terminal": {
@@ -240,8 +244,8 @@
       "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
     }
   ],
-  "recorded_at": "2026-11-02T04:18:10.462304+00:00",
-  "runtime_test_candidate": "a8e4958b7e7986f3cab348445158f81240499f34",
+  "recorded_at": "2026-11-02T04:32:44.975628+00:00",
+  "runtime_test_candidate": "8f6422235cde0b34504a4985a7e00f1187fdcf62",
   "targeted_regressions": {
     "admission_retained_prefix": {
       "cases": 1,
@@ -257,6 +261,10 @@
       "seconds": 65
     },
     "machine_requester_consent": {
+      "ci_elapsed_seconds": 99,
+      "ci_job": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612467",
+      "ci_log_sha256": "a598b058139788a7bc729aa22fe7706c7bfcaab8efd37c9f8e738584845dec66",
+      "ci_source": "083c6b954df6a34f783a8597ba6959cbdd8a172a",
       "local_elapsed_seconds": [
         125,
         127
@@ -269,7 +277,7 @@
       "raw_created_precondition_was_lost_before_rearm": true,
       "semantic_cases_passed": 6,
       "source_sha256": "f64122cb83123d400549127bca240565382ea127a527d3d06fed29e741b0f1d5",
-      "two_minute_runtime_gate": "still required on final CI"
+      "two_minute_runtime_gate": "passed on083c6b9; unchanged source must pass on corrected final head"
     },
     "owner_onboarding": {
       "cases": 6,
@@ -282,6 +290,19 @@
       "log_sha256": "298a365b85651898cf36cd9325d79ae1ec4e8ab67fa8d6f71ab157af2061527e",
       "passed": true,
       "seconds": 111
+    },
+    "requester_completion": {
+      "cases": 6,
+      "ci_job_failed": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612381",
+      "ci_log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb",
+      "directory_prerequisite_source_sha256": "11f433f5af26b54366ea17af9e802d183a3eb16354464a43f63a8b6f94c5e740",
+      "final_two_minute_runtime_gate": "still required on corrected final CI",
+      "first_packet_attribution": "unresolved; receive-only diagnostic matches requester endpoint and stale directory state but does not identify a call site",
+      "frozen_source_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
+      "local_elapsed_seconds": 151,
+      "log_sha256": "d596ae8b2ca381838a19bf8c18542dce651fa31e5cc1d8f1ea7dc8dffaa7dbc2",
+      "precondition": "Existing bounded public directory refresh observes the stopped issuer as error before the strict baseline; no case/assertion/deadline or measured traffic comparison changed.",
+      "semantic_cases_passed": 6
     }
   },
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
