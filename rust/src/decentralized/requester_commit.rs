@@ -557,6 +557,31 @@ pub(super) fn approve(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
             true,
         );
     }
+    if p.record.terminal == "-"
+        && p.record.commit_approved
+        && p.record.commit_packet_base64 != "-"
+        && super::approval::framed(&p, "commit")
+    {
+        // Loading the pending record validates its exact approved intent and
+        // completed packet. Its framed activation is retained evidence, not a
+        // new generation to prepare. Publication/application recheck authority.
+        let i = Intent::load(&tx, &p.record.commit_intent_id)?;
+        require(
+            i.record.approved && i.record.completed && i.record.terminal == "-",
+            "state_conflict",
+        )?;
+        let d = Descriptor::read(&b64(&p.record.descriptor_base64, MAX_OBJECT)?)?;
+        let activation = Activation::read(
+            &d,
+            &activation_bytes(&p, &b64(&p.record.commit_packet_base64, MAX_OBJECT)?)?,
+        )?;
+        require(
+            activation.id == p.record.activation_id
+                && activation.manifest_id == p.record.manifest_id,
+            "state_conflict",
+        )?;
+        return super::approval::retained_response(&p, &i, input, true, !approve);
+    }
     let stage = context(&tx, store, &p)?;
     super::approval::pins(input, &p, &stage.offer)?;
     for (name, want) in [

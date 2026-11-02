@@ -218,6 +218,15 @@ pub(super) fn historical(p: &Pending, i: &Intent, input: &Obj, commit: bool) -> 
         p.record.terminal == "applied" && i.record.approved && i.record.completed,
         "operation_conflict",
     )?;
+    retained_response(p, i, input, commit, false)
+}
+pub(super) fn retained_response(
+    p: &Pending,
+    i: &Intent,
+    input: &Obj,
+    commit: bool,
+    preview: bool,
+) -> Result<Vec<u8>> {
     let d = Descriptor::read(&b64(&p.record.descriptor_base64, MAX_OBJECT)?)?;
     for (field, want) in [
         ("network_id", d.network_id.as_str()),
@@ -227,7 +236,11 @@ pub(super) fn historical(p: &Pending, i: &Intent, input: &Obj, commit: bool) -> 
         ("host_public_key", p.record.host_public_key.as_str()),
         ("device_public_key", p.record.device_public_key.as_str()),
     ] {
-        require(text(input, field)? == want, "operation_conflict")?
+        let actual = text(input, field)?;
+        require(
+            actual == want || preview && actual == "-",
+            "operation_conflict",
+        )?
     }
     if commit {
         for (field, want) in [
@@ -241,7 +254,11 @@ pub(super) fn historical(p: &Pending, i: &Intent, input: &Obj, commit: bool) -> 
                 p.record.owner_finalization_id.as_str(),
             ),
         ] {
-            require(text(input, field)? == want, "operation_conflict")?
+            let actual = text(input, field)?;
+            require(
+                actual == want || preview && actual == "-",
+                "operation_conflict",
+            )?
         }
     }
     bytes(
