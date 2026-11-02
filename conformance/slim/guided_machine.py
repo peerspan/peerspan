@@ -580,8 +580,62 @@ def traffic(f):
     return tuple(counts for h in (f['a'], f['b']) for counts in (h.relay.counts(), h.counted_peer.counts()))
 
 
+def api_failure(method, path, status, value, expected):
+    if status == expected:
+        return
+    try:
+        operation = 'other'
+        if path == PROJECT:
+            operation = 'project_prepare'
+        elif path.startswith(PROJECT + '/') and path.endswith('/decision'):
+            operation = 'project_decide'
+        elif path == INVITATIONS:
+            operation = 'invitation_prepare'
+        elif path.startswith(INVITATIONS + '/') and path.endswith('/decision'):
+            operation = 'invitation_decide'
+        elif path.startswith(INVITATIONS + '/') and path.endswith('/handoff'):
+            operation = 'invitation_handoff'
+        elif path == '/v1/onboarding/invitation-preview':
+            operation = 'invitation_preview'
+        elif path == BASE:
+            operation = 'join_prepare'
+        elif path.startswith(BASE + '/') and path.endswith('/decision'):
+            operation = 'join_decide'
+        elif path == '/v1/onboarding/machine-owner-inspection':
+            operation = 'owner_inspect'
+        elif path.startswith(MACHINE + '/'):
+            operation = {'prepare': 'owner_prepare', 'approve': 'owner_approve', 'lookup': 'owner_lookup',
+                         'signing': 'owner_signing', 'sign': 'owner_sign'}.get(path.rsplit('/', 1)[-1], 'other')
+        elif path.startswith(BASE + '/') and '/machine-commit/' in path:
+            operation = {'inspect': 'requester_inspect', 'prepare': 'requester_prepare', 'approve': 'requester_approve',
+                         'lookup': 'requester_lookup', 'complete': 'requester_complete'}.get(path.rsplit('/', 1)[-1], 'other')
+        elif path.startswith('/v2/link/requests'):
+            operation = 'request_read'
+        elif path.startswith('/v2/networks'):
+            operation = 'network_read'
+        elif path == '/v1/grants':
+            operation = 'grants_read'
+        elif path == '/v1/onboarding/access-inspection':
+            operation = 'access_inspect'
+        elif path == '/v1/onboarding/readiness':
+            operation = 'readiness'
+        codes = {'invalid', 'not_found', 'review_changed', 'review_expired', 'request_unavailable', 'state_conflict',
+                 'flow_conflict', 'expired', 'not_yet_valid', 'quota_exceeded', 'rate_limited', 'proof_required',
+                 'machine_owner_inspection_unavailable', 'machine_owner_consent_unavailable', 'machine_owner_signing_unavailable',
+                 'machine_requester_inspection_unavailable', 'machine_requester_consent_unavailable',
+                 'machine_commit_completion_unavailable', 'access_inspection_unavailable', 'readiness_unavailable'}
+        code = value.get('code') if type(value) is dict else None
+        print('guided_machine_api_failure_public=' + json.dumps({'operation': operation,
+            'method': method if method in {'GET', 'POST', 'PUT', 'DELETE'} else 'other',
+            'http_status': status if type(status) is int and 100 <= status <= 599 else None,
+            'code': code if type(code) is str and code in codes else 'unknown'}, sort_keys=True), flush=True)
+    except BaseException:
+        pass  # Preserve the existing call's value/exception/assertion/verdict.
+
+
 def api(h, method, path, data=None, *, expected=200, timeout=5):
     status, value = h.api(method, path, data, timeout=timeout)
+    api_failure(method, path, status, value, expected)
     public(value, *shared.get('secrets', []))
     check(status == expected, 'guided public operation HTTP ' + str(status))
     return value
@@ -652,6 +706,32 @@ def inspection_body(f):
 
 def requester_endpoint(f, action):
     return BASE + '/' + f['flow']['flow_id'] + '/machine-commit/' + action
+
+
+def saved_request_frame(h, rid, writer):
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=.1)) as db, db:
+        db.execute('BEGIN')
+        rows = list(db.execute("SELECT role,writer_key,frame_id,record FROM dec_frames WHERE request_id=? AND role='request' AND writer_key=?", (rid, writer)))
+    check(len(rows) <= 1, 'initial request has more than one saved own frame')
+    if not rows:
+        return None
+    role, key, frame_id, record = rows[0]
+    try:
+        encoded = json.loads(record)
+        check(type(encoded) is dict and set(encoded) == {'frame_base64'}
+              and type(encoded['frame_base64']) is str and len(encoded['frame_base64']) <= 4 * ((32 * 1024 * 1024 + 2) // 3),
+              'saved initial request frame record shape/bound')
+        raw = base64.b64decode(encoded['frame_base64'], validate=True)
+        check(len(raw) <= 32 * 1024 * 1024, 'saved initial request frame byte bound')
+        frame = json.loads(raw)
+        check(type(frame) is dict and set(frame) == set('format request_id locator role writer_host_public_key frame_id created_at expires_at ciphertext_base64 signature'.split())
+              and frame['format'] == 1 and frame['request_id'] == rid and frame['role'] == role == 'request'
+              and frame['writer_host_public_key'] == key == writer and frame['frame_id'] == frame_id
+              and type(frame_id) is str and re.fullmatch(r'[0-9a-f]{64}', frame_id),
+              'saved initial request frame role/writer/request identity mismatch')
+        return raw
+    except (ValueError, TypeError, KeyError):
+        check(False, 'saved initial request frame unavailable')
 
 
 def checkpoint(f, predicate, *, seconds, message):
@@ -898,6 +978,7 @@ def _():
     check(issued['state'] == 'issued' and issued['review'] == inv_review, 'invitation decision changed exact review')
     status, handoff = a.api('POST', INVITATIONS + '/' + proposal['flow_id'] + '/handoff', {
         'context': context(f['owner_parent']), 'review_id': proposal['review_id']}, timeout=5)
+    api_failure('POST', INVITATIONS + '/' + proposal['flow_id'] + '/handoff', status, handoff, 200)
     check(status == 200 and set(handoff) == set('version flow_id review_id network_id context_id invitation_id invitation expires_at'.split())
           and handoff['invitation_id'] == issued['invitation']['invitation_id'] and handoff['invitation'].startswith('psi2-'),
           'authentic guided private invitation handoff failed')
@@ -920,7 +1001,14 @@ def _():
           and flow['outcome']['network_id'] == net['id'] and flow['outcome']['context_id'] == net['context_id']
           and flow['outcome']['person_public_key'] == person, 'guided exact request publication failed')
     f.update(flow=flow, rid=flow['outcome']['request_id'])
-    incoming = wait_for(lambda: next((v for v in get(a, '/v2/link/requests') if v['request_id'] == f['rid']), None),
+    def incoming_return():
+        view = next((v for v in get(a, '/v2/link/requests') if v['request_id'] == f['rid']), None)
+        if view is None:
+            return None
+        original_frame = saved_request_frame(b, f['rid'], b.public_key)
+        returned_frame = saved_request_frame(a, f['rid'], b.public_key)
+        return view if original_frame is not None and returned_frame == original_frame else None
+    incoming = wait_for(incoming_return,
         timeout=15, interval=.1, message='actual guided automatic incoming return')
     check(incoming['role'] == 'approver' and incoming['state'] == 'pending' and incoming['owner_offer_id'] == '-',
           'automatic return bypassed existing-computer owner approval')
