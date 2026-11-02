@@ -390,10 +390,36 @@ class Terminal:
     def fill(self, label, value):
         self.visible(label)
         self.focus(label, input_field=True)
-        self.send('\x01\x0b' + value)
-        self.visible(value)
+        self.send('\x01\x0b')
+        self.wait(lambda: self.focused_input(label) and self.input_value(label) == '',
+                  'native exact input did not render empty after clear')
+        self.send(value)
+        stable_since = None
+
+        def retained_value():
+            nonlocal stable_since
+            if not self.focused_input(label) or self.input_value(label) != value:
+                stable_since = None
+                return False
+            if stable_since is None:
+                stable_since = time.monotonic()
+            return time.monotonic() - stable_since >= .250
+
+        self.wait(retained_value, 'native exact input did not retain the typed value')
         self.send('\t')
         self.pump()
+
+    def input_value(self, label):
+        # Read only the currently focused public label's value before its hint.
+        if not self.focused_input(label):
+            return None
+        pattern = re.compile(r'(?:^|[│┃])\s*' + re.escape(label) + r':(.*?)\s+⏎ submit')
+        y = self.screen.cursor.y
+        for row in range(max(0, y - 1), min(self.screen.lines, y + 2)):
+            matched = pattern.search(self.screen.display[row])
+            if matched is not None:
+                return matched.group(1).strip()
+        return None
 
     def open_project(self):
         self.command('/peerspan')
