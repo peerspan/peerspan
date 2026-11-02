@@ -57,14 +57,14 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41390612009",
-    "installed_receipt_sha256": "542ab875b014158facb25939ecf3616c0d1f07ce178f357ebbbc4e4341a45da6",
-    "observed": "Previous7fb4853:50/51 CI checks passed, including native440 and the complete installed job; Codex review clear. Requester history purity passed but its separate final-guard barrier case returned409 with an unrecorded unexpected code. Renewal13/13 semantics took167seconds and also failed the120second timing gate. First failures retained. Atomic private fixture markers and optimized guarded debug conformance builds now correct identified hazards/configuration; final full-head CI/review and runtime audit still required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41390612019",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41392480067",
+    "installed_receipt_sha256": "dcd2822d4d0cbbf92cc58bfe8461e9c72627a89b52596753bcce5a8381329062",
+    "observed": "a96c73d:33/51 checks passed;18 conformance suites failed predominantly on the original participant remaining pending after the requester was actually linked. Rust/native440 and all installed terminal, participant and genuine upgrade/restore gates passed. Same exact CI binaries pass the work suite locally, including four-CPU and memory-backed fixtures; these do not establish the CI cause. Independent real rate-pressure diagnostic reproduced one-shot completion publication loss and exact retained-operation repair. A bounded retry correction and full corrected-head CI/review remain required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41392480043",
     "required": true,
     "slim_suites": 45,
-    "source": "7fb4853739beede447481181779c5d4c54e986e1",
-    "tested_merge_source": "654788b2300e9b33abc09e3e8e309b09a9f0b311"
+    "source": "a96c73d0daabf935039d20963169446413a01495",
+    "tested_merge_source": "23c87cd64dc7040bf04a0729eac508eac335bb21"
   },
   "conformance_execution": {
     "all45_suite_120second_runtime_audit_required": true,
@@ -157,6 +157,18 @@
     {
       "kind": "existing renewal13/13 semantic pass exceeded120second runtime budget at167seconds",
       "runtime_audit_sha256": "21ba44fea418aa18ff400c4c52ab2e1a3f4eac2e3d54e2b86ef5db37dcecbb77"
+    },
+    {
+      "kind": "optimized CI shared original-participant application failures",
+      "log_sha256": "262d79ed43964aa9de154d7f4b210c4dc6517c3f48fbbbb8356dd7d192e47a21"
+    },
+    {
+      "kind": "new pressure fixture incorrectly required one database",
+      "log_sha256": "8a689ae14e87bea4edaa14216ecfe0d9aa0b4ed1545cc2c5ec3f97eb4d0e0667"
+    },
+    {
+      "kind": "independent real rate pressure exposed one-shot completion publication loss",
+      "log_sha256": "8b79fe701b0432e502d2ec60a1265ed880d34c66479273d0bd58c73c958b56d3"
     }
   ],
   "installed_terminal": {
@@ -174,7 +186,7 @@
     "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
     "Final-head CI and accepted review, then integration into tracking branch and its final checks, remain required; this receipt alone does not authorize merging35."
   ],
-  "main_baseline": "7d675b6f80304c82e1ad3162b94e5ba305ecdffb",
+  "main_baseline": "8bc1b922e7b29f030f6799f98e96a0304b6bc8cd",
   "native": {
     "ci_cases": 440,
     "ci_result": "native440/440 passed on7fb4853 with complete exact-source file-isolation receipt; final corrected-head CI remains required",
@@ -324,7 +336,7 @@
       "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
     }
   ],
-  "recorded_at": "2026-11-02T05:10:32.659342+00:00",
+  "recorded_at": "2026-11-02T05:53:10.036333+00:00",
   "runtime_test_candidate": "acebed964820eb2e9c3a51d2ae91a3fe5d1fab61",
   "targeted_regressions": {
     "admission_retained_prefix": {
@@ -333,6 +345,27 @@
       "passed": true,
       "seconds": 6,
       "source_sha256": "7d26e5fd3f00fde7e1a43a7d506eeef4a48e80bdb8a92dd0eeb67728880532c9"
+    },
+    "completion_rate_limit_before_fix": {
+      "diagnostic_refill_seconds": 1,
+      "diagnostic_resumes": 1,
+      "elapsed_seconds": 7.1,
+      "first_application_expected_failure": true,
+      "first_original_participant_linked": false,
+      "first_requester_linked": true,
+      "genuine_proof_passed": true,
+      "host_sha256": "c2bb1ac278800c3e694d0b33ffa2192f5b0c53fbb8c279969b407913503c2830",
+      "invalid_responses": 5,
+      "log_sha256": "8b79fe701b0432e502d2ec60a1265ed880d34c66479273d0bd58c73c958b56d3",
+      "pressure_seconds": 2,
+      "product_source": "a96c73d0daabf935039d20963169446413a01495",
+      "rate_limited_responses": 62,
+      "repair_applied_both": true,
+      "requester_consent_and_application_unchanged": true,
+      "signed_authority_verified": true,
+      "source_sha256": "f98f0481698724dc4c3a006929c39d5c4c7530c48bfa84f1d1895f14f29d9df6",
+      "transport_errors": 0,
+      "unsupported_responses": 0
     },
     "join_onboarding": {
       "cases": 14,

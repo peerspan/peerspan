@@ -148,3 +148,29 @@ exact `review_changed`; history purity also passes. Those corrections change no
 product source, frozen case body, assertion or deadline. First failures remain
 preserved; final full51-check CI, all45 timing audit and accepted review are the
 remaining integration gates.
+
+
+### Completion publication under real rate pressure
+
+The guarded optimized a96c73d run passed33 of51 checks, including Rust,
+native440 and the complete installed terminal/participants/upgrade job. Eighteen
+slim suites failed, predominantly while waiting for the original participant
+after the requester was actually linked. The exact CI binaries pass locally,
+including four-CPU and memory-backed fixtures; the original CI cause remains
+unconfirmed.
+
+An independently authored public-wire diagnostic reproduced the publication
+gap on those exact binaries. In7.1seconds it completed a genuine two-person
+request, observed5 invalid and62 rate-limited responses within a two-second
+pressure window, and froze the first commit result: requester linked, original
+participant still pending. One separate resume after pressure/refill applied
+both hosts. Independent signature and application checks passed; requester
+consent, operation bytes and IDs stayed unchanged. The first-attempt assertion
+is a strict expected failure until the bounded publication retry is verified.
+The first fixture attempt's incorrect single-database assumption and its
+failure remain recorded. No receiver limits or existing assertions changed.
+
+Current main's documentation-only update is integrated, preserving both tracks'
+decision-log entries. With the new targeted suite the final gate has46 slim
+suites and52 checks. Full corrected-head CI, all suite runtimes within120seconds,
+review and tracking-branch integration still block merge readiness.
