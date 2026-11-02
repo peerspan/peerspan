@@ -352,6 +352,8 @@ class Terminal:
         until = self.budget.until(UI_LIMIT)
         for _ in range(64):
             focused = label in self.reversed_labels()
+            if not input_field:
+                focused = focused or self.focused_button(label)
             if input_field:
                 y = self.screen.cursor.y
                 row = self.screen.display[y]
@@ -365,6 +367,11 @@ class Terminal:
             self.send('\t')
             self.pump(min(.15, max(0, until - time.monotonic())))
         raise CheckFailure('native exact control could not receive keyboard focus')
+
+    def focused_button(self, label):
+        # Pinned terminal paints its complete focused button as "[ Label ]".
+        # Accept exactly that decoration, never a prefix/substring/suffix match.
+        return any(region in (label, '[ ' + label + ' ]') for region in self.reversed_labels())
 
     def press(self, label):
         self.visible(label)
@@ -385,7 +392,7 @@ class Terminal:
 
     def close_pane(self):
         self.press('Close')
-        self.wait(lambda: 'Close' not in self.reversed_labels(), 'native pane did not relinquish button focus')
+        self.wait(lambda: not self.focused_button('Close'), 'native pane did not relinquish button focus')
 
     def close(self):
         if hasattr(self, 'process') and self.process.poll() is None:
