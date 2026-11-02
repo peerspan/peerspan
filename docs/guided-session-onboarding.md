@@ -1137,3 +1137,16 @@ request committed but no mailbox or automatic return was published. The two
 later cases were not reached. Correct the first-creation post-commit dispatch
 under section12, retaining bounded transport and pure historical replay; keep
 the unchanged independent suite and first failure as regression evidence.
+
+The corrected combined ceremony passes3/3 in27.12s, including automatic folded
+finalization and recovery of one lost completion reply by Lookup. The original
+key stays on the existing host. Independent read-only publication/host-job
+prerequisites also preserve the unchanged join14/14, owner onboarding6/6 and
+owner signing6/6 assertions. Rust formatting,155 existing tests (2 ignored) and
+Clippy pass. All74 prior host/native/helper files and440 native cases remain
+exact. The [verification record](results/guided-combined-machine-verification.json)
+retains first failures, source/build/log hashes and unclassified earlier causes.
+Final exact-head CI and fresh review receipts are recorded on PR104 and tracking
+PR35. This completes temporary two-host backend evidence; GUI/reload, installed
+artifacts, physical machines, model delivery, upgrade/recovery and final feature
+acceptance remain open.
