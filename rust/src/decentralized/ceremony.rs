@@ -820,15 +820,12 @@ fn owner_in_mode(
         let expected = text(&packet.payload, field)?;
         check(expected == "-" || expected == actual)?;
     }
-    let approved = input["approve"]
-        .as_bool()
-        .ok_or_else(|| Error::new("invalid"))?;
     let existing = match requests::load(tx, &code.request_id) {
         Ok(p) => Some(p),
         Err(e) if e.code == "not_found" => None,
         Err(e) => return Err(e),
     };
-    let mut pending = if let Some(p) = existing {
+    let pending = if let Some(p) = existing {
         require(
             p.record.request_packet_base64 == encode(&code.request_packet)
                 && p.secret == Some(code.secret),
@@ -860,6 +857,57 @@ fn owner_in_mode(
         require(active < 8, "quota_exceeded")?;
         from_code(&code, &snapshot.descriptor)?
     };
+    prepare_owner_pending(store, tx, input, pending, check_proposal, retain_catalog)
+}
+
+/// Automatic return already authenticates and retains this request/capability.
+/// Guided unsigned preparation must not wait for a second mailbox-frame fetch
+/// merely to reconstruct the original code. Code-entry callers still use the
+/// verified PairingToken path above; all owner terms and writes below are shared.
+pub(super) fn owner_pending_in_guided(
+    store: &Store,
+    tx: &Connection,
+    input: &Obj,
+) -> Result<(String, bool, bool)> {
+    fields(
+        input,
+        "request_id network_id person_public_key provider_id signature_format scopes not_after expected_host_public_key expected_device_public_key approve",
+    )?;
+    require(input["approve"] == false, "invalid")?;
+    let pending = requests::load(tx, text(input, "request_id")?)?;
+    require(pending.secret.is_some(), "state_conflict")?;
+    let packet = pending.packet()?;
+    check(
+        text(input, "expected_host_public_key")? == text(&packet.payload, "host_public_key")?
+            && text(input, "expected_device_public_key")?
+                == text(&packet.payload, "device_public_key")?,
+    )?;
+    let network = text(input, "network_id")?;
+    let person = text(input, "person_public_key")?;
+    check(ident(network, "net_") && key(person))?;
+    for (field, actual) in [
+        ("expected_network_id", network),
+        ("expected_person_public_key", person),
+    ] {
+        let expected = text(&packet.payload, field)?;
+        check(expected == "-" || expected == actual)?;
+    }
+    prepare_owner_pending(store, tx, input, pending, |_| Ok(()), false)
+}
+
+fn prepare_owner_pending(
+    store: &Store,
+    tx: &Connection,
+    input: &Obj,
+    mut pending: Pending,
+    check_proposal: impl FnOnce(&Value) -> Result<()>,
+    retain_catalog: bool,
+) -> Result<(String, bool, bool)> {
+    let network = text(input, "network_id")?;
+    let person = text(input, "person_public_key")?;
+    let approved = input["approve"]
+        .as_bool()
+        .ok_or_else(|| Error::new("invalid"))?;
     let t = terms(
         tx,
         store,
