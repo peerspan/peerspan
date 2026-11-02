@@ -151,6 +151,17 @@ original-frame GET while allowing genuine publication and invitation return;
 section42 records the exact proof/counter obligations and discarded options.
 The first CI failures remain retained; no unexplained rerun is counted as a fix.
 
+The first prearmed-resource regression run fails setup in0.6s before any helper
+connection: the public invitation contains listener-derived default bootstrap
+and QUIC contacts despite empty configured advertise arrays. Public contracts
+do not define those arrays as disabling listeners. The corrected fixture will
+explicitly advertise counted TCP refusal proxies backed by owned non-listening
+reservations, plus counted QUIC endpoints, and verify that only the already
+refusing proxy and sole prearmed helper can carry the original frame. QUIC
+completion cannot serve mailboxes. Original absence, all counters, successful
+continuation and5s/120s bounds remain unchanged; no product advertising change
+or implicit bypass is introduced.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
