@@ -821,6 +821,33 @@ fn verify_publication(store: &Store, id: &str, host: &str, raw: &[u8]) -> Result
     retained(&c, store, id, host, Some(&evidence))?.ok_or_else(|| Error::new("state_conflict"))?;
     Ok(())
 }
+async fn retry_rate_limited<F, Fut>(deadline: tokio::time::Instant, mut send: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    loop {
+        match send().await {
+            Err(error) if error.code == "rate_limited" => {
+                // Only the actual HTTP429 parser supplies Retry-After. Keep
+                // its positive delay inside the original publication budget.
+                let Some(seconds) = error.retry_after.filter(|seconds| *seconds > 0) else {
+                    return Err(error);
+                };
+                let Some(retry_at) = tokio::time::Instant::now()
+                    .checked_add(std::time::Duration::from_secs(seconds))
+                else {
+                    return Err(error);
+                };
+                if retry_at >= deadline {
+                    return Err(error);
+                }
+                tokio::time::sleep_until(retry_at).await;
+            }
+            result => return result,
+        }
+    }
+}
 pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
     // At most three maximum-size public request plans can occupy the send
     // queue. Responses share bootstrap_io's separately bounded receive queue.
@@ -844,7 +871,8 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
     else {
         return Ok(false);
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    tokio::time::timeout_at(deadline, async {
         let mut succeeded = BTreeSet::new();
         let mut failed = BTreeMap::new();
         for (host, target) in plan.targets {
@@ -864,13 +892,13 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                 }
             };
             for endpoint in target.tcp {
-                let result = async {
+                let result = retry_rate_limited(deadline, || async {
                     verify(
                         super::bootstrap_io::complete(store.clone(), &endpoint, plan.body.clone())
                             .await?,
                     )
                     .await
-                }
+                })
                 .await;
                 match result {
                     Ok(()) => {
@@ -899,7 +927,7 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                     public_key: host.clone(),
                     address,
                 };
-                let result = async {
+                let result = retry_rate_limited(deadline, || async {
                     verify(
                         crate::quic::completion_request(
                             store.clone(),
@@ -911,7 +939,7 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                         .await?,
                     )
                     .await
-                }
+                })
                 .await;
                 match result {
                     Ok(()) => {
