@@ -775,5 +775,13 @@
     "original_forwarding_exception_argv_privacy_restoration_audits": true,
     "all_prior77_exact": true,
     "product_reads_or_runtime_by_author": false
+  },
+  "owner_prerequisite_author": {
+    "commit": "66c1be378b91ea1906de9864ebb61f76b912e7c0",
+    "source_sha256": "a450161b969b8c9f9cf5722b6d33647dc2f5075cd228b6c6a62504b72e08fbec",
+    "all_prior78_exact": true,
+    "unchanged_forwarding_negative_witness_privacy_restoration_audits": true,
+    "real_readonly_bound_seconds": 5,
+    "product_reads_or_runtime_by_author": false
   }
 }
