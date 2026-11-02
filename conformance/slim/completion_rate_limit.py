@@ -556,6 +556,7 @@ def framed_replay_experiment():
             except FileNotFoundError:
                 return False
         wait_for(entered, timeout=5, interval=.02, message='actual exact requester commit frame barrier')
+        files['arm'].unlink()
         check(caller.is_alive() and not first and not errors, 'first real commit caller was not held at durable framing')
         status, held = b.api('GET', path, timeout=5)
         check(status == 200 and held['commit_approved'] and 'commit_persisted' in held['completed']
