@@ -5,6 +5,7 @@ Final acceptance, Combined regression follow-up: no additional host/API/DB/file/
 socket/process observations, actions, waits or retries. All original cases,
 snapshots, arguments, actions, assertions, deadlines and verdicts remain exact.
 Only fixed labels/public table names, booleans and counts leave this observer.
+Requester completion retains its existing prerequisite -> carrier -> suite chain.
 
 Usage: combined_purity_diagnostic.py machine_owner|requester_completion [suite args]
 """
@@ -237,7 +238,8 @@ def main():
     if len(argv) < 2 or argv[1] not in CASES:
         raise SystemExit('select machine_owner or requester_completion')
     selected = argv[1]
-    subject = str(Path(__file__).with_name(selected + '.py'))
+    entrypoint = 'requester_completion_prerequisite.py' if selected == 'requester_completion' else 'machine_owner.py'
+    subject = str(Path(__file__).with_name(entrypoint))
     try:
         sys.argv = [subject, *argv[2:]]
         harness.Suite.case = observed_case(original, selected)
