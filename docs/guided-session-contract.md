@@ -162,6 +162,15 @@ An installed plugin loads through `/reload-plugins`; a local development plugin
 uses `--plugin-dir`. Loading it neither starts another conversation nor opts
 the existing session into channel mode.
 
+Reload boundaries below refer to an actual mod runtime/module restart. On the
+pinned Claude2.1.303, `/reload-plugins --force` can retain an unchanged mod
+runtime and its authorized lease. That command alone is not proof that runtime
+state was cleared. The supported explicit fresh-connection procedure is Stop
+adapter, reload/reopen the existing project, review the retained authorization,
+Connect adapter, then Enable incoming messages for a fresh model acknowledgment.
+An actual runtime restart still clears frontend authority and never auto-connects.
+The final acceptance receipt distinguishes component reload from runtime restart.
+
 The official mod API provides commands, native controls and background prompt
 submission into the current conversation. Channel startup flags are not needed
 for this route. Disabled mods, organization policy, unavailable APIs or refused

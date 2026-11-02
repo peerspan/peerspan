@@ -250,3 +250,19 @@ closed error-class/count diagnostics. Missing/malformed/advanced authority and
 all semantic predicates still fail. Preserve the frozen case bodies, assertions
 and deadlines. Do not claim lock contention caused this failure without evidence
 or treat a repeat run alone as its resolution.
+
+
+### Observed reload boundary
+
+The authenticated Claude2.1.303 run retained the original native conversation
+through `/reload-plugins --force`. An unchanged mod runtime kept its still-valid
+approved adapter lease; this was continuation, not an automatic reconnect after
+a runtime restart. The operator explicitly stopped and reconnected that same
+authorization, enabled incoming messages with a fresh model nonce, then retrieved
+the model's exact peer reply on the originating host. Document this distinction
+and the explicit Stop/reconnect procedure. Actual mod runtime restart retains
+its existing clear-and-no-autoconnect contract. Discarded: claiming the component
+reload command necessarily unloads an unchanged mod, or counting its saved
+channel as a fresh model acknowledgment. The live model check loads the exact
+installed plugin directory on resuming an existing conversation; separate actual
+marketplace-installation terminal acceptance proves the normal installed route.

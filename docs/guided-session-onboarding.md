@@ -4,12 +4,13 @@ Status: final acceptance in progress. Feature additions are frozen as of
 2026-11-02; see the [final acceptance contract](guided-final-acceptance-contract.md).
 
 Feature plan. The owner accepted the experience below on 2026-10-28.
-Implementation is in progress on the isolated feature branch. Working slices
-provide the read-only observation API, native Claude entry,
-local delivery check, owner-local project review backend and native human
-project review controls, native adapter review, a scoped local lease and an
-explicit incoming-message and assigned-task paths. The full interactive
-flow and its installed/live-session validation remain pending.
+The isolated final candidate includes the complete participant and machine-link
+controls. Installed two-host protocol flows, actual project/adapter terminal
+controls and authenticated replies in the original Claude conversation have
+passed locally. [The receipt](results/guided-final-acceptance.json) distinguishes
+these layers from a multi-person terminal session or separate physical machines.
+Final combined-head CI/review and integration into the tracking branch remain
+merge gates. No additional feature slices are planned before acceptance.
 
 ## Accepted experience
 

@@ -1,0 +1,295 @@
+{
+  "acceptance_pr": "https://github.com/peerspan/peerspan/pull/107",
+  "artifact": {
+    "installed_host_sha256": "818cb863ad40d367a5da275a4e3721e3936c4be436b58b041c34e22d433cc3d8",
+    "name": "peerspan-0.1.0-gu51-model-linux-amd64-rust.tar.gz",
+    "production_paths": {
+      "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
+      "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
+      "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
+      "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
+      "rust/src": "2d565993b520d613a17a4978085d6cc88eb4ede9",
+      "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
+    },
+    "release": {
+      "architecture": "amd64",
+      "implementation": "rust",
+      "node_requirement": ">=22",
+      "os": "linux",
+      "rust_libc": "glibc (builder baseline; rust bundles only)",
+      "source_dirty": false,
+      "source_revision": "13e2a5b3a2b5e52257066941d95f6baaa319717e",
+      "version": "0.1.0-gu51-model"
+    },
+    "sha256": "2a0c1439daead5ee07a5ae126a5bd4e2d318aeac5d6e2788202840ac383959a6"
+  },
+  "authenticated_model": {
+    "authentication": "existing first-party Claude sign-in; no credential read or copy",
+    "claude_version": "2.1.303",
+    "log_sha256": "52f496b47615f5af049f0c3f9759acf02f1ecd978782d6f2b3b7d370f615a0e8",
+    "model_selector": "haiku",
+    "passed": true,
+    "plugin_loading": "exact plugin directory from verified archive on resume; marketplace installation proved in separate terminal suite",
+    "runs": [
+      {
+        "actual_model_readiness": true,
+        "actual_model_reply": true,
+        "after_component_reload": false,
+        "context_sha256": "8b4e9daab6cad12d16ff009c4439400c24d421c1673290eaf9ef48e488f04f02",
+        "explicit_stop_and_reconnect": false,
+        "manual_controller_sha256": "26557644ef1b722a04f07bb1199f617bddb982d83d0d492c82b9ab2ea7f1f881",
+        "nonce_match": true,
+        "original_native_context": true,
+        "originating_host_retrieved_reply": true,
+        "passed": true,
+        "private_evidence_sha256": {
+          "actual-model.actions.jsonl": "79da31991ed69d2fdcf9317118c344424107e0301d9c05d6df0938882ea8f256",
+          "actual-model.pty": "ac8035b4b2d56e4cc31d10adf6b5836456a641682231bddba30aecdf0d23b89f",
+          "project-lookup.private.json": "1a66b6e0eff819240a0260a417d40a5693e66741ddd4e7500a35b083d1b59a99",
+          "resume-installed-plugin": "0bef8956998cb9c78c4fea91979e028d42503616b5cbcfbe95aeb31ce3b6b9d8",
+          "sender-reply.private.json": "4c90e639753a88a67784c246ce860d1d13aa88ea0b1152685c031c83e81d5072",
+          "sent.private.json": "34740a94481beccb3c41f67975feefe011fe5bbe0aeb48f03361a6d9eddbfe61"
+        },
+        "receiver_session_match": true,
+        "reply_elapsed_from_native_launch_seconds": 114.861,
+        "request_match": true
+      },
+      {
+        "actual_model_readiness": true,
+        "actual_model_reply": true,
+        "after_component_reload": true,
+        "context_sha256": "8b4e9daab6cad12d16ff009c4439400c24d421c1673290eaf9ef48e488f04f02",
+        "explicit_stop_and_reconnect": true,
+        "manual_controller_sha256": "0db09615402f4c8cc716990ab4de51ba0dcfe0f65626413cc2b07eeca9e9bece",
+        "nonce_match": true,
+        "original_native_context": true,
+        "originating_host_retrieved_reply": true,
+        "passed": true,
+        "private_evidence_sha256": {
+          "actual-model.actions.jsonl": "6ead537b117cd383843d4ae3a953752ee8fc2c8f59941dd81570594605975d19",
+          "actual-model.pty": "ecb112c681201643f89e145d716ccd673d44de5d37327005d510f48d5a648838",
+          "project-lookup.private.json": "cfd8d084e2ef6b1302cc52df07397d62731995a36de6ae02bed80dc3d3b25e71",
+          "resume-installed-plugin": "0bef8956998cb9c78c4fea91979e028d42503616b5cbcfbe95aeb31ce3b6b9d8",
+          "sender-reply.private.json": "5f331bc68e1cd718e64f488964c2c454e0388dfaf3d5adf0ef1608fbc969be85",
+          "sent.private.json": "ab1d6fb00357522cd418b3199a7554284f30398de6aa0378f49c19fcaf36629a"
+        },
+        "receiver_session_match": true,
+        "reply_elapsed_from_native_launch_seconds": 177.34,
+        "request_match": true
+      }
+    ]
+  },
+  "ci": {
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41383547852",
+    "observed": "49/50 successful; installed archive gate running when recorded; final source results required before merge",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41383547960",
+    "required": true,
+    "source": "527d1dbf973883e1ade07cb6a75f3a1f015d99e7"
+  },
+  "first_failures": [
+    {
+      "kind": "initial combined runtime failures",
+      "log_sha256": "8234693a6875d257cc2a24384d7aa9cb00d05173570919894b1cfb5e307ecfa2"
+    },
+    {
+      "kind": "administrator scheduling omission",
+      "log_sha256": "fcdc4a6684c4b9c84b8bf52e1cf9e415bf3648c9f3b3b9300c11eb8004bad0d0"
+    },
+    {
+      "kind": "unrelated network affected denial status",
+      "log_sha256": "167b1c03255f33e86b814caee8feeb268cdbfc4100ea81576d72f1f0252d821c"
+    },
+    {
+      "kind": "queued terminal focus navigation",
+      "log_sha256": "e72c5dbb1957e6cb384e3c4a9ceea93fe389b65242262de6ee0996905dbc016e"
+    },
+    {
+      "kind": "underclassified publication observation exception",
+      "log_sha256": "8a7723f57419ddd038815b921e101075552870b752d7887878968b0cb34af2b6"
+    },
+    {
+      "kind": "wrapped pane review observation",
+      "log_sha256": "c0797004e6490292168f7835e24810b9aa030ba39d0ec2b63ed231e9eed1bcb3"
+    },
+    {
+      "kind": "unsupported model tool result shape",
+      "log_sha256": "64957ba9a94ca7108c1a29ad67829ac01b1c50e1804a45dbf7f0913adf6a53ed"
+    },
+    {
+      "kind": "local nine unchanged five-second deadlines",
+      "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832"
+    }
+  ],
+  "installed_terminal": {
+    "cases": 3,
+    "log_sha256": "b19a16251ffede53cc9bc0d001908c8a91f7c87ace8ad55349c4775ed8e471df",
+    "model_requests": 0,
+    "passed": true,
+    "source_sha256": "a466c90bf78cc48d6a7f1a2d37614b555d32cd5d051d3b606f13b6c8436ad853"
+  },
+  "limitations": [
+    "Two isolated host fixtures on one physical machine; direct loopback TCP/UDP, no helpers/coordinator; arbitrary NAT and separate physical machines not proved.",
+    "Actual model check uses the installed plugin directory on resuming an existing conversation. Marketplace installation and actual terminal controls are a separate no-inference gate.",
+    "Unchanged mod runtime may retain its lease across component reload; explicit Stop/reconnect and fresh model readiness were exercised.",
+    "Actual task model execution, onward delegation and non-Linux installation are outside this message-onboarding acceptance.",
+    "Owner-signing first exception was underclassified; narrow SQLite read-contention handling and closed diagnostics were added, but no claim is made that contention caused that first failure.",
+    "Final-head CI and accepted review, then integration into tracking branch and its final checks, remain required; this receipt alone does not authorize merging35."
+  ],
+  "main_baseline": "7d675b6f80304c82e1ad3162b94e5ba305ecdffb",
+  "native": {
+    "ci_cases": 440,
+    "ci_result": "passed on runtime_test_candidate",
+    "local": {
+      "deadline_failures": 9,
+      "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832",
+      "passed": 431
+    },
+    "note": "Local cases hit their unchanged five-second budgets during concurrent work. All440 passed in CI in its separate runner; no deadline or semantic assertion was relaxed."
+  },
+  "participants": [
+    {
+      "archive_sha256": "2a0c1439daead5ee07a5ae126a5bd4e2d318aeac5d6e2788202840ac383959a6",
+      "complete_final_acceptance": false,
+      "daemon_log_sha256": [
+        "68d0726d6854e4b7ab97b41abdf01f44be199224f70b4839c644d8eeb1db06bb",
+        "d4f244d61ca631db581164eb0b60d93563a08575111986dffe1d70a3314156cb"
+      ],
+      "evidence": {
+        "adapter_connection": false,
+        "automatic_returns": 2,
+        "distinct_destinations": 2,
+        "distinct_people": 2,
+        "explicit_withdrawals": 1,
+        "guided_access_grants": 1,
+        "host_fixtures": 2,
+        "incoming_acknowledgment": false,
+        "invitations_same_endpoint": 2,
+        "main_applications": 2,
+        "model_receipt": false,
+        "outbound_peer_observation": true,
+        "physical_machines": 0,
+        "receiver_appends": 1,
+        "receiver_denials": 2,
+        "receiver_message_receipt": true,
+        "unavailable_manual_fallback": true
+      },
+      "host_sha256": "818cb863ad40d367a5da275a4e3721e3936c4be436b58b041c34e22d433cc3d8",
+      "passed": true,
+      "probe_sha256": "0c7e50e7381124cf5d151fdf978bb481b56554a297683d62ce8cf18ea26c16e7",
+      "required_separate_gates": [
+        "unchanged_negative_suites",
+        "native_terminal",
+        "upgrade",
+        "actual_model_receipt"
+      ],
+      "seconds": 14.791,
+      "source_sha256": {
+        "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+        "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
+        "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+        "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
+      },
+      "suite": "teammate",
+      "suite_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "archive_sha256": "2a0c1439daead5ee07a5ae126a5bd4e2d318aeac5d6e2788202840ac383959a6",
+      "complete_final_acceptance": false,
+      "daemon_log_sha256": [
+        "06d3ae1578d0282afb112a6c9eebbe6295478fd709e11e0f18a4593d8cdbcfc2",
+        "0b919639195b27e3161d58337d73b1efc74e4fc190d5fda4b3f754d3cba971c2"
+      ],
+      "evidence": {
+        "adapter_connection": false,
+        "automatic_returns": 1,
+        "binding_scopes": 2,
+        "completion_invocations": 1,
+        "copied_original_keys": 0,
+        "distinct_device_keys": true,
+        "distinct_host_keys": true,
+        "distinct_people": 1,
+        "finite_device_scopes": 7,
+        "host_fixtures": 2,
+        "incoming_acknowledgment": false,
+        "lost_completion_recovered": true,
+        "main_applications": 2,
+        "model_receipt": false,
+        "new_agent_grants": 0,
+        "outbound_peer_observation": true,
+        "physical_machines": 0
+      },
+      "host_sha256": "818cb863ad40d367a5da275a4e3721e3936c4be436b58b041c34e22d433cc3d8",
+      "passed": true,
+      "probe_sha256": "0c7e50e7381124cf5d151fdf978bb481b56554a297683d62ce8cf18ea26c16e7",
+      "required_separate_gates": [
+        "unchanged_negative_suites",
+        "native_terminal",
+        "upgrade",
+        "actual_model_receipt"
+      ],
+      "seconds": 12.029,
+      "source_sha256": {
+        "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+        "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
+        "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+        "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
+      },
+      "suite": "machine",
+      "suite_log_sha256": "b7a4b32ac88eba9954c9fb25c1f4826277594553b968ffff507b78966ca637dc"
+    }
+  ],
+  "recorded_at": "2026-11-02T03:43:01.994021+00:00",
+  "runtime_test_candidate": "527d1dbf973883e1ade07cb6a75f3a1f015d99e7",
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "upgrade": {
+    "archive_sha256": "2a0c1439daead5ee07a5ae126a5bd4e2d318aeac5d6e2788202840ac383959a6",
+    "contract": "guided-final-acceptance section1",
+    "elapsed_seconds": 10.062,
+    "histories": {
+      "feature27": {
+        "backup_manifest_sha256": "5d8b7b0f9bf3ba7a8309042ce535c5bfa5d771c8fcd3611b73e565ed48b9a411",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 27,
+        "pending_review_retained": true,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      },
+      "main24": {
+        "backup_manifest_sha256": "bab7215c0ce6efbfe58f78f47e20672f605dfd39e062cf2534d94b69619a7a2c",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 24,
+        "pending_review_retained": false,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      },
+      "old23": {
+        "backup_manifest_sha256": "5cfb43aa2bd2866be8d070295ebdbb73ba32eefab416fbcea9512cb3be515745",
+        "backup_mode_hash_match": true,
+        "complete_restore_reopened": true,
+        "new_review": true,
+        "old_binary_refused_without_db_mutation": true,
+        "original_schema": 23,
+        "pending_review_retained": false,
+        "public_history_retained": true,
+        "upgraded_schema": 28
+      }
+    },
+    "installed_binary_sha256": "818cb863ad40d367a5da275a4e3721e3936c4be436b58b041c34e22d433cc3d8",
+    "log_manifest_sha256": "5155db06643e537c0c819b8c0b1c1d7f79134f83ad3946f3a13813db2956c164",
+    "old_binary_sha256": {
+      "feature27": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
+      "main24": "dfd8a6343574357bdbdb9008850241e02b3e8891af045400709f652c0d0fb490",
+      "old23": "255e9e9bd0bbe19a0b68884b45dcf7873176ee562f4acd7eabf17ab673ab23ac"
+    },
+    "passed": true,
+    "source_sha256": "bfa463ec58e7d6983bc12b7135fe233d85e0527abfec4f3fd12e4752f6e3e860",
+    "suite": "installed_upgrade"
+  },
+  "version": 1
+}
