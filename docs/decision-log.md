@@ -4329,3 +4329,24 @@ changed old assertion. The earlier generic409 remains unclassified. Root review
 finds no remaining actionable issue in this slice; publish the complete changes
 for final-head CI and fresh bot review. Record those receipts on PR104/35, keep
 all full-feature acceptance gates open, and leave merges to the owner.
+
+### GU.impl50: ship the existing native frontend in the host archive
+
+Merged104 (`80b445c`) verifies the composed backend machine ceremony. Release
+archives still omit the native onboarding frontend. Select a small packaging
+slice: include its explicit runtime inventory and a relocatable local marketplace,
+stamp only the packaged plugin version from the host release, and install with
+Claude's own CLI while pinning the moved host executable. Existing-session users
+can then reload the installed plugin without a development checkout. This is
+installation evidence, not real reload, model receipt, physical exchange or
+full-feature acceptance. Section50 precedes implementation and independent
+contract-only packaging/install cases. Preserve every prior test/runtime byte.
+
+Discard a required hosted marketplace or Git checkout, automatic install during
+extraction, direct user-settings edits and a vendored Claude runtime. A local
+relative plugin source makes archive verification and relocation meaningful;
+release version stamping avoids stale version-cache reuse. Native CLI/userConfig
+behavior was checked against pinned2.1.303 help and official plugin CLI/local
+marketplace documentation on2026-11-02. References:
+[local marketplaces](https://code.claude.com/docs/en/plugin-marketplaces),
+[CLI reference](https://code.claude.com/docs/en/plugins/cli-reference).

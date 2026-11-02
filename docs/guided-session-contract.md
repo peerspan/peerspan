@@ -10070,7 +10070,120 @@ does not extend them. GUI/reload/daemon-restart metadata reattachment, installed
 artifacts, physical two-machine exchange, actual model receipt, schema23→27/
 full-state upgrade/recovery and final #35 acceptance stay explicit later gates.
 
-## 50. Remaining flow contract
+## 50. Bundled native plugin and local installation (GU-07a / GU.impl50)
+
+A Linux host archive must include the existing Claude native onboarding plugin,
+with a local marketplace that installs from the verified archive. The package
+ships code only. Extraction neither installs a Claude plugin nor starts a host,
+creates identity/state, attaches a conversation or grants authority. Installation
+is an explicit human action through Claude's own plugin CLI. No Peerspan
+service, public marketplace publication or repository checkout is required.
+
+### Artifact layout and version
+
+The marketplace root is `share/peerspan` inside the existing single-root host
+archive. Its `.claude-plugin/marketplace.json` has name `peerspan-bundled`,
+owner `{name:"Peerspan"}`, a nonempty description, and exactly one plugin entry:
+`{name:"peerspan",source:"./integrations/claude-onboarding"}`. The source is
+relative to the marketplace root, with no parent traversal, remote source,
+command source or dependency. Keep it relocatable before installation.
+
+The plugin is `share/peerspan/integrations/claude-onboarding`. It contains only:
+
+- `.claude-plugin/plugin.json`, the existing Peerspan native manifest, with the
+  packaged copy's `version` set to `RELEASE.json.version`;
+- `README.md` and `hooks/hooks.json`;
+- these existing `hooks/*.mjs` runtime modules: `access-completion`, `access`,
+  `adapter`, `admission`, `finalization`, `invitation`, `join-progress`, `join`,
+  `machine-owner`, `machine-request`, `machine-requester`, `messages`,
+  `observation`, `owner`, `project`, `reachability`, `readiness`, `recipient`,
+  `register`, `requester-commit`, and `tasks`.
+
+Preserve source bytes for every runtime module and hooks configuration. Preserve
+all manifest fields except the packaged version. Plugin, `.claude-plugin` and
+`hooks` source directories and each required file must be actual directories or
+regular files, with no symlink at those components. Missing/linked required
+sources fail packaging without publishing a new archive/checksum pair. Do not
+copy tests, credentials, state, development dependencies, temporary files or
+unlisted files even when present under the source plugin. Packaging need not
+run Claude, execute the plugin, or add any npm dependency for this plugin. Keep
+all existing archive/checksum publication, race and overwrite semantics intact.
+
+The bundle remains the Rust host with its existing other integrations. The
+plugin's local version follows the release so Claude's version cache cannot
+silently reuse an older plugin for a newer host archive. The source manifest
+and native runtime do not change for this packaging slice.
+
+### Supported explicit installation
+
+Minimum validated native runtime remains Claude Code2.1.303 in a terminal.
+After verifying and extracting the archive, move it to its lasting prefix
+before installation. With `PEERSPAN_PREFIX` naming that absolute prefix, use:
+
+```sh
+claude plugin install peerspan --marketplace "$PEERSPAN_PREFIX/share/peerspan" \
+  --scope user --config "executable=$PEERSPAN_PREFIX/bin/peerspan"
+```
+
+This uses the local directory marketplace and pins the plugin's trusted
+executable option to this installed host binary, including prefixes with spaces.
+It requires no launch-time channel flags or copied internal IDs. It writes
+Claude's user plugin configuration through Claude's own CLI; it does not write
+Peerspan authority or attach the current project. Keep this prefix in place
+after installation. An existing conversation uses `/reload-plugins` when Claude
+requires it, then `/peerspan`. Loading/installation is not adapter delivery,
+model receipt or remote readiness. Existing mods/policy/platform blockers stay
+visible; no bypass or replacement conversation is claimed.
+
+The guide must distinguish this installed route from `--plugin-dir` development
+loading. Do not publish an official/public marketplace, auto-install during
+archive extraction, edit user Claude settings directly, or ship a separate
+copy of Claude. Claude's documented local marketplace and CLI interface are the
+integration boundary. Full reload/model and host-state upgrade/recovery
+acceptance remain later gates.
+
+### Verification
+
+A separate author works only from this section and public CLI contracts, not
+from packaging implementation. Keep every existing conformance/native file and
+assertion exact. Root runs the suites and retains first failures, exact source,
+artifact and log hashes. New independent entry points:
+
+- `python3 conformance/test_onboarding_package.py`: isolated packaging fixtures
+  with compiler/npm boundaries stubbed; actual archive/copy/publication logic
+  runs. Validate inventory/version/bytes/relative local source and omission of
+  planted unlisted files. Missing module, linked file, linked hooks directory
+  and linked plugin directory each fail with no new archive/checksum pair.
+  Keep each fixture independent; do not edit original tests or product state.
+- `python3 conformance/onboarding_bundle.py --archive FILE --claude CLI`:
+  consume a real freshly packaged archive, verify it safely, extract and rename
+  its prefix to a path with spaces before any installation. Verify the exact
+  plugin inventory, version and local source. Strictly validate both plugin and
+  marketplace with pinned Claude2.1.303. Install using the exact argv above into
+  a new private `CLAUDE_CONFIG_DIR`; never alter actual user settings, HOME or
+  existing Peerspan state. Disable automatic updates/nonessential traffic for
+  this fixture. Confirm the native public plugin listing reports the expected
+  enabled installed version and executable configuration is bound to the moved
+  binary. Observe through public CLI results; do not depend on private Claude
+  cache layout. Capture no credentials or raw private native diagnostics.
+
+The second entry checks native installation, not real UI loading or a model
+turn. Preserve that limit. Also run unchanged `conformance/test_package_release.py`
+and `conformance/installed_bundle.py` against the same freshly built real
+archive; no compiler shim may be used for that artifact. CI adds the new fake
+packaging checks and real installed artifact/native install gate on Linuxamd64,
+and runs the native install check in the existing Linux release architecture
+jobs. Do not invoke the main-only release publication workflow from this branch.
+All existing Rust/host/native CI gates remain required on the final PR head.
+
+Selected: a bundled local marketplace plus explicit native install with the
+installed executable pinned. Discarded: requiring a Git checkout/development
+flag, copying user settings, automatic installation from extraction, a required
+hosted marketplace, vendoring Claude, or treating plugin installation as live
+session/remote acceptance. Schema23→27/full-state rollback and physical/model
+checks remain open under tracking35.
+
+## 51. Remaining flow contract
 
 Teammate/device admission, remaining
 native data tools/events and exact permission grants remain future sections. Section 2's live verification and the complete
