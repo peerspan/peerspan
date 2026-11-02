@@ -11,7 +11,9 @@ The owner identified an existing authorized DigitalOcean droplet. It and the
 development server are separately deployed Linux machines with public IPv4
 addresses. Dedicated private test roots are installed on both; existing services
 and credentials remain in place. No home/office router or hotspot participant is
-available in the current inventory. No completed D1 or real-NAT pass is claimed.
+available in the current inventory. Direct protocol, normal routing, native reply, forced relay, helper replacement
+and pending-message recovery now pass on the named cloud deployments.
+Real-router NAT and changed-network attachment remain unverified.
 
 The rebuilt candidate is clean release source
 `7da06b7a2fd5604b76029aa833bb7e35c63d133a`, archive
@@ -31,9 +33,10 @@ observes the original frame absent, and captures exact preparation200 in0.059
 seconds with all four full transport counter tuples unchanged. Owner intent
 and receipt remain unsigned/unapproved; after releasing the fixture barriers,
 the same ceremony completes with independently verified signed authority on both
-hosts. Four earlier fixture failures remain retained: uncontrolled established
-traffic, an already-drained stream set, and unproven first-fetch provenance
-prevented the original counter setup from isolating this operation. No product
+hosts. Four earlier fixture failures remain retained. The first combined-counter
+failure was not individually attributable; later closed diagnostics identified
+uncontrolled established traffic, an already-drained stream set, and unproven
+first-fetch provenance in subsequent attempts. No product
 assertion or operation/ceremony deadline was weakened to obtain this result.
 
 The first manual normal-routing attempt requested forbidden contact publication
@@ -96,6 +99,16 @@ operator restored the owned replacement helper. The corrected controller uses
 unique sequence-numbered evidence files and a fresh work/process-metadata root;
 all prior output, including the failed automatic restore record, is retained.
 
+The corrected [outage/recovery receipt](results/real-network-recovery.json)
+passes in27.311s. With both helpers stopped and direct test UDP blocked, one
+fresh send returns `unknown` in4.356s and adds no receiver message. Restoring
+the same replacement helper lets the daemon's automatic retry deliver that
+same durable request exactly once in12.996s, with no resubmission, reapproval,
+regrant or key transfer. Both retained daemons were restarted for this check.
+The path inspection still reported `relay` while the helper was unavailable;
+this reports a route, and is not evidence of current delivery readiness.
+Owned helper processes/captures and scoped firewall rules were removed afterward.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
@@ -116,7 +129,7 @@ branch initially adds only documentation and an independently authored driver.
 | Observation | Outcome and next action |
 | --- | --- |
 | Public network preflight | TCP and UDP exchanges succeeded in both directions in 3.157 seconds. SSH carried control only. This is reachability evidence, not Peerspan acceptance. |
-| Existing-person machine ceremony | Failed in 7.202 seconds: exact public inspection succeeded; owner-consent preparation returned 409 `machine_owner_consent_unavailable`. Retained input matches the documented contract. A separate diagnostic build reproduced the refusal in 7.108 seconds and revealed underlying `state_conflict`. A second diagnostic identifies the absent reconstructed pairing code: automatic return exposes the authenticated request before its original mailbox frame is fetched. NET-02 removes that second-fetch prerequisite; the rebuilt candidate is not yet qualified. Diagnostic results do not qualify the release. |
+| Existing-person machine ceremony | Failed in 7.202 seconds: exact public inspection succeeded; owner-consent preparation returned 409 `machine_owner_consent_unavailable`. Retained input matches the documented contract. A separate diagnostic build reproduced the refusal in 7.108 seconds and revealed underlying `state_conflict`. A second diagnostic identifies the absent reconstructed pairing code: automatic return exposes the authenticated request before its original mailbox frame is fetched. NET-02 removes that second-fetch prerequisite; the rebuilt candidate now passes both external ceremonies. Broader topology qualification remains incomplete. Diagnostic results do not qualify the release. |
 | Distinct-person ceremony, original driver | Both hosts applied the completed ceremony. The driver then failed a proof assertion in 26.489 seconds: it incorrectly required network context on the initial request packet. The independent author corrected this to the wire contract's `-` context and retained signature and identity checks. |
 | Distinct-person ceremony, corrected context assertion | Both host applications and signed proof checks passed. In 30.087 seconds the driver reached message enforcement, where its explicit-policy owner-local send returned 400 `invalid`. This establishes no receiver refusal. The owner-send/peer-wire distinction is under review; exact receiver checks will use an authenticated public peer probe. |
 
@@ -142,7 +155,7 @@ The protocol driver uses two explicit `/v1/peers` transport pins after membershi
 application. Those pins grant no authority, but they mean its eventual message
 result cannot establish automatic directory routing. Normal CLI/directory sends,
 native-terminal use, a model reply, forced relay, helper replacement and recovery
-remain separate required observations. Helpers have been built and installed in
+were subsequently observed separately on the rebuilt candidate, as recorded above. Helpers have been built and installed in
 isolated prefixes; they were not running during these direct attempts.
 
 ## Candidate and deployment
