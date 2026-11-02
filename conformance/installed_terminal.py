@@ -355,18 +355,27 @@ class Terminal:
             if not input_field:
                 focused = focused or self.focused_button(label)
             if input_field:
-                y = self.screen.cursor.y
-                row = self.screen.display[y]
-                above = self.screen.display[y - 1] if y else ''
-                adjacent = label in row or (label in above and not any(
-                    other in row for other in ('New agent name', 'Owner label')))
-                focused = focused or (not self.screen.cursor.hidden and adjacent)
+                focused = focused or self.focused_input(label)
             if focused:
                 return
             require(time.monotonic() < until, 'native control focus deadline reached')
             self.send('\t')
             self.pump(min(.15, max(0, until - time.monotonic())))
         raise CheckFailure('native exact control could not receive keyboard focus')
+
+    def focused_input(self, label):
+        # Native inputs hide the physical cursor. Their current row-local submit
+        # hint, exact label and cursor position together establish public focus.
+        y = self.screen.cursor.y
+        label_pattern = re.compile(r'(?:^|[│┃])\s*' + re.escape(label) + r':')
+        for row in range(max(0, y - 1), min(self.screen.lines, y + 2)):
+            line = self.screen.display[row]
+            if label_pattern.search(line) and '⏎ submit' in line:
+                current = self.screen.display[y]
+                if row == y or not any(re.search(r'(?:^|[│┃])\s*' + re.escape(other) + r':', current)
+                                       for other in ('New agent name', 'Owner label')):
+                    return True
+        return False
 
     def focused_button(self, label):
         # Pinned terminal paints its complete focused button as "[ Label ]".
