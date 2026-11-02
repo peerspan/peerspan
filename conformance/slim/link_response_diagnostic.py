@@ -76,8 +76,8 @@ def instrument(original, observer):
             match = ROUTE.fullmatch(path) if type(path) is str and values.get('method') == 'POST' else None
             if match is not None:
                 observer.receive(host, match.group(1), result)
-        except BaseException:
-            pass  # Observation alone cannot replace a result or verdict.
+        except (ValueError, TypeError, AttributeError, KeyError, IndexError, OSError, re.error):
+            pass  # Suite failures, skips, hard deadlines and interrupts propagate.
         return result
     return api
 
