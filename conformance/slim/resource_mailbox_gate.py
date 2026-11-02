@@ -2,8 +2,9 @@
 
 Only public mailbox HTTP and opaque participant-created frames are handled.
 The gate is armed at construction, before any requester approval. It never
-decrypts a frame and owns only its fresh TLS transport key. Public certificates
-discovered from the two fixture hosts are the only client trust anchors.
+decrypts a frame and owns only its fresh TLS transport key. Client certificate
+public keys must equal the known socket-owning hosts; certificate byte identity
+is not authority. Requires test-only pyOpenSSL==26.4.0.
 """
 from __future__ import annotations
 
@@ -19,6 +20,12 @@ import subprocess
 import threading
 import time
 from datetime import datetime, timezone
+
+import OpenSSL
+from OpenSSL import SSL
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.x509.oid import SignatureAlgorithmOID
 
 from harness import check, parse_time
 
@@ -97,8 +104,9 @@ class TLSStream:
     """MemoryBIO keeps every encrypted socket byte in the helper counters."""
     def __init__(self, helper, generation, raw):
         self.helper,self.generation,self.raw = helper,generation,raw
-        self.incoming,self.outgoing = ssl.MemoryBIO(),ssl.MemoryBIO()
-        self.tls = helper.context.wrap_bio(self.incoming,self.outgoing,server_side=True)
+        self.tls = SSL.Connection(helper.context,None)
+        self.tls.set_accept_state()
+        self.tls.set_app_data(dict(generation=generation,pid=helper.clients[generation]['pid'],verified=False))
         self.until = min(helper.deadline,time.monotonic()+30)
 
     def network(self, data=None):
@@ -124,8 +132,13 @@ class TLSStream:
             select.select([self.raw] if data is None else [], [] if data is None else [self.raw], [], .02)
 
     def flush(self):
-        while self.outgoing.pending:
-            data = self.outgoing.read()
+        while True:
+            try:
+                data = self.tls.bio_read(65536)
+            except SSL.WantReadError:
+                return
+            if not data:
+                return
             while data:
                 data = data[self.network(data):]
 
@@ -135,24 +148,29 @@ class TLSStream:
                 result = operation()
                 self.flush()
                 return result
-            except ssl.SSLWantReadError:
+            except SSL.WantReadError:
                 self.flush()
-                self.incoming.write(self.network())
-            except ssl.SSLWantWriteError:
+                data = self.network()
+                while data:
+                    count = self.tls.bio_write(data)
+                    if not count:
+                        raise EOFError
+                    data = data[count:]
+            except SSL.WantWriteError:
                 self.flush()
 
     def handshake(self):
         self.perform(self.tls.do_handshake)
 
     def recv(self, count):
-        value = self.perform(lambda:self.tls.read(count))
+        value = self.perform(lambda:self.tls.recv(count))
         if not value:
             raise EOFError
         return value
 
     def sendall(self, data):
         while data:
-            data = data[self.perform(lambda:self.tls.write(data)):]
+            data = data[self.perform(lambda:self.tls.send(data)):]
 
 
 class ResourceMailboxGate:
@@ -171,6 +189,7 @@ class ResourceMailboxGate:
         self.connections=self.received=self.sent=self.errors=0
         self.failures = {name:0 for name in ('socket_provenance','tls_handshake','tls_host_key','mailbox_request')}
         self.tls_errors,self.verify_codes,self.mailbox_checks,self.mailbox_clauses = {},{},{},{}
+        self.mtls_decisions = {name:0 for name in ('accepted','chain','socket_owner','public_key','issuer','validity','self_signature','malformed')}
         self.diagnostic_errors = 0
         self.clients,self.held,self.boxes = {},{},{}
         self.park_targets,self.parked = set(),set()
@@ -206,15 +225,20 @@ class ResourceMailboxGate:
                     phase = 'tls_handshake'
                     stream = TLSStream(outer,generation,raw)
                     stream.handshake()
-                    check(stream.tls.selected_alpn_protocol()=='peerspan-bootstrap/1', 'resource fixture wrong ALPN')
+                    check(stream.tls.get_alpn_proto_negotiated()==b'peerspan-bootstrap/1'
+                          and stream.tls.get_peer_finished() and stream.tls.get_app_data()['verified'],
+                          'resource fixture wrong ALPN or incomplete authenticated handshake')
                     phase = 'tls_host_key'
-                    key = public_key(stream.tls.getpeercert(binary_form=True))
-                    check(key==outer.host_keys[pid], 'resource fixture client TLS host key mismatch')
+                    certificate = stream.tls.get_peer_certificate(as_cryptography=True)
+                    key = base64.b64encode(certificate.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)).decode()
+                    check(key==outer.host_keys[pid]
+                          and outer.socket_owner(*client['tuple'],outer.host_keys)==pid,
+                          'resource fixture client TLS host key or socket owner mismatch')
                     with outer.condition:
                         client['key'] = key
                     phase = 'mailbox_request'
                     outer.handle(stream,generation,key)
-                except (EOFError,ConnectionError,ssl.SSLEOFError):
+                except (EOFError,ConnectionError,ssl.SSLEOFError,SSL.ZeroReturnError):
                     pass
                 except Exception as error:
                     with outer.condition:
@@ -238,31 +262,71 @@ class ResourceMailboxGate:
 
     def configure(self, hosts):
         """Public TLS discovery only; no participant key or state file access."""
+        check(OpenSSL.__version__=='26.4.0', 'resource fixture requires pinned pyOpenSSL26.4.0')
         self.host_keys = {host.process.pid:host.public_key for host in hosts}
         discovery = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         discovery.check_hostname,discovery.verify_mode = False,ssl.CERT_NONE
         discovery.minimum_version = ssl.TLSVersion.TLSv1_3
         discovery.load_cert_chain(str(self.cert),str(self.key))
         discovery.set_alpn_protocols(['peerspan-bootstrap/1'])
-        anchors = []
         for host in hosts:
             with socket.create_connection(('127.0.0.1',host.bootstrap_port),timeout=5) as raw:
                 with discovery.wrap_socket(raw,server_hostname='peerspan') as stream:
                     certificate = stream.getpeercert(binary_form=True)
                     check(stream.selected_alpn_protocol()=='peerspan-bootstrap/1'
                           and public_key(certificate)==host.public_key, 'public host certificate discovery pin mismatch')
-                    anchors.append(ssl.DER_cert_to_PEM_cert(certificate))
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self.context.minimum_version = ssl.TLSVersion.TLSv1_3
-        self.context.maximum_version = ssl.TLSVersion.TLSv1_3
-        self.context.num_tickets = 0
-        self.context.load_cert_chain(str(self.cert),str(self.key))
-        self.context.load_verify_locations(cadata='\n'.join(anchors))
-        self.context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
-        self.context.verify_mode = ssl.CERT_REQUIRED
-        self.context.set_alpn_protocols(['peerspan-bootstrap/1'])
+        self.context = SSL.Context(SSL.TLS_SERVER_METHOD)
+        self.context.set_min_proto_version(SSL.TLS1_3_VERSION)
+        self.context.set_max_proto_version(SSL.TLS1_3_VERSION)
+        self.context.use_certificate_file(str(self.cert))
+        self.context.use_privatekey_file(str(self.key))
+        self.context.check_privatekey()
+        self.context.set_session_cache_mode(SSL.SESS_CACHE_OFF)
+        self.context.set_options(SSL.OP_NO_TICKET)
+        self.context.set_verify_depth(0)
+        self.context.set_verify(SSL.VERIFY_PEER|SSL.VERIFY_FAIL_IF_NO_PEER_CERT,self.verify_client)
+        self.context.set_alpn_select_callback(lambda _connection,protocols:
+            b'peerspan-bootstrap/1' if b'peerspan-bootstrap/1' in protocols else b'')
         self.thread = threading.Thread(target=self.server.serve_forever,kwargs={'poll_interval':.02},daemon=True)
         self.thread.start()
+
+    def verify_client(self, connection, certificate, error_number, depth, _preverified):
+        """Exact host-key possession replaces CA trust, never TLS CertificateVerify."""
+        decision = 'malformed'
+        data = connection.get_app_data()
+        if not isinstance(data,dict):
+            with self.condition:
+                self.mtls_decisions[decision] += 1
+            return False
+        try:
+            with self.condition:
+                generation,pid = data['generation'],data['pid']
+                client = self.clients.get(generation)
+                if depth!=0 or error_number not in {0,18}:
+                    decision = 'chain'
+                elif client is None or pid not in self.host_keys or client['pid']!=pid \
+                        or self.socket_owner(*client['tuple'],self.host_keys)!=pid:
+                    decision = 'socket_owner'
+                else:
+                    value = certificate.to_cryptography()
+                    key = value.public_key()
+                    if not isinstance(key,Ed25519PublicKey) or value.signature_algorithm_oid!=SignatureAlgorithmOID.ED25519 \
+                            or base64.b64encode(key.public_bytes(Encoding.Raw,PublicFormat.Raw)).decode()!=self.host_keys[pid]:
+                        decision = 'public_key'
+                    elif value.issuer!=value.subject:
+                        decision = 'issuer'
+                    elif not value.not_valid_before_utc<=datetime.now(timezone.utc)<value.not_valid_after_utc:
+                        decision = 'validity'
+                    else:
+                        decision = 'self_signature'
+                        key.verify(value.signature,value.tbs_certificate_bytes)
+                        decision = 'accepted'
+        except Exception:
+            pass
+        with self.condition:
+            self.mtls_decisions[decision] += 1
+        data['verified'] = decision=='accepted'
+        return data['verified']
 
     def pin(self):
         return dict(address=self.address,public_key=self.public_key,token_file='-')
@@ -275,6 +339,7 @@ class ResourceMailboxGate:
         with self.condition:
             return dict(connections=self.connections,received_bytes=self.received,sent_bytes=self.sent,
                 failures=dict(self.failures),tls_errors=dict(self.tls_errors),tls_verify_codes=dict(self.verify_codes),
+                mtls_decisions=dict(self.mtls_decisions),
                 mailbox_checks=dict(self.mailbox_checks),mailbox_clauses=dict(self.mailbox_clauses),
                 diagnostic_errors=self.diagnostic_errors,mailboxes=len(self.boxes),
                 original_mailboxes=sum(box['request_id'].startswith('link_') for box in self.boxes.values()),
@@ -287,6 +352,12 @@ class ResourceMailboxGate:
             histogram[category] = histogram.get(category,0)+1
         if phase=='tls_handshake':
             library,reason = getattr(error,'library',None),getattr(error,'reason',None)
+            if isinstance(error,SSL.Error) and error.args and isinstance(error.args[0],list) and error.args[0]:
+                detail = error.args[0][-1]
+                if isinstance(detail,tuple) and len(detail)==3:
+                    library = {'SSL routines':'SSL','x509 certificate routines':'X509',
+                               'asn1 encoding routines':'ASN1','PEM routines':'PEM'}.get(detail[0],'other')
+                    reason = detail[2].upper().replace(' ','_') if type(detail[2]) is str else 'other'
             library = library if library in TLS_LIBRARIES else ('none' if library is None else 'other')
             reason = reason if reason in TLS_REASONS else ('none' if reason is None else 'other')
             increment(self.tls_errors,library+'/'+reason)
@@ -338,7 +409,7 @@ class ResourceMailboxGate:
             if all(isinstance(item,datetime) for item in (created,expires,now)):
                 clauses = dict(window_future=created.timestamp()<=now.timestamp()+30,window_unexpired=now<expires,
                     window_bounds=60<=(expires-created).total_seconds()<=86400,
-                    window_original_lifetime=(expires-created).total_seconds()==300)
+                    window_original_lifetime=(expires-created).total_seconds()==3600)
         elif category=='conflicting_mailbox_creation':
             prior = local.get('prior')
             if isinstance(prior,dict) and isinstance(value,dict):
@@ -486,7 +557,7 @@ class ResourceMailboxGate:
                 check(created.timestamp()<=now.timestamp()+30 and now<expires
                       and 60<=(expires-created).total_seconds()<=86400, 'resource fixture invalid mailbox window')
                 if value['request_id'].startswith('link_'):
-                    check((expires-created).total_seconds()==300, 'resource fixture invalid original window')
+                    check((expires-created).total_seconds()==3600, 'resource fixture invalid original window')
                 raw = frame_slice(body)
                 self.validate_frame(value['frame'],raw,key,value)
                 locator = value['locator']
