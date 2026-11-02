@@ -778,25 +778,6 @@ pub(crate) fn owner_in(
     input: &Obj,
     check_proposal: impl FnOnce(&Value) -> Result<()>,
 ) -> Result<(String, bool, bool)> {
-    owner_in_mode(store, tx, input, check_proposal, true)
-}
-/// Guided preparation preserves incoming protocol material until approved work.
-/// All ordinary offer/provider/template validation remains shared.
-pub(crate) fn owner_in_guided(
-    store: &Store,
-    tx: &Connection,
-    input: &Obj,
-    check_proposal: impl FnOnce(&Value) -> Result<()>,
-) -> Result<(String, bool, bool)> {
-    owner_in_mode(store, tx, input, check_proposal, false)
-}
-fn owner_in_mode(
-    store: &Store,
-    tx: &Connection,
-    input: &Obj,
-    check_proposal: impl FnOnce(&Value) -> Result<()>,
-    retain_catalog: bool,
-) -> Result<(String, bool, bool)> {
     fields(
         input,
         "code network_id person_public_key provider_id signature_format scopes not_after expected_host_public_key expected_device_public_key approve",
@@ -857,7 +838,7 @@ fn owner_in_mode(
         require(active < 8, "quota_exceeded")?;
         from_code(&code, &snapshot.descriptor)?
     };
-    prepare_owner_pending(store, tx, input, pending, check_proposal, retain_catalog)
+    prepare_owner_pending(store, tx, input, pending, check_proposal, true)
 }
 
 /// Automatic return already authenticates and retains this request/capability.
