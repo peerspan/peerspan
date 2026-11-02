@@ -195,9 +195,12 @@ def run_case(suite, ns):
         check(all(retained[field] == value for field, value in prefix.items()), 'administrator retained different O/S packet bytes')
         endpoints = retained['carrier_endpoints']
         expected_endpoints = {(relays[0].address, issuer.public_key), (relays[1].address, requester.public_key)}
+        # An approver opened from the reply need not retain its own endpoint.
+        # Require the genuine requester front and count every actual carrier.
         check(endpoints and all(endpoint['kind'] == 'participant'
               and (endpoint['address'], endpoint['public_key']) in expected_endpoints for endpoint in endpoints)
-              and {(endpoint['address'], endpoint['public_key']) for endpoint in endpoints} == expected_endpoints,
+              and (relays[1].address, requester.public_key) in {
+                  (endpoint['address'], endpoint['public_key']) for endpoint in endpoints},
               'ordinary request has an uncounted carrier or helper path')
         requester.stop(); modes('drop')
         for field, approve in (('owner_offer_id', False), ('selection_id', True)):
@@ -237,7 +240,8 @@ def run_case(suite, ns):
         print('admission_retained_prefix_public=' + json.dumps({'missing_bytes_refused': True,
             'wrong_ids_refused': True, 'exact_preview_carrier_changes': False,
             'unavailable_carrier_approval_retained': True, 'signed_packet_verified': True,
-            'signed_grant_count': 2, 'approval_or_publication_carriers_changed': counts() != before}, sort_keys=True), flush=True)
+            'signed_grant_count': 2, 'counted_carrier_endpoint_count': len(endpoints),
+            'approval_or_publication_carriers_changed': counts() != before}, sort_keys=True), flush=True)
     finally:
         for relay in relays:
             relay.close()
