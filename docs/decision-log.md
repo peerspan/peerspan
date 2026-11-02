@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
   - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
@@ -42,6 +43,18 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### CONV-28: comparison run for the lead proposal (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), decision 5.
+- **Question:** Whether to run a live comparison before building it all.
+- **Options:**
+  - (a) Build it, then run real agents.
+  - (b) First run the same tasks with real agents under today's rule and with a lead, and compare turns, tokens and whether the work got done. Addressing can't simulate a lead, because it doesn't stop a wake today, so this needs a minimal wake rule and parked rows on a branch that is never merged.
+- **Chosen:** (b), by the owner, who merged the proposal and asked for the comparison run.
+- **Reason given:** None beyond asking for the run.
+- **Effect:** Results are in [conversations-lead-comparison.json](results/conversations-lead-comparison.json). The proposal's decisions 1 to 4 stay open.
 
 ### RUN-1 to RUN-5: runtime tasks (2026-10-27 and 2026-10-31)
 

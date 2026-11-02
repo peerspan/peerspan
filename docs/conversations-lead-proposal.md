@@ -1,6 +1,6 @@
 # Conversation leads
 
-Status: **Proposed, not accepted.** Nothing here is built, and no contract has changed. The owner's choices are under [Owner decisions needed](#owner-decisions-needed); they go in the [decision log](decision-log.md) once made.
+Status: **Proposed, not accepted.** The comparison run from decision 5 has happened (CONV-28), and its [results](results/conversations-lead-comparison.json) are for the owner's review. A lead used about half the turns, but finished fewer tasks and surfaced no unprompted help. Nothing here is built outside an unmerged experiment branch, and no contract has changed. Decisions 1 to 4 under [Owner decisions needed](#owner-decisions-needed) are still open; they go in the [decision log](decision-log.md) once made.
 
 ## The problem
 
