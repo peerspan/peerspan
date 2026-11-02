@@ -71,6 +71,25 @@ controller reused the previous attempt's PID metadata filename. No Claude
 process/model turn started. The corrected controller uses unique owned process
 metadata; it does not remove or overwrite the retained prior record.
 
+The corrected [native receipt](results/real-network-native.json) passes in33.323s:
+exact first-party Haiku `adapter_ready` and nonce-bound `message_reply` calls,
+two successful correlated tool results, and the droplet's independently retrieved
+reply matching request, recipient agent, host and original native conversation.
+The fresh local agent was explicitly reviewed in the existing conversation;
+there was no new network membership/access approval, manual peer pin or helper.
+Installed archive plugin entry, Stop/Connect and actual reload are observed;
+marketplace installation was not repeated. Transparent daemon/adapter restart
+recovery is not claimed: restarting required explicit stale fixture-adapter
+revocation and fresh local attachment/adapter consent.
+
+The next bounded manual recovery phase will stop both configured helpers while
+direct test UDP remains blocked. Restart the retained same-person test daemons,
+submit exactly one fresh durable request, require an unconfirmed outcome and no
+receiver append, then restore the same replacement helper and observe automatic
+recovery of that exact request once. Existing authority, original key custody
+and receiver work history must stay intact. No resubmission, new membership,
+access approval or native/model turn is part of this120-second phase.
+
 The current CI run passes52 existing checks but fails the new immediate-prepare
 regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
