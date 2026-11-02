@@ -681,25 +681,25 @@ both commit responses are 200/linked, but the initial caller finishes before
 the replay response is frozen. A matching frame marker identifies a matching
 worker, not the API invocation: other workers may observe committed facts and
 continue an already framed operation without entering that frame hook again
-(decentralized verification section7). Instantaneous caller liveness does not
+(decentralized verification section 7). Instantaneous caller liveness does not
 establish ownership of the held worker. This failure establishes no product
 replay verdict and must not be rerun without correcting that provenance gap.
 
 Selected correction: before the one initial false-to-true requester approval,
 arm both exact-request `dec.approval.after_commit` and `dec.frame.after_commit`.
-Observe both entries within the existing single5second entry budget. Only that
+Observe both entries within the existing single 5 second entry budget. Only that
 one outstanding explicit approval may perform the approval transition; resume
 and background workers cannot approve. Its approval marker therefore identifies
 the initial caller. Normal background progress may reach the separate durable
 frame hold. Keep the approval hold armed until finally; disarm only the frame
 point after both entries, allowing replay's subsequent legitimate frame work.
 Preserve every existing initial-caller-held, unapplied-prefix, altered-pin,
-exact replay200, immutable consent/commit and canonical application assertion.
+exact replay status 200, immutable consent/commit and canonical application assertion.
 Release both holds unconditionally in finally, then require the original caller
 and both actual applications to complete. An exact approved replay must not
 visit a fresh approval barrier. No new retry, sleep, deadline or modification to
 the four original pressure/bootstrap cases is permitted; the whole suite stays
-within120seconds. Discard accepting early initial completion, inferring caller
+within 120 seconds. Discard accepting early initial completion, inferring caller
 ownership from a shared frame marker, new product hooks or transport proxies,
 and extending the entry window. The first failed CI log is retained with SHA256
 `a23a8a624942432f145bfacc52e3a19784c30b1a19db04b78b2164824fd7d3d2`.
