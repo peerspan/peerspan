@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Manual installed D1 cross-host qualification, authored from public contracts.
+"""Manual installed cross-host protocol qualification with explicit peer pins.
 
 No implementation imports, database access, key transfer, peer proxies or tunnels.
 SSH carries owner-local orchestration only. The actual installed daemons exchange
 protocol/application traffic through their advertised public listeners. This is
 host/protocol evidence; native terminal, adapter and model receipt remain separate.
+The explicit peer address configuration does not qualify normal directory routing.
 
 Use the private fleet manifest described by --help. Each scenario has a strict
 120s process deadline, excluding archive installation. All control JSON and host
@@ -569,7 +570,8 @@ def finish(f,completed,review,kind):
     return dict(actual_host_applications=2,finite_device_scopes=7,binding_scopes=2,original_key_transfers=0,
         receiver_denials=2 if kind == 'teammate' else 0,receiver_appends=1 if kind == 'teammate' else 0,
         guided_access_grants=1 if kind == 'teammate' else 0,explicit_withdrawals=1 if kind == 'teammate' else 0,
-        signed_public_proof_verified=True,immutable_requester_approval=True,adapter_connection=False,model_receipt=False)
+        signed_public_proof_verified=True,immutable_requester_approval=True,adapter_connection=False,model_receipt=False,
+        manual_transport_pins=2,automatic_directory_routing=False)
 
 
 def scenario(args,fleet):
@@ -652,7 +654,8 @@ def main():
         evidence_indexes[kind] = i.sha(work/'evidence-index.private.json')
     sources = {name:i.sha(Path(__file__).parent/name) for name in
                ('real_network_participants.py','installed_participants.py','installed_participant_support.py','slim/harness.py','slim/counted_peer.py')}
-    receipt = dict(format=1,qualification='D1',separate_machines=True,independent_public_endpoints=True,
+    receipt = dict(format=1,qualification='D1_protocol_with_manual_peer_pins',normal_directory_acceptance=False,
+        separate_machines=True,independent_public_endpoints=True,
         bare_metal_physical_machines=False,nat_qualification=False,relay_qualification=False,
         native_terminal_receipt=False,model_receipt=False,ssh_control_only=True,
         archive_sha256=fleet['archive_sha256'],host_sha256=fleet['left']['host_sha256'],source_sha256=sources,
