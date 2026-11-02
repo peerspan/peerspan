@@ -694,8 +694,10 @@ original stimulus unchanged. After the original quiet returns, before its whole
 state/traffic baseline, sample the raw fixture-clock relation and reapply ONLY
 the same captured raw-before-created target with floor rounding to both external
 clock sidecars. Verify they are outside both hosts' measured state/home roots.
-Assert actual raw remains before consent/request creation and emit only closed
-lost/rearmed/boundary booleans. At original complete dispatch verify that same
+Assert actual raw remains before the approved consent review creation targeted
+by this original stimulus, and record both request/consent boundary booleans;
+the earlier request need not be in the future. Emit only closed lost/rearmed/
+boundary booleans. At original complete dispatch verify that same
 precondition still holds; if lost, fail fixture setup without a second rearm,
 retry, wait or deadline extension. Signed-expiry clocks remain untouched.
 
