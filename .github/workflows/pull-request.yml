@@ -38,6 +38,52 @@ jobs:
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin validate integrations/claude-onboarding --strict
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin test integrations/claude-onboarding
 
+  onboarding-bundle:
+    name: Installed onboarding bundle
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      DISABLE_UPDATES: '1'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Install pinned native CLI
+        run: npm install --prefix "$RUNNER_TEMP/peerspan-claude-bundle" --no-audit --no-fund --save-exact @anthropic-ai/claude-code@2.1.303
+      - name: Check packaging boundaries
+        run: |
+          set -euo pipefail
+          python conformance/test_package_release.py
+          python conformance/test_onboarding_package.py
+      - name: Build and check the installed archive
+        run: |
+          set -euo pipefail
+          bundle_version="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["package"]["version"])')-ci"
+          scripts/package-release.sh rust "$bundle_version" dist
+          archive="dist/peerspan-${bundle_version}-linux-amd64-rust.tar.gz"
+          (cd dist && sha256sum -c "$(basename "$archive").sha256")
+          python conformance/installed_bundle.py --archive "$archive" --node "$(command -v node)"
+          python conformance/onboarding_bundle.py --archive "$archive" \
+            --claude "$RUNNER_TEMP/peerspan-claude-bundle/node_modules/.bin/claude"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-onboarding-bundle
+          path: dist/*.tar.gz*
+          retention-days: 1
+          if-no-files-found: ignore
+
   fmt:
     name: Rust format
     runs-on: ubuntu-22.04

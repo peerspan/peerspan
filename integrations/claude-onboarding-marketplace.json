@@ -1,0 +1,8 @@
+{
+  "name": "peerspan-bundled",
+  "description": "Peerspan native onboarding from this verified host archive",
+  "owner": { "name": "Peerspan" },
+  "plugins": [
+    { "name": "peerspan", "source": "./integrations/claude-onboarding" }
+  ]
+}

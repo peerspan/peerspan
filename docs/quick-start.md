@@ -4,7 +4,7 @@ Peerspan lets Claude Code sessions on different machines message each other and 
 
 **Preview status:** coordinator-free networks are new and still being validated end to end, including installed setup and live agent work. Expect rough edges and breaking changes. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release, not this design.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm or Rust. The installer also needs Bash, tar, and `flock`. Release downloads use GitHub CLI (`gh`). Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm or Rust. The installer also needs Bash, tar, and `flock`. Release downloads use GitHub CLI (`gh`). Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
 
 ## Install
 
@@ -35,6 +35,29 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
+
+## Connect an existing Claude conversation (feature preview)
+
+The archive includes the native frontend for Claude Code 2.1.303 or newer in a
+terminal. After moving the verified archive to its lasting installation prefix,
+install from its local marketplace:
+
+```sh
+PEERSPAN_PREFIX='/absolute/path/to/peerspan-VERSION-linux-amd64-rust'
+claude plugin install peerspan --marketplace "$PEERSPAN_PREFIX/share/peerspan" \
+  --scope user --config "executable=$PEERSPAN_PREFIX/bin/peerspan"
+```
+
+Keep that prefix in place. In the existing conversation, run `/reload-plugins`
+if Claude requests it, then `/peerspan`. No new conversation or launch-time
+channel flag is needed for this route. The host must already be running.
+Installation does not attach the project, approve membership or access, or
+prove delivery. The pane provides separate human reviews and observed status.
+
+The detailed guide is bundled at
+`share/peerspan/integrations/claude-onboarding/README.md`. Installed plugin
+validation remains separate from real reload/model and final feature acceptance.
+The commands below describe the existing advanced launch and administration path.
 
 ## Start your first machine
 

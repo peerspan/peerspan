@@ -14,7 +14,36 @@ The inviting computer has separate incoming administrator review/consent. Sharin
 live model acceptance remain later work. Owner actions stay in the human pane;
 no model setup tool is added.
 
-## Try the entry
+## Install from a host archive
+
+Requires Claude Code 2.1.303 or newer in a terminal. Verify and extract the
+Peerspan Linux archive, then move it to the directory where you will keep it.
+Set `PEERSPAN_PREFIX` to that absolute directory, including any spaces:
+
+```sh
+PEERSPAN_PREFIX='/absolute/path/to/peerspan-0.1.0-linux-amd64-rust'
+claude plugin install peerspan --marketplace "$PEERSPAN_PREFIX/share/peerspan" \
+  --scope user --config "executable=$PEERSPAN_PREFIX/bin/peerspan"
+```
+
+Claude installs from the archive's local marketplace and saves the exact host
+executable in its user plugin configuration. Keep that directory in place after
+installation. The optional `state` setting can stay empty for normal host-state
+discovery, even if Claude lists it as unset. No hosted marketplace, repository
+checkout or launch-time channel flags are needed.
+
+In your existing Claude conversation, run `/reload-plugins` if Claude requests
+it, then `/peerspan`. Installation does not start the host, attach a project or
+verify delivery. Run the host through the ordinary Peerspan setup first. Mods
+must be allowed by your Claude installation and organization policy. Native
+installation is checked separately from actual reload, model receipt and
+cross-machine acceptance; those full-feature gates remain open.
+
+The bundle's marketplace layout follows Claude's
+[local marketplace interface](https://code.claude.com/docs/en/plugin-marketplaces)
+and [plugin CLI](https://code.claude.com/docs/en/plugins/cli-reference).
+
+## Development entry
 
 For development, load this directory as a Claude plugin:
 
@@ -22,10 +51,9 @@ For development, load this directory as a Claude plugin:
 claude --plugin-dir /absolute/peerspan/integrations/claude-onboarding
 ```
 
-Then enter `/peerspan`. It opens a native pane in that conversation. Installed
-plugin changes can be loaded in an existing conversation with
-`/reload-plugins`; loading does not verify delivery. This preview does not yet
-provide a marketplace or release-bundle installation path.
+Then enter `/peerspan`. It opens a native pane in that conversation. This
+development flag loads the directory for that launch. Use the archive route
+above to install into an existing conversation; loading does not verify delivery.
 
 The pane reads `peerspan onboarding`, using the executable on PATH and normal
 host-state discovery. Its optional trusted plugin settings are `executable`
