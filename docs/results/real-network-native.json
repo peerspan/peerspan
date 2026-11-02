@@ -45,6 +45,10 @@
   "earlier_total_model_prompts_verified": false,
   "explicit_stale_test_adapter_revocations": 1,
   "explicit_stop_reconnect": true,
+  "first_party_prompt_categories": {
+    "incoming_message": 1,
+    "readiness": 1
+  },
   "format": 1,
   "fresh_explicitly_reviewed_local_agent": true,
   "fresh_readiness": true,

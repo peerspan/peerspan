@@ -991,9 +991,13 @@ retry any carrier with the same bytes. A TLS/transport key or operator-token
 change requires explicit transport configuration/review, never a network root
 change or re-signing the operation.
 
-Creation/append validates `created_at <= now+30s`, exactly 300s lifetime and
-`now < expires_at`; impossible/far-future windows are 400 invalid and an elapsed
-window is 410 expired. Frame times must equal its box. The helper clock controls
+Creation/append validates `created_at <= now+30s`, `now < expires_at`, and the
+current [wire-format windows](decentralized-wire-formats.md): original `link_`
+mailboxes have exactly3600 seconds (sections9.1/12, DEC-S4/DEC-Q1); invitation
+`di_` return mailboxes use the invitation's60–86400-second window (section10.1,
+DEC-Q2). The earlier fixed300-second carrier rule is superseded. Impossible or
+far-future windows are400 invalid and an elapsed window is410 expired.
+Frame times must equal its box. The helper clock controls
 resource retention only; it cannot certify inner chronology or state freshness.
 At expiry erase all ciphertext atomically with marking the record expired.
 DELETE similarly erases all ciphertext immediately and marks deleted. Release
