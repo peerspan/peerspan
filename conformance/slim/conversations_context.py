@@ -818,14 +818,38 @@ def join_as_person(host, conv):
     host.ok("conversation", "join", conv, timeout=60)
 
 
+def new_agents(*names, host=b):
+    """Fixture agents NAMES on HOST, with one directory refresh on alice for bob's (alice's own resolve locally, C2)."""
+    adapters = [host.agent(n) for n in names]
+    if host is not a:
+        a.ok("agents", "--refresh", "--json")
+    return adapters
+
+
+def delivered(conv, mid, *pids, host=a, as_agent=None):
+    """Wait for HOST's targets of MID for PIDS to be `delivered`, all in one view per poll."""
+    extra = ("--as", as_agent) if as_agent else ()
+    last = {}
+
+    def done():
+        view = host.ok("conversation", "show", conv, "--json", "--limit", "100", *extra)
+        last["t"] = [target_of(find_message(view, mid), p) for p in pids]
+        check(all(t["state"] in ("sending", "delivered") for t in last["t"]), f"targets {last['t']}")
+        return all(t["state"] == "delivered" for t in last["t"])
+    try:
+        wait_for(done, timeout=30, interval=0.1, message="delivery")
+    except AssertionError as error:
+        raise AssertionError(f"{error}; targets {last.get('t')}") from None
+
+
 def say_to(conv, text, *to, wait=()):
     """alice's person sends TEXT with `--to` TO (C6), then waits for alice's targets of WAIT to be `delivered`."""
     args = ["conversation", "say", conv, text]
     for entry in to:
         args += ["--to", entry]
     mid = a.ok(*args)["message"]["message_id"]
-    for x in wait:
-        show_targets(a, conv, mid, participant(x), "delivered")
+    if wait:
+        delivered(conv, mid, *[participant(x) for x in wait])
     return mid
 
 
@@ -841,10 +865,15 @@ def lead_of(adapter, conv):
     return entry
 
 
-def parked(adapter, conv):
+def counts(adapter, conv):
+    """(`parked`, `unseen`) from ADAPTER's agent summary (C7 Parked notifications), in one read."""
     entry = listed(adapter, conv)
     check(entry is not None and isinstance(entry.get("parked"), int), f"{adapter.name}: agent summary {entry}")
-    return entry["parked"]
+    return entry["parked"], entry["unseen"]
+
+
+def parked(adapter, conv):
+    return counts(adapter, conv)[0]
 
 
 def label_in(view, pid):
@@ -872,7 +901,8 @@ def areas_of(got):
                                 "Verification Unaddressed wakes the lead only")
 def _():
     alice_p, = need("alice_p")
-    ann, bert, bea = new_agent("ann7", host=a), new_agent("bert7"), new_agent("bea7")
+    ann, = new_agents("ann7", host=a)
+    bert, bea = new_agents("bert7", "bea7")
     conv = start(ann, bert, bea)
     ann_p, bert_p, bea_p = participant(ann), participant(bert), participant(bea)
     view = view_as(a, conv, alice_p)
@@ -906,7 +936,7 @@ def _():
     check(parked(bert, conv) == 1 and parked(bea, conv) == 1, "a read changed a parked notification")
     bert = replace(bert)  # a parked notification has no session: never returned
     no_claim(bert, "of a parked notification by a new session")
-    check(parked(bert, conv) == 1 and unseen(bert, conv) == 0, "a new session changed bert's parked m1")
+    check(counts(bert, conv) == (1, 0), f"a new session changed bert's parked m1: {counts(bert, conv)}")
     state["lead"] = {"conv": conv, "ann": ann, "bert": bert, "bea": bea, "view": view, "m1": m1}
 
 
@@ -940,8 +970,7 @@ def _():
     bob_p = [p["id"] for p in joined["participants"] if p["kind"] == "person" and p["host_id"] == b.id][0]
     check(joined.get("lead") == participant(pia), f"lead {joined.get('lead')}, want pia (rule 3)")
     mid = a.ok("conversation", "say", other, "for bob's person only", "--to", "person:bob")["message"]["message_id"]
-    show_targets(a, other, mid, bob_p, "delivered")
-    show_targets(a, other, mid, participant(pia), "delivered")
+    delivered(other, mid, bob_p, participant(pia))
     no_claim(pia, "of a message addressed only to a person, as the lead")
     check(parked(pia, other) == 1, f"pia's parked {parked(pia, other)}, want 1")
 
@@ -952,15 +981,14 @@ def _():
     _, ctx = need("alice_p", "lead")
     conv, ann, bert, bea = (ctx[k] for k in ("conv", "ann", "bert", "bea"))
     m3 = send(ann, conv, "m3 from the lead")
-    for x in (bert, bea):
-        show_targets(a, conv, m3, participant(x), "delivered", as_agent="ann7")
+    delivered(conv, m3, participant(bert), participant(bea), as_agent="ann7")
     for x in (ann, bert, bea):
         no_claim(x, "of the lead's own unaddressed message")
     check(ids_of(shown(bea, conv)["messages"]) == [ctx["m1"], ctx["m2"], m3], "bea cannot see m1 to m3")
     check(m3 in history_ids(bert, conv), "bert's history does not list m3")
     check(m3 in history_ids(bea, conv), "bea's history does not list m3")
-    check(parked(bea, conv) == 3 and unseen(bea, conv) == 0, f"bea parked {parked(bea, conv)} unseen "
-                                                              f"{unseen(bea, conv)}, want 3 and 0")
+    got = counts(bea, conv)
+    check(got == (3, 0), f"bea's (parked, unseen) {got}, want (3, 0)")
     ctx["m3"] = m3
 
 
@@ -980,8 +1008,8 @@ def _():
           f"coalesced {co}, want bea's 3 notifications for m1, m2 and m3")
     window(got, [m1, m2, m3])
     lead_claim(got, participant(ann), label_in(view, participant(ann)), False)
-    check(parked(bea, conv) == 0 and unseen(bea, conv) == 4,
-          f"after the gather: parked {parked(bea, conv)} unseen {unseen(bea, conv)}, want 0 and 4")
+    after = counts(bea, conv)
+    check(after == (0, 4), f"after the gather: (parked, unseen) {after}, want (0, 4)")
     no_claim(bea, "after the gather")
     seen_ok(bea, m4)
     check(unseen(bea, conv) == 0, f"unseen after seeing m4: {unseen(bea, conv)}, want 0")
@@ -1009,7 +1037,8 @@ def _():
                                    "Verification Recheck on gather")
 def _():
     need("alice_p")
-    lea, bert, bel = new_agent("lea7", host=a), new_agent("bero7"), new_agent("bel7")
+    lea, = new_agents("lea7", host=a)
+    bert, bel = new_agents("bero7", "bel7")
     conv = start(lea, bert, bel)
     x = say_to(conv, "from alice, parked for bero7", wait=(bert, bel))
     check(parked(bert, conv) == 1, f"bero7's parked {parked(bert, conv)}, want 1")
@@ -1035,7 +1064,8 @@ def _():
                             "Verification Leaving withdraws")
 def _():
     need("alice_p")
-    lev, leb = new_agent("lev7", host=a), new_agent("leb7")
+    lev, = new_agents("lev7", host=a)
+    leb, = new_agents("leb7")
     conv = start(lev, leb)
     say_to(conv, "parked, then she leaves", wait=(leb,))
     check(parked(leb, conv) == 1, f"leb7's parked {parked(leb, conv)}, want 1")
@@ -1053,7 +1083,8 @@ def _():
                             "Waking; Verification Lead changes")
 def _():
     alice_p, = need("alice_p")
-    cara, lx, ly = new_agent("cara7", host=a), new_agent("lx7"), new_agent("ly7")
+    cara, = new_agents("cara7", host=a)
+    lx, ly = new_agents("lx7", "ly7")
     status, body = cara.post("/adapter/v1/conversations", {"participants": ["bob/lx7", "bob/ly7", "person:alice"]})
     check(status == 201, f"cara7 starts: {status} {body}")
     conv = body["conversation"]["conversation_id"]
@@ -1160,11 +1191,14 @@ def _():
     unchanged = []
     for bad in ({"description": "x" * 201}, {"description": "é" * 100 + "x"}, {"description": "two\nlines"},
                 {"description": "c1 \u0085"}, {"description": "   "}, {}, {"description": None},
-                {"description": 7}, {"description": "ok", "extra": 1}):
+                {"description": "ok", "extra": 1}):
         status, body = b.api("POST", path, bad)
         if not (status == 400 and isinstance(body, dict) and body.get("code") == "invalid"
                 and body.get("error") == DESCRIPTION_RULE):
             unchanged.append(f"{bad}: {status} {body}")
+    status, body = b.api("POST", path, {"description": 7})  # "is a string": 400 `invalid`, its text not fixed
+    if not (status == 400 and isinstance(body, dict) and body.get("code") == "invalid"):
+        unchanged.append(f"a number: {status} {body}")
     status, body = b.api("POST", f"/v1/agents/agent_{os.urandom(16).hex()}/description", {"description": "x"})
     api_error(status, body, 404, "not_found")
     refused(b.cli("agent", "describe", "nobody7", "x"), "not_found", "No such agent on this host.")
