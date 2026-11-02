@@ -4,6 +4,10 @@ Use this guide to qualify a specific preview candidate with real agent sessions.
 The [quick start](quick-start.md) defines installation and onboarding; the
 [release procedure](releasing.md) defines archive checks and publication.
 
+The post-onboarding [real-machine and NAT qualification](real-network-acceptance.md)
+defines the topology matrix to complete before PeerFS host integration. Record
+external-router observations separately from local fixtures and fault emulation.
+
 A fixture agent or a persisted request proves protocol behavior. For live
 acceptance, also record a useful model-produced result in the intended native
 conversation. Older coordinator-based results under docs/results are history.
