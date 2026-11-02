@@ -293,7 +293,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         conversation = None
         if label == 'main24':
             created_conversation = host.api('POST', '/v1/conversations',
-                {'participants': [host.api('GET', '/v1/host')['id'] + '/' + agent['id']],
+                {'participants': [host.api('GET', '/v1/host')['id'] + '/' + agent['name']],
                  'title': 'retained upgrade history', 'content': 'retained conversation message'}, expected=201)
             conversation = created_conversation['conversation']['conversation_id']
             require(created_conversation['message'] is not None, 'main24 did not retain a genuine conversation message')
