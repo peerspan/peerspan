@@ -32,7 +32,8 @@ TASKS = {
 }
 if MODE == "pilot":
     TASKS = {"P": "Pilot: say hello in one line."}
-if ARM not in ("today", "lead"):
+LABELS = "alice/api: API; bob/db: database; bob/release: release process"
+if ARM not in ("today", "lead", "quiet", "route"):
     sys.exit("LEAD_ARM")
 OUT.mkdir(parents=True, exist_ok=True)
 EVENTS = OUT / "events.jsonl"
@@ -48,8 +49,8 @@ def log(event, **fields):
 suite = Suite("lead_comparison", __doc__)
 a, b = suite.host("alice", start=False), suite.host("bob", start=False)
 for host in (a, b):
-    if ARM == "lead":
-        host.extra_env["PEERSPAN_EXPERIMENT_WAKE"] = "lead"
+    if ARM != "today":
+        host.extra_env["PEERSPAN_EXPERIMENT_WAKE"] = ARM
     host.start()
 state = {}
 AGENTS = {"api": a, "db": b, "release": b}
@@ -72,8 +73,10 @@ def launch(name):
         "XDG_RUNTIME_DIR": host.env["XDG_RUNTIME_DIR"], "DISABLE_AUTOUPDATER": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
     }
-    if ARM == "lead":
-        env["PEERSPAN_EXPERIMENT_WAKE"] = "lead"
+    if ARM != "today":
+        env["PEERSPAN_EXPERIMENT_WAKE"] = ARM
+    if ARM == "route":
+        env["PEERSPAN_EXPERIMENT_LABELS"] = f"'{LABELS}'"
     command = " ".join(f"{k}={v}" for k, v in env.items()) + (
         f" {suite.host_bin} --state {host.state} attach claude --name {name} --directory {project}"
         f" --integrations {HERE.parent / 'integrations'} --runner {shutil.which('node')} --no-calls"

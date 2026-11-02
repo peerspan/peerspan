@@ -381,7 +381,10 @@ struct Notification {
 /// Experiment only: the lead rule of docs/conversations-lead-proposal.md, on
 /// when PEERSPAN_EXPERIMENT_WAKE=lead. Never merged.
 pub(crate) fn lead_rule_on() -> bool {
-    std::env::var("PEERSPAN_EXPERIMENT_WAKE").as_deref() == Ok("lead")
+    matches!(
+        std::env::var("PEERSPAN_EXPERIMENT_WAKE").as_deref(),
+        Ok("lead" | "route")
+    )
 }
 
 /// The roster's lead: the creator if a joined agent, then the creator's

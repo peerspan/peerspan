@@ -4,6 +4,7 @@
 Run from conformance/slim's harness: python3 experiment/lead_wake_check.py --bin DIR. alice's host has `api`, bob's has
 `db` and `release`, the same shape as the comparison. api is the lead, since it is the creator's person's agent.
 """
+import os
 import sys
 import time
 from pathlib import Path
@@ -14,7 +15,7 @@ from harness import Suite, check, create_network, join_new_person, ssh_key, wait
 suite = Suite("lead_wake_check", __doc__)
 a, b = suite.host("alice", start=False), suite.host("bob", start=False)
 for host in (a, b):
-    host.extra_env["PEERSPAN_EXPERIMENT_WAKE"] = "lead"
+    host.extra_env["PEERSPAN_EXPERIMENT_WAKE"] = os.environ.get("PEERSPAN_EXPERIMENT_WAKE", "lead")
     host.start()
 state = {}
 
