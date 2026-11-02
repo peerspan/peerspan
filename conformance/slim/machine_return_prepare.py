@@ -470,8 +470,19 @@ def _():
                 g.ed25519(packet['signer_public_key'],packet['device_signature'],g.packet_message(packet),'returned-device')
                 # Exactly one absence observation. No SQL wait or protocol write.
                 original_frame = g.rows(a,"SELECT frame_id FROM dec_frames WHERE request_id=? AND role='request' AND writer_key=?",(f['rid'],b.public_key))
-                check(original_frame==[] and generation in b.relay.live_generations()
-                      and set(existing_hold)<=set(a.relay.live_parked_generations()),'original frame or live transport barrier unavailable')
+                precondition_fetch_live = generation in b.relay.live_generations()
+                precondition_return_live = set(a.relay.live_parked_generations())
+                print('machine_return_prepare_precondition_public='+json.dumps(dict(
+                    original_frame_count=len(original_frame),original_frame_absent=original_frame==[],
+                    same_fetch_generation_live=precondition_fetch_live,
+                    expected_return_streams=len(existing_hold),
+                    live_expected_return_streams=len(set(existing_hold)&precondition_return_live),
+                    all_return_streams_live=set(existing_hold)<=precondition_return_live,
+                    fetch_owner_still_proven=b.relay.fetch_owner(generation)==a.process.pid,
+                    provenance_errors=b.relay.provenance_errors,requester_stop_verified=True,
+                    existing_stream_barrier=a.relay.last_barrier,measured_owner_calls_started=False),sort_keys=True),flush=True)
+                check(original_frame==[] and precondition_fetch_live and set(existing_hold)<=precondition_return_live,
+                      'original frame or live transport barrier unavailable')
                 traffic = g.traffic(f)
                 began = time.monotonic()
                 body = dict(context=g.context(pa),request_id=f['rid'])
