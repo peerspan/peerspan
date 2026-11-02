@@ -373,6 +373,38 @@ struct Notification {
     /// The notifications a catch-up claimed together with this one.
     #[serde(default)]
     coalesced: Vec<String>,
+    /// Experiment: stored without starting a turn; gathered by the next wake.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    parked: bool,
+}
+
+/// Experiment only: the lead rule of docs/conversations-lead-proposal.md, on
+/// when PEERSPAN_EXPERIMENT_WAKE=lead. Never merged.
+pub(crate) fn lead_rule_on() -> bool {
+    std::env::var("PEERSPAN_EXPERIMENT_WAKE").as_deref() == Ok("lead")
+}
+
+/// The roster's lead: the creator if a joined agent, then the creator's
+/// person's first joined agent, then the first joined agent.
+pub(crate) fn lead_of(roster: &Roster) -> Option<String> {
+    let joined = |p: &&Participant| p.kind == "agent" && p.state == "joined";
+    let agents: Vec<&Participant> = roster.participants.iter().filter(joined).collect();
+    if let Some(p) = agents
+        .iter()
+        .find(|p| p.id.as_deref() == Some(&roster.created_by))
+    {
+        return p.id.clone();
+    }
+    let person = roster
+        .participants
+        .iter()
+        .find(|p| p.id.as_deref() == Some(&roster.created_by))
+        .and_then(|p| p.person_id.clone());
+    agents
+        .iter()
+        .find(|p| person.is_some() && p.person_id == person)
+        .or(agents.first())
+        .and_then(|p| p.id.clone())
 }
 
 /// Which local participants this host admitted itself (contract C2,
@@ -1361,6 +1393,29 @@ impl Store {
             "roster_version": roster.version,
         }))
     }
+    /// Experiment: whether this message wakes local agent AGENT.
+    fn lead_rule_wakes(
+        &self,
+        conn: &Connection,
+        conversation: &str,
+        agent: &str,
+        message: Option<&str>,
+    ) -> Result<bool, Error> {
+        let me = format!("agent:{}/{agent}", self.identity().id);
+        let addressed = match message {
+            Some(m) => self
+                .stored_message(conn, conversation, m)?
+                .ok_or(Error::NotFound)?
+                .message
+                .addressed_to
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+        if !addressed.is_empty() {
+            return Ok(addressed.contains(&me));
+        }
+        Ok(lead_of(&self.held(conn, conversation)?.roster).as_deref() == Some(&me[..]))
+    }
     fn notify(
         &self,
         conn: &Connection,
@@ -1385,6 +1440,9 @@ impl Store {
             blocked_at: None,
             exhausted_at: None,
             coalesced: Vec::new(),
+            parked: kind == "message"
+                && lead_rule_on()
+                && !self.lead_rule_wakes(conn, conversation, agent, message_id)?,
         };
         conn.execute(
             "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",

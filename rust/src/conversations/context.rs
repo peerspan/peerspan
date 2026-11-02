@@ -257,7 +257,7 @@ impl Store {
             Err(e) => Err(e),
         }
     }
-    fn stored_message(
+    pub(super) fn stored_message(
         &self,
         conn: &Connection,
         conversation: &str,
@@ -325,7 +325,7 @@ impl Store {
         agent: &str,
         ended: &mut Ended,
     ) -> Result<bool, Error> {
-        if row.kind != "message" || !row.open() {
+        if row.kind != "message" || !row.open() || row.n.parked {
             return Ok(false);
         }
         if held_live(conn, row, ended)? {
@@ -418,6 +418,9 @@ impl Store {
             "agent_id = ?1 AND seen_at IS NULL AND (session_id IS NULL OR returned_at IS NOT NULL) AND json_extract(record, '$.blocked_at') IS NULL AND json_extract(record, '$.exhausted_at') IS NULL",
             &[&ss.agent_id],
         )? {
+            if row.n.parked {
+                continue;
+            }
             if row.kind == "message" {
                 match self.recheck_row(&tx, &row, &ss.agent_id)? {
                     Recheck::Pass => {}
@@ -443,6 +446,27 @@ impl Store {
                     }
                     match self.recheck_row(&tx, &other, &ss.agent_id)? {
                         Recheck::Pass => {
+                            self.bind(&tx, &mut other, &ss.id, &a.id, &at)?;
+                            bound.push(other);
+                        }
+                        Recheck::Wait => {}
+                        Recheck::Fail => self.block_notification(&tx, &mut other)?,
+                    }
+                }
+            }
+            // Experiment: a wake gathers what this agent slept through.
+            if row.kind == "message" {
+                for mut other in rows(
+                    &tx,
+                    "agent_id = ?1 AND conversation_id = ?2 AND kind = 'message' AND session_id IS NULL AND seen_at IS NULL AND id != ?3",
+                    &[&ss.agent_id, &row.conversation_id, &row.id],
+                )? {
+                    if !other.n.parked || !other.open() {
+                        continue;
+                    }
+                    match self.recheck_row(&tx, &other, &ss.agent_id)? {
+                        Recheck::Pass => {
+                            other.n.parked = false;
                             self.bind(&tx, &mut other, &ss.id, &a.id, &at)?;
                             bound.push(other);
                         }
@@ -497,7 +521,7 @@ impl Store {
             && let Some(position) = place(&newest)
         {
             messages.push(self.adapter_message(tx, &roster, &visible[position], &me, None)?);
-            if first || catch_up {
+            if first || catch_up || !coalesced.is_empty() {
                 window_total = position;
                 let mut bytes = 0;
                 for s in visible[..position].iter().rev() {
@@ -512,7 +536,19 @@ impl Store {
             }
         }
         let summary = self.agent_summary(tx, &held, &me)?;
-        Ok(json!({
+        let lead_rule = if super::lead_rule_on() {
+            let lead = super::lead_of(&roster);
+            Some(json!({
+                "lead": match &lead {
+                    Some(id) => self.label_of(tx, &roster, id)?,
+                    None => String::new(),
+                },
+                "you": lead.as_deref() == Some(&me[..]),
+            }))
+        } else {
+            None
+        };
+        let mut answer = json!({
             "notification": notification_view(tx, &newest.n)?,
             "conversation": summary,
             "messages": messages,
@@ -521,7 +557,11 @@ impl Store {
             "catch_up": catch_up,
             "coalesced": coalesced,
             "redelivered": redelivered,
-        }))
+        });
+        if let Some(rule) = lead_rule {
+            answer["lead_rule"] = rule;
+        }
+        Ok(answer)
     }
     /// `POST .../forwarded` also marks what the catch-up coalesced.
     pub(super) fn forward_coalesced(
@@ -592,6 +632,7 @@ impl Store {
             blocked_at: None,
             exhausted_at: None,
             coalesced: Vec::new(),
+            parked: false,
         };
         conn.execute(
             "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
