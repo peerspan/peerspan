@@ -4874,3 +4874,25 @@ and explicit model authorization/evidence-limit decision remain open.
   trees remain byte-identical to the verified release. Require final CI/review
   on the documentation-only receipt commit; record that exact head on PR35
   without another repository edit. The owner retains the final main merge.
+
+### NET-01: qualify separate machines and NAT before PeerFS (2026-11-02)
+
+- **Authority:** after merging #35, the owner asked to complete its outstanding
+  separate-machine and NAT validation first, and explain the next PeerFS step.
+- **Selected:** qualify one recorded candidate on independent hosts, real external
+  gateways and explicit direct/relay/recovery cases. Prepare the matrix while
+  obtaining the actual authorized test-host inventory. Existing optional helpers
+  remain replaceable transport services without membership or access authority.
+- **Rationale:** #35's two local fixtures and actual model reply establish a
+  different result from onboarding and useful work across external networks.
+  Named observed topologies make the remaining reachability limits reviewable.
+- **Discarded:** relabeling loopback/namespaces as physical-machine evidence,
+  treating different cloud instance IDs as bare-metal identity, claiming all NAT
+  behavior from one successful path, adding a required coordinator, or beginning
+  filesystem integration before the requested network qualification.
+- **Next recommendation:** specify the PeerFS local host boundary and signed
+  filesystem read authorization, then pull one explicitly shared branch through
+  Peerspan into another machine's local workspace. Push/CAS and durability receipts
+  follow as separate slices of the existing milestone3b issue.
+- **Verification:** [real-machine acceptance](real-network-acceptance.md). This
+  decision starts qualification; it records no new remote or real-NAT pass.
