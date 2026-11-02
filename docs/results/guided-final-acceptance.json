@@ -59,16 +59,30 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41392480067",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41398547169",
     "final_status_location": "Current exact-head checks and review receipts on acceptance PR107, then tracking PR35; recorded previous runs remain historical.",
     "installed_receipt_sha256": "dcd2822d4d0cbbf92cc58bfe8461e9c72627a89b52596753bcce5a8381329062",
+    "latest_exact_review": {
+      "commit": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+      "result": "no major issues found",
+      "url": "https://github.com/peerspan/peerspan/pull/107#issuecomment-6570483046"
+    },
     "next_required_checks": 52,
-    "observed": "a96c73d:33/51 checks passed;18 conformance suites failed predominantly on the original participant remaining pending after the requester was actually linked. Rust/native440 and all installed terminal, participant and genuine upgrade/restore gates passed. Same exact CI binaries pass the work suite locally, including four-CPU and memory-backed fixtures; these do not establish the CI cause. Independent real rate-pressure diagnostic reproduced one-shot completion publication loss and exact retained-operation repair. A bounded retry correction and full corrected-head CI/review remain required. Corrected81720b4 product passes independent strict first-attempt XPASS, unchanged work6/6 and join12/12, and all fresh installed terminal/participants/genuine upgrade/full-restore gates. Full corrected52-check CI/review remain required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41392480043",
+    "observed": "ecee08c: all45 other slim suites pass; access_onboarding5/6 failed the required bootstrap404 boundary without recording actual status. All46 suite runtimes meet120seconds (maximum87). Rust/native pass; installed old-binary build still in progress when recorded. Exact-head Codex review is clear. A receive-only local exact-CI-binary run passes access6/6 in22seconds and records404, so the original CI status remains unattributed. Independent charged-bucket TCP experiment confirms a separate masking gap: owner route429 while known route remains429. Narrow correction and full final-head checks/review remain required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41398547138",
     "required": true,
     "required_final_check_count": 52,
     "slim_suites": 46,
-    "source": "a96c73d0daabf935039d20963169446413a01495",
+    "source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+    "suite_runtime_audit": {
+      "failed_suites": 1,
+      "log_sha256": "43779d07834ffd82b0fd8ffc9f47ed9b207bfb4c9f1b2c1d4ca73df8aa0a2aa5",
+      "maximum_seconds": 87,
+      "over_120_seconds": 0,
+      "passing_suites": 45,
+      "suites": 46,
+      "summary_sha256": "7e3051a17fe36cb0f3c872c1a8ac319e7f395b02ddd2e3ffb6aa9f0bbba09f8f"
+    },
     "tested_merge_source": "23c87cd64dc7040bf04a0729eac508eac335bb21"
   },
   "conformance_execution": {
@@ -192,6 +206,14 @@
     {
       "kind": "wrong local Python stopped at required safe archive extraction preflight before product execution",
       "log_sha256": "b5466c7b77c6e698786edcb746ed1c3d6c6d8e002c75335ebcd005f8d8ed5937"
+    },
+    {
+      "kind": "CI bootstrap owner-route404 assertion; actual status originally unrecorded",
+      "log_sha256": "cfaf08c2e3fadc88c05081b6732939e5b3e73fa4a2ed994fb0936eab97c9998a"
+    },
+    {
+      "kind": "independent real charged-bucket owner-route429 mask",
+      "log_sha256": "81342b9a7883bfdcc42379fd96614636edd31f04c2f243e3af724ecd598bff06"
     }
   ],
   "installed_terminal": {
@@ -392,6 +414,31 @@
       "passed": true,
       "seconds": 6,
       "source_sha256": "7d26e5fd3f00fde7e1a43a7d506eeef4a48e80bdb8a92dd0eeb67728880532c9"
+    },
+    "bootstrap_boundary_receive_only": {
+      "actual_bootstrap_http": 404,
+      "failed": 0,
+      "frozen_suite_passed": 6,
+      "frozen_suite_sha256": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "log_sha256": "a95b0d5c0536e1e99ee5cc1ed302dcb54cc4bd9198f419641ac60cf5a3bbd63c",
+      "seconds": 22,
+      "source_sha256": "e7475641a9c1f9cc6d6da61f790007954f6cc8d64d97e53d07478f9fc7c3521a"
+    },
+    "bootstrap_owner_route_before_fix": {
+      "distinct_transport_keys": true,
+      "genuine_control_passed": true,
+      "host_sha256": "142ab2b7aa90f95b5d8f838f6567fe68a1b47bd92dac1a4332070d005c8ba687",
+      "known_after_http": 429,
+      "known_attempts": 9,
+      "known_charged_http": 429,
+      "known_initial_http": 400,
+      "log_sha256": "81342b9a7883bfdcc42379fd96614636edd31f04c2f243e3af724ecd598bff06",
+      "owner_404_expected_failure": true,
+      "owner_fresh_identity_http": 429,
+      "product_source": "ecee08c1d92290a15665dddccc0e92bfd8433bab",
+      "same_loopback_source": true,
+      "seconds": 9,
+      "source_sha256": "460fb67da814cc25e41253d389f9ee4bb85841ab4220e7b1761dcba4c0d85bfc"
     },
     "completion_rate_limit_after_fix": {
       "elapsed_seconds": 12.4,

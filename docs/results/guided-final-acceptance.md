@@ -205,3 +205,21 @@ without adding calls, waits, retries or mutations. Every original target and
 wrapper chain remains unchanged; suite deadline/verdict exceptions propagate.
 The fixed old-build failure, strict XPASS and final ordinary pass are separate
 retained observations.
+
+
+### Charged bootstrap bucket and owner-route absence
+
+The ecee08c run passes45 of46 slim suites; every suite meets120seconds, with
+a maximum87seconds. Exact-head Codex review is clear. The remaining access
+inspection case expected404 on the bootstrap listener but did not retain its
+actual CI status. A receive-only observation on the exact CI executable passes
+all6 cases locally in22seconds and records404. The CI cause remains unclassified.
+
+A separate independent real-TLS experiment confirms a masking gap: a malformed
+known activation gets400, its ninth attempt gets429, then a second fresh
+transport identity on the same source gets429 for the owner-only path. A known
+activation remains429 afterward. The controls pass; only the distinct required
+owner404 assertion is a strict expected failure. Certificates establish transport
+identity, not authority. The correction must retain every-attempt charging and
+known-route limits while returning404 for a genuinely absent route. Frozen
+cases/assertions/deadlines remain unchanged; the original failure is retained.

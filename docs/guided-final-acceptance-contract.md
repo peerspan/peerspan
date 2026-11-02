@@ -542,9 +542,9 @@ Selected behavior: every request attempt is still charged under the same
 key/source rates and active/header bounds. A successfully parsed genuinely
 unknown route, including an owner-local path on the bootstrap listener, returns
 404 without invoking an owner handler or reading its body. Known bootstrap and
-completion routes, malformed headers/paths and invalid capabilities retain the
-existing rate refusal precedence. If the independent experiment confirms a gap,
+completion routes, malformed headers, routes classified invalid by the existing
+router, and invalid capabilities on known routes retain rate refusal precedence. If the independent experiment confirms a gap,
 record charging first, classify only the bounded received header/route, return
-404 for a genuine unknown route, then enforce the recorded rate refusal before
+404 for an existing not_found route classification, then enforce the recorded rate refusal before
 all known-route work. Discard exempting unknown attempts from charging, raising
 limits, bypassing known-route rate limits or weakening the frozen404 assertion.

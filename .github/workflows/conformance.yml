@@ -81,6 +81,8 @@ jobs:
             python3 conformance/slim/link_response_diagnostic.py conformance/slim/requester_completion_barrier_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_requester_consent' ]; then
             python3 conformance/slim/link_response_diagnostic.py conformance/slim/machine_requester_consent_prerequisite.py --bin bin
+          elif [ '${{ matrix.suite }}' = 'access_onboarding' ]; then
+            python3 conformance/slim/bootstrap_response_diagnostic.py conformance/slim/access_onboarding.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_owner' ]; then
             python3 conformance/slim/link_response_diagnostic.py conformance/slim/combined_purity_diagnostic.py machine_owner --bin bin
           elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then

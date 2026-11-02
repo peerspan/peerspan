@@ -4661,3 +4661,22 @@ all full-feature reload/model/physical/upgrade gates remain open.
   unchanged independent case reports XPASS, remove only its known marker, then
   require all46 slim suites,52 checks, fresh installed/live evidence and review
   on the final combined head. The owner retains the #35 merge decision.
+
+
+### GU.final.bootstrap: keep absent routes absent under a charged bucket
+
+- **Evidence:** a separate genuine TLS1.3/bootstrap experiment observes400 for
+  a malformed known activation,429 after nine attempts,429 for the owner-only
+  route from a second fresh transport key on the same source, then429 again for
+  the known route. Its controls pass and the distinct required404 gate XFAILs.
+  This confirms the gap; the earlier unrecorded CI response remains unattributed.
+- **Selected:** preserve every-attempt key/source charging and active/header
+  bounds, classify the bounded header using the existing router, return404 for
+  its not_found classification, then enforce the recorded rate refusal before
+  known-route credentials, body or handler work. Apply shared TCP/QUIC handling.
+- **Rationale:** response ordering must not make an owner-local route appear on
+  a peer listener. Certificates supply transport identity, not owner authority.
+- **Discarded:** exempting absent routes from charging, increasing limits,
+  bypassing limits on known routes, changing route classification, or weakening
+  the frozen boundary assertion. Independent cases retain their original bodies
+  and deadlines; strict XPASS is required before removing the new known marker.
