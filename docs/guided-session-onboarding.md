@@ -1150,3 +1150,18 @@ Final exact-head CI and fresh review receipts are recorded on PR104 and tracking
 PR35. This completes temporary two-host backend evidence; GUI/reload, installed
 artifacts, physical machines, model delivery, upgrade/recovery and final feature
 acceptance remain open.
+
+### Bundled frontend installation
+
+Merged104 (`80b445c`) supplies the combined backend machine ceremony. Section50/
+GU.impl50 packages the existing native frontend with an explicit runtime inventory
+and a local marketplace, stamps the packaged plugin version from the host release,
+and documents Claude's explicit installation with the installed executable pinned.
+No repository checkout is required for that route. The new independent cases
+pass5/5; a real clean-source release archive passes both the unchanged installed
+smoke and the new relocated native install check. The
+[verification record](results/guided-bundled-onboarding-verification.json) records
+source/artifact/log hashes and limits. All79 prior files, Rust and native runtime
+trees remain exact. Final-head CI builds a fresh artifact and review receipts
+follow on the slice/tracking PR. Installation evidence does not complete actual
+reload/model/physical/upgrade or final35 acceptance.

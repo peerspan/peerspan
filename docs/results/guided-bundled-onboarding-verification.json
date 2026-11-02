@@ -1,0 +1,143 @@
+{
+  "slice": "GU.impl50",
+  "base_merge": "80b445cec3d484d8b6daead89a3c4971877365e2",
+  "contract_commits": [
+    "99c398b6c7d679010e5f8420d1b4bdc07c851887",
+    "88f2208"
+  ],
+  "independent_author": {
+    "commit": "30a41b0308e6c02205c18379fa164837242a2a26",
+    "product_reads": false,
+    "actual_runtime_by_author": false,
+    "audit": {
+      "HOME_unchanged": true,
+      "actual_runtime_executed": false,
+      "consumer_commands": 6,
+      "exact_native_argv": true,
+      "fake_compiler_source_compile": true,
+      "one_install": true,
+      "package_tests": 5,
+      "private_canary_absent": true,
+      "protected_files": 79,
+      "protected_manifest_sha256": "710c6cdf9f12463b52025b5d481c584ba56b87df67bc5fd27af0ba10483ff369",
+      "sources": {
+        "onboarding_bundle.py": "69eb4ea0ae7a058e48188ef5c1b5e0cbc96c67ce857a1c97fc183c9baa7c442e",
+        "test_onboarding_package.py": "6e698430779b0cd3d74152b9442c4af4d18a18c6b7dccdce45d5e2e7918fe5c9"
+      },
+      "static_compile": true,
+      "unsafe_archive_negatives": true
+    }
+  },
+  "preservation": {
+    "prior_files_byte_exact": 79,
+    "trees": {
+      "rust": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "integrations/claude-onboarding/hooks": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "integrations/claude-onboarding/tests": "2faba6e5d6571e441d1011f9143076811fd193ba"
+    },
+    "old_assertions_and_deadlines_exact": true
+  },
+  "build": {
+    "head": "9e3a10251912b15d549cf2290a9c1171d34f6760",
+    "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+    "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+    "compiler_shim": false,
+    "source_dirty": false,
+    "exit": 0,
+    "seconds": 557.46,
+    "log_sha256": "8334fcf4b354f2ad6ec650d4e25c08b9375d42f24c0160727a2f873c2d7f2187",
+    "artifacts": {
+      "peerspan-0.1.0-gu50-linux-amd64-rust.tar.gz": {
+        "sha256": "0026fca63d1014f3477c001da480ac59a16fa74e6c9ca65e4f325e1c124873d1",
+        "bytes": 37340409
+      },
+      "peerspan-0.1.0-gu50-linux-amd64-rust.tar.gz.sha256": {
+        "sha256": "d90bc2e4393eba3163c9265a9346443925ed8a8ed75508558dfe66ca6871e901",
+        "bytes": 110
+      }
+    }
+  },
+  "old_package_tests": {
+    "head": "9e3a10251912b15d549cf2290a9c1171d34f6760",
+    "passed": 4,
+    "failed": 0,
+    "suite_seconds": 5.017,
+    "unittest_result": "OK",
+    "log_sha256": "a5e1b6c5ece52900a8e9ccdf738b714c44002a7261e300645044df22841c2c54"
+  },
+  "runs": [
+    {
+      "gate": "new-package-tests-first",
+      "head": "a43be2cfcc865ad4e7459455b639eb2cef693bbc",
+      "exit": 0,
+      "seconds": 1.87,
+      "log_sha256": "b2798186a8caa0e197baee272dab8456a91a37a814c1f9095a749a5ff08ae93d",
+      "protected_files_exact": 79,
+      "trees": {
+        "rust": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+        "integrations/claude-onboarding/hooks": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+        "integrations/claude-onboarding/tests": "2faba6e5d6571e441d1011f9143076811fd193ba"
+      },
+      "new_sources": {
+        "conformance/test_onboarding_package.py": "6e698430779b0cd3d74152b9442c4af4d18a18c6b7dccdce45d5e2e7918fe5c9",
+        "conformance/onboarding_bundle.py": "69eb4ea0ae7a058e48188ef5c1b5e0cbc96c67ce857a1c97fc183c9baa7c442e"
+      }
+    },
+    {
+      "gate": "old-installed-bundle-first",
+      "head": "a43be2cfcc865ad4e7459455b639eb2cef693bbc",
+      "exit": 0,
+      "seconds": 6.62,
+      "log_sha256": "10b4cb3e9714a86bb58b229a8f7482528ff7fd15f3004be3fe040e9ef3f82a9b",
+      "protected_files_exact": 79,
+      "trees": {
+        "rust": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+        "integrations/claude-onboarding/hooks": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+        "integrations/claude-onboarding/tests": "2faba6e5d6571e441d1011f9143076811fd193ba"
+      },
+      "new_sources": {
+        "conformance/test_onboarding_package.py": "6e698430779b0cd3d74152b9442c4af4d18a18c6b7dccdce45d5e2e7918fe5c9",
+        "conformance/onboarding_bundle.py": "69eb4ea0ae7a058e48188ef5c1b5e0cbc96c67ce857a1c97fc183c9baa7c442e"
+      }
+    },
+    {
+      "gate": "native-install-first",
+      "head": "a43be2cfcc865ad4e7459455b639eb2cef693bbc",
+      "exit": 0,
+      "seconds": 6.99,
+      "log_sha256": "0c6b06622cac91db72f6fba45ed7f99895b68664a3c2fb40245cf91fd286aecb",
+      "protected_files_exact": 79,
+      "trees": {
+        "rust": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+        "integrations/claude-onboarding/hooks": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+        "integrations/claude-onboarding/tests": "2faba6e5d6571e441d1011f9143076811fd193ba"
+      },
+      "new_sources": {
+        "conformance/test_onboarding_package.py": "6e698430779b0cd3d74152b9442c4af4d18a18c6b7dccdce45d5e2e7918fe5c9",
+        "conformance/onboarding_bundle.py": "69eb4ea0ae7a058e48188ef5c1b5e0cbc96c67ce857a1c97fc183c9baa7c442e"
+      }
+    }
+  ],
+  "local_platform": {
+    "os": "linux",
+    "architecture": "amd64",
+    "node": "v22.23.3",
+    "python": "3.12.13",
+    "claude": "2.1.303",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)"
+  },
+  "root_review": {
+    "actionable_findings": 0,
+    "native_install_count": 1,
+    "actual_user_Claude_configuration_changed": false,
+    "HOME_unchanged": true
+  },
+  "final_head_gates": "All host/native/Rust checks plus new installed artifact CI and fresh bot/root review required; receipts on the slice and tracking PRs.",
+  "limits": [
+    "Installation, public native configuration and relocated archive verified; no actual UI/reload/model/remote-readiness claim.",
+    "Native runtime/Hooks and Rust are unchanged.",
+    "Local real artifact source revision is the product commit; final-head CI builds a fresh archive after later test/documentation commits.",
+    "Linux amd64 checked locally; arm64 checked by the existing main-only release workflow when actually dispatched, not claimed here.",
+    "Schema23 to27/full-state backup/recovery, physical machines and complete feature acceptance remain open."
+  ]
+}
