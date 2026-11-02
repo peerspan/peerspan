@@ -537,6 +537,7 @@ def framed_replay_experiment():
     f = replay_pair(); a, b, rid = f['a'], f['b'], f['rid']
     path = '/v2/link/requests/' + rid
     files = {suffix: b.barrier / ('dec.frame.after_commit.' + suffix) for suffix in ('arm', 'entered', 'continue')}
+    approval_files = {suffix: b.barrier / ('dec.approval.after_commit.' + suffix) for suffix in ('arm', 'entered', 'continue')}
     check(operation(a, rid) is None and operation(b, rid) is None and get(b, '/v2/networks') == [],
           'replay fixture applied before explicit requester consent')
     first, errors = [], []
@@ -547,15 +548,17 @@ def framed_replay_experiment():
             errors.append(error)
     caller = threading.Thread(target=initial_commit, daemon=True)
     replay_marker(files['arm'], rid + '\n')
+    replay_marker(approval_files['arm'], rid + '\n')
     try:
         caller.start()
         def entered():
             try:
                 marker = files['entered'].read_text()
-                return marker in (rid, rid + '\n')
+                approval_marker = approval_files['entered'].read_text()
+                return marker in (rid, rid + '\n') and approval_marker in (rid, rid + '\n')
             except FileNotFoundError:
                 return False
-        wait_for(entered, timeout=5, interval=.02, message='actual exact requester commit frame barrier')
+        wait_for(entered, timeout=5, interval=.02, message='actual exact requester approval and commit frame barriers')
         files['arm'].unlink()
         check(caller.is_alive() and not first and not errors, 'first real commit caller was not held at durable framing')
         status, held = b.api('GET', path, timeout=5)
@@ -592,7 +595,11 @@ def framed_replay_experiment():
                   'successful framed replay changed retained review or canonical pins')
         check(replay_retained(f) == saved, 'exact framed replay replaced immutable requester consent/signatures/commit')
     finally:
-        replay_marker(files['continue'], 'continue\n')
+        try:
+            replay_marker(files['continue'], 'continue\n')
+        finally:
+            replay_marker(approval_files['continue'], 'continue\n')
+            approval_files['arm'].unlink(missing_ok=True)
         files['arm'].unlink(missing_ok=True)
         caller.join(timeout=15)
     check(not caller.is_alive() and not errors and len(first) == 1 and first[0][0] == 200,
