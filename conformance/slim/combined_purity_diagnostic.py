@@ -41,7 +41,7 @@ dec_highwater dec_intents dec_migrations dec_objects dec_operations dec_outbox d
 dec_restrictions dec_signers onboarding_project_flows onboarding_adapter_flows
 onboarding_invitation_flows onboarding_join_flows conversations conversation_messages
 conversation_targets conversation_invites conversation_roster_outbound
-conversation_notifications conversation_reads conversation_events sqlite_sequence
+conversation_notifications conversation_reads conversation_events sqlite_sequence helper_format mailboxes frames
 '''.split())
 CARRIERS = (
     ('issuer', 'TCP', ('connections', 'received_bytes')),
