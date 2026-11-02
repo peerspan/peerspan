@@ -16,11 +16,14 @@ import base64
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import signal
+import socket
 import sqlite3
+import ssl
 import struct
 import subprocess
 import threading
@@ -344,6 +347,111 @@ def first_attempt_gate():
     if not shared.get('complete'):
         raise Skip('pressure experiment did not establish its required real preconditions and immutable proof')
     check(shared['first_alice_linked'], 'original participant was not applied at the first bounded commit result; later exact repair is separate')
+
+
+def bootstrap_identity(root, label):
+    """Fresh self-signed transport key; it supplies no network authority."""
+    cert, key = root / (label + '-cert.pem'), root / (label + '-key.pem')
+    result = subprocess.run(['openssl', 'req', '-x509', '-newkey', 'ed25519', '-nodes', '-subj', '/CN=boundary', '-days', '1',
+        '-keyout', str(key), '-out', str(cert)], capture_output=True, timeout=5)
+    check(result.returncode == 0, 'real bootstrap transport certificate creation failed')
+    public = subprocess.run(['openssl', 'x509', '-in', str(cert), '-pubkey', '-noout'], capture_output=True, timeout=5)
+    check(public.returncode == 0, 'real bootstrap transport public key observation failed')
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+    context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(str(cert), str(key))
+    context.set_alpn_protocols(['peerspan-bootstrap/1'])
+    return context, public.stdout
+
+
+def bootstrap_post(host, context, path, deadline):
+    remaining = deadline - time.monotonic()
+    check(remaining > 0, 'bootstrap charged-bucket observation exceeded its2second bound')
+    with socket.create_connection(('127.0.0.1', host.bootstrap_port), timeout=min(5, remaining)) as connection:
+        with context.wrap_socket(connection, server_hostname='peerspan') as stream:
+            check(stream.version() == 'TLSv1.3' and stream.selected_alpn_protocol() == 'peerspan-bootstrap/1',
+                  'real bootstrap TLS1.3/ALPN was not established')
+            stream.settimeout(max(.001, deadline-time.monotonic()))
+            stream.sendall(('POST ' + path + ' HTTP/1.1\r\nHost: peerspan\r\nConnection: close\r\n'
+                'Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}').encode())
+            response = http.client.HTTPResponse(stream)
+            response.begin()
+            raw = response.read(4097)
+            check(len(raw) <= 4096, 'bootstrap response exceeded bounded diagnostic metadata')
+            body = json.loads(raw)
+            code = body.get('code') if type(body) is dict else None
+            retry = response.getheader('Retry-After')
+            return {'status': response.status, 'code': code if type(code) is str and code in CODES else 'other',
+                'retry_after': 'absent' if retry is None else 'positive_integer'
+                    if retry.isascii() and retry.isdecimal() and 0 < int(retry) <= 30 else 'invalid'}
+
+
+@suite.case('real_bootstrap_charged_source_bucket_fresh_identity_owner_route_and_known_controls',
+    'final acceptance bootstrap owner-route absence under a charged rate bucket')
+def bootstrap_boundary_experiment():
+    phase = 'bootstrap_transport_fixture'
+    try:
+        host = suite.host('bootstrap-boundary', start=False)
+        config = host.root / 'direct.json'
+        config.write_text(json.dumps({'format': 1, 'advertise_bootstrap': ['127.0.0.1:' + str(host.bootstrap_port)],
+            'advertise_quic': [], 'rendezvous': [], 'relays': [], 'publish_contacts': False}))
+        config.chmod(0o600)
+        host.extra_args = ['--transport-config', config]
+        host.start()
+        first, first_key = bootstrap_identity(host.root, 'first')
+        second, second_key = bootstrap_identity(host.root, 'second')
+        check(first_key != second_key, 'bootstrap transport identities are not distinct')
+        # Both identities/contexts exist before charging starts. No setup IO,
+        # refill wait or further identity generation occurs between controls.
+        phase = 'bootstrap_initial_invalid_control'
+        deadline = time.monotonic() + 2
+        initial = bootstrap_post(host, first, '/bootstrap/v1/activations', deadline)
+        emit({'phase': phase, 'response': initial})
+        check(initial['status'] == 400 and initial['code'] == 'invalid', 'malformed known bootstrap activation did not return400/invalid')
+        phase = 'bootstrap_real_rate_pressure'
+        attempts, charged = 1, None
+        while attempts < 32 and time.monotonic() < deadline:
+            charged = bootstrap_post(host, first, '/bootstrap/v1/activations', deadline)
+            attempts += 1
+            if charged['status'] == 429:
+                break
+            check(charged['status'] == 400 and charged['code'] == 'invalid', 'known bootstrap pressure returned an unsupported response')
+        emit({'phase': phase, 'known_attempts': attempts, 'response': charged})
+        check(charged is not None and charged['status'] == 429 and charged['code'] == 'rate_limited'
+              and charged['retry_after'] == 'positive_integer', 'bootstrap fixture missed real429/rate_limited with Retry-After')
+        phase = 'bootstrap_fresh_identity_owner_observation'
+        # Exact BASE from the unchanged access_onboarding public fixture.
+        owner = bootstrap_post(host, second, '/v1/onboarding/access-inspection', deadline)
+        phase = 'bootstrap_charged_known_after_control'
+        after = bootstrap_post(host, second, '/bootstrap/v1/activations', deadline)
+        emit({'phase': 'bootstrap_owner_route_frozen', 'owner': owner, 'known_after': after,
+              'known_attempts': attempts, 'distinct_transport_keys': True, 'same_loopback_source': True,
+              'transport_identity_is_network_authority': False})
+        check(after['status'] == 429 and after['code'] == 'rate_limited' and after['retry_after'] == 'positive_integer',
+              'known bootstrap route lost charged-bucket control after owner observation')
+        check((owner['status'], owner['code']) in ((404, 'not_found'), (429, 'rate_limited')),
+              'bootstrap owner-route observation had an unsupported status/code')
+        shared.update(bootstrap_boundary_complete=True, bootstrap_owner=owner)
+    except Exception as error:
+        try:
+            descriptor = os.open(suite.work / 'bootstrap-boundary-failure.private.log', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, 'w') as output:
+                traceback.print_tb(error.__traceback__, file=output)
+        except OSError:
+            pass
+        emit({'phase': phase, 'bootstrap_boundary_complete': False})
+        raise Failure('bootstrap charged-bucket fixture/control failed at ' + phase) from None
+
+
+@suite.case('bootstrap_owner_access_inspection_remains_absent_under_charged_source_bucket',
+    'final acceptance bootstrap owner-route absence under a charged rate bucket',
+    known='observed charged bootstrap bucket masks genuine owner-route absence with429')
+def bootstrap_owner_absence_gate():
+    if not shared.get('bootstrap_boundary_complete'):
+        raise Skip('real bootstrap charged-bucket controls were not established')
+    owner = shared['bootstrap_owner']
+    check(owner['status'] == 404 and owner['code'] == 'not_found', 'bootstrap owner route did not return required404/not_found under real rate pressure')
 
 
 try:
