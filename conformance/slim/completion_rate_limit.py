@@ -8,7 +8,7 @@ at most2s. One real commit's
 response and both immediate GET states are frozen before any repair. After
 pressure and one prescribed1s diagnostic refill interval, one exact completed
 requester resume diagnoses retained-publication repair. It cannot satisfy the
-first-attempt assertion. Only that final behavior has a strict known marker.
+first-attempt assertion. That final behavior remains a separate required gate.
 No fabricated authority, original-key transfer, clock jump or product delay.
 Root runs committed source; the independent author never runs the product.
 """
@@ -339,7 +339,7 @@ def experiment():
 
 
 @suite.case('original_participant_applies_by_first_commit_return_under_brief_real_rate_pressure',
-    'final acceptance exact completion publication', known='observed missing bounded automatic completion publication retry under real429 pressure')
+    'final acceptance exact completion publication')
 def first_attempt_gate():
     if not shared.get('complete'):
         raise Skip('pressure experiment did not establish its required real preconditions and immutable proof')
