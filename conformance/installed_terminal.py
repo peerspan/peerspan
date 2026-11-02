@@ -202,6 +202,7 @@ class Terminal:
         self.startup_events = log.with_suffix('.startup.jsonl')
         self.action_events = log.with_suffix('.actions.jsonl')
         self.action_started, self.action_count = time.monotonic(), 0
+        self.last_output_at = time.monotonic()
         self.screen = pyte.Screen(160, 60)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
@@ -242,6 +243,7 @@ class Terminal:
             self.log.write(block); self.log.flush()
             decoded = self.decoder.decode(block)
             self.stream.feed(decoded)
+            self.last_output_at = time.monotonic()
             # Public terminal capability replies; no native callbacks/state.
             if '\x1b[6n' in decoded:
                 self.send(f'\x1b[{self.screen.cursor.y + 1};{self.screen.cursor.x + 1}R')
@@ -399,7 +401,8 @@ class Terminal:
     @terminal_action
     def focus(self, label, *, input_field=False):
         until = self.budget.until(UI_LIMIT)
-        for _ in range(64):
+        signature = self.settled_focus(until)
+        for navigation in range(65):
             focused = label in self.reversed_labels()
             if not input_field:
                 focused = focused or self.focused_button(label)
@@ -407,10 +410,36 @@ class Terminal:
                 focused = focused or self.focused_input(label)
             if focused:
                 return
-            require(time.monotonic() < until, 'native control focus deadline reached')
+            require(navigation < 64 and time.monotonic() < until, 'native control focus deadline reached')
             self.send('\t')
-            self.pump(min(.15, max(0, until - time.monotonic())))
-        raise CheckFailure('native exact control could not receive keyboard focus')
+            signature = self.settled_focus(until, previous=signature)
+
+    def focus_signature(self):
+        regions = []
+        for region in self.reversed_labels():
+            if region:
+                bracketed = re.fullmatch(r'\[ (.+) \]', region)
+                regions.append(bracketed.group(1) if bracketed else region)
+        inputs = tuple(label for label in ('New agent name', 'Owner label') if self.focused_input(label))
+        cursor = self.screen.cursor
+        return tuple(regions), inputs, (cursor.x, cursor.y, cursor.hidden)
+
+    def settled_focus(self, until, *, previous=None):
+        candidate, stable_since = None, None
+        while time.monotonic() < until:
+            # Consume all immediately available fragments before trusting a frame.
+            while time.monotonic() < until and select.select([self.master], [], [], 0)[0]:
+                self.pump(0)
+            now = time.monotonic()
+            signature = self.focus_signature()
+            if previous is not None and signature == previous:
+                candidate, stable_since = None, None
+            elif signature != candidate:
+                candidate, stable_since = signature, now
+            elif now - stable_since >= .250 and now - self.last_output_at >= .100:
+                return signature
+            self.pump(min(.05, max(0, until - time.monotonic())))
+        raise CheckFailure('native focus did not settle or change after one keyboard action')
 
     def focused_input(self, label):
         # Native inputs hide the physical cursor. Their current row-local submit
@@ -457,8 +486,10 @@ class Terminal:
             return time.monotonic() - stable_since >= .250
 
         self.wait(retained_value, 'native exact input did not retain the typed value')
+        until = self.budget.until(UI_LIMIT)
+        previous = self.settled_focus(until)
         self.send('\t')
-        self.pump()
+        self.settled_focus(until, previous=previous)
 
     def input_value(self, label):
         # Read only the currently focused public label's value before its hint.
