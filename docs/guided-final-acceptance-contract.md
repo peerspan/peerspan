@@ -314,3 +314,23 @@ the original API once. Sidecars are outside every frozen DB/schema/state/home
 snapshot. No product rows/authority, body, timeout, signed deadline, phase,
 assertion or mutation retry changes. All other operations keep their original
 clocks. Emit closed phase/precondition diagnostics, never raw private values.
+
+### Terminal-history directory observation prerequisite
+
+Final083c6b9 CI's requester-completion history check had no DB/schema/state/home
+change and no TCP change, but observed one1200-byte QUIC Initial from the live
+requester to the stopped issuer during the expired API phase. Receive-only
+diagnostics identify that direction/header, not its owning call. The retained
+directory still reported that stopped issuer as `ok`; no truthful stopped-peer
+refresh had completed before this phase's purity baseline. Do not attribute the
+packet to the historical read or claim its exact cause from those facts alone.
+
+The independent fixture must finish one ordinary bounded directory observation
+after terminal cleanup's clock advance and issuer shutdown, before taking its
+strict purity baseline. Reuse the same public refresh/error-state prerequisite
+already required after requester restart. Require usable current authority and
+exact issuer row with truthful error state. Then retain the frozen quiet and
+all original whole-state/carrier comparisons, phases, API/CLI operations and
+deadlines. No packet filtering, counter reset, row fabrication, daemon restart,
+new approval or mutation retry. Preserve prior failed logs and keep the existing
+outbox-attempt prerequisite and receive-only diagnostics composed in order.
