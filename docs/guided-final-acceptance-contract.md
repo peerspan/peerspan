@@ -266,3 +266,24 @@ reload command necessarily unloads an unchanged mod, or counting its saved
 channel as a fresh model acknowledgment. The live model check loads the exact
 installed plugin directory on resuming an existing conversation; separate actual
 marketplace-installation terminal acceptance proves the normal installed route.
+
+### Retained administrator prefix and carrier rate limits
+
+Final documentation-head CI exposed `link admit --approve` failing with a peer
+rate limit after its preview had already retained the exact owner offer and
+requester selection. Repeated admission preview/approval must not require
+another carrier poll when both requested packet IDs and their packet bytes are
+already retained on that exact ordinary request. This is evidence availability,
+not authority: ordinary administrator preparation still verifies every packet,
+signature, current root/provider/person/host/device, deadline and exact consent.
+An absent or different requested prefix still requires bounded polling or fails;
+never substitute a different cached offer/selection, suppress arbitrary carrier
+errors, replay an approval or loosen rate limits. This matches the retained
+prefix treatment already used for original finalization.
+
+Independent verification must retain the exact O/S prefix, make its carrier
+unavailable/rate-limited, and exercise administrator preview/explicit approval
+without another carrier request, while retaining exact signed-result checks.
+Wrong IDs/missing bytes must not gain this shortcut. Preserve all existing
+owner, signing and participant cases/deadlines; a final clean full-head run is
+still required after the correction. The first failed CI log remains retained.
