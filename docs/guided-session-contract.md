@@ -10030,6 +10030,29 @@ and verdict stays intact. All old74, combined678561e1, own-only join prerequisit
 owner-prerequisite source and first execution separately. Positive signature/
 application validity remains governed by the existing proofs and combined suite.
 
+A fresh combined run on the CLI-only correction stops0/3 in2.38s at generic
+HTTP409 before owner consent. Its exact operation/code were not reported.
+Retained A has the automatically imported pending row but zero request frames;
+B has its genuine request frame. Do not claim that alone identifies the409
+cause. The automatic return imports the row before its ordinary request-frame
+fetch completes. Strengthen ONLY the new combined suite's existing15s incoming
+return checkpoint: within that same wait, require the exact real request frame
+retained on A, matching B's saved request frame/role/writer/request identity.
+Observe this through read-only SQLite alongside the existing public pending
+view; no extra driver/code import, stopped worker, API mutation or larger wait.
+Run the original owner inspection/Prepare/Approve only after that completed
+incoming-evidence witness. This observes the real pipeline, not another actor's
+authority or an invented ready response. Preserve every subsequent assertion,
+consent boundary,30s F/25s application bound and one lost Complete recovery.
+
+The new suite may additionally emit closed operation-class/HTTP/error-code
+metadata only on failed existing API calls. No raw path/IDs/values/errors or
+private references; no changed return/exception/verdict or additional API call.
+Retain the original678561e1 source/failure hashes and independently author the
+small new-suite revision. All74 prior files, both diagnostics and own-only join
+prerequisite remain exact. The new passing run does not retroactively classify
+the first generic409.
+
 Keep all74 prior files, cases/assertions/waits and whole DB/schema/state/home/
 TCP+UDP comparisons intact. This combined live-worker progress suite does not
 claim global zero-IO/full-database purity while authorized work is advancing;
