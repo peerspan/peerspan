@@ -388,3 +388,34 @@ Selected: explicit independent file scheduling with byte-identical inputs and
 unchanged individual deadlines. Discarded: unsupported SDK environment knobs,
 repeating failed files, increasing test deadlines, dropping variants, splitting
 frozen cases, or claiming scheduling explains an unattributed failure.
+
+### Atomic private debug barrier publication
+
+Final7fb4853 CI passed native440 and the terminal-history purity check, but the
+requester pre-application barrier case got HTTP409 with an unexpected code. Its
+old failure message omitted the code; keep that uncertainty and the original
+log. No successful late application was reported. Inspection identified an
+independent fixture publication hazard: its `marker` helper creates/writes a
+visible file, then chmods it0600. A concurrent strict debug-control reader can
+observe the initial umask-derived permissions or incomplete bytes. Debug barrier
+markers must be private, complete, single-link regular files when first visible.
+Do not claim that this hazard caused the earlier response without its code.
+
+A separate contract-only author may add one launcher around only the literal
+pre-application barrier case. Replace only its marker publication helper with
+same-directory atomic publication: create a fresh private0600 regular temporary
+file, write the exact original bytes completely and flush, then rename it over
+the original marker path. Preserve its operation/request match, one arm, one
+release, barrier entry, parent detach, every whole-state/carrier/application
+assertion, error-code requirement and deadline. Temporary publication files
+must be gone before returning to the case or taking its snapshots. Compose the
+existing directory/outbox/receive-only launchers unchanged. No product code,
+control protocol, SQL row, clock, retry, case body or verdict changes.
+
+Capture only the original completion response status and a closed public code
+category in this exact case, before its unchanged assertion. Allowed codes:
+review_changed, review_expired, commit_completion_unavailable, state_conflict,
+request_unavailable, not_found, invalid_request, forbidden, internal; all others
+are `other`. No body, detail, path, request ID, key or exception text. Diagnostic
+failure never replaces the original response or verdict. Retain source hashes
+and the first failed CI alongside final full-head checks/review.
