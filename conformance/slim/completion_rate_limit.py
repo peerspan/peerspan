@@ -445,8 +445,7 @@ def bootstrap_boundary_experiment():
 
 
 @suite.case('bootstrap_owner_access_inspection_remains_absent_under_charged_source_bucket',
-    'final acceptance bootstrap owner-route absence under a charged rate bucket',
-    known='observed charged bootstrap bucket masks genuine owner-route absence with429')
+    'final acceptance bootstrap owner-route absence under a charged rate bucket')
 def bootstrap_owner_absence_gate():
     if not shared.get('bootstrap_boundary_complete'):
         raise Skip('real bootstrap charged-bucket controls were not established')
