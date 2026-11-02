@@ -8054,6 +8054,36 @@ signed invitation and exposes no requester-only helper override, so asymmetric
 local configuration alone cannot establish that exclusivity. The helper remains
 replaceable transport and receives no membership/access authority.
 
+The resource helper's first mTLS run fails before owner measurement: closed
+codes show certificate verification error18 (self-signed certificate), and an
+independent stale300-second original-window check. The canonical wire formats
+section9.1/12 changed the original request/mailbox window to3600 seconds;
+invitation return windows follow section10.1. Use those current typed windows,
+not the older superseded bootstrap paragraph. No participant time is changed.
+
+Authenticate resource clients by their exact public host key, not equality to a
+previously observed self-signed certificate byte string. The independent helper
+may use test-only `pyOpenSSL==26.4.0` with its TLS verification callback and
+MemoryBIO API. Require a client certificate and a completed authenticated TLS1.3
+handshake, exact known owned-PID/socket tuple, depth-zero Ed25519 public key equal
+to that host's public pin, valid certificate times, self-issued subject/issuer
+and a verified Ed25519 certificate self-signature. Reject absent/unknown keys,
+malformed chains, other verification failures and changed socket ownership.
+Public leaf discovery stays an extra key-pin observation, never a participant
+private-key read. Require the same post-handshake key/provenance checks before
+HTTP. Disable session caching and request no stateless tickets through the
+public API; count/drain all generated handshake bytes without asserting that a
+flag alone proves zero TLS1.3 tickets. Keep encrypted raw-socket counters and
+accepted-stream parking unchanged. The pinned dependency belongs only to this
+independent suite; ordinary daemon/bundle dependencies are unaffected.
+
+Selected: mandatory public-key-pinned mTLS using the documented callback.
+Discarded: trusting every client certificate; assuming certificate bytes stay
+stable; reading participant TLS/private-key files; changing product TLS; and
+implementing a custom TLS stack. Preserve both failed sources and logs. See
+[PyOpenSSL verification and MemoryBIO API](https://www.pyopenssl.org/en/stable/api/ssl.html)
+and the [pinned release](https://pypi.org/project/pyOpenSSL/26.4.0/).
+
 ### Immutable review and record
 
 Review is exactly `{version:1,kind:"approve_existing_person_machine",consent_id,
