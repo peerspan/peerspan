@@ -23,6 +23,25 @@ from datetime import datetime, timezone
 from harness import check, parse_time
 
 
+TLS_LIBRARIES = frozenset({'SSL','X509','ASN1','PEM'})
+TLS_REASONS = frozenset({'CERTIFICATE_VERIFY_FAILED','TLSV1_ALERT_UNKNOWN_CA',
+    'TLSV1_ALERT_DECRYPT_ERROR','SSLV3_ALERT_BAD_CERTIFICATE','SSLV3_ALERT_CERTIFICATE_UNKNOWN',
+    'TLSV13_ALERT_CERTIFICATE_REQUIRED','UNSUPPORTED_PROTOCOL','WRONG_VERSION_NUMBER',
+    'NO_SHARED_CIPHER','NO_APPLICATION_PROTOCOL','TLSV1_ALERT_NO_APPLICATION_PROTOCOL',
+    'PEER_DID_NOT_RETURN_A_CERTIFICATE','CERTIFICATE_REQUIRED','TLSV1_ALERT_PROTOCOL_VERSION',
+    'SSLV3_ALERT_HANDSHAKE_FAILURE','TLSV1_ALERT_INTERNAL_ERROR','UNEXPECTED_EOF_WHILE_READING',
+    'DECRYPTION_FAILED_OR_BAD_RECORD_MAC','BAD_SIGNATURE','TLSV1_ALERT_BAD_RECORD_MAC'})
+MAILBOX_CHECKS = {message:'_'.join(message.removeprefix('resource fixture ').split()) for message in (
+    'resource fixture duplicate JSON field','resource fixture malformed JSON field','resource fixture missing frame',
+    'resource fixture invalid frame envelope','resource fixture frame bound','resource fixture header bound',
+    'resource fixture invalid header','resource fixture invalid HTTP framing','resource fixture request body bound',
+    'resource fixture request pipelining','resource fixture missing exact capability','resource fixture unsupported route',
+    'resource fixture invalid mailbox creation','resource fixture invalid mailbox window','resource fixture invalid original window',
+    'resource fixture mailbox quota','resource fixture conflicting mailbox creation','resource fixture wrong capability or expired mailbox',
+    'resource fixture invalid append','resource fixture conflicting frame','resource fixture frame quota',
+    'resource fixture GET body','resource fixture invalid method','resource fixture response bound')}
+
+
 def compact(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()
 
@@ -151,6 +170,8 @@ class ResourceMailboxGate:
         self.closed,self.released = threading.Event(),threading.Event()
         self.connections=self.received=self.sent=self.errors=0
         self.failures = {name:0 for name in ('socket_provenance','tls_handshake','tls_host_key','mailbox_request')}
+        self.tls_errors,self.verify_codes,self.mailbox_checks,self.mailbox_clauses = {},{},{},{}
+        self.diagnostic_errors = 0
         self.clients,self.held,self.boxes = {},{},{}
         self.park_targets,self.parked = set(),set()
         self.last_barrier = None
@@ -195,11 +216,15 @@ class ResourceMailboxGate:
                     outer.handle(stream,generation,key)
                 except (EOFError,ConnectionError,ssl.SSLEOFError):
                     pass
-                except Exception:
+                except Exception as error:
                     with outer.condition:
                         if not outer.closed.is_set():
                             outer.errors += 1
                             outer.failures[phase] += 1
+                            try:
+                                outer.observe_failure(phase,error)
+                            except Exception:
+                                outer.diagnostic_errors += 1
                 finally:
                     with outer.condition:
                         outer.clients.pop(generation,None)
@@ -249,10 +274,80 @@ class ResourceMailboxGate:
     def summary(self):
         with self.condition:
             return dict(connections=self.connections,received_bytes=self.received,sent_bytes=self.sent,
-                failures=dict(self.failures),mailboxes=len(self.boxes),
+                failures=dict(self.failures),tls_errors=dict(self.tls_errors),tls_verify_codes=dict(self.verify_codes),
+                mailbox_checks=dict(self.mailbox_checks),mailbox_clauses=dict(self.mailbox_clauses),
+                diagnostic_errors=self.diagnostic_errors,mailboxes=len(self.boxes),
                 original_mailboxes=sum(box['request_id'].startswith('link_') for box in self.boxes.values()),
                 return_mailboxes=sum(box['request_id'].startswith('di_') for box in self.boxes.values()),
                 held_original_gets=len(self.held),gate_released=self.released.is_set())
+
+    def observe_failure(self, phase, error):
+        """Receive-only: closed categories from the already-caught exception/locals."""
+        def increment(histogram, category):
+            histogram[category] = histogram.get(category,0)+1
+        if phase=='tls_handshake':
+            library,reason = getattr(error,'library',None),getattr(error,'reason',None)
+            library = library if library in TLS_LIBRARIES else ('none' if library is None else 'other')
+            reason = reason if reason in TLS_REASONS else ('none' if reason is None else 'other')
+            increment(self.tls_errors,library+'/'+reason)
+            code = getattr(error,'verify_code',None)
+            increment(self.verify_codes,str(code) if type(code) is int and 0<=code<=9999
+                      else ('none' if code is None else 'other'))
+        if phase!='mailbox_request':
+            return
+        message = error.args[0] if error.args and type(error.args[0]) is str else None
+        category = MAILBOX_CHECKS.get(message)
+        if category is None:
+            if type(message) is str and message.startswith('independent public Ed25519 verification failed: resource-'):
+                category = 'frame_signature'
+            else:
+                category = next((name for kind,name in ((json.JSONDecodeError,'json_decode'),
+                    (UnicodeError,'unicode_decode'),(KeyError,'key_error'),(TypeError,'type_error'),
+                    (ValueError,'value_error'),(subprocess.SubprocessError,'subprocess_error')) if isinstance(error,kind)), 'other')
+        increment(self.mailbox_checks,category)
+        # Inspect only locals already captured at the failing original check.
+        # No new parsing, time sample, IO, request or assertion is dispatched.
+        local = {}
+        trace = error.__traceback__
+        while trace is not None:
+            if trace.tb_frame.f_code in (ResourceMailboxGate.handle.__code__,ResourceMailboxGate.validate_frame.__code__):
+                local = trace.tb_frame.f_locals
+            trace = trace.tb_next
+        value,frame,box = local.get('value'),local.get('frame'),local.get('box')
+        clauses = {}
+        if category=='invalid_mailbox_creation':
+            shape = isinstance(value,dict) and set(value)==set('format request_id locator read_cap_hash created_at expires_at frame'.split())
+            clauses = dict(create_method=local.get('method')=='POST',create_object_shape=shape)
+            if shape:
+                clauses.update(create_format=type(value['format']) is int and value['format']==1,
+                    create_request_id=type(value['request_id']) is str and re.fullmatch('(?:link|di)_[0-9a-f]{64}',value['request_id']) is not None,
+                    create_locator=type(value['locator']) is str and re.fullmatch('[0-9a-f]{64}',value['locator']) is not None,
+                    create_capability_hash=value['read_cap_hash']==local.get('cap_hash'),
+                    create_first_role=isinstance(value['frame'],dict) and value['frame'].get('role')=='request')
+        elif category=='invalid_frame_envelope':
+            shape = isinstance(frame,dict) and set(frame)==set('format request_id locator role writer_host_public_key frame_id created_at expires_at ciphertext_base64 signature'.split())
+            clauses = dict(frame_object_shape=shape)
+            if shape:
+                clauses.update(frame_format=type(frame['format']) is int and frame['format']==1,
+                    frame_writer=frame['writer_host_public_key']==local.get('key'),
+                    frame_role=frame['role'] in {'request','owner','selection','administrator','owner_finalization','commit','outcome','proofs'},
+                    frame_id=type(frame['frame_id']) is str and re.fullmatch('[0-9a-f]{64}',frame['frame_id']) is not None,
+                    frame_mailbox_tuple=isinstance(box,dict) and all(frame[name]==box.get(name) for name in ('request_id','locator','created_at','expires_at')))
+        elif category in {'invalid_mailbox_window','invalid_original_window'}:
+            created,expires,now = local.get('created'),local.get('expires'),local.get('now')
+            if all(isinstance(item,datetime) for item in (created,expires,now)):
+                clauses = dict(window_future=created.timestamp()<=now.timestamp()+30,window_unexpired=now<expires,
+                    window_bounds=60<=(expires-created).total_seconds()<=86400,
+                    window_original_lifetime=(expires-created).total_seconds()==300)
+        elif category=='conflicting_mailbox_creation':
+            prior = local.get('prior')
+            if isinstance(prior,dict) and isinstance(value,dict):
+                clauses = dict(retry_live=not prior.get('deleted',True),
+                    retry_terms=prior.get('creation')=={name:value.get(name) for name in prior.get('creation',{})},
+                    retry_first_frame=prior.get('first')==local.get('raw'))
+        for clause,passed in clauses.items():
+            if not passed:
+                increment(self.mailbox_clauses,clause)
 
     def checkpoint(self, generation):
         while generation in self.park_targets and not self.closed.is_set():
