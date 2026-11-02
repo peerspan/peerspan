@@ -4297,3 +4297,13 @@ GET behavior, matching error strings or retrying a whole approved command.
 Observe the existing authorized host-slot job before the original signing
 settled baseline, retaining every original3s wait/guard and no original signer
 source. This establishes a new setup witness, not an earlier-actor diagnosis.
+
+CLI-only retry cc5ad2a builds fresh in9.96s and passes fmt/Rust155+2ignored/
+Clippy. Its unchanged combined678561e1 run stops0/3in2.38s at generic409
+before owner consent. The exact operation/code is unclassified; retained A
+has the automatic-return row but0frames, B1request frame. Select a stronger
+completed incoming-frame witness within the same15s return checkpoint before
+the original owner operations, plus safe failure-only closed API metadata.
+No extra mutation, import/resume, stopped worker or expanded wait. This proves
+new-run setup; it does not identify the original409 actor/cause. All older
+files/assertions and subsequent exact consent/F/one Complete guards remain.

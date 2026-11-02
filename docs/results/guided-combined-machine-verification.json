@@ -42,6 +42,18 @@
         "peerspan-peer-probe": "fff787357e757961c8e07a2c50c7666b64b433ddda111c517867de864293a557",
         "peerspan-helper": "e8cdade773bb9258d81b9069ce453e72e3e3478378d9101fa100e040bf4cca47"
       }
+    },
+    {
+      "head": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "exit": 0,
+      "seconds": 9.96,
+      "sha256": "202592a8c2007ce515ae87a87a2b5250303b9fb37e0c3e504fbdd063513fe54e",
+      "binaries": {
+        "peerspan-host": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
+        "peerspan-peer-probe": "fff787357e757961c8e07a2c50c7666b64b433ddda111c517867de864293a557",
+        "peerspan-helper": "e8cdade773bb9258d81b9069ce453e72e3e3478378d9101fa100e040bf4cca47"
+      }
     }
   ],
   "runs": [
@@ -281,6 +293,20 @@
       "passed": 5,
       "failed": 1,
       "classification": "initial publication and unsafe-source/live cases pass; authentic-response corpus whole-state guard fails, exact changed rows/caller unclassified; retained approved intent has only slot1/host"
+    },
+    {
+      "head": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+      "source_sha256": "678561e169f4ac1250e412eca2913e25005fac6fb757225d85c3fc65d6a47ef5",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "protected_files_exact": 74,
+      "exit": 1,
+      "seconds": 2.38,
+      "log_sha256": "79ce0bd22720393ba0b4d2678b271e62cb22c398f13572bfeb5053fb7325d4c3",
+      "gate": "guided-machine-after-preview-retry",
+      "passed": 0,
+      "failed": 3,
+      "dependent_cases_exercised": false,
+      "classification": "generic409 before owner consent, exact operation/code unclassified; retained A imported pending row but0frames; B1genuine request frame"
     }
   ],
   "correction": {
@@ -809,5 +835,61 @@
     "unchanged_forwarding_negative_witness_privacy_restoration_audits": true,
     "real_readonly_bound_seconds": 5,
     "product_reads_or_runtime_by_author": false
-  }
+  },
+  "preview_retry_product_commit": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+  "preview_retry_language_checks": [
+    {
+      "gate": "format",
+      "head": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 3.14,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "gate": "tests",
+      "head": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml"
+      ],
+      "exit": 0,
+      "seconds": 23.32,
+      "log_sha256": "2781a783fa01fe82bf1fc90b87463354ca228fba1244ce8e4f9860bba279075a",
+      "passed": 155,
+      "ignored": 2
+    },
+    {
+      "gate": "clippy",
+      "head": "cc5ad2ad6b447ffff55556c7a98f9a16dfe20fc5",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 7.68,
+      "log_sha256": "9408e4a2cf0b9a58bda27f030d4730653d7c36166e6751f3820b2264f2b57ddc"
+    }
+  ]
 }
