@@ -620,8 +620,7 @@ def framed_replay_experiment():
 
 
 @suite.case('exact_already_approved_durably_framed_requester_commit_replay_returns200',
-    'final acceptance exact replay after durable requester framing',
-    known='durably framed exact requester replay incorrectly reconstructs a new authority candidate')
+    'final acceptance exact replay after durable requester framing')
 def framed_replay_gate():
     if not shared.get('framed_replay_complete'):
         raise Skip('real framed replay controls and canonical applications were not established')
