@@ -548,3 +548,45 @@ record charging first, classify only the bounded received header/route, return
 404 for an existing not_found route classification, then enforce the recorded rate refusal before
 all known-route work. Discard exempting unknown attempts from charging, raising
 limits, bypassing known-route rate limits or weakening the frozen404 assertion.
+
+
+### Signed-request expiry and the carrier-resource purity baseline
+
+The fresh tracking35 run of the same5f7cd90 that passed52 acceptance checks
+failed machine_owner's final signed-request-expiry purity phase. Receive-only
+metadata shows two unclassified tables changed in owner database index0, with
+no changed public tables, files, keys or TCP/UDP counters. Keep that first log;
+its original cause is not yet attributed. The fixture snapshots every database
+and can call two100ms observations stable immediately after a test-clock jump.
+This does not itself establish that independent resource expiry has completed.
+
+A separate contract-only author must inspect the public resource lifecycle and
+existing fixture, not product code. Resource expiry erases frames and retains a
+small tombstone until expires_at+24h; after that window metadata is removed
+(bootstrap contract7, wire9). The known resource-table labels mailboxes, frames
+and helper_format may be included in the existing closed diagnostic allowlist;
+never emit raw rows, schema strings, IDs, keys or timestamps.
+
+For only the literal final signed-request-expiry phase of the unchanged case,
+a prerequisite launcher may require completed due resource expiry before the
+strict baseline, inside the original quiet wait's3second deadline. Capture the
+unchanged advance_to argument; inspect only the existing predicate's already
+held current whole-state snapshot. Identify fields using the public observation
+schema in section43 and validate the held schema/row shape; never use product
+implementation or private offsets. Require
+no due active resource with retained ciphertext and no metadata already beyond
+the documented tombstone window. Record only fixed counts/booleans showing any
+pending lifecycle completed before the owner inspection starts. No new API,
+DB/file/socket observation, mutation, retry, sleep, deadline extension or clock
+change. Invoke the original quiet predicate and wait_for with their same args;
+keep every original case/helper body, whole-state/carrier assertion and counter.
+If the prerequisite cannot settle within its original deadline, retain failure.
+Do not ignore any difference after baseline or treat later repair as purity.
+
+Selected: establish the actual pre-call resource lifecycle before attributing a
+write to owner inspection. Discard excluding the carrier DB/tables, resetting
+counters, adding sleeps, extending settling windows, deleting resource rows or
+blindly rerunning the unchanged failure. Product purity must remain intact; a
+read-only callgraph audit and observed pre-call transitions distinguish worker
+maintenance from an inspection-triggered effect without claiming an unseen
+first call site. The final whole-suite limit remains120seconds.
