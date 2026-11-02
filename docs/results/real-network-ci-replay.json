@@ -1,0 +1,65 @@
+{
+  "binaries_sha256": {
+    "peerspan-helper": "9a6abdd1e1d52838a18763e69c7836f0e3db9ebab729c59daba7da34608651db",
+    "peerspan-host": "f120b838fca312377cae3296281bc3998dbd89f9ed7a950903779b6d7d9232fc",
+    "peerspan-peer-probe": "dee8d3e1bf7d6a84535e3c83c438e576e05ccfeeb6ce3aae1ce63068aacccdd1"
+  },
+  "binary_build_head": "8f60e69781db722e2e2463b34e8633edb1a19d68",
+  "correction": "Unique initial false-to-true approval hold plus separate background frame hold; release both in finally",
+  "entry_budget_seconds": 5,
+  "first_failure": {
+    "classification": "Shared frame marker did not identify initial API caller; no product verdict",
+    "job": "https://github.com/peerspan/peerspan/actions/runs/41510929385/job/125504625696",
+    "private_log_sha256": "a23a8a624942432f145bfacc52e3a19784c30b1a19db04b78b2164824fd7d3d2"
+  },
+  "format": 1,
+  "limitations": [
+    "Existing pressure/bootstrap cases, API calls and assertions unchanged",
+    "No product source changes",
+    "Final-head CI remains required"
+  ],
+  "observations": [
+    {
+      "phase": "framed_altered_pin_control",
+      "response": {
+        "attention": [],
+        "code": "operation_conflict",
+        "commit_approved": false,
+        "http_status": 409,
+        "locally_applied": false,
+        "state": "other"
+      }
+    },
+    {
+      "first_caller_still_held": true,
+      "phase": "exact_framed_replay_before_release",
+      "response": {
+        "attention": [],
+        "code": "other",
+        "commit_approved": true,
+        "http_status": 200,
+        "locally_applied": true,
+        "state": "linked"
+      }
+    },
+    {
+      "actual_unapplied_frame_barrier": true,
+      "altered_pin_refused_before_exact_replay": true,
+      "both_canonical_applications_verified": true,
+      "distinct_people": 2,
+      "exact_replay_dispatched_once": true,
+      "immutable_consent_and_commit": true,
+      "original_keys_stayed_owned": true,
+      "phase": "framed_replay_controls_verified",
+      "real_hosts": 2,
+      "response_frozen_before_release": true
+    }
+  ],
+  "private_log_sha256": "e3ae674dc5a0ce2fbfda15eeff21923a7b9d5026fd86b47eb6d31ab1f1b55579",
+  "production_source": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+  "scope": "Local independent conformance against retained CI binaries; not an external-machine or NAT observation",
+  "suite_budget_seconds": 120,
+  "suite_sha256": "563d96593b36e2f38d2d2b42db2df9f461b7a22b7c52e189ac761416e97e85a7",
+  "summary": "completion_rate_limit: 6 passed, 0 failed, 0 expected failures, 0 unexpected passes, 0 skipped in 16s",
+  "test_source_commit": "32d7ca455a6aac739e0e28686ca1333d4252ebda"
+}

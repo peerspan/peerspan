@@ -189,18 +189,28 @@ check list is not counted as a passing software gate.
 
 The corrected workflow at `8f60e69` passes the new immediate-preparation
 regression. Its existing completion-rate suite fails a concurrent framed-replay
-fixture control: both real responses are200/linked, but the initial caller has
+fixture control: both real responses are 200/linked, but the initial caller has
 finished before replay capture. A shared frame marker does not identify the
 API caller. The independent contract author confirmed that the documented
 approval barrier can establish that caller's unique false-to-true consent
 transition while background work reaches the separate frame hold. The final
 acceptance contract records this stronger two-barrier prerequisite, preserving
-the same single5second entry budget,120second suite limit and every existing
+the same single 5 second entry budget, 120 second suite limit and every existing
 held-caller, refusal, replay and signed-application assertion. No product
 source change or release retest is inferred. The
 [first failed CI job](https://github.com/peerspan/peerspan/actions/runs/41510929385/job/125504625696)
 and private full log are retained; log SHA256 is
 `a23a8a624942432f145bfacc52e3a19784c30b1a19db04b78b2164824fd7d3d2`.
+
+The corrected independent replay fixture passes all 6 cases in 16 seconds
+against the retained CI binaries, with no production change. Both actual
+markers are required within the original 5 second entry budget. The uniquely
+approving caller remains held when the one exact replay returns 200; altered
+pins return 409, immutable consent/commit proofs stay intact, and both hosts
+apply the same canonical operation after release. The
+[local receipt](results/real-network-ci-replay.json) records source/binary and
+first-failure hashes. Final-head CI remains required; no unexplained rerun or
+deadline extension is counted as a fix.
 
 ## Retained first failures
 
