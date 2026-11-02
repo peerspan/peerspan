@@ -59,6 +59,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install pinned native CLI for artifact validation
+        run: npm install --prefix "$RUNNER_TEMP/peerspan-claude-bundle" --no-audit --no-fund --save-exact @anthropic-ai/claude-code@2.1.303
       - name: Install Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal
@@ -74,6 +76,9 @@ jobs:
           (cd dist && sha256sum -c "$name.tar.gz.sha256")
           python conformance/installed_bundle.py \
             --archive "dist/$name.tar.gz" --node "$(command -v node)"
+          DISABLE_UPDATES=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            python conformance/onboarding_bundle.py --archive "dist/$name.tar.gz" \
+              --claude "$RUNNER_TEMP/peerspan-claude-bundle/node_modules/.bin/claude"
       - name: Build and check the optional helper (Rust)
         env:
           VERSION: ${{ inputs.version }}
