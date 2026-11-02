@@ -57,12 +57,14 @@
     ]
   },
   "ci": {
-    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41387704359",
-    "observed": "Previous083c6b9:50 of51 checks passed, including native440 and the complete installed terminal/upgrade/participant job. Requester history failed with one QUIC packet and a stale stopped-peer directory entry; its cause remains unattributed. A new contract-derived directory prerequisite passes all6 cases locally. Full CI and review of the corrected head remain required.",
-    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41387704277",
+    "conformance": "https://github.com/peerspan/peerspan/actions/runs/41389078806",
+    "installed_receipt_sha256": "403df1b2f489aa09539d55bf10575378252ad68f5044914b807d2a2496b8d10a",
+    "observed": "Previous eeb0987:50/51 passed, including all45 conformance suites, Rust checks, complete installed terminal/upgrade/participant job and clear Codex review. Native439/440: one5000ms validation deadline, cause unclassified. The independent operational runner now isolates each file with byte-exact inputs, preserves all440 cases/deadlines and retries none. Full corrected-head CI/review required.",
+    "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41389078813",
     "required": true,
     "slim_suites": 45,
-    "source": "083c6b954df6a34f783a8597ba6959cbdd8a172a"
+    "source": "eeb098775a415d59f9a691f400a81de18a81a587",
+    "tested_merge_source": "8a6d53999c5bca750a9c4493ca8403188e9ed85a"
   },
   "first_failures": [
     {
@@ -124,6 +126,14 @@
     {
       "kind": "requester history QUIC packet with stopped-peer directory still healthy; call-site attribution unresolved",
       "log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb"
+    },
+    {
+      "kind": "native validation unchanged5000ms deadline at5022ms on eeb0987; cause unclassified",
+      "log_sha256": "f1bc344719df04d3739231362bc1fad4f0bfdccd43ed8c075e1b3d268e3806e4"
+    },
+    {
+      "kind": "helper-corrected full local native run: different unchanged invitation-preview5000ms deadline at5003ms; cause unclassified",
+      "log_sha256": "595a5d79f49729beef7dbb1b65b699d6d63f309048aab2c7ef6aaa335aa26ad7"
     }
   ],
   "installed_terminal": {
@@ -144,13 +154,42 @@
   "main_baseline": "7d675b6f80304c82e1ad3162b94e5ba305ecdffb",
   "native": {
     "ci_cases": 440,
-    "ci_result": "all440 passed on prior527d1db/e21e6d6; native hook tree unchanged, full final CI required",
+    "ci_result": "all440 passed on527d1db/e21e6d6/083c6b9; eeb0987 validation deadline439/440, first failure retained; full corrected-head CI required",
+    "file_process_isolation": {
+      "all_inputs_byte_exact": true,
+      "audit_sha256": "346429db44e0643c2d0e702a3c66c899536cf89c4ec66e8d20a5e7756d9a78f0",
+      "expected_files": 22,
+      "expected_runtime_cases": 440,
+      "failed_file_retries": 0,
+      "gate_seconds": 600,
+      "individual_deadlines_unchanged": true,
+      "local_and_final_ci": "required, not yet claimed passed",
+      "runner_source_sha256": "6d7ece22e12fdd51c2e5074c9e96f88f392eaac7a0d62019894ef1145b7f4957"
+    },
     "local": {
       "deadline_failures": 9,
       "log_sha256": "91183b60f3894c504c75bfd486cb554617738655e5dfc73705a4792e27204832",
       "passed": 431
     },
-    "note": "Local cases hit their unchanged five-second budgets during concurrent work. All440 passed in CI in its separate runner; no deadline or semantic assertion was relaxed."
+    "note": "Local cases hit their unchanged five-second budgets during concurrent work. All440 passed in CI in its separate runner; no deadline or semantic assertion was relaxed.",
+    "observation_correction": {
+      "case_deadline_ms_unchanged": 5000,
+      "cases_unchanged": 440,
+      "full_local_run": {
+        "corrected_case_passed": true,
+        "elapsed_seconds": 84.82,
+        "failed": 1,
+        "failure": "different unchanged invitation-preview5000ms deadline at5003ms; cause unclassified",
+        "log_sha256": "595a5d79f49729beef7dbb1b65b699d6d63f309048aab2c7ef6aaa335aa26ad7",
+        "passed": 439
+      },
+      "independent_audit_sha256": "ba14c603a66642fb16e9e2e6a36f796f06681f9d073dca5861670bcba100216f",
+      "other_files_byte_exact": 21,
+      "product_unchanged": true,
+      "redundant_public_queries_removed": 27,
+      "source_sha256": "3a124c27212e49818cd0119d1214b283ec05ce6aa785e593d8cd05f96b28e249",
+      "variants_unchanged": 9
+    }
   },
   "participants": [
     {
@@ -244,8 +283,8 @@
       "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
     }
   ],
-  "recorded_at": "2026-11-02T04:32:44.975628+00:00",
-  "runtime_test_candidate": "8f6422235cde0b34504a4985a7e00f1187fdcf62",
+  "recorded_at": "2026-11-02T04:49:48.155497+00:00",
+  "runtime_test_candidate": "acebed964820eb2e9c3a51d2ae91a3fe5d1fab61",
   "targeted_regressions": {
     "admission_retained_prefix": {
       "cases": 1,
@@ -293,10 +332,14 @@
     },
     "requester_completion": {
       "cases": 6,
+      "ci_elapsed_seconds": 111,
       "ci_job_failed": "https://github.com/peerspan/peerspan/actions/runs/41387704359/job/125092612381",
       "ci_log_sha256": "4ea4d9ddea07e74947f90da5f462f16651e6ba827b4192ff74d4dd0989741cfb",
+      "ci_log_sha256_passed": "8c950bcedd08bf265c1366da620ead2eec1f96bfc4d27bf28206c4bdaab9f448",
+      "ci_passed": true,
+      "ci_source": "eeb098775a415d59f9a691f400a81de18a81a587",
       "directory_prerequisite_source_sha256": "11f433f5af26b54366ea17af9e802d183a3eb16354464a43f63a8b6f94c5e740",
-      "final_two_minute_runtime_gate": "still required on corrected final CI",
+      "final_two_minute_runtime_gate": "passed on eeb0987; unchanged source must pass on final corrected head",
       "first_packet_attribution": "unresolved; receive-only diagnostic matches requester endpoint and stale directory state but does not identify a call site",
       "frozen_source_sha256": "894299c472b2374cc32c6afd237b56d5c3d230f6f3c8be8756284a924bb166a5",
       "local_elapsed_seconds": 151,

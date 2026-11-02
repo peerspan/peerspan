@@ -16,7 +16,7 @@ jobs:
   claude-onboarding:
     name: Claude onboarding runtime
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       DISABLE_UPDATES: '1'
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
@@ -27,6 +27,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install pinned native test runtime
         run: npm install --prefix "$RUNNER_TEMP/peerspan-claude-test" --no-audit --no-fund --save-exact @anthropic-ai/claude-code@2.1.303
       - name: Validate native entry and run independent runtime checks
@@ -36,7 +39,19 @@ jobs:
           set -euo pipefail
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" --version
           "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin validate integrations/claude-onboarding --strict
-          "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" plugin test integrations/claude-onboarding
+          python3 conformance/native_file_runner.py \
+            --claude "$RUNNER_TEMP/peerspan-claude-test/node_modules/.bin/claude" \
+            --plugin integrations/claude-onboarding \
+            --work-dir "$RUNNER_TEMP/peerspan-native-files" \
+            --receipt "$RUNNER_TEMP/peerspan-native-receipt.json"
+      - name: Retain native file scheduling receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-file-acceptance-receipt
+          path: ${{ runner.temp }}/peerspan-native-receipt.json
+          retention-days: 14
+          if-no-files-found: warn
 
   onboarding-bundle:
     name: Installed onboarding bundle

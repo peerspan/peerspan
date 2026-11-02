@@ -101,3 +101,22 @@ the strict baseline, requiring truthful stopped-peer error state. It changes no
 frozen case, assertion, counter comparison or deadline. All6 cases pass locally
 in151seconds; the corrected final CI must also meet the120second suite budget.
 Full corrected-head CI and review remain required before integration.
+
+
+The corrected requester-history suite passed6/6 in111seconds on eeb0987; all45
+conformance suites and Rust checks passed. That head's native run passed439/440,
+with one unchanged5000ms validation deadline at5022ms. Its cause remains
+unclassified. The independent author removes27 redundant public UI queries from
+the nine-variant case by reusing only already-settled observations. Every case
+body, variant, assertion, action and deadline remains unchanged; the other21
+native files are byte-exact. This correction changes no product code or artifact.
+The first timeout remains retained; full corrected native/CI/review gates apply.
+
+
+The helper-corrected local native run passed439/440 in84.82seconds: the original
+case passed, a different invitation-preview case hit its unchanged5000ms bound.
+That result is retained and its cause remains unclassified. The final runner
+isolates each original file in a separate public CLI invocation with byte-exact
+plugin inputs. It must execute all22 files/440 cases once without retry, preserve
+all case deadlines and finish within600seconds. No further case-helper changes
+are authorized in response to individual timeouts.
