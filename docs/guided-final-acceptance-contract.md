@@ -661,3 +661,17 @@ relaxed guards, sleeps instead of phase evidence or extra retry. Controls/proofs
 must pass separately from one strict expected-failure gate for replay200 on the
 old binary. Observe strict XPASS on the correction before removing that marker.
 The first failure and original CI attribution limit remain retained.
+
+The first corrected-binary run passes the four frozen cases and altered-pin
+control, then times out waiting for replay while its frame barrier remains
+armed; this first fixture failure is retained. That named point covers every
+matching newly received/sealed frame, including later completion traffic. After
+observing the initial exact entry, disarm it before the two further requests;
+the already-entered caller must still be held waiting for continue. Assert that
+caller remains held before capturing the unapplied prefix and after freezing
+replay. Release only its existing continue marker in finally. This limits the
+control to the intended initial durable frame and avoids blocking replay's later
+legitimate frames. No deadline, original case or replay200 assertion changes;
+rerun the corrected fixture against both old and fixed binaries, retaining all
+first failures. Do not treat the timeout as either a verified product regression
+or an old replay success.
