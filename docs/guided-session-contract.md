@@ -10083,7 +10083,7 @@ service, public marketplace publication or repository checkout is required.
 
 The marketplace root is `share/peerspan` inside the existing single-root host
 archive. Its `.claude-plugin/marketplace.json` has name `peerspan-bundled`,
-owner `{name:"Peerspan"}`, a nonempty description, and exactly one plugin entry:
+owner `{name:"Peerspan"}`, a nonempty top-level `description`, and exactly one plugin entry:
 `{name:"peerspan",source:"./integrations/claude-onboarding"}`. The source is
 relative to the marketplace root, with no parent traversal, remote source,
 command source or dependency. Keep it relocatable before installation.
@@ -10159,13 +10159,18 @@ artifact and log hashes. New independent entry points:
   consume a real freshly packaged archive, verify it safely, extract and rename
   its prefix to a path with spaces before any installation. Verify the exact
   plugin inventory, version and local source. Strictly validate both plugin and
-  marketplace with pinned Claude2.1.303. Install using the exact argv above into
+  marketplace with pinned Claude2.1.303: `claude plugin validate PLUGIN_DIR --strict`
+  and `claude plugin validate MARKETPLACE_ROOT --strict`, each bounded30s.
+  Install using the exact argv above into
   a new private `CLAUDE_CONFIG_DIR`; never alter actual user settings, HOME or
   existing Peerspan state. Disable automatic updates/nonessential traffic for
   this fixture. Confirm the native public plugin listing reports the expected
   enabled installed version and executable configuration is bound to the moved
   binary. Observe through public CLI results; do not depend on private Claude
-  cache layout. Capture no credentials or raw private native diagnostics.
+  cache layout. `plugin list --json` reports the enabled version; `plugin configure
+  peerspan@peerspan-bundled --json` reports `inputs.executable`. Optional `state`
+  may remain unset/empty. Bound install/list/configure calls30s each and the new
+  suite under2minutes. Capture no credentials or raw private native diagnostics.
 
 The second entry checks native installation, not real UI loading or a model
 turn. Preserve that limit. Also run unchanged `conformance/test_package_release.py`
