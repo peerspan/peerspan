@@ -1,0 +1,33 @@
+{
+  "actual_host_applications": 2,
+  "addressed_cli_appends": 2,
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "binding_scopes": 2,
+  "capture": {
+    "left": {
+      "bytes": 1012971,
+      "sha256": "bf75ecd0ea899b6da5eefe4a00a1fd3f2628695ef8afac275eee31be282351b5"
+    },
+    "right": {
+      "bytes": 1006831,
+      "sha256": "42d73d1072a54cb3ae520b9a0cfb33c6bf016dcc377840cc271954af1ab54fdf"
+    }
+  },
+  "finite_device_scopes": 7,
+  "format": 1,
+  "helpers_enabled": false,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_driver_sha256": "acf6da4526b793b25ff7c56c04fc567ca0c5f96644df0816a67c552c86ae4716",
+  "manual_peer_pins": 0,
+  "model_receipt": false,
+  "nat_qualification": false,
+  "native_terminal_receipt": false,
+  "normal_directory_refreshes": 2,
+  "original_key_transfers": 0,
+  "passed": true,
+  "private_control_evidence_index_sha256": "db06fb415b30a7157de0e6af3af8b919ce03e7317247b547105cedd62eaef7c3",
+  "qualification": "D1_machine_normal_cli_and_directory",
+  "relay_qualification": false,
+  "seconds": 25.943,
+  "stage": "complete"
+}
