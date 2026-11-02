@@ -8018,8 +8018,10 @@ certificate discovery and is never in a signed contact or retained carrier.
 QUIC completion serves no mailboxes (bootstrap section3/wire section13), so
 its counted forwarding supports continuation without another original-frame
 carrier. Require these exact reviewed/signed transport hints before approval
-and only H plus the requester's already-refusing TCP proxy in retained original
-carriers afterward. Arm H's route-aware gate before join approval. Implement only the public bootstrap
+and the sorted exact union of H plus both participants' configured,
+lifetime-owned refusal proxies in retained original carriers afterward. Pin each
+participant proxy to its actual host key. Permit no other address, key or kind,
+and never either actual daemon bootstrap listener. Arm H's route-aware gate before join approval. Implement only the public bootstrap
 mailbox resource behavior: preserve exact participant-created outer/frame bytes,
 allow the requester's genuine original-frame publication and the invitation-ID
 return mailbox GET unchanged, and hold **every** authenticated GET for an
@@ -8053,6 +8055,15 @@ Section12 takes request helpers from the
 signed invitation and exposes no requester-only helper override, so asymmetric
 local configuration alone cannot establish that exclusivity. The helper remains
 replaceable transport and receives no membership/access authority.
+
+The pinned-key helper run subsequently authenticates both hosts, retains the
+genuine original frame and holds its GET, then fails its assumed two-entry
+carrier setup assertion. Retained public transport metadata maps the third
+entry to the inviter's already-counted refusal proxy. Storage section8/wire19
+make this a mutable transport-only array; they impose no requester-only rule.
+Correct the fixture's exact expected union and canonical sorting, keeping every
+original-frame carrier excluded before the sole absence observation. Do not
+remove the carrier-exclusion assertion or admit an uncounted live endpoint.
 
 The resource helper's first mTLS run fails before owner measurement: closed
 codes show certificate verification error18 (self-signed certificate), and an
