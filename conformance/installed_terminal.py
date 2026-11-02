@@ -633,7 +633,7 @@ def check(archive, cli, work):
         require('Approve attachment' not in ui.text(), 'invalidated attachment remained actionable')
         require(host.registry() == after_restart, 'opening invalidated review reattached the session')
         ui.press('Review a replacement')
-        ui.press('Review agent "terminal-agent"')
+        ui.press('Review agent "terminal-agent" — owner "terminal owner"')
         assert_preview(ui, root, 'terminal-agent', 'terminal owner')
         replacement = host.lookup(root, session)
         assert_review(replacement, root, session, 'terminal-agent', 'terminal owner', existing=True)
