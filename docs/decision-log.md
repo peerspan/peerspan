@@ -4606,3 +4606,20 @@ exact source/artifact/log hashes. Bundled guide contract links now resolve in
 the feature repository instead of assuming absent source-doc files in the
 installed plugin. Final-head CI builds a new artifact and fresh review follows;
 all full-feature reload/model/physical/upgrade gates remain open.
+
+### GU.final: freeze feature additions and accept the combined head (2026-11-02)
+
+- **Authority:** implementation recommendation within GU-OWN1/GU-OWN2, following
+  the owner's request for when #35 will be ready after four days.
+- **Selected:** consolidate final acceptance and merge current main before
+  running installed/live gates. Both tracks independently used schema24;
+  schema28 preserves their actual database histories and adds their union.
+- **Rationale:** slice checks on a stale branch cannot establish that the feature
+  works with the current main. Preserve populated state and the actual existing
+  conversation while testing consent, enforcement, interruption and recovery.
+- **Discarded:** more feature slices; overwriting either migration; marking old
+  CI as combined-head proof; manufacturing an old database by changing its
+  version; using mocked native effects as real UI/model acceptance.
+- **Verification:** [final acceptance contract](guided-final-acceptance-contract.md).
+  The owner retains the final #35 merge decision. An archived tracking history
+  retains earlier slice receipts; it is not current merge readiness.
