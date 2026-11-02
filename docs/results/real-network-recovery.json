@@ -1,0 +1,36 @@
+{
+  "access_regrants": 0,
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "automatic_same_request_recovery": true,
+  "capture": {
+    "left": {
+      "bytes": 48392,
+      "sha256": "25b0053519619e2803ae209c1d937db33939062500dc23d1300118bf9d0b7ec4"
+    },
+    "right": {
+      "bytes": 48208,
+      "sha256": "80441da8c55f99267079783c68bb520b32f7cb06ce4fd4a6a41e3e9e687837d7"
+    }
+  },
+  "format": 1,
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_driver_sha256": "a48a91ce06ca8b3960cc005170d37655d20681ac9ee8b39f15e8b0304f1130c5",
+  "manual_peer_pins": 0,
+  "membership_reapprovals": 0,
+  "model_turns": 0,
+  "nat_qualification": false,
+  "original_key_transfers": 0,
+  "outage_path_reported": "relay",
+  "passed": true,
+  "phase_seconds_bound": 120,
+  "private_control_index_sha256": "d6b3040892f7cc3afa9f0cc3c472cef9b609bb2755c649d8c0768cf3707a4a17",
+  "qualification": "R2_both_helpers_unavailable_and_exact_pending_recovery",
+  "receiver_appends": 1,
+  "recovery_seconds": 12.996,
+  "resubmissions": 0,
+  "retained_authority_verified": true,
+  "seconds": 27.311,
+  "unavailable_outcome": "unknown",
+  "unavailable_receiver_append": false,
+  "unconfirmed_seconds": 4.356
+}
