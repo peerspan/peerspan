@@ -1018,7 +1018,22 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         body["scopes"] = json!(scopes);
         body["not_after"] = json!(input.not_after.unwrap_or(deadline));
     }
-    let mut result = local.post(path.into(), body.clone()).await?;
+    let preview = local.post(path.into(), body.clone()).await;
+    let retry_after = preview
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<crate::integration::DaemonError>())
+        .filter(|error| admin && error.status == 429 && error.code == "rate_limited")
+        .and_then(|error| error.retry_after)
+        .filter(|seconds| (1..=2).contains(seconds));
+    let mut result = if let Some(seconds) = retry_after {
+        // Only the unapproved preview is repeated, with the exact same terms.
+        // A second error and every approval/signing error remain visible.
+        tokio::time::sleep(Duration::from_secs(seconds)).await;
+        local.post(path.into(), body.clone()).await?
+    } else {
+        preview?
+    };
     describe_shape(&result)?;
     describe(&result["review"])?;
     if input.approve || interactive && confirm("Approve this exact machine? (y/N)").await? {

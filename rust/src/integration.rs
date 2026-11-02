@@ -27,6 +27,8 @@ pub struct DaemonError {
     pub message: String,
     /// The error body's `code`, or empty.
     pub code: String,
+    /// One valid integer Retry-After from a rate-limited owner-local response.
+    pub retry_after: Option<u64>,
 }
 impl std::fmt::Display for DaemonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
