@@ -264,3 +264,22 @@ not_found before the recorded rate refusal. No owner credentials/body/handler
 run for absent paths. The corrected genuine TLS case observes owner404/not_found
 and known-route429 with distinct transport keys on the same source. Its strict
 XPASS and final marker removal are recorded separately from the old XFAIL.
+
+
+### Signed-request expiry and the purity baseline
+
+The independent prerequisite's first execution passes all6 unchanged cases in
+34seconds. Its held-snapshot diagnostic observes one active due resource with
+2447ciphertext bytes and one frame retire before the strict baseline; final due
+active/bytes/frame counts are zero. All database/schema/files and TCP/UDP counters
+remain in the original whole-state comparisons. Only the literal final phase
+uses this semantic checkpoint inside its existing three-second settling wait.
+There are no new reads, API calls, sleeps, clock changes or extended deadlines.
+
+A read-only callgraph audit finds the inspection route cannot invoke collection
+or write carrier state; independent periodic resource maintenance can change
+frames/mailboxes without traffic. This supports the fixture correction, without
+attributing the original CI actor. Its first failure stays retained. Product and
+packaging trees remain identical to the verified d61a314 archive, so installed
+acceptance remains attached to that exact artifact. Fresh full tracking CI/review
+and the final-artifact model authorization/evidence-limit decision remain open.

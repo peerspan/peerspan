@@ -75,7 +75,7 @@
       "passed": 440,
       "receipt_sha256": "1654654184db29ee61b21ad6e32c490e70b4515905083c9cc38f8c9e3e4d256f"
     },
-    "observed": "Acceptance107 passed52/52 and was integrated into tracking35 by non-force fast-forward. Fresh tracking35 on that exact source passes51/52: the final signed-request-expiry purity phase observes two unknown owner carrier database tables changed while all files and network counters remain unchanged. The first cause remains unattributed. A contract-only prerequisite is in preparation; production and packaging trees remain identical to d61a314.",
+    "observed": "Acceptance107 passed52/52 and was integrated at5f7cd90. Fresh tracking35 on that same source passes51/52, with only final signed-request-expiry purity failing. Independent prerequisite observes actual due ciphertext retirement before baseline and passes the unchanged6/6 in34seconds. Product/packaging trees remain identical to d61a314; full tracking CI and review on the fixture-only correction remain required. The original CI write actor remains unattributed.",
     "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41402036070",
     "required": true,
     "required_final_check_count": 52,
@@ -127,6 +127,49 @@
     "planned_readiness_turns": 1,
     "reason": "Automatic approval review blocked external Claude activity/normal usage cost on the preceding archive before enable. No new model turn executed; the final-artifact check awaits explicit authorization or owner acceptance of that evidence limit.",
     "status": "awaiting_explicit_authorization"
+  },
+  "expiry_purity_prerequisite": {
+    "closed_pre_baseline_observation": {
+      "first": {
+        "due_active_count": 1,
+        "due_ciphertext_bytes": 2447,
+        "due_frame_count": 1,
+        "due_mailbox_count": 2,
+        "frame_count": 1,
+        "mailbox_count": 2,
+        "orphan_frame_count": 0,
+        "past_tombstone_mailbox_count": 0,
+        "resource_store_count": 1
+      },
+      "last": {
+        "due_active_count": 0,
+        "due_ciphertext_bytes": 0,
+        "due_frame_count": 0,
+        "due_mailbox_count": 2,
+        "frame_count": 0,
+        "mailbox_count": 2,
+        "orphan_frame_count": 0,
+        "past_tombstone_mailbox_count": 0,
+        "resource_store_count": 1
+      },
+      "lifecycle_counts_changed_before_baseline": true,
+      "maintenance_complete_before_baseline": true,
+      "observations": 9,
+      "phase": "signed_request_expired_before_inspection"
+    },
+    "contract_only_author": true,
+    "diagnostic_sha256": "de2b8cc4aee5eef55800bf6d3deacd14a1d1362425600748d72dabefcbf964e7",
+    "existing_settling_deadline_seconds": 3,
+    "failed": 0,
+    "frozen_case_sha256": "8ad91978751025f4015f762fae203f5fe64e1c83853e20afc5e397aea0fcedc1",
+    "launcher_sha256": "efcecd60a6fd6878472b90e76019cfc032cbc20d78f23da7111881267e50358e",
+    "log_sha256": "3c0eeaa61b9f847803344dd56f5903324fa57f9567b21dbc0ed447c603890222",
+    "new_observations_or_clock_changes": false,
+    "original_ci_cause_attributed": false,
+    "passed": 6,
+    "product_reads_by_author": false,
+    "seconds": 34,
+    "strict_whole_state_and_traffic_assertions_preserved": true
   },
   "first_failures": [
     {
