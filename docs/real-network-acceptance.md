@@ -123,7 +123,12 @@ regression before its measured owner operation: an original-frame/held-stream
 precondition is unavailable. Initial PID/socket provenance already passed.
 The independent author added receive-only closed diagnostics for the exact
 failed conjunction, without changing observations, assertions or deadlines.
-The first CI failure remains retained; no unexplained rerun is counted as a fix.
+Those diagnostics prove the original frame was already present, while the
+owner-owned held fetch and every other barrier remained live. The corrected
+fixture will use a prearmed independent resource-route helper to block every
+original-frame GET while allowing genuine publication and invitation return;
+section42 records the exact proof/counter obligations and discarded options.
+The first CI failures remain retained; no unexplained rerun is counted as a fix.
 
 ## Retained first failures
 

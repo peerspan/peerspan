@@ -7996,6 +7996,48 @@ live-boundary checks, the sole original-frame absence observation and the fixed
 5s/120s bounds. These are fixture isolation rules, never permission to pause
 product clocks, change state rows or suppress observed new transport attempts.
 
+### Original-frame transport discriminator for the independent fixture
+
+CI on02e5bc2 retained an actual original request frame before measured owner
+calls, even while a proven owner-owned original fetch remained held. Initial
+socket attribution, verified requester stop and return-stream barriers passed.
+An opaque TLS connection-order gate does not establish that every earlier
+original-frame carrier was blocked. Preserve that failed precondition and do
+not remove, filter or relabel the stored original frame.
+
+Use an independent resource-only mTLS helper with its own fresh transport key,
+configured in the signed invitation and both hosts. Advertise empty bootstrap,
+QUIC and relay contact arrays, and no other helper, for this fixture only. Arm
+its route-aware gate before join approval. Implement only the public bootstrap
+mailbox resource behavior: preserve exact participant-created outer/frame bytes,
+allow the requester's genuine original-frame publication and the invitation-ID
+return mailbox GET unchanged, and hold **every** authenticated GET for an
+original `link_` request mailbox before sending response headers or frame bytes.
+Classify by the stored outer mailbox request ID; never decrypt or modify a frame
+or fabricate authority. It owns no participant private key. Public certificate
+or handshake discovery is permitted; participant key files are not fixture input.
+
+Before the existing exact inspection/preparation baseline, prove the original
+request frame is genuinely stored at the helper, a GET is held for the existing
+owner's actual mTLS host identity and PID/socket tuple, and the owner retained
+the genuine Pending/capability with its signatures and pins. Make exactly the
+same single original-frame absence observation on the owner. Keep the verified
+owned-requester stop and accepted-owner-stream barrier; additionally count all
+helper connections/bytes and keep every prior TCP/UDP counter component. Both
+owner calls must return200 with exact unsigned/unapproved state, full counter
+equality and live holds within the unchanged5s/120s bounds. Unconditionally
+resume the requester, release every original GET and complete that same ceremony.
+Any earlier original-frame delivery fails setup. No DB edits, absence polling,
+late gate/filter, worker/clock suppression or timeout/assertion relaxation.
+
+Selected: an explicit resource-route discriminator armed before publication.
+Discarded: another opaque first-connection guess; filtering/deleting the retained
+frame; accepting frame presence; and relying on asymmetric helper configuration
+without proof of exclusive routing. Section12 takes request helpers from the
+signed invitation and exposes no requester-only helper override, so asymmetric
+local configuration alone cannot establish that exclusivity. The helper remains
+replaceable transport and receives no membership/access authority.
+
 ### Immutable review and record
 
 Review is exactly `{version:1,kind:"approve_existing_person_machine",consent_id,
