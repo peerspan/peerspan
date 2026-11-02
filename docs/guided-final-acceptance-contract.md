@@ -132,7 +132,7 @@ existing one.
 ## 5. One final head and review
 
 Run the unchanged full native suite, all slim suites from both branches plus
-the targeted retained-admission suite, Rust
+the targeted retained-admission and completion-rate-limit suites, Rust
 format/test/Clippy, packaging and real installed acceptance on one final source
 candidate. Rebuild affected artifacts after any product change. Record exact
 source head, main baseline, archive checksums, independent suite hashes, gate
@@ -442,3 +442,55 @@ windows, fabricated authority, release binaries with disabled controls or new
 paid runner requirements. Selected: optimized debug executables with all guards
 retained; discarded: changing renewal assertions/windows or ignoring elapsed
 suite time because the CI exit was successful.
+
+### Exact completion publication under real rate pressure
+
+The guarded optimized CI build exposed18 failed suites, predominantly the shared
+standard new-person setup waiting for the original participant after the
+requester's `linked` GET had already succeeded. The exact CI executables pass
+locally with ordinary/four-CPU/private memory-backed fixtures. Do not attribute
+the CI failures to a compiler, scheduler or rate limit from this alone. Retain
+those sources/logs. Source review identifies a concrete hypothesis: stage frame
+writes and completion POSTs share the specified2/s burst8 mutation bucket; a
+failed one-shot completion publication has no automatic retry after local apply.
+The original participant cannot infer its application from mere stored frames.
+
+A separate contract-only author must add one small `completion_rate_limit` suite
+from this public contract, before implementation changes. Use two real hosts and
+a genuine new-person request through owner/selection/administrator/finalization,
+with exact requester commitment still unapproved. Keep both original keys on
+owning machines. Through the public peer probe's authenticated bootstrap ALPN,
+apply a bounded real burst of malformed activation POSTs from the requester to
+the original participant. Require400 invalid/429 rate_limited and no successful
+application from these invalid requests. A bounded pressure thread may continue
+for at most2seconds while one exact genuine requester commit is approved and
+applied. Require observed429; stop pressure on its original deadline, with no
+rate-limit configuration changes or artificial delay in the product path.
+
+Record the first real commit result, requester `linked` and original-participant
+`linked` separately before any diagnostic repair. Capture only closed public
+status/state/attention-code categories and booleans, never keys, handoffs, paths,
+packet bytes or arbitrary text. For the initial old-build diagnostic, one exact
+ordinary requester resume after pressure ends may distinguish retained-publication
+repair; record that separately and never let it satisfy the first-attempt gate.
+The final behavior requires the original participant to apply by the first
+bounded commit call's return under this brief rate pressure, without another
+human decision, new signature/intent, changed exact terms or extra commit call.
+Verify genuine signed/applied authority and immutable consent/application IDs;
+use existing public/state observations, never fabricate authority. Bound the
+complete new suite to120seconds. Represent an observed missing automatic retry
+as a strict XFAIL until fixed, then remove only that marker after observed XPASS.
+Preserve all existing45 suites, cases and deadlines; with this targeted suite
+there are46 slim suites and52 full CI checks.
+
+If evidence confirms the missing429 retry, the recommended implementation is a
+bounded exact completion-publication retry in the existing30second attempt:
+honor a valid positive `Retry-After` only for actualHTTP429/rate_limited, and only
+if the wait fits the original deadline. Reuse the original pinned endpoint,
+immutable activation/catalog body and original memory budget; verify the
+participant's signed response exactly as before. Do not replan, re-sign, renew
+consent/deadlines, suppress other errors, increase mailbox limits, add unbounded
+background work or change local historical-read purity. Both TCP and encrypted
+QUIC paths must preserve this rule and the existing fallback behavior. Choose
+this narrow retry before adding a new durable applied-request worker; no code
+change is authorized by this hypothesis alone without the independent diagnostic.
