@@ -419,3 +419,26 @@ request_unavailable, not_found, invalid_request, forbidden, internal; all others
 are `other`. No body, detail, path, request ID, key or exception text. Diagnostic
 failure never replaces the original response or verdict. Retain source hashes
 and the first failed CI alongside final full-head checks/review.
+
+### Complete slim runtime audit and debug compilation
+
+Audit every slim suite's reported elapsed time, not just its CI exit. The7fb4853
+renewal suite passed all13 semantic cases but took167seconds; that does not meet
+the existing120second suite budget. Preserve this timing failure. Its six real
+multi-host worlds perform substantial concurrent setup before their existing
+75second renewal windows. Keep those worlds, checks, time windows and all45
+suite bodies unchanged.
+
+Build conformance executables with the ordinary debug profile and optimization
+level1. Retain debug assertions and debug test-clock/control availability; keep
+incremental compilation and debug symbols disabled as before. Record the exact
+source, compilation environment and executable hashes. This is an execution
+configuration change, not a new authority or altered protocol. Native tests and
+installed release artifacts retain their existing build modes. Run the unchanged
+renewal suite locally against the new executables once, then all45 suites on the
+same final CI build. All must pass and report at most120seconds before readiness.
+No rerun of unchanged timing failures, larger semantic deadlines, skipped renewal
+windows, fabricated authority, release binaries with disabled controls or new
+paid runner requirements. Selected: optimized debug executables with all guards
+retained; discarded: changing renewal assertions/windows or ignoring elapsed
+suite time because the CI exit was successful.
