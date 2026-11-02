@@ -346,6 +346,66 @@
       "classification": "first changed reviewed preview-retry/host-job phase run; all original assertions pass",
       "unrelated_external_compilation_observed": true,
       "global_idle_claim": false
+    },
+    {
+      "gate": "guided-machine-incoming-frame-checkpoint",
+      "head": "e70cf5eb578c61942c2c075ac15206ed7ee74968",
+      "source_sha256": "525a71737ebf070733a11e9656649f57b1b152b8491634d184926aec574baec4",
+      "rust_tree": "6455692ec8a7c60cb5e9efc71a2f44cd1c268fe2",
+      "hooks_tree": "2b209cba5f272d077a008b76eb63a6d2f50ac1d5",
+      "native_tree": "2faba6e5d6571e441d1011f9143076811fd193ba",
+      "protected_files_exact": 74,
+      "exit": 0,
+      "seconds": 27.12,
+      "log_sha256": "bbbe3d6dff3f465c982ffc225534ca92cff549244f86e25485871e5a71075e0d",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "suite_seconds": 27,
+      "classification": "first independently strengthened incoming-frame checkpoint run; complete real two-host ceremony passes",
+      "public_result": {
+        "adapter_verified": false,
+        "binding_scopes": 2,
+        "carrier_counts": [
+          [
+            38,
+            261473,
+            661138
+          ],
+          [
+            153,
+            117164,
+            118,
+            103024
+          ],
+          [
+            23,
+            179413,
+            515016
+          ],
+          [
+            69,
+            53943,
+            64,
+            52827
+          ]
+        ],
+        "finite_device_scopes": 7,
+        "folded": true,
+        "hosts": 2,
+        "model_verified": false,
+        "new_agent_grants": 0,
+        "operations": 2,
+        "original_unchanged": true,
+        "overall_verified": false,
+        "peer_verified": false,
+        "requester_has_original": false,
+        "requester_receipts": 1,
+        "requests": 1
+      },
+      "earlier_generic_409_cause": "unclassified; this pass does not establish it",
+      "unrelated_external_compilation_observed": true,
+      "global_idle_claim": false
     }
   ],
   "correction": {
@@ -941,5 +1001,27 @@
     "old_settled_bound_seconds": 3,
     "cryptographic_validity_claim_from_stored_host_slot": false,
     "earlier_failure_actor_attribution": false
+  },
+  "incoming_frame_prerequisite_author": {
+    "commit": "868817328095ff9b50e9d1a725682503b33911f1",
+    "source_sha256": "525a71737ebf070733a11e9656649f57b1b152b8491634d184926aec574baec4",
+    "prior_source_sha256": "678561e169f4ac1250e412eca2913e25005fac6fb757225d85c3fc65d6a47ef5",
+    "product_reads_or_runtime_by_author": false,
+    "fake_frame_negatives_readonly_SQL_API_forwarding_privacy_and_inverse_audits": true,
+    "old74_exact": true,
+    "other_new_files_exact": true,
+    "incoming_return_bound_seconds": 15,
+    "finalization_bound_seconds": 30,
+    "application_bound_seconds": 25,
+    "extra_mutation_or_import": false,
+    "failure_metadata_exercised": "static/fake only; no failing API call in passing real run"
+  },
+  "root_review": {
+    "scope": "Rust dispatch/typed preview retry, independent launchers/new suite, CI wiring and documentation",
+    "actionable_findings": 0,
+    "protected_old_files_byte_exact": 74,
+    "native_hooks_and_440_cases_exact": true,
+    "final_ci_and_fresh_bot_review": "required on published final head; receipts recorded on PR104 and tracking35",
+    "merge_authorization_for_104_or_35": false
   }
 }

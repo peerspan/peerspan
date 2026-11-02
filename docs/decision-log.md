@@ -4318,3 +4318,14 @@ unrelated release build used a separate target; actual runs retained that
 external activity and serialized this stream. No global-idle or retrospective
 earlier-cause claim. Final combined-suite checkpoint and full-head CI/review
 remain required before PR104 leaves draft.
+
+The independently strengthened incoming-frame source8688173/525a7173 passes
+all three combined cases on its first run in27.12s. The same15s checkpoint
+observes the actual matching encrypted requester frame on both hosts before
+owner consent. Automatic selection/folded finalization, one actual lost Complete
+response followed by CLI Lookup, both real applications and separate current
+membership/access/readiness all pass. No added mutation, enlarged deadline or
+changed old assertion. The earlier generic409 remains unclassified. Root review
+finds no remaining actionable issue in this slice; publish the complete changes
+for final-head CI and fresh bot review. Record those receipts on PR104/35, keep
+all full-feature acceptance gates open, and leave merges to the owner.
