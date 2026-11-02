@@ -180,6 +180,13 @@ includes the inviter's counted refusal proxy as well as the requester's and H.
 The corrected exact union/sort still excludes every other address/key/kind and
 both actual daemon bootstrap listeners; no absence/counter assertion is removed.
 
+Final-head a09f925 workflow validation fails before conformance execution:
+the new dependency-install command used an unquoted YAML scalar containing a
+colon followed by a space. The corrected literal-block command parses, retains
+all47 matrix suites and installs the exact requirements for this suite only.
+The failed workflow run and parser diagnostic are retained; an incomplete
+check list is not counted as a passing software gate.
+
 ## Retained first failures
 
 Both endpoints verified the same installed archive and executable. The archive
