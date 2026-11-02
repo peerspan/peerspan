@@ -1,15 +1,49 @@
 # Real-machine and NAT qualification
 
-Status: preparation, 2026-11-02. The owner prioritized this qualification before
+Status: external tests in progress, 2026-11-02. The owner prioritized this qualification before
 PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
 is merged at `caea24b9eb41bb078749c5a1f739cd3d186d060e`. Its
 [final receipt](https://github.com/peerspan/peerspan/pull/35#issuecomment-6581460238)
 proves installed flows and an actual model reply using two fixtures on one
 machine. It does not establish independent-machine or real-router behavior.
 
-Current prerequisite: an inventory of accessible, dedicated test machines,
-including a machine behind a real home/office router or mobile hotspot. No
-external-machine or NAT pass is claimed by this document.
+The owner identified an existing authorized DigitalOcean droplet. It and the
+development server are separately deployed Linux machines with public IPv4
+addresses. Dedicated private test roots are installed on both; existing services
+and credentials remain in place. No home/office router or hotspot participant is
+available in the current inventory. No completed D1 or real-NAT pass is claimed.
+
+## Retained first failures
+
+Both endpoints verified the same installed archive and executable. The archive
+is `de999b569d91f27984dda34abe92548199eafee0a1e9cbdec5c5eb57ffe64e08`;
+the executable is
+`a47d7b3718ad6a958ada736d10ecb6712daeb290cd99b8a9f78454da45b9ce3e`.
+Its clean release source is `d819cf8eef38509ad14151af8501ae2c62a2f7f5`.
+Production and packaging tree identities match the merged candidate; this
+branch initially adds only documentation and an independently authored driver.
+
+| Observation | Outcome and next action |
+| --- | --- |
+| Public network preflight | TCP and UDP exchanges succeeded in both directions in 3.157 seconds. SSH carried control only. This is reachability evidence, not Peerspan acceptance. |
+| Existing-person machine ceremony | Failed in 7.202 seconds: exact public inspection succeeded; owner-consent preparation returned 409 `machine_owner_consent_unavailable`. Retained input matches the documented contract. A separate diagnostic build reproduced the refusal in 7.108 seconds and revealed underlying `state_conflict`; the failing internal phase remains under investigation. Diagnostic results do not qualify the release. |
+| Distinct-person ceremony, original driver | Both hosts applied the completed ceremony. The driver then failed a proof assertion in 26.489 seconds: it incorrectly required network context on the initial request packet. The independent author corrected this to the wire contract's `-` context and retained signature and identity checks. |
+| Distinct-person ceremony, corrected context assertion | Both host applications and signed proof checks passed. In 30.087 seconds the driver reached message enforcement, where its explicit-policy owner-local send returned 400 `invalid`. This establishes no receiver refusal. The owner-send/peer-wire distinction is under review; exact receiver checks will use an authenticated public peer probe. |
+
+Original controls, daemon logs and packet captures remain private. No failed
+attempt is relabeled as passing, and no unexplained attempt is rerun to obtain a
+green result. The original control evidence indexes have SHA256 identities
+`07cd542df4454d24012f3f4273026ba1719cff896eafd34a7ab88b9a552bc639`
+(machine) and
+`92a3aeed6c443e80d2012ca6450add96818d4618924b70d5c4adb6973b387ab7`
+(teammate).
+
+The protocol driver uses two explicit `/v1/peers` transport pins after membership
+application. Those pins grant no authority, but they mean its eventual message
+result cannot establish automatic directory routing. Normal CLI/directory sends,
+native-terminal use, a model reply, forced relay, helper replacement and recovery
+remain separate required observations. Helpers have been built and installed in
+isolated prefixes; they were not running during these direct attempts.
 
 ## Candidate and deployment
 
