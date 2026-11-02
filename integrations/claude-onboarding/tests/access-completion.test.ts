@@ -453,13 +453,21 @@ async function appliedRecorded(ui: Pane, w: World) {
   await consentTerms(ui, w)
 }
 async function uncertain(ui: Pane, w: World, reason = '') {
-  await noFinish(ui, reason); expect(await shown(ui), reason).toMatch(/unknown|unavailable|not confirmed/i)
+  await noFinish(ui, reason)
+  const text = await shown(ui)
+  expect(text, reason).toMatch(/unknown|unavailable|not confirmed/i)
   expect(await button(ui, 'Check application'), reason).toBeDefined()
-  expect(await shown(ui), reason).not.toContain('Local application: recorded')
-  privacy(w, await shown(ui))
+  expect(text, reason).not.toContain('Local application: recorded')
+  privacy(w, text)
 }
 async function closePane(ui: Pane) {
-  const close = await button(ui, 'Close'); if (close) await press(ui, 'Close'); await ui.unmount()
+  const close = await button(ui, 'Close')
+  if (close) {
+    const label = 'Close'
+    expect(close, String(label)).toBeDefined()
+    await ui.press({ key: close.key! })
+  }
+  await ui.unmount()
 }
 
 test('entry nonsigning approval lookup Check and fresh reentry never implicitly continue the approved policy action', async ($, on) => {
