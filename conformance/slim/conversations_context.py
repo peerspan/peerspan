@@ -5,14 +5,15 @@ alice creates a coordinator-free network; bob joins it and allows alice. Each ca
 fixture agents of its own on bob or alice, so a failure stays in its case. A fixture session claims only when the suite
 asks, and is replaced as in live.py. `deny alice` on bob makes alice fail the handoff recheck. The cases cover
 catch-up, pending work, the seen paths, the redelivery limit, blocked messages on every surface, `undelivered`
-notifications, history pages and, last, a `stopped` target on the test clock. Its own suite and CI job so the
-conversations job stays under 2 minutes. Written from docs/conversations-contract.md, section C5 (cited as
-"C5 <part>"), and the C1 to C4 sections it builds on, only.
+notifications, history pages, C7's lead (waking, parked notifications, the gather, lead changes and agent
+descriptions) and, last, a `stopped` target on the test clock. Its own suite and CI job so the conversations job stays
+under 2 minutes. Written from docs/conversations-contract.md, sections C5 and C7 (cited as "C5 <part>" and
+"C7 <part>"), and the sections they build on, only.
 """
 import os
 
-from harness import (Suite, api_error, check, create_network, departed_of, find_message, join_new_person, show_targets,
-                     ssh_key, target_of, wait_for, wait_view)
+from harness import (Suite, api_error, check, create_network, departed_of, find_message, join_new_person, peer, refused,
+                     show_targets, ssh_key, target_of, view_as, wait_for, wait_view)
 
 suite = Suite("conversations_context", __doc__)
 suite.use_clock()  # C5 Verification `stopped`: the 24-hour move needs the test clock before any host starts
@@ -796,6 +797,398 @@ def _():
     new_message(claim_one(cal), conv, mid, unseen=1)
     check(history_ids(cal, conv) == [mid], "a closed conversation is not readable")
     check(listed(cal, conv) is None, f"still listed with nothing unseen: {listed(cal, conv)}")
+
+
+# C7: the lead. Written from docs/conversations-contract.md, section C7 (cited as "C7 <part>"), and its edits in
+# docs/launch-contract.md and docs/host-service-contract.md, only. Agent names carry a 7 since this suite already
+# registers `bert` and `bea` on bob for C5's cases, and a second agent of one name would not be addressable.
+
+DESCRIPTION_RULE = "description must be 1 to 200 bytes on one line, without control characters"
+
+
+def invites(host):
+    status, body = host.api("GET", "/v1/conversations/invites")
+    check(status == 200, f"{host.name}: invites: {status} {body}")
+    return {i["conversation_id"]: i for i in body["invites"]}
+
+
+def join_as_person(host, conv):
+    """C3: HOST's person joins CONV from its pending invite."""
+    wait_for(lambda: invites(host).get(conv), timeout=20, interval=0.3, message=f"{host.name}'s invite to {conv}")
+    host.ok("conversation", "join", conv, timeout=60)
+
+
+def say_to(conv, text, *to, wait=()):
+    """alice's person sends TEXT with `--to` TO (C6), then waits for alice's targets of WAIT to be `delivered`."""
+    args = ["conversation", "say", conv, text]
+    for entry in to:
+        args += ["--to", entry]
+    mid = a.ok(*args)["message"]["message_id"]
+    for x in wait:
+        show_targets(a, conv, mid, participant(x), "delivered")
+    return mid
+
+
+def lead_of(adapter, conv):
+    """The lead fields of ADAPTER's agent summary (C7 Views), and its `parked` and `unseen`."""
+    entry = listed(adapter, conv)
+    check(entry is not None, f"{adapter.name}: {conv} is not listed")
+    flags = [p["id"] for p in entry["participants"] if p.get("lead") is True]
+    check(all(isinstance(p.get("lead"), bool) for p in entry["participants"]),
+          f"{adapter.name}: participants' `lead` must be booleans: {entry['participants']}")
+    check(flags == ([entry["lead"]] if entry.get("lead") else []),
+          f"{adapter.name}: summary lead {entry.get('lead')}, participants flagged {flags}")
+    return entry
+
+
+def parked(adapter, conv):
+    entry = listed(adapter, conv)
+    check(entry is not None and isinstance(entry.get("parked"), int), f"{adapter.name}: agent summary {entry}")
+    return entry["parked"]
+
+
+def label_in(view, pid):
+    found = [p["label"] for p in view["participants"] if p["id"] == pid]
+    check(len(found) == 1, f"{pid} in {view['participants']}")
+    return found[0]
+
+
+def agents_in(view):
+    """Joined agent participants in `participants` order (C7 The lead, rule 3; Claiming `areas`)."""
+    return [p["id"] for p in view["participants"] if p["kind"] == "agent" and p["state"] == "joined"]
+
+
+def lead_claim(got, lead_p, label, you):
+    check(got.get("lead") == {"participant": lead_p, "label": label, "you": you},
+          f"claim `lead` {got.get('lead')}, want {lead_p} ({label}) you {you}")
+
+
+def areas_of(got):
+    check(isinstance(got.get("areas"), list), f"claim `areas` {got.get('areas')}")
+    return got["areas"]
+
+
+@suite.case("lead_unaddressed", "C7 The lead (rule 2), Waking, Parked notifications, Claiming (lead, areas), Views; "
+                                "Verification Unaddressed wakes the lead only")
+def _():
+    alice_p, = need("alice_p")
+    ann, bert, bea = new_agent("ann7", host=a), new_agent("bert7"), new_agent("bea7")
+    conv = start(ann, bert, bea)
+    ann_p, bert_p, bea_p = participant(ann), participant(bert), participant(bea)
+    view = view_as(a, conv, alice_p)
+    check(view.get("lead") == ann_p, f"view `lead` {view.get('lead')}, want ann {ann_p} (alice's first agent)")
+    order = agents_in(view)
+    check(sorted(order) == sorted([ann_p, bert_p, bea_p]), f"joined agents {order}")
+    status, body = a.api("GET", "/v1/conversations")
+    summary = [c for c in body["conversations"] if c["conversation_id"] == conv]
+    check(status == 200 and len(summary) == 1 and summary[0].get("lead") == ann_p,
+          f"GET /v1/conversations summary `lead`: {status} {summary}")
+    ann_label = label_in(view, ann_p)
+    header = a.cli("conversation", "show", conv)
+    check(header.ok and f"lead {ann_label}" in header.stdout.splitlines()[0],
+          f"readable show header {header.stdout.splitlines()[:1]}, want `lead {ann_label}`")
+    m1 = say_to(conv, "m1 for whoever knows", wait=(bert, bea))
+    got = claim_one(ann)
+    new_message(got, conv, m1)
+    lead_claim(got, ann_p, ann_label, True)
+    want = [{"participant": p, "label": label_in(view, p), "description": None} for p in order]
+    check(areas_of(got) == want, f"the lead's `areas` {got['areas']}, want {want}")
+    no_claim(bert, "of an unaddressed message when not the lead")
+    no_claim(bea, "of an unaddressed message when not the lead")
+    for x in (bert, bea):
+        entry = lead_of(x, conv)
+        check(entry["lead"] == ann_p and entry["unseen"] == 0 and entry.get("parked") == 1,
+              f"{x.name}: agent summary lead {entry['lead']} unseen {entry['unseen']} parked {entry.get('parked')}, "
+              f"want ann, 0 and 1")
+        check(pending_entry(x, conv) is None, f"{x.name}: pending lists a parked-only conversation")
+    check(history_ids(bert, conv) == [m1], "bert's history does not list the parked m1")
+    check(ids_of(shown(bea, conv)["messages"]) == [m1], "show --as bea does not list the parked m1")
+    check(parked(bert, conv) == 1 and parked(bea, conv) == 1, "a read changed a parked notification")
+    bert = replace(bert)  # a parked notification has no session: never returned
+    no_claim(bert, "of a parked notification by a new session")
+    check(parked(bert, conv) == 1 and unseen(bert, conv) == 0, "a new session changed bert's parked m1")
+    state["lead"] = {"conv": conv, "ann": ann, "bert": bert, "bea": bea, "view": view, "m1": m1}
+
+
+@suite.case("lead_addressed", "C7 Waking (addressed_to naming P, not naming P, only people), The lead (rule 3); "
+                              "Verification Addressed wakes those named")
+def _():
+    alice_p, ctx = need("alice_p", "lead")
+    conv, ann, bert, bea, view = (ctx[k] for k in ("conv", "ann", "bert", "bea", "view"))
+    m2 = say_to(conv, "m2 for bert", "bob/bert7", wait=(bert, bea))
+    got = claim_one(bert)
+    new_message(got, conv, m2, coalesced=got.get("coalesced"))
+    check(len(got["coalesced"]) == 1, f"bert's claim of m2 gathers its parked m1: coalesced {got['coalesced']}")
+    window(got, [ctx["m1"]])
+    lead_claim(got, participant(ann), label_in(view, participant(ann)), False)
+    check(areas_of(got) == [], f"a non-lead's `areas` {got['areas']}, want []")
+    no_claim(ann, "of a message addressed to bert")
+    no_claim(bea, "of a message addressed to bert")
+    ctx["m2"] = m2
+    # Its own conversation, with bob's person joined: addressed only to person:bob, it wakes no agent, not even the
+    # lead. alice's person has no agent here, so the lead is rule 3's.
+    pia = new_agent("pia7")
+    started = a.ok("conversation", "start", "bob/pia7", "person:bob", timeout=60)
+    other = started["conversation"]["conversation_id"]
+    got = claim_one(pia)
+    check(got["notification"]["kind"] == "roster", f"pia's `added` claim {got['notification']}")
+    seen_ok(pia, other)
+    join_as_person(b, other)
+    joined = wait_view(a, other, alice_p, lambda v: any(p["kind"] == "person" and p["state"] == "joined"
+                                                        and p["host_id"] == b.id for p in v["participants"]),
+                       "bob's person joined")
+    bob_p = [p["id"] for p in joined["participants"] if p["kind"] == "person" and p["host_id"] == b.id][0]
+    check(joined.get("lead") == participant(pia), f"lead {joined.get('lead')}, want pia (rule 3)")
+    mid = a.ok("conversation", "say", other, "for bob's person only", "--to", "person:bob")["message"]["message_id"]
+    show_targets(a, other, mid, bob_p, "delivered")
+    show_targets(a, other, mid, participant(pia), "delivered")
+    no_claim(pia, "of a message addressed only to a person, as the lead")
+    check(parked(pia, other) == 1, f"pia's parked {parked(pia, other)}, want 1")
+
+
+@suite.case("lead_own_message", "C7 Waking (an unaddressed message the lead wrote wakes no agent); "
+                                "Verification The lead's own message")
+def _():
+    _, ctx = need("alice_p", "lead")
+    conv, ann, bert, bea = (ctx[k] for k in ("conv", "ann", "bert", "bea"))
+    m3 = send(ann, conv, "m3 from the lead")
+    for x in (bert, bea):
+        show_targets(a, conv, m3, participant(x), "delivered", as_agent="ann7")
+    for x in (ann, bert, bea):
+        no_claim(x, "of the lead's own unaddressed message")
+    check(ids_of(shown(bea, conv)["messages"]) == [ctx["m1"], ctx["m2"], m3], "bea cannot see m1 to m3")
+    check(m3 in history_ids(bert, conv), "bert's history does not list m3")
+    check(m3 in history_ids(bea, conv), "bea's history does not list m3")
+    check(parked(bea, conv) == 3 and unseen(bea, conv) == 0, f"bea parked {parked(bea, conv)} unseen "
+                                                              f"{unseen(bea, conv)}, want 3 and 0")
+    ctx["m3"] = m3
+
+
+@suite.case("lead_gather", "C7 Claiming (step 6 gather, coalesced, window), Parked notifications (unseen, parked); "
+                           "Verification Gather and window")
+def _():
+    _, ctx = need("alice_p", "lead")
+    conv, ann, bert, bea, view = (ctx[k] for k in ("conv", "ann", "bert", "bea", "view"))
+    check(all(k in ctx for k in ("m1", "m2", "m3")), f"an earlier case did not finish: {sorted(ctx)}")
+    m1, m2, m3 = ctx["m1"], ctx["m2"], ctx["m3"]
+    m4 = say_to(conv, "m4 for bea", "bob/bea7", wait=(bea,))
+    got = claim_one(bea)
+    new_message(got, conv, m4, coalesced=got.get("coalesced"))
+    n4 = got["notification"]["id"]
+    co = got["coalesced"]
+    check(len(co) == 3 and len(set(co)) == 3 and n4 not in co and all(str(i).startswith("cnot_") for i in co),
+          f"coalesced {co}, want bea's 3 notifications for m1, m2 and m3")
+    window(got, [m1, m2, m3])
+    lead_claim(got, participant(ann), label_in(view, participant(ann)), False)
+    check(parked(bea, conv) == 0 and unseen(bea, conv) == 4,
+          f"after the gather: parked {parked(bea, conv)} unseen {unseen(bea, conv)}, want 0 and 4")
+    no_claim(bea, "after the gather")
+    seen_ok(bea, m4)
+    check(unseen(bea, conv) == 0, f"unseen after seeing m4: {unseen(bea, conv)}, want 0")
+    no_claim(ann, "of m4, addressed to bea")
+    no_claim(bert, "of m4, addressed to bea")
+
+
+@suite.case("lead_later_parked", "C7 Claiming step 6 (parked messages sorting after the new one stay parked); "
+                                 "Verification Later parked messages stay")
+def _():
+    _, ctx = need("alice_p", "lead")
+    conv, ann, bea = (ctx[k] for k in ("conv", "ann", "bea"))
+    m5 = say_to(conv, "m5 for bea", "bob/bea7", wait=(bea,))
+    m6 = say_to(conv, "m6 for whoever knows", wait=(bea,))
+    got = claim_one(bea)
+    new_message(got, conv, m5)
+    window(got, [])  # neither the session's first message claim nor a claim that gathered
+    check(parked(bea, conv) == 1, f"bea's parked after the claim {parked(bea, conv)}, want m6 still parked")
+    no_claim(bea, "of m6, parked")
+    got = claim_one(ann)
+    check(ids_of(got["messages"]) == [m6], f"the lead's claim {ids_of(got['messages'])}, want m6")
+
+
+@suite.case("lead_recheck_gather", "C7 Claiming step 6 (fail: block); C5 The handoff recheck; "
+                                   "Verification Recheck on gather")
+def _():
+    need("alice_p")
+    lea, bert, bel = new_agent("lea7", host=a), new_agent("bero7"), new_agent("bel7")
+    conv = start(lea, bert, bel)
+    x = say_to(conv, "from alice, parked for bero7", wait=(bert, bel))
+    check(parked(bert, conv) == 1, f"bero7's parked {parked(bert, conv)}, want 1")
+    try:
+        deny()
+        status, body = bel.post(f"/adapter/v1/conversations/{conv}/messages",
+                                {"content": "for bero7", "addressed_to": [participant(bert)]})
+        check(status == 200, f"bel7 sends: {status} {body}")
+        y = body["message"]["message_id"]
+        got = claim_one(bert)
+        new_message(got, conv, y)
+        window(got, [])
+        check(x not in got["coalesced"] and x not in ids_of(got["window"]), f"alice's message was gathered: {got}")
+        allow()
+        check(parked(bert, conv) == 0, f"parked after allow {parked(bert, conv)}, want 0: it was blocked")
+        no_claim(bert, "of a notification blocked at the gather")
+        check(history_ids(bert, conv) == [y], "history lists a message blocked at the gather")
+    finally:
+        allow()
+
+
+@suite.case("lead_leaving", "C7 Parked notifications (leaving withdraws); C5 What an agent may see; "
+                            "Verification Leaving withdraws")
+def _():
+    need("alice_p")
+    lev, leb = new_agent("lev7", host=a), new_agent("leb7")
+    conv = start(lev, leb)
+    say_to(conv, "parked, then she leaves", wait=(leb,))
+    check(parked(leb, conv) == 1, f"leb7's parked {parked(leb, conv)}, want 1")
+    b.ok("conversation", "leave", conv, "--agent", "leb7")
+    wait_view(a, conv, state["alice_p"], lambda v: participant(leb) in departed_of(v), "leb7 in alice's departed")
+    added = a.ok("conversation", "add", conv, "bob/leb7", timeout=60)
+    check(added["invite"]["state"] == "joined", f"add again: {added['invite']}")
+    got = claim_one(leb)
+    check(got["notification"]["kind"] == "roster", f"leb7's claim after the re-add {got['notification']}")
+    check(history_ids(leb, conv) == [], "history lists a parked message withdrawn when she left")
+    check(parked(leb, conv) == 0, f"parked after being added again {parked(leb, conv)}, want 0")
+
+
+@suite.case("lead_changes", "C7 The lead (rule 1, rule 3 after the creator leaves; every host from its roster), "
+                            "Waking; Verification Lead changes")
+def _():
+    alice_p, = need("alice_p")
+    cara, lx, ly = new_agent("cara7", host=a), new_agent("lx7"), new_agent("ly7")
+    status, body = cara.post("/adapter/v1/conversations", {"participants": ["bob/lx7", "bob/ly7", "person:alice"]})
+    check(status == 201, f"cara7 starts: {status} {body}")
+    conv = body["conversation"]["conversation_id"]
+    cara_p = participant(cara)
+    for x in (lx, ly):
+        got = claim_one(x)
+        check(got["notification"]["kind"] == "roster", f"{x.name}'s `added` claim {got['notification']}")
+        seen_ok(x, conv)
+    join_as_person(a, conv)
+    view = wait_view(a, conv, alice_p, lambda v: v.get("lead") == cara_p, "alice's view: cara7 the lead")
+    wait_view(b, conv, participant(lx), lambda v: v.get("lead") == cara_p, "bob's view: cara7 the lead")
+    u1 = say_to(conv, "u1 for whoever knows", wait=(lx, ly))
+    got = claim_one(cara)
+    new_message(got, conv, u1)
+    lead_claim(got, cara_p, label_in(view, cara_p), True)
+    no_claim(lx, "of an unaddressed message with the creator the lead")
+    no_claim(ly, "of an unaddressed message with the creator the lead")
+    status, body = cara.post(f"/adapter/v1/conversations/{conv}/manage", {"action": "leave"})
+    check(status == 200, f"cara7 leaves: {status} {body}")
+    after = wait_view(a, conv, alice_p, lambda v: cara_p in departed_of(v), "cara7 in alice's departed")
+    nxt = agents_in(after)[0] if agents_in(after) else None
+    check(nxt in (participant(lx), participant(ly)), f"next agent by rule 3: {nxt} from {after['participants']}")
+    check(after.get("lead") == nxt, f"alice's view `lead` {after.get('lead')}, want {nxt}")
+    wait_view(b, conv, participant(lx), lambda v: v.get("lead") == nxt, f"bob's view: {nxt} the lead")
+    new_lead, rest = (lx, ly) if nxt == participant(lx) else (ly, lx)
+    u2 = say_to(conv, "u2 for whoever knows", wait=(lx, ly))
+    got = claim_one(new_lead)
+    check(ids_of(got["messages"]) == [u2], f"the new lead's claim {ids_of(got['messages'])}, want u2")
+    lead_claim(got, nxt, label_in(after, nxt), True)
+    no_claim(rest, "of an unaddressed message when not the new lead")
+
+
+@suite.case("lead_none", "C7 The lead (no joined agent: no lead), Views; Verification No lead")
+def _():
+    alice_p, = need("alice_p")
+    started = a.ok("conversation", "start", "person:bob", timeout=60)
+    conv = started["conversation"]["conversation_id"]
+    join_as_person(b, conv)
+    view = wait_view(a, conv, alice_p, lambda v: all(p["state"] == "joined" for p in v["participants"]),
+                     "bob's person joined")
+    check("lead" in view and view["lead"] is None, f"alice's view `lead` {view.get('lead', '(missing)')}, want null")
+    status, body = b.api("GET", f"/v1/conversations/{conv}")
+    check(status == 200 and "lead" in body and body["lead"] is None, f"bob's view: {status} {body}")
+    status, body = a.api("GET", "/v1/conversations")
+    summary = [c for c in body["conversations"] if c["conversation_id"] == conv]
+    check(len(summary) == 1 and "lead" in summary[0] and summary[0]["lead"] is None, f"summary {summary}")
+
+
+def directory_entry(host, agent_id):
+    status, body = host.api("GET", f"/v1/directory?network={state['net']}")
+    check(status == 200, f"{host.name}: directory: {status} {body}")
+    found = [x for x in body["agents"] if x["agent_id"] == agent_id]
+    check(len(found) == 1, f"{agent_id} in {host.name}'s directory: {found}")
+    return found[0]
+
+
+def agents_json_entry(host, agent_id, part):
+    body = host.ok("agents", "--refresh", "--json") if host is a else host.ok("agents", "--json")
+    found = [x for x in body[part] if x["agent_id"] == agent_id]
+    check(len(found) == 1, f"{agent_id} in {host.name}'s agents --json {part}: {found}")
+    return found[0]
+
+
+def peer_entry(agent_id):
+    status, body = peer(a, b, "GET", f"/peer/v1/networks/{state['net']}/agents")
+    check(status == 200 and isinstance(body, list), f"peer agents: {status} {body}")
+    found = [x for x in body if x["agent_id"] == agent_id]
+    check(len(found) == 1, f"{agent_id} in bob's peer answer: {found}")
+    return found[0]
+
+
+@suite.case("lead_descriptions", "C7 Agent descriptions, In the directory, Areas; launch contract Peer route and "
+                                 "Discovery; host service contract; Verification Descriptions")
+def _():
+    need("alice_p")
+    dora = new_agent("dora7")
+    path = f"/v1/agents/{dora.id}/description"
+    got = b.ok("agent", "describe", "dora7", "database")
+    check(got.get("id") == dora.id and got.get("description") == "database", f"agent describe: {got}")
+    status, body = b.api("GET", f"/v1/agents/{dora.id}")
+    check(status == 200 and body.get("description") == "database", f"GET /v1/agents/ID: {status} {body}")
+    status, body = b.api("GET", "/v1/agents")
+    listed_agents = body if isinstance(body, list) else (body or {}).get("agents", [])
+    mine = [x for x in listed_agents if x.get("id") == dora.id]
+    check(status == 200 and len(mine) == 1 and mine[0].get("description") == "database", f"GET /v1/agents: {mine}")
+    check(agents_json_entry(b, dora.id, "mine").get("description") == "database", "bob's agents --json `mine`")
+    check(agents_json_entry(a, dora.id, "reachable").get("description") == "database",
+          "alice's agents --json `reachable` after a refresh")
+    check(directory_entry(a, dora.id).get("description") == "database", "alice's GET /v1/directory")
+    check(peer_entry(dora.id).get("description") == "database", "bob's peer route entry")
+    # The lead's claim on alice: areas from this host's records, its own agent's and bob's directory entry.
+    dle = new_agent("dle7", host=a)
+    status, body = a.api("POST", f"/v1/agents/{dle.id}/description", {"description": "triage"})
+    check(status == 200 and body.get("description") == "triage", f"describe dle7 by the route: {status} {body}")
+    conv = start(dle, dora)
+    view = view_as(a, conv, state["alice_p"])
+    check(view.get("lead") == participant(dle), f"lead {view.get('lead')}, want dle7")
+    descriptions = {participant(dle): "triage", participant(dora): "database"}
+    say_to(conv, "who holds the schema?", wait=(dora,))
+    got = claim_one(dle)
+    want = [{"participant": p, "label": label_in(view, p), "description": descriptions[p]} for p in agents_in(view)]
+    check(areas_of(got) == want, f"areas {got['areas']}, want {want}")
+    # Refusals change nothing.
+    unchanged = []
+    for bad in ({"description": "x" * 201}, {"description": "é" * 100 + "x"}, {"description": "two\nlines"},
+                {"description": "c1 \u0085"}, {"description": "   "}, {}, {"description": None},
+                {"description": 7}, {"description": "ok", "extra": 1}):
+        status, body = b.api("POST", path, bad)
+        if not (status == 400 and isinstance(body, dict) and body.get("code") == "invalid"
+                and body.get("error") == DESCRIPTION_RULE):
+            unchanged.append(f"{bad}: {status} {body}")
+    status, body = b.api("POST", f"/v1/agents/agent_{os.urandom(16).hex()}/description", {"description": "x"})
+    api_error(status, body, 404, "not_found")
+    refused(b.cli("agent", "describe", "nobody7", "x"), "not_found", "No such agent on this host.")
+    for args in (("dora7", "x", "--clear"), ("dora7",)):
+        result = b.cli("agent", "describe", *args)
+        if result.code != 1:
+            unchanged.append(f"agent describe {args}: exit {result.code}")
+    status, body = b.api("GET", f"/v1/agents/{dora.id}")
+    check(body.get("description") == "database", f"a refused describe changed it: {body}")
+    status, body = b.api("POST", path, {"description": "é" * 100})  # 200 bytes
+    check(status == 200 and body.get("description") == "é" * 100, f"200 bytes: {status} {body}")
+    got = b.ok("agent", "describe", "dora7", "--clear")
+    check("description" in got and got["description"] is None, f"--clear: {got}")
+    status, body = b.api("GET", f"/v1/agents/{dora.id}")
+    check(status == 200 and "description" in body and body["description"] is None, f"after --clear: {body}")
+    check(agents_json_entry(a, dora.id, "reachable").get("description", "missing") is None,
+          "alice's agents --json after --clear and a refresh")
+    check(directory_entry(a, dora.id).get("description", "missing") is None, "alice's directory after --clear")
+    check("description" not in peer_entry(dora.id), "bob's peer entry keeps a `description` key after --clear")
+    say_to(conv, "and now?", wait=(dora,))
+    got = claim_one(dle)
+    want[[w["participant"] for w in want].index(participant(dora))]["description"] = None
+    check(areas_of(got) == want, f"areas after --clear {got['areas']}, want {want}")
+    check(not unchanged, f"descriptions that must be refused with 400 invalid and the rule's text: {unchanged}")
 
 
 @suite.case("stopped", "C5 `conversation_undelivered` (stopped), C4 The 24-hour push window; runs last")
