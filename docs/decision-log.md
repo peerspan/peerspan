@@ -17,7 +17,8 @@ Contents:
 - [Full entries](#full-entries), with options:
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
 
-- [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
+- [CONV-30 to CONV-34: the must-route lead](#conv-30-to-conv-34-the-must-route-lead-2026-11-02) (2026-11-02)
+  - [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
   - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
@@ -93,6 +94,60 @@ Contents:
   boundaries, merge gates and implementation recommendations with discarded
   options. This is a plan; implementation and validation remain pending.
 - **Tracking PR:** [#35](https://github.com/peerspan/peerspan/pull/35).
+
+### CONV-30 to CONV-34: the must-route lead (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), after the comparisons [CONV-28](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) and [CONV-29](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02).
+- **Source:** [conversations-lead-proposal.md, Owner decisions needed](conversations-lead-proposal.md#owner-decisions-needed), decisions 1 to 4 (CONV-30 to CONV-33), and a question put to the owner after the second comparison (CONV-34).
+- **Contract section:** [conversations-contract.md, C7: the lead](conversations-contract.md#c7-the-lead).
+- **Implementing PRs:** none yet.
+
+#### CONV-30. Who decides which agents wake
+
+- **Options:**
+  - (a) Today's rule: each agent, by taking the turn.
+  - (b) A lead, as above.
+  - (c) One of the [other options](conversations-lead-proposal.md#other-options).
+- **Chosen:** (b), in the must-route form the second comparison tested: when the lead can't fully answer, it must address the likely holders in `addressed_to`, since naming an agent without addressing it doesn't reach it. The owner's words: "accept the must-route lead, write the contract".
+- **Reason given:** None beyond the acceptance. The comparison it followed found that a lead told to route finished every answer at about two-thirds of today's cost, saving mostly when it held the answer itself ([results](results/conversations-wake-comparison-2.json)).
+- **Accepted cost:** agents that aren't addressed can't offer help unprompted. In both comparisons, the agent holding the T4 blocker was never woken under a lead (0 of 6 sets), while today's rule and the quieter-agents arm raised it in 5 of 6 sets ([run 1](results/conversations-lead-comparison.json), [run 2](results/conversations-wake-comparison-2.json)).
+- **Effect on earlier entries:** refines [CONV-10](#conv-10-what-a-receiving-session-gets-each-turn): a claim that gathers parked notifications also gets a window. [CONV-11](#conv-11-how-to-bound-back-and-forth-between-agents) is unchanged.
+
+#### CONV-31. How the lead is chosen
+
+- **Options:**
+  - (a) Derived from the roster, with no new field.
+  - (b) An explicit `lead` roster field that the creator can change, which needs every host to upgrade.
+- **Chosen:** (a), the proposal's recommendation.
+- **Basis:** after the second comparison, the owner was told that the other decisions "can take my recommendations unless you say otherwise", and replied "accept the must-route lead, write the contract" with no objection. This is recorded as that, not as an explicit choice of this option.
+- **Reason given in the proposal:** "It needs no wire change, and an explicit field can follow if people ask to change the lead."
+
+#### CONV-32. Whether an owner can refuse the lead role for their agent
+
+- **Options:**
+  - (a) No. No owner pays more than today.
+  - (b) Yes, a per-agent setting that skips the agent when working out the lead. Every host would have to know that setting, so it needs a roster or wire change.
+- **Chosen:** (a), the proposal's recommendation, on the same basis as CONV-31.
+- **Reason given in the proposal:** "If it proves unfair, (b) can follow together with 2(b)."
+
+#### CONV-33. Whether a conversation can opt out
+
+- **Options:**
+  - (a) No setting. A sender who wants everyone addresses everyone: `addressed_to` already takes up to 16 participants, the most a conversation can have.
+  - (b) A per-conversation wake mode.
+- **Chosen:** (a), the proposal's recommendation, on the same basis as CONV-31.
+- **Reason given in the proposal:** "It adds no state, and every wake stays the sender's explicit choice."
+
+#### CONV-34. Where the lead's area labels come from
+
+- **Question:** "The must-route lead needs each agent's area label, and no such field exists. Where should the label come from?"
+- **Options:**
+  - Directory entry: "Each owner sets an optional one-line description for an agent on its own host. Hosts serve it in the directory they already share, and the lead's host puts the labels into the lead's event from its directory cache. The roster doesn't change, and an older host just shows no label."
+  - Roster participant entry: "Home copies the description into the roster when the agent joins, so every host sees the same label at the same roster version. Because rosters refuse unknown fields, every host in a conversation has to upgrade."
+  - No labels, guidance only: "No new field. The lead routes from agent names and its must-address guidance. This is the least work, but untested: the comparison changed labels and guidance together, so it's unknown whether labels were needed."
+- **Chosen:** Directory entry, the recommendation, by the owner.
+- **Reason given:** None beyond the choice.
 
 ### CONV-29: second comparison, quieter agents and a must-route lead (2026-11-02)
 
