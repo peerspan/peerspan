@@ -84,7 +84,7 @@ jobs:
           elif [ '${{ matrix.suite }}' = 'access_onboarding' ]; then
             python3 conformance/slim/bootstrap_response_diagnostic.py conformance/slim/access_onboarding.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_owner' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/combined_purity_diagnostic.py machine_owner --bin bin
+            python3 conformance/slim/link_response_diagnostic.py conformance/slim/machine_owner_lifecycle_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then
             python3 conformance/slim/link_response_diagnostic.py conformance/slim/owner_finalization_prerequisite.py --bin bin
           elif [ '${{ matrix.suite }}' = 'machine_requester_completion' ]; then

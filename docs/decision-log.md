@@ -4680,3 +4680,29 @@ all full-feature reload/model/physical/upgrade gates remain open.
   bypassing limits on known routes, changing route classification, or weakening
   the frozen boundary assertion. Independent cases retain their original bodies
   and deadlines; strict XPASS is required before removing the new known marker.
+
+
+### GU.final.expiry: complete due resource retirement before the purity baseline
+
+- **Evidence:** integrated5f7cd90 passed52/52 acceptance checks and review. A fresh
+  tracking35 run passes51/52; signed-request expiry changes two unknown owner
+  carrier tables with unchanged files and TCP/UDP counters. The original table
+  identities and actor remain unattributed. A read-only callgraph audit finds
+  inspection uses host state read transactions and cannot call carrier collection;
+  independent resource maintenance can run without traffic after a clock jump.
+- **Selected:** an independent contract-only author checks the already-held
+  whole-state snapshot for completed due ciphertext/tombstone retirement before
+  the final phase's strict baseline. Use only the existing quiet predicate's
+  captures and unchanged three-second deadline. Add the three documented carrier
+  table names to closed diagnostics. Every original body, state comparison,
+  carrier counter, assertion and whole-suite limit stays intact.
+- **Rationale:** two equal100ms observations after advancing the test clock can
+  precede asynchronous resource retirement. Establish actual lifecycle completion
+  before attributing subsequent writes to the read-only action.
+- **Discarded:** excluding carrier tables/databases, resetting counters, editing
+  rows, extra API/DB/file/socket observations, sleeps, longer deadlines, production
+  scheduling changes or rerunning an unexplained failure unchanged.
+- **Verification:** execute the independent launcher once, retain closed pre-call
+  lifecycle counts and all first failures, then require fresh full tracking CI and
+  review. The installed artifact's production and packaging trees are unchanged;
+  the final-artifact live-model authorization/evidence-limit decision stays open.
