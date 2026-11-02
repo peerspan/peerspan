@@ -4896,3 +4896,25 @@ and explicit model authorization/evidence-limit decision remain open.
   follow as separate slices of the existing milestone3b issue.
 - **Verification:** [real-machine acceptance](real-network-acceptance.md). This
   decision starts qualification; it records no new remote or real-NAT pass.
+
+### NET-02: prepare an authenticated returned machine request without a second fetch
+
+- **Evidence:** the first external existing-person ceremony refuses preparation
+  after successful inspection. Narrow diagnostic builds reproduce it and identify
+  absent reconstructed pairing-code material; the original mailbox request frame
+  arrives later. The automatic-return importer has already verified and retained
+  the signed request and its return capability before exposing the request.
+- **Selected:** share ordinary owner preparation over that validated retained
+  request, preserving exact host/device/network/person/provider, finite scope and
+  expiry checks. Keep code-entry verification for ordinary code-entry callers;
+  guided preparation creates only an unapproved unsigned intent and receipt.
+- **Rationale:** a second background mailbox fetch is a transport detail and must
+  not make a valid immediate consent operation fail. Preparation remains local
+  and bounded; no signer or extra consent is introduced.
+- **Discarded:** sleeps, polling the preparation mutation, fixture access to SQLite
+  to wait for an unexposed prerequisite, copying another machine's frame/key,
+  extending operation windows, or approving/signing during preparation.
+- **Verification:** independent contract-only regression with the original
+  mailbox-frame GET withheld, affected existing suites, Rust gates and a rebuilt
+  installed artifact before repeating external-machine acceptance. Diagnostic
+  binaries do not qualify a release.

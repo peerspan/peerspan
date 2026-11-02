@@ -7958,14 +7958,29 @@ signing is unavailable. Public inspection never becomes a new key prerequisite.
 Before first preparation require the supplied inspection digest equal this
 current review, then call the ordinary owner preparation with the concrete
 selected provider, signature format, scopes7, fixed not_after and actual target
-host/device/network/person pins. Reconstruct its private code only from retained
-ordinary request frames/secret, without export or IO. Preparation may use the
+host/device/network/person pins. Prepare directly from the validated retained
+ordinary request; a second fetch of its original mailbox frame is not a
+prerequisite once automatic return has retained the authenticated request and
+its return capability. Do not reconstruct, export or fetch a pairing code for
+this operation. Ordinary code-entry commands retain their code verification.
+Preparation may use the
 ordinary owned-key resolver; it invokes no signer or external file/agent probe.
 It atomically creates/reuses that exact UNAPPROVED owner intent and writes one
 unsigned machine_owner_review receipt. No fresh requester key, signature,
 publication, membership, access, event or protocol-stage advancement. Existing
 ordinary unapproved intents may be reused only when every reviewed term matches;
 never replace their templates, provider, creation time or proposed deadline.
+
+The returned request can become publicly inspectable before its original
+mailbox frame is fetched. An immediately submitted exact preparation must still
+succeed within the existing5s operation bound, without network IO, signing or
+approval. Validate the retained signed request and all frozen pins/provider/
+scope/expiry terms through the same ordinary preparation path. A missing or
+invalid request/capability remains unavailable; this does not admit unsigned
+or caller-substituted protocol material. Verification includes a genuine
+automatic-return request whose original mailbox-frame GET is withheld, followed
+by exact inspection and unsigned preparation before any owner approval. Release
+the held transport only after asserting that boundary and continue normally.
 
 ### Immutable review and record
 
