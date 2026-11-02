@@ -1,0 +1,2666 @@
+{
+  "checked_at": "2026-11-02T06:30:00+00:00",
+  "source_revision": "c108f61",
+  "branch": "experiment/conversation-wake-2, not merged and not to be merged; built on experiment/conversation-lead-wake",
+  "decisions": [
+    "CONV-29",
+    "CONV-28",
+    "CONV-27"
+  ],
+  "scope": "Two more variants on run 1's four tasks: quieter agents with everyone still waking (quiet), and a lead that must address likely holders and knows each agent's area (route), three sets per arm. They are compared with run 1's today and lead numbers in conversations-lead-comparison.json, which were not rerun. One machine with two hosts. Three sets per arm can show large differences in these tasks, but no significance is claimed, and it says nothing about other tasks or models.",
+  "preregistration": "experiment/PREREGISTRATION-2.md on the branch, committed in c108f61 before any model run of this comparison",
+  "what_ran": {
+    "hosts": {
+      "A": {
+        "person": "alice",
+        "agents": [
+          "api"
+        ]
+      },
+      "B": {
+        "person": "bob",
+        "agents": [
+          "db",
+          "release"
+        ]
+      }
+    },
+    "network_path": "loopback QUIC between two hosts on one machine (CONV-27)",
+    "binary": "release build from the branch, one binary for both arms; PEERSPAN_EXPERIMENT_WAKE selects the arm",
+    "harness": "Claude Code 2.1.314, model claude-haiku-5-5, the same version and model as run 1 according to both runs' transcripts, with --setting-sources project,local and auto memory off",
+    "lead": "alice/api in every route conversation, by the proposal's rule 2",
+    "labels": {
+      "text": "alice/api: API; bob/db: database; bob/release: release process",
+      "where_they_would_come_from": "No such field exists. They reached the adapter through an experiment environment variable, and only the lead saw them. In the product they would need a per-agent description that its owner writes and that reaches every host in the roster or directory, which is a wire change the derived lead otherwise avoids."
+    },
+    "person_messages": "Run 1's four unaddressed messages from alice, with no follow-up.",
+    "order": "Sets 7 to 12 alternated quiet, route. Fresh host state, sessions and project directories per set. No run was discarded. Run 1's sets ran earlier the same day, so arms in different runs were not interleaved."
+  },
+  "results": {
+    "today": {
+      "sets": [
+        1,
+        3,
+        5
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 66,
+          "max": 67,
+          "mean": 66.7
+        },
+        "cache_read": {
+          "min": 3105092,
+          "max": 3184648,
+          "mean": 3154195
+        },
+        "cache_write": {
+          "min": 51759,
+          "max": 58593,
+          "mean": 55211.7
+        },
+        "input": {
+          "min": 192,
+          "max": 208,
+          "mean": 201.3
+        },
+        "output": {
+          "min": 11575,
+          "max": 12098,
+          "mean": 11846.3
+        },
+        "message_wakes": {
+          "min": 36,
+          "max": 42,
+          "mean": 39.3
+        },
+        "agent_messages": {
+          "min": 12,
+          "max": 15,
+          "mean": 13.7
+        }
+      },
+      "useless_posts_blind": [
+        8,
+        6,
+        8
+      ],
+      "launch_cache_read": {
+        "min": 296462,
+        "max": 296562,
+        "mean": 296527.7
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 9,
+            "max": 9,
+            "mean": 9
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 21,
+            "max": 22,
+            "mean": 21.7
+          },
+          "cache_read": {
+            "min": 858015,
+            "max": 899786,
+            "mean": 885758.3
+          },
+          "cache_write": {
+            "min": 15257,
+            "max": 15962,
+            "mean": 15492.7
+          },
+          "input": {
+            "min": 58,
+            "max": 62,
+            "mean": 60.7
+          },
+          "output": {
+            "min": 3742,
+            "max": 4378,
+            "mean": 4092.7
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 9.9,
+            "max": 12.6,
+            "mean": 11.4
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 21,
+              "max": 22,
+              "mean": 21.7
+            },
+            "cache_read": {
+              "min": 858015,
+              "max": 899786,
+              "mean": 885758.3
+            }
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 9,
+            "max": 9,
+            "mean": 9
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 13,
+            "max": 16,
+            "mean": 14.3
+          },
+          "cache_read": {
+            "min": 588060,
+            "max": 735779,
+            "mean": 653852
+          },
+          "cache_write": {
+            "min": 11074,
+            "max": 11973,
+            "mean": 11456.3
+          },
+          "input": {
+            "min": 40,
+            "max": 46,
+            "mean": 44
+          },
+          "output": {
+            "min": 2075,
+            "max": 2634,
+            "mean": 2271
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 4.0,
+            "max": 6.7,
+            "mean": 5.5
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 13,
+              "max": 16,
+              "mean": 14.3
+            },
+            "cache_read": {
+              "min": 588060,
+              "max": 735779,
+              "mean": 653852
+            }
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 9,
+            "max": 15,
+            "mean": 13
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 15,
+            "max": 20,
+            "mean": 17.3
+          },
+          "cache_read": {
+            "min": 752308,
+            "max": 1009715,
+            "mean": 873219
+          },
+          "cache_write": {
+            "min": 11930,
+            "max": 20655,
+            "mean": 17646
+          },
+          "input": {
+            "min": 46,
+            "max": 62,
+            "mean": 54
+          },
+          "output": {
+            "min": 2578,
+            "max": 3992,
+            "mean": 3356.3
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 6,
+            "mean": 5
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 6.5,
+            "max": 11.0,
+            "mean": 8.5
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 15,
+              "max": 20,
+              "mean": 17.3
+            },
+            "cache_read": {
+              "min": 752308,
+              "max": 1009715,
+              "mean": 873219
+            }
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 7,
+            "max": 9,
+            "mean": 8.3
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 12,
+            "max": 14,
+            "mean": 13.3
+          },
+          "cache_read": {
+            "min": 675596,
+            "max": 789511,
+            "mean": 741365.7
+          },
+          "cache_write": {
+            "min": 8295,
+            "max": 11894,
+            "mean": 10616.7
+          },
+          "input": {
+            "min": 40,
+            "max": 46,
+            "mean": 42.7
+          },
+          "output": {
+            "min": 1612,
+            "max": 2508,
+            "mean": 2126.3
+          },
+          "agent_messages": {
+            "min": 2,
+            "max": 3,
+            "mean": 2.7
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 3.3,
+            "max": 6.4,
+            "mean": 5.1
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 12,
+              "max": 14,
+              "mean": 13.3
+            },
+            "cache_read": {
+              "min": 675596,
+              "max": 789511,
+              "mean": 741365.7
+            }
+          },
+          "blocker_surfaced_of_3": 2,
+          "blind_blocker_of_3": 2,
+          "release_addressed_of_3": 0
+        }
+      }
+    },
+    "lead": {
+      "sets": [
+        2,
+        4,
+        6
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 25,
+          "max": 43,
+          "mean": 31.7
+        },
+        "cache_read": {
+          "min": 1076349,
+          "max": 1880488,
+          "mean": 1370160
+        },
+        "cache_write": {
+          "min": 13983,
+          "max": 27977,
+          "mean": 18847
+        },
+        "input": {
+          "min": 82,
+          "max": 132,
+          "mean": 100
+        },
+        "output": {
+          "min": 4311,
+          "max": 7746,
+          "mean": 5468.7
+        },
+        "message_wakes": {
+          "min": 4,
+          "max": 15,
+          "mean": 7.7
+        },
+        "agent_messages": {
+          "min": 4,
+          "max": 7,
+          "mean": 5
+        }
+      },
+      "useless_posts_blind": [
+        2,
+        2,
+        2
+      ],
+      "launch_cache_read": {
+        "min": 296554,
+        "max": 296604,
+        "mean": 296579
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 7,
+            "max": 10,
+            "mean": 8.7
+          },
+          "cache_read": {
+            "min": 279872,
+            "max": 401706,
+            "mean": 347266
+          },
+          "cache_write": {
+            "min": 4298,
+            "max": 5055,
+            "mean": 4681.3
+          },
+          "input": {
+            "min": 22,
+            "max": 28,
+            "mean": 25.3
+          },
+          "output": {
+            "min": 1472,
+            "max": 1867,
+            "mean": 1648.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 8.2,
+            "max": 13.1,
+            "mean": 11.1
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 7,
+              "max": 10,
+              "mean": 8.7
+            },
+            "cache_read": {
+              "min": 279872,
+              "max": 401706,
+              "mean": 347266
+            }
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 1,
+            "max": 4,
+            "mean": 2
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 3,
+            "max": 4,
+            "mean": 3.7
+          },
+          "calls": {
+            "min": 6,
+            "max": 12,
+            "mean": 8
+          },
+          "cache_read": {
+            "min": 253652,
+            "max": 506875,
+            "mean": 338725.7
+          },
+          "cache_write": {
+            "min": 3199,
+            "max": 7556,
+            "mean": 4691
+          },
+          "input": {
+            "min": 20,
+            "max": 36,
+            "mean": 25.3
+          },
+          "output": {
+            "min": 749,
+            "max": 2050,
+            "mean": 1256
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 2,
+            "mean": 1.3
+          },
+          "correct_of_3": 1,
+          "blind_correct_of_3": 1,
+          "seconds_to_correct": {
+            "min": 17.2,
+            "max": 17.2,
+            "mean": 17.2
+          },
+          "completed_only": {
+            "tasks": 1,
+            "calls": {
+              "min": 12,
+              "max": 12,
+              "mean": 12
+            },
+            "cache_read": {
+              "min": 506875,
+              "max": 506875,
+              "mean": 506875
+            }
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 1,
+            "max": 9,
+            "mean": 3.7
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 4,
+            "mean": 2.7
+          },
+          "calls": {
+            "min": 6,
+            "max": 17,
+            "mean": 9.7
+          },
+          "cache_read": {
+            "min": 265602,
+            "max": 764130,
+            "mean": 432315.7
+          },
+          "cache_write": {
+            "min": 3197,
+            "max": 12657,
+            "mean": 6371
+          },
+          "input": {
+            "min": 20,
+            "max": 52,
+            "mean": 30.7
+          },
+          "output": {
+            "min": 859,
+            "max": 3505,
+            "mean": 1746.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 3,
+            "mean": 1.7
+          },
+          "correct_of_3": 1,
+          "blind_correct_of_3": 1,
+          "seconds_to_correct": {
+            "min": 18.0,
+            "max": 18.0,
+            "mean": 18.0
+          },
+          "completed_only": {
+            "tasks": 1,
+            "calls": {
+              "min": 17,
+              "max": 17,
+              "mean": 17
+            },
+            "cache_read": {
+              "min": 764130,
+              "max": 764130,
+              "mean": 764130
+            }
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 5,
+            "max": 6,
+            "mean": 5.3
+          },
+          "cache_read": {
+            "min": 229072,
+            "max": 277223,
+            "mean": 251852.7
+          },
+          "cache_write": {
+            "min": 3068,
+            "max": 3170,
+            "mean": 3103.7
+          },
+          "input": {
+            "min": 18,
+            "max": 20,
+            "mean": 18.7
+          },
+          "output": {
+            "min": 584,
+            "max": 1032,
+            "mean": 817.3
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 3.4,
+            "max": 5.3,
+            "mean": 4.4
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 5,
+              "max": 6,
+              "mean": 5.3
+            },
+            "cache_read": {
+              "min": 229072,
+              "max": 277223,
+              "mean": 251852.7
+            }
+          },
+          "blocker_surfaced_of_3": 0,
+          "blind_blocker_of_3": 0,
+          "release_addressed_of_3": 0
+        }
+      }
+    },
+    "quiet": {
+      "sets": [
+        11,
+        7,
+        9
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 62,
+          "max": 76,
+          "mean": 67.7
+        },
+        "cache_read": {
+          "min": 2790193,
+          "max": 3597178,
+          "mean": 3108699
+        },
+        "cache_write": {
+          "min": 38469,
+          "max": 52197,
+          "mean": 43773.7
+        },
+        "input": {
+          "min": 172,
+          "max": 234,
+          "mean": 201.3
+        },
+        "output": {
+          "min": 10635,
+          "max": 12522,
+          "mean": 11341.7
+        },
+        "message_wakes": {
+          "min": 24,
+          "max": 36,
+          "mean": 29.3
+        },
+        "agent_messages": {
+          "min": 6,
+          "max": 12,
+          "mean": 8.7
+        }
+      },
+      "useless_posts_blind": [
+        5,
+        0,
+        2
+      ],
+      "launch_cache_read": {
+        "min": 296583,
+        "max": 296602,
+        "mean": 296591.3
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 5,
+            "max": 9,
+            "mean": 6.3
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 15,
+            "max": 25,
+            "mean": 20
+          },
+          "cache_read": {
+            "min": 600697,
+            "max": 1033928,
+            "mean": 814953.3
+          },
+          "cache_write": {
+            "min": 8246,
+            "max": 15120,
+            "mean": 11049.3
+          },
+          "input": {
+            "min": 46,
+            "max": 74,
+            "mean": 58
+          },
+          "output": {
+            "min": 2858,
+            "max": 4452,
+            "mean": 3613.3
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 3,
+            "mean": 1.7
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 8.3,
+            "max": 13.2,
+            "mean": 10.6
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 15,
+              "max": 25,
+              "mean": 20
+            },
+            "cache_read": {
+              "min": 600697,
+              "max": 1033928,
+              "mean": 814953.3
+            }
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 5,
+            "max": 7,
+            "mean": 5.7
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 13,
+            "max": 19,
+            "mean": 15.3
+          },
+          "cache_read": {
+            "min": 591147,
+            "max": 820543,
+            "mean": 674421
+          },
+          "cache_write": {
+            "min": 6811,
+            "max": 10198,
+            "mean": 8525
+          },
+          "input": {
+            "min": 38,
+            "max": 56,
+            "mean": 44.7
+          },
+          "output": {
+            "min": 1960,
+            "max": 2565,
+            "mean": 2345
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 2,
+            "mean": 1.3
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 5.5,
+            "max": 10.2,
+            "mean": 7.1
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 13,
+              "max": 19,
+              "mean": 15.3
+            },
+            "cache_read": {
+              "min": 591147,
+              "max": 820543,
+              "mean": 674421
+            }
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 7,
+            "max": 15,
+            "mean": 10.3
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 14,
+            "max": 23,
+            "mean": 17.7
+          },
+          "cache_read": {
+            "min": 657275,
+            "max": 1145668,
+            "mean": 850828
+          },
+          "cache_write": {
+            "min": 10902,
+            "max": 20746,
+            "mean": 14865.3
+          },
+          "input": {
+            "min": 38,
+            "max": 72,
+            "mean": 52.7
+          },
+          "output": {
+            "min": 2642,
+            "max": 3821,
+            "mean": 3168.7
+          },
+          "agent_messages": {
+            "min": 2,
+            "max": 6,
+            "mean": 3.7
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 7.7,
+            "max": 12.4,
+            "mean": 9.7
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 14,
+              "max": 23,
+              "mean": 17.7
+            },
+            "cache_read": {
+              "min": 657275,
+              "max": 1145668,
+              "mean": 850828
+            }
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 7,
+            "max": 7,
+            "mean": 7
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 14,
+            "max": 15,
+            "mean": 14.7
+          },
+          "cache_read": {
+            "min": 711110,
+            "max": 826435,
+            "mean": 768496.7
+          },
+          "cache_write": {
+            "min": 9219,
+            "max": 9520,
+            "mean": 9334
+          },
+          "input": {
+            "min": 42,
+            "max": 48,
+            "mean": 46
+          },
+          "output": {
+            "min": 1953,
+            "max": 2402,
+            "mean": 2214.7
+          },
+          "agent_messages": {
+            "min": 2,
+            "max": 2,
+            "mean": 2
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 4.2,
+            "max": 5.8,
+            "mean": 5.1
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 14,
+              "max": 15,
+              "mean": 14.7
+            },
+            "cache_read": {
+              "min": 711110,
+              "max": 826435,
+              "mean": 768496.7
+            }
+          },
+          "blocker_surfaced_of_3": 3,
+          "blind_blocker_of_3": 3,
+          "release_addressed_of_3": 0
+        }
+      }
+    },
+    "route": {
+      "sets": [
+        10,
+        12,
+        8
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 45,
+          "max": 48,
+          "mean": 46
+        },
+        "cache_read": {
+          "min": 1983026,
+          "max": 2141726,
+          "mean": 2043614.7
+        },
+        "cache_write": {
+          "min": 29665,
+          "max": 38187,
+          "mean": 33153.3
+        },
+        "input": {
+          "min": 136,
+          "max": 148,
+          "mean": 140
+        },
+        "output": {
+          "min": 7816,
+          "max": 8542,
+          "mean": 8185.3
+        },
+        "message_wakes": {
+          "min": 15,
+          "max": 19,
+          "mean": 16.3
+        },
+        "agent_messages": {
+          "min": 8,
+          "max": 11,
+          "mean": 9.3
+        }
+      },
+      "useless_posts_blind": [
+        4,
+        6,
+        3
+      ],
+      "launch_cache_read": {
+        "min": 294790,
+        "max": 296563,
+        "mean": 295964.3
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 9,
+            "max": 9,
+            "mean": 9
+          },
+          "cache_read": {
+            "min": 357334,
+            "max": 362141,
+            "mean": 360066.7
+          },
+          "cache_write": {
+            "min": 4814,
+            "max": 4888,
+            "mean": 4846.7
+          },
+          "input": {
+            "min": 26,
+            "max": 26,
+            "mean": 26
+          },
+          "output": {
+            "min": 1631,
+            "max": 1666,
+            "mean": 1649.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 12.3,
+            "max": 13.5,
+            "mean": 12.9
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 9,
+              "max": 9,
+              "mean": 9
+            },
+            "cache_read": {
+              "min": 357334,
+              "max": 362141,
+              "mean": 360066.7
+            }
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 3,
+            "max": 5,
+            "mean": 4.3
+          },
+          "calls": {
+            "min": 12,
+            "max": 14,
+            "mean": 13
+          },
+          "cache_read": {
+            "min": 506886,
+            "max": 596924,
+            "mean": 549846.7
+          },
+          "cache_write": {
+            "min": 7338,
+            "max": 9312,
+            "mean": 8620
+          },
+          "input": {
+            "min": 36,
+            "max": 40,
+            "mean": 38
+          },
+          "output": {
+            "min": 1873,
+            "max": 2326,
+            "mean": 2077
+          },
+          "agent_messages": {
+            "min": 2,
+            "max": 3,
+            "mean": 2.7
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 14.2,
+            "max": 17.9,
+            "mean": 15.6
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 12,
+              "max": 14,
+              "mean": 13
+            },
+            "cache_read": {
+              "min": 506886,
+              "max": 596924,
+              "mean": 549846.7
+            }
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 9,
+            "max": 13,
+            "mean": 10.3
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 2,
+            "max": 2,
+            "mean": 2
+          },
+          "calls": {
+            "min": 17,
+            "max": 21,
+            "mean": 19
+          },
+          "cache_read": {
+            "min": 786455,
+            "max": 971254,
+            "mean": 872915.7
+          },
+          "cache_write": {
+            "min": 14220,
+            "max": 20975,
+            "mean": 16512.3
+          },
+          "input": {
+            "min": 52,
+            "max": 66,
+            "mean": 58
+          },
+          "output": {
+            "min": 3612,
+            "max": 4297,
+            "mean": 3850
+          },
+          "agent_messages": {
+            "min": 4,
+            "max": 6,
+            "mean": 4.7
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 13.3,
+            "max": 18.1,
+            "mean": 15.7
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 17,
+              "max": 21,
+              "mean": 19
+            },
+            "cache_read": {
+              "min": 786455,
+              "max": 971254,
+              "mean": 872915.7
+            }
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 5,
+            "max": 5,
+            "mean": 5
+          },
+          "cache_read": {
+            "min": 254377,
+            "max": 267408,
+            "mean": 260785.7
+          },
+          "cache_write": {
+            "min": 3147,
+            "max": 3188,
+            "mean": 3174.3
+          },
+          "input": {
+            "min": 18,
+            "max": 18,
+            "mean": 18
+          },
+          "output": {
+            "min": 547,
+            "max": 679,
+            "mean": 608.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "blind_correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 3.4,
+            "max": 3.9,
+            "mean": 3.7
+          },
+          "completed_only": {
+            "tasks": 3,
+            "calls": {
+              "min": 5,
+              "max": 5,
+              "mean": 5
+            },
+            "cache_read": {
+              "min": 254377,
+              "max": 267408,
+              "mean": 260785.7
+            }
+          },
+          "blocker_surfaced_of_3": 0,
+          "blind_blocker_of_3": 0,
+          "release_addressed_of_3": 0
+        }
+      }
+    }
+  },
+  "text_the_model_saw": {
+    "method": "Claude Code's api-request-shape transcript records for the tool description, and queued channel messages for the event text.",
+    "quiet": "The conversation_send description had the quiet sentence in 8 of the 9 agent sessions; in set 11 db's transcript has no shape record carrying that tool, so it is unconfirmed there. The event sentence appears in all 9 sessions. No route text appears.",
+    "route": "The conversation_send description had the must-address sentence in all 9 sessions. The lead's event text and labels appear in all 3 api sessions and in no other agent's. No quiet text appears."
+  },
+  "blind_scoring": {
+    "method": "One fresh claude -p process on claude-sonnet-5-5, with no tools, given rubric and 48 conversations in shuffled order: run 1's and this run's, with messages and author labels only. Addressed lists, arm names, sets and event text were removed.",
+    "result": "It agreed with the script on all 48 answers and all 12 blockers, and marked none ambiguous.",
+    "usage": "15,731 cache-write and 4,162 output tokens"
+  },
+  "lead_behaviour": {
+    "named_without_addressing": "Never when routing. In all 6 T2 and T3 route tasks the lead's first message addressed the holders. Its later mentions of bob/db and bob/release to alice were citations in a final answer.",
+    "misroutes": "None: no address to an agent holding nothing relevant, and no T2 or T3 holder missed.",
+    "t4_blocker": "The lead answered T4 from its own notes in all 3 sets, as the guidance says to, so release was never addressed and never woke. The question of whether addressing release would surface the blocker wasn't tested.",
+    "closing_the_loop": "In set 8's T2, the lead didn't relay db's answer, which db addressed only to the lead. The answer is in the conversation, so the rubric passes, but alice wasn't addressed. In the other 5 T2 and T3 route tasks, a message addressed to alice gave the answer."
+  },
+  "useless_posts": {
+    "per_set_blind": {
+      "today": [
+        8,
+        6,
+        8
+      ],
+      "lead": [
+        2,
+        2,
+        2
+      ],
+      "quiet": [
+        5,
+        0,
+        2
+      ],
+      "route": [
+        4,
+        6,
+        3
+      ]
+    },
+    "note": "The definition counts a post with no new fact from the agent's own notes. In route and lead this includes the lead's routing messages and final summaries, which do useful work, so those arms' counts aren't comparable with today and quiet. Quiet fell against today, but agents still sometimes posted that they had nothing (2 in set 9), or confirmed each other (set 11)."
+  },
+  "findings": [
+    "Quiet didn't save cost. Excluding launch, it used 62 to 76 model calls per set against 66 to 67 today, and 2.79M to 3.60M cache-read tokens against 3.11M to 3.18M. Message wakes fell from 36-42 to 24-36 and agent messages from 12-15 to 6-12, but each agent still woke for alice's message and looked through its notes, which is where the calls go.",
+    "Quiet kept the work: all 12 answers, and the T4 blocker in 3 of 3 sets, against 2 of 3 today. The difference from today isn't meaningful with three sets.",
+    "Route completed the work the lead arm lost: all 12 answers against 8 of 12 for run 1's lead, using 45 to 48 calls per set and 1.98M to 2.14M cache-read tokens, about 69% of today's calls and 65% of its cache-read tokens.",
+    "Route's saving isn't uniform. When the lead held the answer, T1 used about 41% of today's cache-read tokens. When others held it, it saved little or nothing: T2 about 84%, and T3 the same as today (872,916 against 873,219). T4 used about 35%, but that saving includes never waking the agent with the blocker.",
+    "Route lost unprompted help entirely: the T4 blocker surfaced in 0 of 3 sets, as in run 1's lead. Must-route guidance doesn't address this, because the lead could answer what it was asked.",
+    "Route was slower when routing: T2 took 14.2 to 17.9 seconds to a correct message against 4.0 to 6.7 today, and T3 13.3 to 18.1 against 6.5 to 11.0.",
+    "Routing guidance and labels changed the lead's behaviour: T2 and T3 stalled in 4 of 6 tasks under run 1's lead, and in 0 of 6 here. The two changed together, so this doesn't show which one mattered."
+  ],
+  "not_shown": [
+    "Which of route's guidance and labels made routing work, since they weren't varied separately.",
+    "Rosters where areas are less tidy. The agents' names already suggest their areas, and the labels are short and accurate, which favours routing. Fixtures hold only three areas.",
+    "Larger rosters, where today's cost grows with each agent and route's gets a larger relative saving on unaddressed messages the lead can answer. Three agents understate that.",
+    "Long conversations, real projects or user settings, so token totals don't predict real costs. Cross-machine networks, Codex or OpenCode, offline, departing or unreachable leads, and hosts that haven't upgraded.",
+    "Whether a person's follow-up changes any result, since the script sends none.",
+    "An arm combining quiet guidance with addressed-only wakes, which this run didn't try."
+  ],
+  "usage": {
+    "cache_read_all_including_pilots": 18710806,
+    "ceiling": 40000000,
+    "launch_per_set_cache_read": "about 296,000",
+    "rate_limit": "none hit"
+  },
+  "deviations": [
+    {
+      "change": "The blind scorer was a claude -p process, not a subagent, on Sonnet.",
+      "reason": "The run was driven by a worker that can't start subagents. It was fresh, with no tools or settings, as the pre-registration says."
+    },
+    {
+      "change": "The blind scorer also scored run 1's 24 conversations.",
+      "reason": "It mixes arms for blinding, and run 1 hadn't been scored blind."
+    },
+    {
+      "change": "Useless posts were counted by the blind scorer only, with review afterward, not by script pattern and review.",
+      "reason": "A pattern can't apply the definition. Review found the definition overcounts routing and summary posts; see useless_posts."
+    },
+    {
+      "change": "npm ci was needed in integrations/claude-channel on the fresh clone.",
+      "reason": "Three pilot attempts failed at launch before that, without reaching a model. The tasks, guidance and labels didn't change. The two pilots that then passed saw no task."
+    },
+    {
+      "change": "experiment/run_set.py, the arms and pre-registration were committed together in c108f61, and scoring scripts afterward.",
+      "reason": "Scoring scripts need results to run against; the metrics were set before."
+    }
+  ],
+  "discarded_runs": [],
+  "branch_checks": [
+    {
+      "check": "experiment/lead_wake_check.py, no model, lead and route values",
+      "result": "6 of 6 each on the release build"
+    },
+    {
+      "check": "Conversation suites with the flag off, debug build, before the model runs",
+      "result": "conversations 24, sync 14, tools 19, context 20, run_fixes 29, people 11, all passed. The close_while_down flake from run 1 didn't recur; this time nothing else was running."
+    },
+    {
+      "check": "integrations/shared adapter.test.mjs",
+      "result": "26 of 26 passed"
+    }
+  ],
+  "runs": [
+    {
+      "set": 10,
+      "arm": "route",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296563,
+        "cache_write": 28790,
+        "output": 1624
+      },
+      "total": {
+        "calls": 54,
+        "input": 154,
+        "cache_read": 2302655,
+        "cache_write": 60398,
+        "output": 9822
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_f3778fa9aef9c8566dbac3ea541848a3",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 9,
+          "cache_read": 362141,
+          "cache_write": 4888,
+          "input": 26,
+          "output": 1631,
+          "agent_messages": 1,
+          "task_seconds": 79.4,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 13.0,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T2",
+          "conv": "conv_b38170c139aed786cae2378b30017cfc",
+          "wakes_message": 4,
+          "wakes_roster": 3,
+          "parked_unclaimed": 5,
+          "calls": 14,
+          "cache_read": 596924,
+          "cache_write": 9312,
+          "input": 40,
+          "output": 2326,
+          "agent_messages": 3,
+          "task_seconds": 85.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 17.9,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 2
+        },
+        {
+          "task": "T3",
+          "conv": "conv_d31020116620897345a64c4198886b9f",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 2,
+          "calls": 17,
+          "cache_read": 786455,
+          "cache_write": 14220,
+          "input": 52,
+          "output": 3641,
+          "agent_messages": 4,
+          "task_seconds": 82.9,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 15.8,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "bob/db",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice/api",
+                "bob/db"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 2
+        },
+        {
+          "task": "T4",
+          "conv": "conv_1ee4f124f115a17fa53568df62981c16",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 5,
+          "cache_read": 260572,
+          "cache_write": 3188,
+          "input": 18,
+          "output": 600,
+          "agent_messages": 1,
+          "task_seconds": 67.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 3.9,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": false,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    },
+    {
+      "set": 11,
+      "arm": "quiet",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296583,
+        "cache_write": 28998,
+        "output": 1693
+      },
+      "total": {
+        "calls": 85,
+        "input": 252,
+        "cache_read": 3893761,
+        "cache_write": 81195,
+        "output": 14215
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_55eeb6664237840784ab0f099237a4ab",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 25,
+          "cache_read": 1033928,
+          "cache_write": 15120,
+          "input": 74,
+          "output": 4452,
+          "agent_messages": 3,
+          "task_seconds": 88.5,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 10.4,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice/api"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "bob/release"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 2
+        },
+        {
+          "task": "T2",
+          "conv": "conv_6d2029350fb3b450c444e5f4186a53d0",
+          "wakes_message": 5,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 13,
+          "cache_read": 591147,
+          "cache_write": 6811,
+          "input": 40,
+          "output": 1960,
+          "agent_messages": 1,
+          "task_seconds": 73.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.5,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "bob/db",
+              []
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T3",
+          "conv": "conv_40e8833c1163087f9253350d2f223042",
+          "wakes_message": 15,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 23,
+          "cache_read": 1145668,
+          "cache_write": 20746,
+          "input": 72,
+          "output": 3821,
+          "agent_messages": 6,
+          "task_seconds": 82.4,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 8.9,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "bob/release",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/db",
+              []
+            ],
+            [
+              "bob/release",
+              [
+                "alice",
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              []
+            ],
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/db",
+              []
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 3
+        },
+        {
+          "task": "T4",
+          "conv": "conv_d0a84aa988dac9ce760d605eaa06b89b",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 15,
+          "cache_read": 826435,
+          "cache_write": 9520,
+          "input": 48,
+          "output": 2289,
+          "agent_messages": 2,
+          "task_seconds": 76.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.8,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": true,
+              "seconds": 7.4,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice",
+                "alice/api"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": true,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    },
+    {
+      "set": 12,
+      "arm": "route",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 294790,
+        "cache_write": 27119,
+        "output": 1640
+      },
+      "total": {
+        "calls": 57,
+        "input": 166,
+        "cache_read": 2436516,
+        "cache_write": 65306,
+        "output": 10182
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_38ca8e51f5ea3b41d039bbfd024f725e",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 9,
+          "cache_read": 357334,
+          "cache_write": 4814,
+          "input": 26,
+          "output": 1666,
+          "agent_messages": 1,
+          "task_seconds": 76.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 12.3,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T2",
+          "conv": "conv_ee3148dc6c010eec89bd449b504efa11",
+          "wakes_message": 4,
+          "wakes_roster": 3,
+          "parked_unclaimed": 5,
+          "calls": 13,
+          "cache_read": 545730,
+          "cache_write": 9210,
+          "input": 38,
+          "output": 2032,
+          "agent_messages": 3,
+          "task_seconds": 82.4,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 14.2,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice",
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 2
+        },
+        {
+          "task": "T3",
+          "conv": "conv_0070b9299e6f4162a50256ec20c4c9fa",
+          "wakes_message": 13,
+          "wakes_roster": 3,
+          "parked_unclaimed": 2,
+          "calls": 21,
+          "cache_read": 971254,
+          "cache_write": 20975,
+          "input": 66,
+          "output": 4297,
+          "agent_messages": 6,
+          "task_seconds": 86.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 13.3,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice",
+                "bob/db",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice",
+                "alice/api",
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api",
+                "bob/release"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "alice",
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 4
+        },
+        {
+          "task": "T4",
+          "conv": "conv_33181f449ee47e164c19f4d29ccb9068",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 5,
+          "cache_read": 267408,
+          "cache_write": 3188,
+          "input": 18,
+          "output": 547,
+          "agent_messages": 1,
+          "task_seconds": 67.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 3.4,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": false,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    },
+    {
+      "set": 7,
+      "arm": "quiet",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296602,
+        "cache_write": 28939,
+        "output": 1668
+      },
+      "total": {
+        "calls": 71,
+        "input": 190,
+        "cache_read": 3086795,
+        "cache_write": 67408,
+        "output": 12303
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_2451879679b8745ff8a9fe7688ee23bb",
+          "wakes_message": 5,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 20,
+          "cache_read": 810235,
+          "cache_write": 9782,
+          "input": 54,
+          "output": 3530,
+          "agent_messages": 1,
+          "task_seconds": 82.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 13.2,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T2",
+          "conv": "conv_438fc6babc9a459f21fbbfde9b8a9692",
+          "wakes_message": 5,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "cache_read": 611573,
+          "cache_write": 8566,
+          "input": 38,
+          "output": 2510,
+          "agent_messages": 1,
+          "task_seconds": 76.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.5,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "bob/db",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T3",
+          "conv": "conv_0593a00b3da8a006d5f5ea2e9f818038",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "cache_read": 657275,
+          "cache_write": 10902,
+          "input": 38,
+          "output": 2642,
+          "agent_messages": 2,
+          "task_seconds": 76.5,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 7.7,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "bob/db",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T4",
+          "conv": "conv_750690704f1273fa27495869f2a8bb3d",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "cache_read": 711110,
+          "cache_write": 9219,
+          "input": 42,
+          "output": 1953,
+          "agent_messages": 2,
+          "task_seconds": 76.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 4.2,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": true,
+              "seconds": 6.7,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": true,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    },
+    {
+      "set": 8,
+      "arm": "route",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296540,
+        "cache_write": 28650,
+        "output": 1394
+      },
+      "total": {
+        "calls": 54,
+        "input": 154,
+        "cache_read": 2279566,
+        "cache_write": 58315,
+        "output": 9210
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_d1f05c3232264881367d32e98c66ace5",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 9,
+          "cache_read": 360725,
+          "cache_write": 4838,
+          "input": 26,
+          "output": 1652,
+          "agent_messages": 1,
+          "task_seconds": 78.8,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 13.5,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T2",
+          "conv": "conv_bad386f21c28fe0b98bca741745594eb",
+          "wakes_message": 4,
+          "wakes_roster": 3,
+          "parked_unclaimed": 3,
+          "calls": 12,
+          "cache_read": 506886,
+          "cache_write": 7338,
+          "input": 36,
+          "output": 1873,
+          "agent_messages": 2,
+          "task_seconds": 78.8,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 14.8,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "bob/db"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 1
+        },
+        {
+          "task": "T3",
+          "conv": "conv_80058169cdff84e5af70a846c643dc9a",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 2,
+          "calls": 19,
+          "cache_read": 861038,
+          "cache_write": 14342,
+          "input": 56,
+          "output": 3612,
+          "agent_messages": 4,
+          "task_seconds": 85.5,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 18.1,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "bob/db",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice/api",
+                "bob/release"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice/api",
+                "bob/db"
+              ]
+            ],
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 2
+        },
+        {
+          "task": "T4",
+          "conv": "conv_3555d507a802ffec523dc0cc635a0e3a",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 5,
+          "cache_read": 254377,
+          "cache_write": 3147,
+          "input": 18,
+          "output": 679,
+          "agent_messages": 1,
+          "task_seconds": 67.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 3.8,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": false,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    },
+    {
+      "set": 9,
+      "arm": "quiet",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296589,
+        "cache_write": 28315,
+        "output": 1018
+      },
+      "total": {
+        "calls": 74,
+        "input": 216,
+        "cache_read": 3235315,
+        "cache_write": 68970,
+        "output": 11886
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_1b71392267ef0aedc319fe27416741a9",
+          "wakes_message": 5,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 15,
+          "cache_read": 600697,
+          "cache_write": 8246,
+          "input": 46,
+          "output": 2858,
+          "agent_messages": 1,
+          "task_seconds": 79.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 8.3,
+              "by": "alice/api"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        },
+        {
+          "task": "T2",
+          "conv": "conv_b9f989fd9acb537f896c92ab607a2484",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 19,
+          "cache_read": 820543,
+          "cache_write": 10198,
+          "input": 56,
+          "output": 2565,
+          "agent_messages": 2,
+          "task_seconds": 79.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 10.2,
+              "by": "bob/db"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 1
+        },
+        {
+          "task": "T3",
+          "conv": "conv_ecbfa81abffcab4539ba09020b471c68",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 16,
+          "cache_read": 749541,
+          "cache_write": 12948,
+          "input": 48,
+          "output": 3043,
+          "agent_messages": 3,
+          "task_seconds": 79.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 12.4,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/db",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": null,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 1
+        },
+        {
+          "task": "T4",
+          "conv": "conv_7f6f8675e3d1806127b7bc23d12129a2",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 15,
+          "cache_read": 767945,
+          "cache_write": 9263,
+          "input": 48,
+          "output": 2402,
+          "agent_messages": 2,
+          "task_seconds": 76.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.4,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": true,
+              "seconds": 6.0,
+              "by": "bob/release"
+            }
+          },
+          "addresses": [
+            [
+              "alice/api",
+              [
+                "alice"
+              ]
+            ],
+            [
+              "bob/release",
+              [
+                "alice"
+              ]
+            ]
+          ],
+          "blind": {
+            "answer": true,
+            "blocker": true,
+            "ambiguous": false
+          },
+          "useless_posts_blind": 0
+        }
+      ]
+    }
+  ],
+  "home_changes": [
+    {
+      "path": "Claude Code project transcripts and session state for the runs",
+      "change": "Created.",
+      "restored": "Copied out, then deleted."
+    },
+    {
+      "path": "Claude Code user state file",
+      "change": "Startup counters and caches; other sessions write here too.",
+      "restored": "Not rolled back, since live sessions write it. No project was added, and mcpServers match the backup."
+    }
+  ]
+}
