@@ -148,3 +148,17 @@ only the stale integration head, overwriting either schema24 migration,
 rewriting schema versions as rollback proof, replacing existing suites, mocked
 native effects as UI proof, repeating a mutation to recover a lost response,
 and presenting loopback fixtures as physical machines.
+
+### Execution notes
+
+The independent installed checks are `conformance/installed_terminal.py`,
+`conformance/installed_participants.py` with its independent support module,
+and `conformance/installed_upgrade.py`. Their `--help` lists inputs; fixtures
+remain private and publish fixed results and hashes. The terminal dependency
+pins are in `conformance/requirements-terminal.txt`. The final installed CI job
+runs all three checks against its freshly compiled archive; it separately builds
+genuine old binaries from the immutable23/main24/feature27 commits. Clear the
+local `peerspan-host` Cargo package between old worktrees when sharing a target
+directory; cache reuse by source mtimes must not substitute one old binary for
+another. The suite independently checks the actual old schema before upgrading.
+Actual authenticated model receipt remains a separate manual gate.
