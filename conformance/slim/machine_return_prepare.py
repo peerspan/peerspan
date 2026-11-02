@@ -531,8 +531,13 @@ def _():
                       and packet['request_id']==f['rid'] and packet['writer_host_public_key']==b.public_key
                       and packet['signer_public_key']==incoming['device_public_key']
                       and g.packet_id(packet)==incoming['request_packet_id'],'retained authenticated request/capability mismatch')
-                check(pending['carrier_endpoints']==[dict(kind='helper',address=helper.address,public_key=helper.public_key),
-                      dict(kind='participant',address=b.relay.address,public_key=b.public_key)],
+                expected_carriers = [dict(kind='helper',address=helper.address,public_key=helper.public_key),
+                    dict(kind='participant',address=a.relay.address,public_key=a.public_key),
+                    dict(kind='participant',address=b.relay.address,public_key=b.public_key)]
+                expected_carriers.sort(key=lambda endpoint:(endpoint['kind'],endpoint['address'],endpoint['public_key']))
+                check(pending['carrier_endpoints']==expected_carriers
+                      and all(endpoint['address'] not in {'127.0.0.1:'+str(a.bootstrap_port),'127.0.0.1:'+str(b.bootstrap_port)}
+                              for endpoint in expected_carriers),
                       'returned request acquired an alternate original-frame carrier')
                 g.ed25519(b.public_key,packet['host_signature'],g.packet_message(packet),'returned-host')
                 g.ed25519(packet['signer_public_key'],packet['device_signature'],g.packet_message(packet),'returned-device')
