@@ -18,6 +18,7 @@ import argparse
 import codecs
 from datetime import datetime, timezone
 import fcntl
+import functools
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.metadata
@@ -178,12 +179,29 @@ class Host:
         return self.cli('agent', 'list'), self.cli('session', 'list'), self.cli('activity', '--limit', '1000')
 
 
+def terminal_action(function):
+    """Diagnostic-only pass-through: preserve the same call/result/exception."""
+    @functools.wraps(function)
+    def observed(self, *args, **kwargs):
+        self.record_action(function.__name__, 'enter', args, kwargs)
+        try:
+            result = function(self, *args, **kwargs)
+        except BaseException:
+            self.record_action(function.__name__, 'fail', args, kwargs)
+            raise
+        self.record_action(function.__name__, 'return', args, kwargs)
+        return result
+    return observed
+
+
 class Terminal:
     """A real controlling PTY, decoded with a public VT100 screen emulator."""
     def __init__(self, claude, cwd, session, env, budget, log):
         import pyte
         self.budget, self.log = budget, log.open('ab')
         self.startup_events = log.with_suffix('.startup.jsonl')
+        self.action_events = log.with_suffix('.actions.jsonl')
+        self.action_started, self.action_count = time.monotonic(), 0
         self.screen = pyte.Screen(160, 60)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
@@ -236,6 +254,34 @@ class Terminal:
     def text(self):
         return '\n'.join(self.screen.display)
 
+    def record_action(self, method, phase, args, kwargs):
+        try:
+            if self.action_count >= 512:
+                return
+            labels = {'/peerspan': 'open_peerspan', '/reload-plugins --force': 'reload_plugins',
+                      'Connect this project': 'connect_project', 'New agent name': 'new_agent_name',
+                      'Owner label': 'owner_label', 'Review new agent': 'review_new_agent',
+                      'Approve attachment': 'approve_attachment', 'Decline attachment': 'decline_attachment',
+                      'Refresh': 'refresh', 'Close': 'close', 'Review a replacement': 'replacement',
+                      'Review agent "terminal-agent" — owner "terminal owner"': 'review_existing_agent',
+                      'Project: choose an agent': 'choose_agent',
+                      'Project: attachment recorded': 'attachment_recorded'}
+            first = args[0] if args else kwargs.get('label', kwargs.get('text'))
+            control = labels.get(first, 'other') if isinstance(first, str) else 'none'
+            value = dict(method=method, control=control, phase=phase, checkpoint=PHASE,
+                         elapsed_ms=int((time.monotonic() - self.action_started) * 1000))
+            if method == 'fill':
+                content = args[1] if len(args) > 1 else kwargs.get('value')
+                if isinstance(content, str):
+                    encoded = content.encode('utf-8')
+                    value.update(fill_utf8_bytes=len(encoded), fill_sha256=hashlib.sha256(encoded).hexdigest())
+            self.action_count += 1
+            with self.action_events.open('a') as output:
+                output.write(json.dumps(value, sort_keys=True) + '\n')
+        except Exception:
+            pass  # Trace failures never change the original keyboard call/verdict.
+
+    @terminal_action
     def wait(self, predicate, message):
         until = self.budget.until(UI_LIMIT)
         while time.monotonic() < until:
@@ -244,6 +290,7 @@ class Terminal:
             self.pump(min(.1, max(0, until - time.monotonic())))
         raise CheckFailure(message)
 
+    @terminal_action
     def visible(self, text):
         self.wait(lambda: text in self.text(), 'native terminal expected public view unavailable')
 
@@ -331,6 +378,7 @@ class Terminal:
         trace('deadline')
         raise CheckFailure('native startup prompt unavailable or unsupported')
 
+    @terminal_action
     def command(self, text):
         self.send('\x15' + text + '\r')
 
@@ -348,6 +396,7 @@ class Terminal:
                 labels.append(current.strip())
         return labels
 
+    @terminal_action
     def focus(self, label, *, input_field=False):
         until = self.budget.until(UI_LIMIT)
         for _ in range(64):
@@ -382,11 +431,13 @@ class Terminal:
         # Accept exactly that decoration, never a prefix/substring/suffix match.
         return any(region in (label, '[ ' + label + ' ]') for region in self.reversed_labels())
 
+    @terminal_action
     def press(self, label):
         self.visible(label)
         self.focus(label)
         self.send('\r')
 
+    @terminal_action
     def fill(self, label, value):
         self.visible(label)
         self.focus(label, input_field=True)
@@ -421,10 +472,12 @@ class Terminal:
                 return matched.group(1).strip()
         return None
 
+    @terminal_action
     def open_project(self):
         self.command('/peerspan')
         self.press('Connect this project')
 
+    @terminal_action
     def close_pane(self):
         self.press('Close')
         self.wait(lambda: not self.focused_button('Close'), 'native pane did not relinquish button focus')
