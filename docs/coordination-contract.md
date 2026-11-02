@@ -536,7 +536,7 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
   - A receiver bound to the cited person in several networks evaluates each. A rule matches only if the message fits its own size limit. Matching rules combine, and `allow_disconnected` holds if any matching rule sets it.
   - It returns 503 only when nothing authorizes and some network's policy is behind the cited version, or missing.
   - A send without a grant cites the first network, by ID, in which the target's person has a policy.
-- **One authorization field:** a request carries exactly one of `grant_id` or `policy`, never both and never an empty `grant_id`, on the peer wire and in local send requests alike. A route or outbound record without a grant has `grant_id: null`.
+- **One authorization field:** a prepared request carries exactly one of `grant_id` or `policy`, never both and never an empty `grant_id`, on the peer wire. Self access has its separate launch-contract citation. Owner-local send input supplies an optional grant; otherwise the daemon chooses the citation as described under Sending without a grant ID. It does not accept caller-selected `policy` or `self` fields. A route or outbound record without a grant has `grant_id: null`.
 - **Durations:** `access allow` uses `--valid-days`, default 7. `access deny` and `access renew` keep the current policy's duration.
 - **`access deny`:** with no policy, or no rule for that agent, it is an error. If removing principals leaves a rule empty, the whole rule is removed.
 - **Persons named in `access` commands** are resolved with the same errors as other person arguments: unknown, or ambiguous with candidates.
