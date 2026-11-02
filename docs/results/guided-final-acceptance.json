@@ -1,14 +1,14 @@
 {
   "acceptance_pr": "https://github.com/peerspan/peerspan/pull/107",
   "artifact": {
-    "installed_host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
-    "name": "peerspan-0.1.0-gu51-acceptance-linux-amd64-rust.tar.gz",
+    "installed_host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
+    "name": "peerspan-0.1.0-gu51-retry-linux-amd64-rust.tar.gz",
     "production_paths": {
       "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
       "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
       "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
       "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
-      "rust/src": "9373cb19a745da484f2201ea47f5c893467ca73e",
+      "rust/src": "ba8b75c96c9b5ff58e54eee65966b07d25a10cbf",
       "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
     },
     "release": {
@@ -18,14 +18,16 @@
       "os": "linux",
       "rust_libc": "glibc (builder baseline; rust bundles only)",
       "source_dirty": false,
-      "source_revision": "390d27c3eddc6bd6399a87b1def1f6e45a7d433f",
-      "version": "0.1.0-gu51-acceptance"
+      "source_revision": "81720b4258e4ddab34478154bb30c65721eea9ec",
+      "version": "0.1.0-gu51-retry"
     },
-    "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
+    "sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0"
   },
   "authenticated_model": {
+    "applies_to_archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
     "authentication": "existing first-party Claude sign-in; no credential read or copy",
     "claude_version": "2.1.303",
+    "current_artifact_repeat": "blocked by automatic approval review before enabling incoming messages; explicit authorization requested; no new model turn executed",
     "log_sha256": "52f496b47615f5af049f0c3f9759acf02f1ecd978782d6f2b3b7d370f615a0e8",
     "model_selector": "haiku",
     "passed": true,
@@ -58,28 +60,41 @@
   },
   "ci": {
     "conformance": "https://github.com/peerspan/peerspan/actions/runs/41392480067",
+    "final_status_location": "Current exact-head checks and review receipts on acceptance PR107, then tracking PR35; recorded previous runs remain historical.",
     "installed_receipt_sha256": "dcd2822d4d0cbbf92cc58bfe8461e9c72627a89b52596753bcce5a8381329062",
-    "observed": "a96c73d:33/51 checks passed;18 conformance suites failed predominantly on the original participant remaining pending after the requester was actually linked. Rust/native440 and all installed terminal, participant and genuine upgrade/restore gates passed. Same exact CI binaries pass the work suite locally, including four-CPU and memory-backed fixtures; these do not establish the CI cause. Independent real rate-pressure diagnostic reproduced one-shot completion publication loss and exact retained-operation repair. A bounded retry correction and full corrected-head CI/review remain required.",
+    "next_required_checks": 52,
+    "observed": "a96c73d:33/51 checks passed;18 conformance suites failed predominantly on the original participant remaining pending after the requester was actually linked. Rust/native440 and all installed terminal, participant and genuine upgrade/restore gates passed. Same exact CI binaries pass the work suite locally, including four-CPU and memory-backed fixtures; these do not establish the CI cause. Independent real rate-pressure diagnostic reproduced one-shot completion publication loss and exact retained-operation repair. A bounded retry correction and full corrected-head CI/review remain required. Corrected81720b4 product passes independent strict first-attempt XPASS, unchanged work6/6 and join12/12, and all fresh installed terminal/participants/genuine upgrade/full-restore gates. Full corrected52-check CI/review remain required.",
     "pull_request_checks": "https://github.com/peerspan/peerspan/actions/runs/41392480043",
     "required": true,
-    "slim_suites": 45,
+    "required_final_check_count": 52,
+    "slim_suites": 46,
     "source": "a96c73d0daabf935039d20963169446413a01495",
     "tested_merge_source": "23c87cd64dc7040bf04a0729eac508eac335bb21"
   },
   "conformance_execution": {
-    "all45_suite_120second_runtime_audit_required": true,
+    "all46_suite_120second_runtime_audit_required": true,
     "binaries_sha256": {
-      "peerspan-helper": "6e00592401928d9376ea832f003f5443092396aba141719947e5f82a96db705c",
-      "peerspan-host": "7ae7d92cea7c11a62fa83d54a288228e7ff0a8df7ac95ea7587d92bb9e4249a1",
-      "peerspan-peer-probe": "a6ab1af5f014e2d8ad031b9fe3f9ba495a29c2cd27f7159c020ad08d8574154e"
+      "peerspan-helper": "f9a5c11dda70d7b5ea22bfb203231b9fe9fd3d8b4ee31e187b9b563a60342d08",
+      "peerspan-host": "cdaddef2651966b88985d3990347e207073509375c50a7fb56c47ba7cb97786d",
+      "peerspan-peer-probe": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c"
     },
-    "build_log_sha256": "029fd039b5efce20641c18be848b8fe3fd12250eba281bde75cf7760c538cc43",
+    "build_log_sha256": "fcfee31ad58c103bc5344d29a3a2b7dacf13e49ff3d7095158d796e61e54daab",
     "debug_assertions": true,
     "debug_symbols": false,
     "incremental": false,
     "optimization_level": 1,
     "profile": "dev",
     "source_tree_unchanged_from_artifact": true
+  },
+  "current_artifact_model": {
+    "credentials_read_or_copied": false,
+    "model": "haiku",
+    "original_conversation": true,
+    "passed": false,
+    "planned_nonce_reply_turns": 1,
+    "planned_readiness_turns": 1,
+    "reason": "Automatic approval review requires explicit authorization for external Claude activity and normal usage cost. Fresh installed project/adapter review prepared; dependent enable action not executed.",
+    "status": "awaiting_explicit_authorization"
   },
   "first_failures": [
     {
@@ -169,11 +184,20 @@
     {
       "kind": "independent real rate pressure exposed one-shot completion publication loss",
       "log_sha256": "8b79fe701b0432e502d2ec60a1265ed880d34c66479273d0bd58c73c958b56d3"
+    },
+    {
+      "kind": "wrong local Python stopped at required safe archive extraction preflight before product execution",
+      "log_sha256": "1d734656738ab59c38c4b794bcd8ac475ce8eb9c6ab42b86324def277947c37a"
+    },
+    {
+      "kind": "wrong local Python stopped at required safe archive extraction preflight before product execution",
+      "log_sha256": "b5466c7b77c6e698786edcb746ed1c3d6c6d8e002c75335ebcd005f8d8ed5937"
     }
   ],
   "installed_terminal": {
+    "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
     "cases": 3,
-    "log_sha256": "62e56e77a034dd8ef81db6e48be120430f3bd3391d5e142d16bf2df3ee0964a2",
+    "log_sha256": "46f73920a856b59b7838006bdf914b356a444649a4235122b2268ab5a297260a",
     "model_requests": 0,
     "passed": true,
     "source_sha256": "a466c90bf78cc48d6a7f1a2d37614b555d32cd5d051d3b606f13b6c8436ad853"
@@ -246,11 +270,11 @@
   },
   "participants": [
     {
-      "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+      "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "29de7671a69cbd3c81bb36b367f3d06f60161bc14792b0b80215543472ae89bc",
-        "565940c9e04034f88d491bdf22c78369110908e7d3d6e9f12711d66910a543e9"
+        "1b676132db3fed16ba3cbafdbf96c9ae73b113a4a28bc36c07a4eb7a474d7292",
+        "5752562a993dcacda04b778dc533a88356268959578795a445c3ce6584a972c1"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -271,16 +295,16 @@
         "receiver_message_receipt": true,
         "unavailable_manual_fallback": true
       },
-      "host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+      "host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
       "passed": true,
-      "probe_sha256": "f2e2c61f011b6e531a9970dda5f6a5494566c7ab8826e50d58310c10191dbbd6",
+      "probe_sha256": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 13.321,
+      "seconds": 14.789,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -291,11 +315,11 @@
       "suite_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+      "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
       "complete_final_acceptance": false,
       "daemon_log_sha256": [
-        "3d06a0085ba6aed9c23b0a414b52a2ddf275e5a4b3a2f6ff7ce490cd2d193f3b",
-        "f753c9bf0aaebb0c397cab48cd56774b583497011ee3680880ff64fee42b8ce4"
+        "2203b8646c1d4f37e325fc28d91e7f44efdebef070e3508c45867f73e2ddb5e7",
+        "f4cbdd1b358e4e5eac9a24f7e970a085362e995b634e26d28c46971f6af7eaf9"
       ],
       "evidence": {
         "adapter_connection": false,
@@ -316,16 +340,16 @@
         "outbound_peer_observation": true,
         "physical_machines": 0
       },
-      "host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+      "host_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
       "passed": true,
-      "probe_sha256": "f2e2c61f011b6e531a9970dda5f6a5494566c7ab8826e50d58310c10191dbbd6",
+      "probe_sha256": "77a1e5146e8c945b929a0d8eaf5d6ef284ccd381fb887a50c81ff8cc3e1dd79c",
       "required_separate_gates": [
         "unchanged_negative_suites",
         "native_terminal",
         "upgrade",
         "actual_model_receipt"
       ],
-      "seconds": 12.103,
+      "seconds": 11.938,
       "source_sha256": {
         "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
         "harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281",
@@ -333,11 +357,34 @@
         "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9"
       },
       "suite": "machine",
-      "suite_log_sha256": "81323686ff3c2d94d64b0d29f70f7ec90417361a2fd988e0097fc348c2219cdd"
+      "suite_log_sha256": "1b0ca7bbb73431b79eea44c6bb47c0f2927d60a67314b50f6d265f91f71de733"
     }
   ],
-  "recorded_at": "2026-11-02T05:53:10.036333+00:00",
-  "runtime_test_candidate": "acebed964820eb2e9c3a51d2ae91a3fe5d1fab61",
+  "previous_verified_artifact": {
+    "installed_host_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
+    "name": "peerspan-0.1.0-gu51-acceptance-linux-amd64-rust.tar.gz",
+    "production_paths": {
+      "integrations/claude-onboarding/.claude-plugin": "3c9524531fde625a6fb0d93f89e8c0c0d0b9df13",
+      "integrations/claude-onboarding/hooks": "79030453fc6d9cad258c079bc695507cc0a5575d",
+      "rust/Cargo.lock": "47640e79a7328de193dc3b6549154362e030f108",
+      "rust/Cargo.toml": "a97a5e3a47259378096131a434a88f6a4774f529",
+      "rust/src": "9373cb19a745da484f2201ea47f5c893467ca73e",
+      "scripts": "d87778f2abd30b5119f2c7e6a5280f4e8dfaee57"
+    },
+    "release": {
+      "architecture": "amd64",
+      "implementation": "rust",
+      "node_requirement": ">=22",
+      "os": "linux",
+      "rust_libc": "glibc (builder baseline; rust bundles only)",
+      "source_dirty": false,
+      "source_revision": "390d27c3eddc6bd6399a87b1def1f6e45a7d433f",
+      "version": "0.1.0-gu51-acceptance"
+    },
+    "sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9"
+  },
+  "recorded_at": "2026-11-02T06:06:56.863713+00:00",
+  "runtime_test_candidate": "64840c5b5d30617dfe326eee50777e94516f3815",
   "targeted_regressions": {
     "admission_retained_prefix": {
       "cases": 1,
@@ -345,6 +392,23 @@
       "passed": true,
       "seconds": 6,
       "source_sha256": "7d26e5fd3f00fde7e1a43a7d506eeef4a48e80bdb8a92dd0eeb67728880532c9"
+    },
+    "completion_rate_limit_after_fix": {
+      "elapsed_seconds": 12.4,
+      "first_original_participant_linked": true,
+      "first_requester_linked": true,
+      "genuine_proof_passed": true,
+      "invalid_responses": 8,
+      "log_sha256": "6dcf4ca9321d7983603a840105e75c1ce5850e06935117d6faf1373945fee0c6",
+      "only_known_marker_removed": true,
+      "pressure_seconds": 2,
+      "product_source": "81720b4258e4ddab34478154bb30c65721eea9ec",
+      "rate_limited_responses": 51,
+      "requester_consent_and_application_unchanged": true,
+      "signed_authority_verified": true,
+      "source_after_marker_removal_sha256": "cfc9b125ff3e62971a81517449155c997b1757843ad86109e0dd8aa919072710",
+      "source_before_marker_removal_sha256": "f98f0481698724dc4c3a006929c39d5c4c7530c48bfa84f1d1895f14f29d9df6",
+      "strict_first_attempt_xpass_observed": true
     },
     "completion_rate_limit_before_fix": {
       "diagnostic_refill_seconds": 1,
@@ -366,6 +430,26 @@
       "source_sha256": "f98f0481698724dc4c3a006929c39d5c4c7530c48bfa84f1d1895f14f29d9df6",
       "transport_errors": 0,
       "unsupported_responses": 0
+    },
+    "completion_rate_limit_final": {
+      "expected_failures": 0,
+      "failed": 0,
+      "first_both_hosts_linked": true,
+      "launcher_sha256": "d9ac9d9ec3a2b074aeda97958793ef7ba341539eabb9a2f18cff1ae70540a0c0",
+      "log_sha256": "26b634bbbf1120d4c80e821de51dc48392c2150dfde6fa80eafaea480d25a519",
+      "passed": 2,
+      "rate_limited_responses": 59,
+      "seconds": 7.9,
+      "skipped": 0,
+      "source_sha256": "cfc9b125ff3e62971a81517449155c997b1757843ad86109e0dd8aa919072710",
+      "unexpected_passes": 0
+    },
+    "join_completion_retry": {
+      "failed": 0,
+      "log_sha256": "ec3ffc4dd486fc484041b08d12f202eeb07d040562ec5ca3352d6b6c427bf0bd",
+      "passed": 12,
+      "seconds": 28,
+      "source_sha256": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd"
     },
     "join_onboarding": {
       "cases": 14,
@@ -440,16 +524,23 @@
       "log_sha256": "d596ae8b2ca381838a19bf8c18542dce651fa31e5cc1d8f1ea7dc8dffaa7dbc2",
       "precondition": "Existing bounded public directory refresh observes the stopped issuer as error before the strict baseline; no case/assertion/deadline or measured traffic comparison changed.",
       "semantic_cases_passed": 6
+    },
+    "work_completion_retry": {
+      "failed": 0,
+      "log_sha256": "184d1fe336e4aa73e06f78bb0961540e0f62b6e9130ae746ae4794ce7e5c3c48",
+      "passed": 6,
+      "seconds": 23,
+      "source_sha256": "7bf534ca04984d384758477907bc8b707c263ce03f5beeeee3a27287fedfa4af"
     }
   },
   "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
   "upgrade": {
-    "archive_sha256": "610de34534774bf959b7a8615e41a89327d1c1a8f7a2ffa5a8698655f0bc59d9",
+    "archive_sha256": "1aaaf5ad63af12d6bc9be35fe994ecb6121c24fdfa1a5bee063925a96833aab0",
     "contract": "guided-final-acceptance section1",
-    "elapsed_seconds": 10.04,
+    "elapsed_seconds": 9.592,
     "histories": {
       "feature27": {
-        "backup_manifest_sha256": "114e94c5bcb38094c5ad93cb5e96c9f9ff111951e26526c6d0db81021d0d608a",
+        "backup_manifest_sha256": "068fd298c8c8fa40c8106634db3e2e4da6b32ff526bc14ba8a418dac127b51b2",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -460,7 +551,7 @@
         "upgraded_schema": 28
       },
       "main24": {
-        "backup_manifest_sha256": "885283a6d1870dac3c0e663794f3f25ec33a74044f427f6f2f7945613d82067d",
+        "backup_manifest_sha256": "b33447ddac08df36f07015eef5c861ad2ed55a1a3fcaa8110ed77eedf1fe8c5f",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -471,7 +562,7 @@
         "upgraded_schema": 28
       },
       "old23": {
-        "backup_manifest_sha256": "690480b92890312931e855dd85706c8914d70693f1870c7b6d39eff52ada0748",
+        "backup_manifest_sha256": "7da1fdfcaf53fb3a29f3b6476c81daad49986036f6081f7eed4a1e68975b9085",
         "backup_mode_hash_match": true,
         "complete_restore_reopened": true,
         "new_review": true,
@@ -482,8 +573,8 @@
         "upgraded_schema": 28
       }
     },
-    "installed_binary_sha256": "93bcf149639dc8b0900931f635b26f1e025a5b51b8ef4369b990942aa41b9920",
-    "log_manifest_sha256": "71203593f68cdeb72d13f9c0d6165a275fbbf28c7756d34921639d94984adf16",
+    "installed_binary_sha256": "4415d0c66e34bfe2130d52f8cecc4e44bff2a64b6bf813d863b1634a89430cac",
+    "log_manifest_sha256": "53d67799b24dd436c7fb66831af49a234eb447ef5a339e837dc6d5b00325c65e",
     "old_binary_sha256": {
       "feature27": "3578f899888a9afd3d2f6814e84483570efd32290f172ff5680e1cd8e92c0f03",
       "main24": "dfd8a6343574357bdbdb9008850241e02b3e8891af045400709f652c0d0fb490",

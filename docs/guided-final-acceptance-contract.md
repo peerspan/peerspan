@@ -499,3 +499,14 @@ background work or change local historical-read purity. Both TCP and encrypted
 QUIC paths must preserve this rule and the existing fallback behavior. Choose
 this narrow retry before adding a new durable applied-request worker; no code
 change is authorized by this hypothesis alone without the independent diagnostic.
+
+
+### Receive-only publication response diagnostics
+
+A final CI launcher may observe existing commit/resume API responses through the
+independent harness without changing any request, return value, exception, case,
+assertion, sleep or deadline. Emit at most64 closed status/state/attention-code
+records per complete suite; never keys, request IDs, paths, packet bytes or free
+text. This supplies evidence if the original CI cause differs from the confirmed
+rate-pressure gap. It must make no extra API request, retry, mutation or read of
+product implementation. Diagnostic output never changes a verdict.

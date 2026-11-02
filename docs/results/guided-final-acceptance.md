@@ -5,6 +5,29 @@ candidate, verified archive, production trees, independent sources, successful
 installed flows and private evidence hashes. It is acceptance evidence; final
 CI/review and integration into tracking PR35 still determine merge readiness.
 
+## Current corrected candidate
+
+The fresh clean-source81720b4 archive contains the bounded completion retry.
+The unchanged independent pressure case now reports strict XPASS: both hosts
+are actually linked by the first commit return, with genuine signatures and
+unchanged requester consent/application. Only its known marker is removed for
+final CI. Unchanged work6/6 and ordinary join12/12 pass in23/28seconds.
+
+This archive passes installed terminal3/3, teammate14.789seconds, second
+computer11.938seconds, and genuine three-history upgrade/full restore9.592seconds.
+The first local participant/upgrade commands used a Python without the required
+safe archive filter and stopped before product execution; those input failures
+remain retained. The required Python3.12 runs pass without source changes.
+
+The prior authenticated original-conversation model receipt remains tied to its
+previous verified archive and unchanged native integration. Repeating that check
+on this fresh archive was blocked by automatic approval review before enabling
+incoming messages, because external Claude activity/normal usage cost requires
+explicit authorization. The test session was closed without a new model turn.
+Authorization or an explicit acceptance of that evidence limit remains pending.
+Final merge readiness requires52 green checks, all46 slim runtimes within120seconds
+and final review. Current exact-head outcomes are recorded on PR107 and PR35.
+
 ## What passed
 
 - Verified installed archive: actual marketplace-installed terminal project
@@ -174,3 +197,11 @@ Current main's documentation-only update is integrated, preserving both tracks'
 decision-log entries. With the new targeted suite the final gate has46 slim
 suites and52 checks. Full corrected-head CI, all suite runtimes within120seconds,
 review and tracking-branch integration still block merge readiness.
+
+
+The final marker-free rate-pressure source passes2/2 in7.9seconds through the
+receive-only CI launcher. It observes three existing commit/resume responses
+without adding calls, waits, retries or mutations. Every original target and
+wrapper chain remains unchanged; suite deadline/verdict exceptions propagate.
+The fixed old-build failure, strict XPASS and final ordinary pass are separate
+retained observations.

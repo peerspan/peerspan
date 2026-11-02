@@ -4638,3 +4638,26 @@ all full-feature reload/model/physical/upgrade gates remain open.
 - **Verification:** [final acceptance contract](guided-final-acceptance-contract.md).
   The owner retains the final #35 merge decision. An archived tracking history
   retains earlier slice receipts; it is not current merge readiness.
+
+
+### GU.final.rate: retry exact completion within its existing budget
+
+- **Selected:** on an actual HTTP429/rate_limited response with a valid positive
+  Retry-After, resend the same pinned completion plan within its original
+  30-second deadline. Apply the same rule to TCP and encrypted QUIC.
+- **Evidence:** the independent two-host public-wire diagnostic observed the
+  requester linked while the original participant remained pending during a
+  brief real rate-limit burst. One later exact resume applied both, preserving
+  signed authority, requester consent and application bytes/IDs. This reproduces
+  a publication gap; it does not prove the cause of every earlier CI failure.
+- **Rationale:** local application must retain its exact operation while a
+  replaceable transport temporarily refuses delivery. The bounded retry requires
+  no new human action, signatures, authority, durable worker or schema.
+- **Discarded:** increasing receiver limits; immediately trying another
+  transport against the same exhausted bucket; suppressing arbitrary errors;
+  extending deadlines; re-planning or re-signing; treating a later diagnostic
+  resume as first-attempt success.
+- **Verification:** preserve the original strict expected failure until the
+  unchanged independent case reports XPASS, remove only its known marker, then
+  require all46 slim suites,52 checks, fresh installed/live evidence and review
+  on the final combined head. The owner retains the #35 merge decision.
