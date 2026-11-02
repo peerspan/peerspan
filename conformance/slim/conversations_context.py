@@ -906,6 +906,8 @@ def _():
     conv = start(ann, bert, bea)
     ann_p, bert_p, bea_p = participant(ann), participant(bert), participant(bea)
     view = view_as(a, conv, alice_p)
+    ctx = state["lead"] = {"conv": conv, "ann": ann, "bert": bert, "bea": bea, "view": view}
+    m1 = ctx["m1"] = say_to(conv, "m1 for whoever knows", wait=(bert, bea))
     check(view.get("lead") == ann_p, f"view `lead` {view.get('lead')}, want ann {ann_p} (alice's first agent)")
     order = agents_in(view)
     check(sorted(order) == sorted([ann_p, bert_p, bea_p]), f"joined agents {order}")
@@ -917,7 +919,6 @@ def _():
     header = a.cli("conversation", "show", conv)
     check(header.ok and f"lead {ann_label}" in header.stdout.splitlines()[0],
           f"readable show header {header.stdout.splitlines()[:1]}, want `lead {ann_label}`")
-    m1 = say_to(conv, "m1 for whoever knows", wait=(bert, bea))
     got = claim_one(ann)
     new_message(got, conv, m1)
     lead_claim(got, ann_p, ann_label, True)
@@ -934,10 +935,9 @@ def _():
     check(history_ids(bert, conv) == [m1], "bert's history does not list the parked m1")
     check(ids_of(shown(bea, conv)["messages"]) == [m1], "show --as bea does not list the parked m1")
     check(parked(bert, conv) == 1 and parked(bea, conv) == 1, "a read changed a parked notification")
-    bert = replace(bert)  # a parked notification has no session: never returned
+    bert = ctx["bert"] = replace(bert)  # a parked notification has no session: never returned
     no_claim(bert, "of a parked notification by a new session")
     check(counts(bert, conv) == (1, 0), f"a new session changed bert's parked m1: {counts(bert, conv)}")
-    state["lead"] = {"conv": conv, "ann": ann, "bert": bert, "bea": bea, "view": view, "m1": m1}
 
 
 @suite.case("lead_addressed", "C7 Waking (addressed_to naming P, not naming P, only people), The lead (rule 3); "
@@ -945,7 +945,7 @@ def _():
 def _():
     alice_p, ctx = need("alice_p", "lead")
     conv, ann, bert, bea, view = (ctx[k] for k in ("conv", "ann", "bert", "bea", "view"))
-    m2 = say_to(conv, "m2 for bert", "bob/bert7", wait=(bert, bea))
+    m2 = ctx["m2"] = say_to(conv, "m2 for bert", "bob/bert7", wait=(bert, bea))
     got = claim_one(bert)
     new_message(got, conv, m2, coalesced=got.get("coalesced"))
     check(len(got["coalesced"]) == 1, f"bert's claim of m2 gathers its parked m1: coalesced {got['coalesced']}")
@@ -954,7 +954,6 @@ def _():
     check(areas_of(got) == [], f"a non-lead's `areas` {got['areas']}, want []")
     no_claim(ann, "of a message addressed to bert")
     no_claim(bea, "of a message addressed to bert")
-    ctx["m2"] = m2
     # Its own conversation, with bob's person joined: addressed only to person:bob, it wakes no agent, not even the
     # lead. alice's person has no agent here, so the lead is rule 3's.
     pia = new_agent("pia7")
@@ -979,8 +978,9 @@ def _():
                                 "Verification The lead's own message")
 def _():
     _, ctx = need("alice_p", "lead")
+    check("m2" in ctx, f"an earlier case did not finish: {sorted(ctx)}")
     conv, ann, bert, bea = (ctx[k] for k in ("conv", "ann", "bert", "bea"))
-    m3 = send(ann, conv, "m3 from the lead")
+    m3 = ctx["m3"] = send(ann, conv, "m3 from the lead")
     delivered(conv, m3, participant(bert), participant(bea), as_agent="ann7")
     for x in (ann, bert, bea):
         no_claim(x, "of the lead's own unaddressed message")
@@ -989,7 +989,6 @@ def _():
     check(m3 in history_ids(bea, conv), "bea's history does not list m3")
     got = counts(bea, conv)
     check(got == (3, 0), f"bea's (parked, unseen) {got}, want (3, 0)")
-    ctx["m3"] = m3
 
 
 @suite.case("lead_gather", "C7 Claiming (step 6 gather, coalesced, window), Parked notifications (unseen, parked); "
