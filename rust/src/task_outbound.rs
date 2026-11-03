@@ -44,6 +44,13 @@ const POLL_FIRST: Duration = Duration::from_secs(1);
 const POLL_MAX: Duration = Duration::from_secs(60);
 /// Events fetched per request while catching up.
 const EVENT_PAGE: i64 = 1000;
+/// A runtime task's events per request: 32 full output chunks (16,384
+/// bytes each, base64 in JSON) stay well within the 1 MiB response limits
+/// of the peer transport and the CLI, where 1,000 would not.
+pub const RUNTIME_EVENT_PAGE: i64 = 32;
+/// The longest a peer holds an events request (`wait`), within the peer
+/// transport's 15-second serve bound, as for calls.
+pub(crate) const EVENT_WAIT_MAX: u64 = 10;
 /// Peer requests are bounded like message sends.
 const REQUEST_BOUND: Duration = Duration::from_secs(8);
 
@@ -56,7 +63,14 @@ pub struct SubmitTask {
     /// Absent or null, the task cites the target owner's policy.
     #[serde(default)]
     pub grant_id: Option<String>,
+    /// An agent task's target; a runtime task has none.
+    #[serde(default)]
     pub target_agent_id: String,
+    /// `runtime` for a runtime task, with its `run` (runtime task contract).
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub executor: Option<String>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub run: Option<crate::runtime_task::RunSpec>,
     /// Absent, null, or empty, one hour from now.
     #[serde(default)]
     pub deadline: Option<String>,
@@ -165,6 +179,20 @@ pub struct Delegate {
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub parent_task_id: Option<String>,
 }
+/// A runtime task through a `runtime.run` route (runtime task contract,
+/// Agents).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdapterRun {
+    pub destination: String,
+    pub task_id: String,
+    pub run: crate::runtime_task::RunSpec,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub input: Option<String>,
+    /// The digest of a workspace archive the adapter uploaded.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub workspace_archive: Option<String>,
+}
 /// A directory session's delegation by address (launch slice 4); `to` and
 /// `network` are taken from the body first.
 #[derive(Clone, Deserialize)]
@@ -241,6 +269,91 @@ pub struct TaskUpdateNotification {
 pub struct TaskUpdate {
     pub delivery: TaskUpdateNotification,
     pub event: TaskEvent,
+    /// For a runtime task's `output` event: the text of every output chunk
+    /// since the previous notified one (runtime task contract, Output
+    /// notifications).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
+/// The most `output` text one notification carries.
+const NOTIFIED_OUTPUT: usize = 65_536;
+/// The text of a task's output events after `after` up to `sequence`,
+/// interleaved in event order, decoded as lossy UTF-8, and cut to its last
+/// 65,536 bytes.
+fn notified_output(
+    conn: &Connection,
+    peer: &str,
+    task_id: &str,
+    after: i64,
+    sequence: i64,
+) -> Result<String, Error> {
+    let mut stmt = conn.prepare(
+        "SELECT json_extract(record, '$.chunk.data') FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence > ?3 AND sequence <= ?4 AND json_extract(record, '$.kind') = 'output' ORDER BY sequence",
+    )?;
+    let mut bytes = Vec::new();
+    for data in stmt.query_map(params![peer, task_id, after, sequence], |r| {
+        r.get::<_, Option<String>>(0)
+    })? {
+        if let Some(data) = data? {
+            use base64::Engine;
+            bytes.extend(
+                base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .unwrap_or_default(),
+            );
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let mut start = text.len().saturating_sub(NOTIFIED_OUTPUT);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    Ok(text[start..].to_owned())
+}
+/// The highest sequence of a task's `output` events notified so far, or 0.
+/// Other notifications carry no output, so they never move this cursor.
+fn last_notified(conn: &Connection, peer: &str, task_id: &str, before: i64) -> Result<i64, Error> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(n.sequence), 0) FROM task_update_notifications n JOIN outbound_task_events e ON e.peer = n.peer AND e.task_id = n.task_id AND e.sequence = n.sequence WHERE n.peer = ?1 AND n.task_id = ?2 AND n.sequence < ?3 AND json_extract(e.record, '$.kind') = 'output'",
+        params![peer, task_id, before],
+        |r| r.get(0),
+    )?)
+}
+/// Whether an `output` event is notified now (runtime task contract,
+/// Output notifications): it is the task's latest output event, and either
+/// no notification of the task was created in the previous second or a
+/// final event follows it, perhaps after other events such as
+/// `cancel_requested`. Earlier output events are carried by a later
+/// notification's text.
+fn notify_output(
+    conn: &Connection,
+    peer: &str,
+    task_id: &str,
+    sequence: i64,
+) -> Result<bool, Error> {
+    let mut later = conn.prepare(
+        "SELECT json_extract(record, '$.kind') FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence > ?3 ORDER BY sequence",
+    )?;
+    for kind in later.query_map(params![peer, task_id, sequence], |r| r.get::<_, String>(0))? {
+        let kind = kind?;
+        if kind == "output" {
+            return Ok(false);
+        }
+        if crate::task::FINAL_STATES.contains(&kind.as_str()) {
+            return Ok(true);
+        }
+    }
+    let recent: Option<String> = conn
+        .query_row(
+            "SELECT MAX(json_extract(record, '$.created_at')) FROM task_update_notifications WHERE peer = ?1 AND task_id = ?2",
+            params![peer, task_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(recent
+        .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+        .is_none_or(|t| crate::clock::now() - t.with_timezone(&Utc) >= TimeDelta::seconds(1)))
 }
 
 fn stored(conn: &Connection, peer: &str, id: &str) -> Result<OutboundTask, Error> {
@@ -374,6 +487,22 @@ impl Store {
         addressed: Option<crate::directory::Addressed>,
     ) -> Result<OutboundTask, Error> {
         let explicit_grant = r.grant_id.is_some();
+        let runtime = match r.executor.as_deref() {
+            None | Some("agent") => false,
+            Some(crate::runtime_task::EXECUTOR) => true,
+            Some(_) => return Err(Error::Invalid("executor".into())),
+        };
+        if runtime
+            && (explicit_grant
+                || r.parent.is_some()
+                || r.delegation_depth != 0
+                || r.delegation_principals.is_some()
+                || addressed.is_some())
+        {
+            return Err(Error::Invalid(
+                "a runtime task cites the host owner's policy, without a grant or a chain".into(),
+            ));
+        }
         let choice = addressed.as_ref().and_then(|a| a.choice.clone());
         let spec = match (r.parent, r.delegation_depth, r.delegation_principals) {
             (Some(parent), 0, None) => {
@@ -409,6 +538,8 @@ impl Store {
             None => rfc3339(default_deadline),
         };
         let mut request = TaskRequest {
+            executor: r.executor.clone(),
+            run: r.run.clone(),
             task_id: if r.task_id.is_empty() {
                 new_id("task")?
             } else {
@@ -444,7 +575,11 @@ impl Store {
                 "a delegation chain names its originating agent; give an origin".into(),
             ));
         }
-        validate_task(&request)?;
+        if runtime {
+            crate::runtime_task::validate(&request)?;
+        } else {
+            validate_task(&request)?;
+        }
         self.dial_target(&r.peer_host_id)?;
         let mut default_cap = default_deadline;
         // A forward cites once its parent's chain is known, below.
@@ -461,6 +596,10 @@ impl Store {
                     Err(cited) => cited,
                     Ok(_) => unreachable!("a grant was cited above"),
                 },
+                // A runtime task always cites the host owner's policy.
+                None if runtime => crate::policy::Citation::Policy(Box::new(
+                    self.cited_policy(&conn, &r.peer_host_id)?,
+                )),
                 None => self.citation(&conn, &r.peer_host_id)?,
             };
             (request.policy, request.self_access) = cited.fields();
@@ -823,6 +962,156 @@ impl Store {
         tx.commit()?;
         Ok(out)
     }
+    /// A runtime task through a `runtime.run` route: ownership, repeats and
+    /// the deadline as for delegations; it cites the host owner's policy.
+    pub fn prepare_adapter_run(
+        &self,
+        auth: &AdapterAuth,
+        r: AdapterRun,
+    ) -> Result<OutboundTask, Error> {
+        if !valid_name(&r.destination) || !valid_id(&r.task_id, "task", 16) {
+            return Err(Error::Invalid("invalid run".into()));
+        }
+        let input = match r.input {
+            Some(input) => input,
+            None => {
+                let line = r.run.argv.join(" ");
+                let mut end = line.len().min(MAX_TEXT);
+                while !line.is_char_boundary(end) {
+                    end -= 1;
+                }
+                line[..end].to_owned()
+            }
+        };
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (a, ss) = authority(&tx, auth)?;
+        let route: OutboundRoute = read(
+            &tx,
+            "SELECT record FROM adapter_routes WHERE adapter_id = ?1 AND name = ?2",
+            params![a.id, r.destination],
+        )
+        .map_err(|e| match e {
+            Error::NotFound => Error::Forbidden,
+            other => other,
+        })?;
+        let expiry = time(&route.expires_at)?;
+        if route.revoked_at.is_some()
+            || route.action != crate::policy::RUNTIME_ACTION
+            || expiry <= crate::clock::now()
+            || input.len() as i64 > route.max_message_bytes
+        {
+            return Err(Error::Forbidden);
+        }
+        let artifacts = match &r.workspace_archive {
+            None => None,
+            Some(sha) => {
+                let size: Option<i64> = tx
+                    .query_row(
+                        "SELECT json_extract(record, '$.size') FROM artifact_files WHERE sha256 = ?1",
+                        [sha],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                let size = size.ok_or_else(|| {
+                    Error::Invalid("workspace_archive is not a stored upload".into())
+                })?;
+                Some(vec![ArtifactEntry {
+                    name: "workspace.tar".into(),
+                    size,
+                    sha256: sha.clone(),
+                    media_type: "application/x-tar".into(),
+                }])
+            }
+        };
+        let mut run = r.run;
+        if let Some(sha) = &r.workspace_archive {
+            if run.workspace.as_ref().is_some_and(|w| w.peerfs().is_some()) {
+                return Err(Error::Invalid(
+                    "a run takes workspace_archive or a peerfs workspace, not both".into(),
+                ));
+            }
+            run.workspace = Some(crate::runtime_task::Workspace::Archive(sha.clone()));
+        }
+        if let Some(old) = tx
+            .query_row(
+                "SELECT record FROM outbound_tasks WHERE peer = ?1 AND task_id = ?2",
+                params![route.peer_host_id, r.task_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            let mut old: OutboundTask = serde_json::from_str(&old)?;
+            fill(&tx, &mut old)?;
+            let session = old
+                .request
+                .origin
+                .as_ref()
+                .and_then(|o| o.session_id.as_deref());
+            if old.adapter_id.as_deref() != Some(a.id.as_str()) || session != Some(ss.id.as_str()) {
+                return Err(Error::Forbidden);
+            }
+            if old.route_id.as_deref() != Some(route.id.as_str())
+                || old.request.input != input
+                || old.request.run.as_ref() != Some(&run)
+                || old.request.artifacts != artifacts
+            {
+                return Err(Error::Conflict(
+                    "task ID reused with different fields".into(),
+                ));
+            }
+            return Ok(old);
+        }
+        if route_used(&tx, &route.id)? >= route.max_messages {
+            return Err(Error::Forbidden);
+        }
+        let cited = self.cited_policy(&tx, &route.peer_host_id)?;
+        let deadline = (crate::clock::now() + DEFAULT_DEADLINE)
+            .min(expiry)
+            .min(time(&cited.valid_until)?);
+        if let Some(inputs) = &artifacts {
+            self.check_uploads(&tx, inputs)?;
+        }
+        let request = TaskRequest {
+            executor: Some(crate::runtime_task::EXECUTOR.into()),
+            run: Some(run),
+            task_id: r.task_id,
+            grant_id: None,
+            policy: Some(cited.reference()),
+            self_access: None,
+            target_agent_id: String::new(),
+            deadline: rfc3339(deadline),
+            input,
+            origin: Some(Origin {
+                agent_id: ss.agent_id.clone(),
+                session_id: Some(ss.id.clone()),
+            }),
+            artifacts,
+            delegation: None,
+        };
+        crate::runtime_task::validate(&request)?;
+        let mut out = OutboundTask {
+            peer_host_id: route.peer_host_id.clone(),
+            request,
+            submit_state: "unknown".into(),
+            status: None,
+            events_after: 0,
+            cancel_state: None,
+            adapter_id: Some(a.id.clone()),
+            route_id: Some(route.id),
+            attempts: 0,
+            next_attempt_at: Some(rfc3339(crate::clock::now() + crate::retry::PREPARE_GUARD)),
+            error: None,
+            status_queries: 0,
+            parent: None,
+            delegation: None,
+            artifacts: Vec::new(),
+            to: None,
+        };
+        insert(&tx, &mut out)?;
+        tx.commit()?;
+        Ok(out)
+    }
     /// The task for a delegation through a route or by address: a forward
     /// of a task this session claimed, or a new one, with its deadline,
     /// citation, and chain.
@@ -899,6 +1188,8 @@ impl Store {
             self.check_uploads(tx, inputs)?;
         }
         let mut request = TaskRequest {
+            executor: None,
+            run: None,
             task_id,
             grant_id: grant,
             policy,
@@ -1323,8 +1614,24 @@ impl Store {
                 "SELECT record FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence = ?3",
                 params![n.peer_host_id, n.task_id, n.sequence],
             )?;
+            let output = if event.kind == "output" {
+                let after = last_notified(&tx, &n.peer_host_id, &n.task_id, n.sequence)?;
+                Some(notified_output(
+                    &tx,
+                    &n.peer_host_id,
+                    &n.task_id,
+                    after,
+                    n.sequence,
+                )?)
+            } else {
+                None
+            };
             tx.commit()?;
-            return Ok(Some(TaskUpdate { delivery: n, event }));
+            return Ok(Some(TaskUpdate {
+                delivery: n,
+                event,
+                output,
+            }));
         }
         type Row = (String, String, i64, String, String, Option<String>);
         let candidates: Vec<Row> = {
@@ -1347,6 +1654,14 @@ impl Store {
         let mut pending = None;
         for (peer, task_id, sequence, event, creator, session) in candidates {
             let own = creator == a.id && session.as_deref() == Some(ss.id.as_str());
+            // Output events are coalesced; one already carried by a later
+            // notification is never notified.
+            if event.contains("\"kind\":\"output\"")
+                && (last_notified(&tx, &peer, &task_id, i64::MAX)? > sequence
+                    || !notify_output(&tx, &peer, &task_id, sequence)?)
+            {
+                continue;
+            }
             if own || ended.check(&tx, &creator)? {
                 pending = Some((peer, task_id, sequence, event));
                 break;
@@ -1378,10 +1693,24 @@ impl Store {
                 serde_json::to_string(&n)?
             ],
         )?;
+        let event: TaskEvent = serde_json::from_str(&event)?;
+        let output = if event.kind == "output" {
+            let after = last_notified(&tx, &n.peer_host_id, &n.task_id, n.sequence)?;
+            Some(notified_output(
+                &tx,
+                &n.peer_host_id,
+                &n.task_id,
+                after,
+                n.sequence,
+            )?)
+        } else {
+            None
+        };
         tx.commit()?;
         Ok(Some(TaskUpdate {
             delivery: n,
-            event: serde_json::from_str(&event)?,
+            event,
+            output,
         }))
     }
     pub fn task_update_forwarded(
@@ -1497,12 +1826,22 @@ async fn peer_request(
     path: String,
     body: Vec<u8>,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
+    peer_request_within(store, peer, method, path, body, REQUEST_BOUND).await
+}
+async fn peer_request_within(
+    store: &Arc<Store>,
+    peer: &str,
+    method: &'static str,
+    path: String,
+    body: Vec<u8>,
+    bound: Duration,
+) -> anyhow::Result<(u16, Vec<u8>)> {
     let peer_id = peer.to_owned();
     let target = blocking(store.clone(), move |s| s.dial_target(&peer_id))
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     tokio::time::timeout(
-        REQUEST_BOUND,
+        bound,
         crate::quic::request(store.clone(), &target, method, &path, &body),
     )
     .await?
@@ -1592,26 +1931,42 @@ async fn send_cancel(store: &Arc<Store>, out: OutboundTask) -> Result<OutboundTa
 
 /// One poll: resends a pending cancellation, then fetches the status and any
 /// events after the stored cursor. Returns whether anything new was stored.
-async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<bool> {
+/// Polls one task's events. Returns whether it progressed, and whether it
+/// is a running runtime task, which is polled again at once.
+async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bool, bool)> {
     let (p, i) = (peer.clone(), id.clone());
     let mut out = blocking(store.clone(), move |s| s.outbound_task(&p, &i)).await?;
     if out.submit_state != "accepted" {
-        return Ok(false);
+        return Ok((false, false));
     }
     if out.cancel_state.as_deref() == Some("unknown") {
         out = send_cancel(&store, out).await?;
     }
     if !out.pollable() {
-        return Ok(false);
+        return Ok((false, false));
     }
     let status = fetch_status(&store, &out).await?;
     let mut after = out.events_after;
     let mut progressed = false;
+    // A running runtime task's events are waited for (runtime task
+    // contract, Peer events).
+    let held = out.request.is_runtime() && status.state == "running";
+    let page_size = if out.request.is_runtime() {
+        RUNTIME_EVENT_PAGE
+    } else {
+        EVENT_PAGE
+    };
     loop {
         let mut events = Vec::new();
-        if status.last_event > after {
-            let path = format!("/peer/v1/tasks/{id}/events?after={after}&limit={EVENT_PAGE}");
-            let (code, body) = peer_request(&store, &peer, "GET", path, Vec::new()).await?;
+        if status.last_event > after || held {
+            let mut path = format!("/peer/v1/tasks/{id}/events?after={after}&limit={page_size}");
+            let mut bound = REQUEST_BOUND;
+            if held && status.last_event <= after {
+                path.push_str(&format!("&wait={EVENT_WAIT_MAX}"));
+                bound += Duration::from_secs(EVENT_WAIT_MAX);
+            }
+            let (code, body) =
+                peer_request_within(&store, &peer, "GET", path, Vec::new(), bound).await?;
             if code != 200 {
                 anyhow::bail!("peer returned HTTP {code}");
             }
@@ -1622,7 +1977,7 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<boo
                 }
             }
         }
-        let full = events.len() as i64 == EVENT_PAGE;
+        let full = events.len() as i64 == page_size;
         let (p, i, s) = (peer.clone(), id.clone(), status.clone());
         let (stored, changed) = blocking(store.clone(), move |st| {
             st.store_task_events(&p, &i, Some(s), events)
@@ -1634,7 +1989,7 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<boo
         }
         after = stored.events_after;
     }
-    Ok(progressed)
+    Ok((progressed, held))
 }
 
 /// Per task: when its next poll is due, and the current backoff interval.
@@ -1654,6 +2009,10 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     // In-memory fetch backoff per artifact row, from 1 second to 60 seconds;
     // a restart retries at once.
     let fetch_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
+    // When each job last took a slot: due jobs are offered least recently
+    // served first, so held runtime polls, due again at once, rotate with
+    // other work instead of keeping every slot.
+    let mut served: HashMap<(String, String), Instant> = HashMap::new();
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
@@ -1720,7 +2079,10 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                 }
             }
         }
+        served.retain(|k, _| keys.contains(k));
+        keys.sort_by_key(|k| served.get(k).copied());
         for claim in dispatcher.claim(keys) {
+            served.insert(claim.key().clone(), Instant::now());
             let store = store.clone();
             let key = claim.key().clone();
             let is_poll = polls.get(&key).copied().unwrap_or(false);
@@ -1761,9 +2123,10 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                         }
                     }
                 } else if is_poll {
-                    let progressed = poll(store, peer, id).await.unwrap_or(false);
+                    let (progressed, held) = poll(store, peer, id).await.unwrap_or((false, false));
                     if let Ok(mut plan) = schedule.lock() {
                         let interval = match plan.get(&key) {
+                            _ if held => Duration::ZERO,
                             _ if progressed => POLL_FIRST,
                             Some((_, last)) => (*last * 2).min(POLL_MAX),
                             None => POLL_FIRST,
@@ -1809,6 +2172,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
 pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/adapter/v1/delegations", post(delegate))
+        .route("/adapter/v1/runs", post(adapter_run))
         .route("/adapter/v1/delegations/{task_id}", get(delegation))
         .route("/adapter/v1/task-updates/next", post(next_update))
         .route(
@@ -1933,6 +2297,20 @@ async fn delegate(
     let status_only = crate::retry::receipt_only(&out, crate::clock::now());
     Ok(Json(submit(store, out, status_only).await?))
 }
+async fn adapter_run(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<OutboundTask>, Error> {
+    let request: AdapterRun = decode(body)?;
+    let auth = crate::adapter::token(&headers);
+    let out = blocking(store.clone(), move |s| {
+        s.prepare_adapter_run(&auth, request)
+    })
+    .await?;
+    let status_only = crate::retry::receipt_only(&out, crate::clock::now());
+    Ok(Json(submit(store, out, status_only).await?))
+}
 /// A delegation by address: checked, resolved, authorized, then persisted.
 async fn address_delegation(
     store: Arc<Store>,
@@ -2017,6 +2395,8 @@ mod tests {
 
     fn submission(peer: &str, task: &str) -> SubmitTask {
         SubmitTask {
+            executor: None,
+            run: None,
             peer_host_id: peer.into(),
             task_id: task.into(),
             grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -2032,6 +2412,7 @@ mod tests {
     }
     fn status(store: &Store, out: &OutboundTask, state: &str, last: i64) -> TaskStatus {
         TaskStatus {
+            executor: None,
             task_id: out.request.task_id.clone(),
             sender_host_id: store.identity().id,
             receiver_host_id: out.peer_host_id.clone(),
@@ -2045,6 +2426,7 @@ mod tests {
     }
     fn event(sequence: i64, kind: &str, state: &str) -> TaskEvent {
         TaskEvent {
+            chunk: None,
             sequence,
             kind: kind.into(),
             state: state.into(),

@@ -123,6 +123,11 @@ fn addition_keys(
             }
         }
     }
+    for rule in &after.runtime_rules {
+        if !before.runtime_rules.contains(rule) {
+            add(format!("runtime rule {}", rule.host), None);
+        }
+    }
     for rule in &after.capability_rules {
         let old = before
             .capability_rules
@@ -235,6 +240,18 @@ pub(super) fn merge_delta(
         });
         true
     });
+    // A skipped runtime rule change leaves the host's earlier rule.
+    filtered.runtime_rules.retain(|rule| {
+        before.runtime_rules.contains(rule)
+            || !skip.contains(&format!("runtime rule {}", rule.host))
+    });
+    for old in &before.runtime_rules {
+        if skip.contains(&format!("runtime rule {}", old.host))
+            && !filtered.runtime_rules.iter().any(|r| r.host == old.host)
+        {
+            filtered.runtime_rules.push(old.clone());
+        }
+    }
     let (content, dropped) = crate::policy_edit::merge(current, before, &filtered, &[], true);
     for key in dropped {
         groups.insert(
@@ -558,6 +575,7 @@ pub(crate) fn reapply_preview(
             valid_until: p.decision_time.clone(),
             rules: Vec::new(),
             capability_rules: Some(Vec::new()),
+            runtime_rules: None,
             trusted_hosts: Some(Vec::new()),
             edits: Some(Vec::new()),
         });

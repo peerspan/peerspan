@@ -51,7 +51,7 @@ pub const FINAL_STATES: [&str; 5] = ["rejected", "expired", "succeeded", "failed
 pub(crate) fn is_final(state: &str) -> bool {
     FINAL_STATES.contains(&state)
 }
-const EVENT_KINDS: [&str; 9] = [
+const EVENT_KINDS: [&str; 10] = [
     "queued",
     "accepted",
     "rejected",
@@ -61,6 +61,7 @@ const EVENT_KINDS: [&str; 9] = [
     "failed",
     "cancelled",
     "expired",
+    "output",
 ];
 pub(crate) const STATES: [&str; 7] = [
     "queued",
@@ -99,7 +100,24 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub self_access: Option<crate::policy::SelfRef>,
+    /// `runtime` for a runtime task (runtime task contract); absent or
+    /// `agent` for an agent task.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub executor: Option<String>,
+    /// An agent task's target; absent on a runtime task.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub target_agent_id: String,
+    /// A runtime task's command.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub run: Option<crate::runtime_task::RunSpec>,
     pub deadline: String,
     pub input: String,
     #[serde(
@@ -125,6 +143,10 @@ pub struct TaskRequest {
     pub delegation: Option<Vec<Link>>,
 }
 impl TaskRequest {
+    /// Whether the host's runtime, not an agent, receives this task.
+    pub fn is_runtime(&self) -> bool {
+        self.executor.as_deref() == Some(crate::runtime_task::EXECUTOR)
+    }
     pub(crate) fn authz(&self) -> Authz<'_> {
         Authz {
             action: TASK_ACTION,
@@ -147,6 +169,14 @@ pub struct TaskStatus {
     pub task_id: String,
     pub sender_host_id: String,
     pub receiver_host_id: String,
+    /// `runtime` on a runtime task's record; absent otherwise.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub executor: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub target_agent_id: String,
     pub state: String,
     pub cancel_requested: bool,
@@ -170,13 +200,25 @@ pub struct TaskEvent {
     /// results; null otherwise.
     #[serde(default)]
     pub artifacts: Option<Vec<ArtifactEntry>>,
+    /// A runtime task's events carry `chunk`: the output of an `output`
+    /// event, null on every other. Agent tasks' events have no `chunk`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub chunk: Option<Option<crate::runtime_task::Chunk>>,
 }
 impl TaskEvent {
     /// The shape a submitter accepts from a receiver.
     pub(crate) fn well_formed(&self) -> bool {
         self.artifacts.as_ref().is_none_or(|m| {
             matches!(self.kind.as_str(), "succeeded" | "failed") && validate_manifest(m).is_ok()
-        }) && EVENT_KINDS.contains(&self.kind.as_str())
+        }) && match (self.kind.as_str(), &self.chunk) {
+            ("output", Some(Some(chunk))) => self.state == "running" && chunk.well_formed(),
+            ("output", _) | (_, Some(Some(_))) => false,
+            _ => true,
+        } && EVENT_KINDS.contains(&self.kind.as_str())
             && STATES.contains(&self.state.as_str())
             && self.message.as_ref().is_none_or(|m| m.len() <= MAX_TEXT)
             && self.output.as_ref().is_none_or(|o| o.len() <= MAX_TEXT)
@@ -249,6 +291,7 @@ pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
         || !authorization
         || r.origin.as_ref().is_some_and(|o| !o.valid())
         || !valid_id(&r.target_agent_id, "agent", 16)
+        || r.run.is_some()
         || r.input.is_empty()
         || r.input.len() > MAX_TEXT
     {
@@ -293,7 +336,7 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
 /// The stored record of a received task: the status record plus what the
 /// authorization checked at acceptance allowed, which is never served: the
 /// artifact bound and whether the agent may pass the task on.
-const INTERNAL_KEYS: [&str; 2] = ["max_artifact_bytes", "delegable"];
+const INTERNAL_KEYS: [&str; 3] = ["max_artifact_bytes", "delegable", "runtime"];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
     if let Some(object) = value.as_object_mut() {
@@ -399,6 +442,7 @@ pub(crate) fn record(
         output,
         created_at: at.clone(),
         artifacts,
+        chunk: status.executor.is_some().then_some(None),
     };
     status.state = state;
     status.last_event = event.sequence;
@@ -440,6 +484,41 @@ pub(crate) fn record(
     )?;
     Ok(event)
 }
+/// Appends a runtime task's `output` event, which records no activity.
+pub(crate) fn record_output(
+    tx: &Transaction<'_>,
+    sender: &str,
+    status: &mut TaskStatus,
+    chunk: crate::runtime_task::Chunk,
+) -> Result<(), Error> {
+    let at = now();
+    let event = TaskEvent {
+        sequence: status.last_event + 1,
+        kind: "output".into(),
+        state: "running".into(),
+        message: None,
+        output: None,
+        created_at: at.clone(),
+        artifacts: None,
+        chunk: Some(Some(chunk)),
+    };
+    status.last_event = event.sequence;
+    status.updated_at = at;
+    tx.execute(
+        "INSERT INTO task_events VALUES (?1, ?2, ?3, ?4)",
+        params![
+            sender,
+            status.task_id,
+            event.sequence,
+            serde_json::to_string(&event)?
+        ],
+    )?;
+    tx.execute(
+        "UPDATE received_tasks SET record = json_set(record, '$.last_event', ?1, '$.updated_at', ?2) WHERE sender = ?3 AND task_id = ?4",
+        params![event.sequence, status.updated_at, sender, status.task_id],
+    )?;
+    Ok(())
+}
 /// A task still queued at its deadline becomes `expired`. Returns whether it
 /// changed.
 pub(crate) fn expire(
@@ -449,6 +528,10 @@ pub(crate) fn expire(
     status: &mut TaskStatus,
 ) -> Result<bool, Error> {
     if status.state != "queued" || time(&request.deadline)? > crate::clock::now() {
+        return Ok(false);
+    }
+    // Once dispatched, the runtime decides how a runtime task ends.
+    if request.is_runtime() && crate::runtime_task::dispatched(tx, sender, &status.task_id)? {
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
@@ -485,6 +568,13 @@ fn recheck(
 impl Store {
     /// Accepts a submitted task as `queued`, idempotently by sender and task ID.
     pub fn accept_task(&self, sender: &str, r: TaskRequest) -> Result<TaskStatus, Error> {
+        match r.executor.as_deref() {
+            None | Some("agent") => {}
+            Some(crate::runtime_task::EXECUTOR) => {
+                return crate::runtime_task::accept(self, sender, r);
+            }
+            Some(_) => return Err(Error::Invalid("executor".into())),
+        }
         validate_task(&r)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -515,6 +605,7 @@ impl Store {
             task_id: r.task_id.clone(),
             sender_host_id: sender.into(),
             receiver_host_id: self.identity().id,
+            executor: None,
             target_agent_id: r.target_agent_id.clone(),
             state: "queued".into(),
             cancel_requested: false,
@@ -609,8 +700,15 @@ impl Store {
                 None,
             )?;
             children = crate::task_outbound::cancel_children(&tx, sender, id)?;
+            if request.is_runtime() {
+                crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
+            }
         }
         tx.commit()?;
+        if request.is_runtime() {
+            self.runtime_wake.notify_one();
+            self.runtime_cancel.notify_waiters();
+        }
         Ok((status, children))
     }
     /// Expires every task still queued at its deadline. Returns how many.
@@ -1105,6 +1203,9 @@ struct CompleteBody {
 pub(crate) struct EventPage {
     pub after: Option<i64>,
     pub limit: Option<i64>,
+    /// Seconds to hold the request, 0 to 10, until an event after `after`
+    /// exists.
+    pub wait: Option<u64>,
 }
 
 pub(crate) fn peer_routes() -> Router<Arc<Store>> {
@@ -1119,7 +1220,13 @@ async fn submit(
     Extension(sender): Extension<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<TaskStatus>, Error> {
-    let request = decode(body)?;
+    let body = body.map_err(|_| Error::Invalid("invalid request".into()))?;
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body)
+        && value.get("executor").and_then(|e| e.as_str()) == Some(crate::runtime_task::EXECUTOR)
+    {
+        crate::runtime_task::check_fields(&value)?;
+    }
+    let request = decode(Ok(body))?;
     Ok(Json(
         blocking(store, move |s| s.accept_task(&sender, request)).await?,
     ))
@@ -1140,8 +1247,14 @@ async fn events(
     query: Result<Query<EventPage>, QueryRejection>,
 ) -> Result<Json<Vec<TaskEvent>>, Error> {
     let Query(page) = query.map_err(|_| Error::Invalid("invalid event page".into()))?;
-    Ok(Json(
-        blocking(store, move |s| {
+    let wait = page.wait.unwrap_or(0);
+    if wait > crate::task_outbound::EVENT_WAIT_MAX {
+        return Err(Error::Invalid("wait is 0 to 10 seconds".into()));
+    }
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(wait);
+    loop {
+        let (s, sender, id) = (store.clone(), sender.clone(), id.clone());
+        let events = blocking(s, move |s| {
             s.task_events(
                 &sender,
                 &id,
@@ -1149,8 +1262,12 @@ async fn events(
                 page.limit.unwrap_or(100),
             )
         })
-        .await?,
-    ))
+        .await?;
+        if !events.is_empty() || std::time::Instant::now() >= until {
+            return Ok(Json(events));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 async fn cancel(
     State(store): State<Arc<Store>>,
@@ -1301,6 +1418,8 @@ pub(crate) mod tests {
     }
     pub(crate) fn task(n: char, grant: &str, agent: &str) -> TaskRequest {
         TaskRequest {
+            executor: None,
+            run: None,
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,

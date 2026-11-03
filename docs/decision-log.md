@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
 
 - [CONV-30 to CONV-34: the must-route lead](#conv-30-to-conv-34-the-must-route-lead-2026-11-02) (2026-11-02)
@@ -47,6 +48,34 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-6 and RUN-7: peerfs workspaces (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** runtime tasks: running a task's command on a peerfs workspace of the receiving host, a first form of the "peerfs commit as a later variant" of RUN-2. The proposal's `{"peerfs": {"space", "commit"}}`, a commit the serving host fetches by hash once peerfs replicates, stays open; this names a workspace the serving host already has.
+- **Source:** the owner's answers to two questions, 2026-11-02, choosing the recommended option of each; the options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-task-contract.md](runtime-task-contract.md), Requests, Runtime rules and The run result.
+- **Implementing PRs:** [#114](https://github.com/peerspan/peerspan/pull/114) (host side) and [peerspan/runtime#8](https://github.com/peerspan/runtime/pull/8) (runtime side).
+
+#### RUN-6. Which peerfs workspaces may a peer's runtime task name on the receiving host?
+
+- **Options:**
+  - (a) Named in the rule: "The runtime rule gains `peerfs_workspaces`: the names its principals may use (0 to 64; empty means archives only)."
+  - (b) Any in the space: "A runtime rule lets its principals name any workspace of the runtime's space."
+  - (c) One per sender: "each sender host gets its own workspace, created on first use."
+- **Chosen:** (a).
+- **Reason given:** "The owner decides workspace by workspace. runtime_rules hasn't shipped yet, so its shape can still change without a compatibility cost." Against (b): "anyone allowed to run can write to every workspace there." Against (c): "two of your own machines can't share one."
+
+#### RUN-7. What should a run on a peerfs workspace return as results?
+
+- **Options:**
+  - (a) Snapshot ID: "The runtime snapshots the workspace after the command, and the run result gains `snapshot`: the ID that `peerfs ws diff`/`restore` take. `results` may be none or output; `changes` is refused because the history holds them."
+  - (b) Changes refused only: "`results` may be none or output; the submitter learns what changed from peerfs itself."
+  - (c) changes.tar from peerfs: "The runtime builds changes.tar and deleted.txt from peerfs's diff of the run, so `changes` works as for archives."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question; against (c): "More runtime work, and it overlaps with history."
+- **Note:** peerfs has `ws snapshots` and `ws restore` but no `ws diff`; the question named one.
 
 ### GU.impl2: native frontend in the existing Claude conversation (2026-10-29)
 

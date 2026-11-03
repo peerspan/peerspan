@@ -22,8 +22,10 @@ mod onboarding_identity_cli;
 mod onboarding_identity_create;
 mod onboarding_owner_finalization_sign;
 mod onboarding_owner_sign;
+mod runtime_cli;
 mod service;
 mod sign_in_cli;
+mod task_run;
 mod up;
 
 use anyhow::{Context, bail};
@@ -281,6 +283,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         person_agent,
         artifact_quota,
         person_key_file,
+        runtime_socket,
     } = command
     {
         let person_agent = person_agent.or_else(|| {
@@ -301,8 +304,13 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             person_agent,
             person_key_file,
             artifact_quota,
+            runtime_socket,
         )
         .await;
+    }
+    if let cli::Command::Task(cli::TaskCommand::Run { .. }) = &command {
+        let code = task_run::run(&command, &directory).await?;
+        std::process::exit(code);
     }
     let value = dispatch(command, &directory).await?;
     println!("{}", serde_json::to_string_pretty(&value)?);
@@ -330,6 +338,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
         return Ok(value);
     }
     if let Some(value) = capability_cli::command(&command, directory).await? {
+        return Ok(value);
+    }
+    if let Some(value) = runtime_cli::command(&command, &socket).await? {
         return Ok(value);
     }
     if let Some(value) = access::top_command(&command, &socket).await? {
@@ -1180,6 +1191,7 @@ async fn run_daemon(
     person_agent: Option<PathBuf>,
     person_key_file: Option<PathBuf>,
     artifact_quota: i64,
+    runtime_socket: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let ListenerOptions {
         bootstrap_listen,
@@ -1192,6 +1204,9 @@ async fn run_daemon(
     store.set_coordination_interval(coordination_interval);
     store.set_person_agent(person_agent);
     store.set_person_key_file(person_key_file);
+    if let Some(socket) = runtime_socket {
+        store.set_runtime_switch(Some(&std::path::absolute(socket)?))?;
+    }
     let path = store.socket_path();
     match fs::symlink_metadata(&path) {
         Ok(metadata) => {
@@ -1288,6 +1303,7 @@ async fn run_daemon(
     let conversations = peerspan_host::conversations::worker(store.clone(), peer_shutdown.clone());
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
+    let runtime_tasks = peerspan_host::runtime_task::worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
@@ -1326,6 +1342,10 @@ async fn run_daemon(
         },
         async {
             expiry.await;
+            Ok(())
+        },
+        async {
+            runtime_tasks.await;
             Ok(())
         },
         async {
@@ -1575,7 +1595,12 @@ async fn failure(response: hyper::Response<hyper::body::Incoming>) -> anyhow::Er
 }
 
 /// Streams a file to `POST /v1/artifacts` and returns its manifest entry.
-async fn upload(socket: &Path, path: &Path, name: &str, media_type: &str) -> anyhow::Result<Value> {
+pub(crate) async fn upload(
+    socket: &Path,
+    path: &Path,
+    name: &str,
+    media_type: &str,
+) -> anyhow::Result<Value> {
     let source = path.to_path_buf();
     let (file, len) = tokio::task::spawn_blocking(move || {
         let file = fs::File::open(&source)?;
@@ -1618,7 +1643,7 @@ async fn upload(socket: &Path, path: &Path, name: &str, media_type: &str) -> any
 }
 
 /// Saves an artifact to a new private file at `out`.
-async fn download(socket: &Path, path: String, out: &Path) -> anyhow::Result<Value> {
+pub(crate) async fn download(socket: &Path, path: String, out: &Path) -> anyhow::Result<Value> {
     use sha2::Digest;
     let stream = UnixStream::connect(socket)
         .await

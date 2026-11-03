@@ -313,6 +313,28 @@ pub(crate) fn merge(
                 .retain(|r| !(r.capability == br.capability && r.host == br.host));
         }
     }
+    // Runtime rules, keyed by host: each host's rule is one unit, and a
+    // concurrent withdrawal wins over a change.
+    for or in &o.runtime_rules {
+        let br = b.runtime_rules.iter().find(|r| r.host == or.host);
+        if br == Some(or) || !additions {
+            continue;
+        }
+        let name = format!("runtime rule {}", or.host);
+        if m.skip.contains(&name) {
+            continue;
+        }
+        match out.runtime_rules.iter_mut().find(|r| r.host == or.host) {
+            Some(sr) => *sr = or.clone(),
+            None if br.is_some() => m.dropped.push(name),
+            None => out.runtime_rules.push(or.clone()),
+        }
+    }
+    for br in &b.runtime_rules {
+        if !o.runtime_rules.iter().any(|r| r.host == br.host) {
+            out.runtime_rules.retain(|r| r.host != br.host);
+        }
+    }
     (out, m.dropped)
 }
 

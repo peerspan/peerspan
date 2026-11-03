@@ -3,7 +3,7 @@
 use super::{
     codec::*,
     controls, edits,
-    state::Projection,
+    state::{CurrentMember, Projection},
     statement::{Descriptor, Statement, access_body},
     storage::Snapshot,
 };
@@ -156,50 +156,66 @@ impl Context {
     fn members(&self, c: &Connection) -> Result<Vec<Member>> {
         let mut members = Vec::new();
         for member in self.projection.members()? {
-            let host_id = key_id(&b64(&member.host_public_key, 32)?);
-            let person = if member.person_public_key == "-" {
-                None
-            } else {
-                Some(crate::persons::person_id(&b64(
-                    &member.person_public_key,
-                    32,
-                )?))
-            };
-            let label = if member.person_lease_id == "-" {
-                None
-            } else {
-                Some(
-                    text(
-                        self.projection
-                            .catalog
-                            .get(&member.person_lease_id)?
-                            .subject()?,
-                        "member",
-                    )?
-                    .to_owned(),
-                )
-            };
-            let addresses = super::peer::product_addresses(
-                c,
-                &self.snapshot.descriptor.network_id,
-                &self.snapshot.network.context_id,
-                &member.host_public_key,
-                &self.projection.decision_time,
-            )?;
-            members.push(Member {
-                host_id,
-                public_key: member.host_public_key,
-                member: member.member,
-                address: addresses.first().cloned().unwrap_or_default(),
-                candidates: addresses,
-                updated_at: self.projection.decision_time.clone(),
-                membership: None,
-                admission: None,
-                person_id: person,
-                person_member: label,
-            });
+            members.push(self.member(c, member)?);
         }
         Ok(members)
+    }
+    /// The host `host_id` as a member, if its membership lapsed (see
+    /// `Projection::lapsed_member`).
+    fn lapsed_member(&self, c: &Connection, host_id: &str) -> Result<Option<Member>> {
+        for key in self.projection.streams.keys() {
+            if key.len() == 2 && key[0] == "host" && key_id(&b64(&key[1], 32)?) == host_id {
+                return match self.projection.lapsed_member(&key[1])? {
+                    Some(member) => Ok(Some(self.member(c, member)?)),
+                    None => Ok(None),
+                };
+            }
+        }
+        Ok(None)
+    }
+    fn member(&self, c: &Connection, member: CurrentMember) -> Result<Member> {
+        let host_id = key_id(&b64(&member.host_public_key, 32)?);
+        let person = if member.person_public_key == "-" {
+            None
+        } else {
+            Some(crate::persons::person_id(&b64(
+                &member.person_public_key,
+                32,
+            )?))
+        };
+        let label = if member.person_lease_id == "-" {
+            None
+        } else {
+            Some(
+                text(
+                    self.projection
+                        .catalog
+                        .get(&member.person_lease_id)?
+                        .subject()?,
+                    "member",
+                )?
+                .to_owned(),
+            )
+        };
+        let addresses = super::peer::product_addresses(
+            c,
+            &self.snapshot.descriptor.network_id,
+            &self.snapshot.network.context_id,
+            &member.host_public_key,
+            &self.projection.decision_time,
+        )?;
+        Ok(Member {
+            host_id,
+            public_key: member.host_public_key,
+            member: member.member,
+            address: addresses.first().cloned().unwrap_or_default(),
+            candidates: addresses,
+            updated_at: self.projection.decision_time.clone(),
+            membership: None,
+            admission: None,
+            person_id: person,
+            person_member: label,
+        })
     }
 }
 enum Source {
@@ -480,9 +496,7 @@ impl Store {
         if s.snapshot.network.own_identity.person_public_key == person {
             let content =
                 edits::enforced(c, &s.projection, person, body.content()).map_err(model)?;
-            body.rules = content.rules;
-            body.capability_rules = Some(content.capability_rules);
-            body.trusted_hosts = Some(content.trusted_hosts);
+            body.set_content(content);
         }
         Ok(Some(Policy {
             body,
@@ -547,6 +561,23 @@ impl Store {
             .product_members(c, network)?
             .into_iter()
             .find(|m| m.host_id == host))
+    }
+    /// A host whose membership in a coordinator-free network lapsed, for
+    /// rules with `allow_disconnected`; None in other networks.
+    pub(crate) fn product_lapsed_member(
+        &self,
+        c: &Connection,
+        network: &str,
+        host: &str,
+    ) -> std::result::Result<Option<Member>, ModelError> {
+        if !is_decentralized(c, network)? {
+            return Ok(None);
+        }
+        match Context::read(self, c, network).and_then(|s| s.lapsed_member(c, host)) {
+            Ok(member) => Ok(member),
+            Err(e) if status_unavailable(&e) => Ok(None),
+            Err(e) => Err(model(e)),
+        }
     }
     pub(crate) fn product_members_of(
         &self,

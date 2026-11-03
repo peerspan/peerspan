@@ -65,6 +65,11 @@ pub struct Store {
     /// it becomes reachable through the new coordinator without waiting for
     /// the next refresh.
     pub(crate) relay_wake: tokio::sync::Notify,
+    /// Wakes the runtime task worker when a runtime task arrives, its
+    /// inputs are stored, or its cancellation is requested.
+    pub(crate) runtime_wake: tokio::sync::Notify,
+    /// Wakes every runtime task follower when a cancellation is requested.
+    pub(crate) runtime_cancel: tokio::sync::Notify,
     /// The peer socket's bound address while listening. Candidates are
     /// published only then.
     pub(crate) peer_bound: RwLock<Option<std::net::SocketAddr>>,
@@ -174,7 +179,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=28).contains(&version) {
+        if !(0..=29).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -294,7 +299,8 @@ impl Store {
         crate::onboarding_adapter::check_schema(&tx)?;
         crate::onboarding_invitation::check_schema(&tx)?;
         crate::decentralized::storage::check_schema(&tx)?;
-        tx.execute_batch("PRAGMA user_version = 28;")?;
+        // 29 is runtime tasks (runtime task contract): new record fields only.
+        tx.execute_batch("PRAGMA user_version = 29;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")
@@ -384,6 +390,8 @@ impl Store {
             adapter_recovery_until,
             peer_transport: Mutex::new(None),
             relay_wake: tokio::sync::Notify::new(),
+            runtime_wake: tokio::sync::Notify::new(),
+            runtime_cancel: tokio::sync::Notify::new(),
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
             person_agent: RwLock::new(None),

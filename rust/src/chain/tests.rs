@@ -355,6 +355,8 @@ impl Fixture {
     }
     fn request(&self, grant: &str, task: &str, deadline: &str, chain: Vec<Link>) -> TaskRequest {
         TaskRequest {
+            executor: None,
+            run: None,
             task_id: task.into(),
             grant_id: Some(grant.into()),
             policy: None,
@@ -687,6 +689,8 @@ fn forward(
     child: char,
 ) -> Result<crate::task_outbound::OutboundTask, Error> {
     f.store.prepare_task(SubmitTask {
+        executor: None,
+        run: None,
         peer_host_id: peer.into(),
         task_id: task_id(child),
         grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -832,6 +836,8 @@ fn forwarding_is_refused_unless_every_rule_holds() {
     ));
     // With a later deadline than the parent's.
     let mut late = SubmitTask {
+        executor: None,
+        run: None,
         peer_host_id: d.clone(),
         task_id: task_id('8'),
         grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -900,6 +906,8 @@ fn forwarding_is_refused_unless_every_rule_holds() {
 }
 fn forward_body(s: &SubmitTask) -> SubmitTask {
     SubmitTask {
+        executor: None,
+        run: None,
         peer_host_id: s.peer_host_id.clone(),
         task_id: s.task_id.clone(),
         grant_id: s.grant_id.clone(),
@@ -919,6 +927,8 @@ fn submitters_create_link_zero() {
     let f = fixture();
     let d = id_of(&f.d);
     let submit = |depth: u64, principals: Option<Vec<String>>, origin: bool| SubmitTask {
+        executor: None,
+        run: None,
         peer_host_id: d.clone(),
         task_id: String::new(),
         grant_id: Some(format!("grant_{}", "1".repeat(32))),
@@ -1089,7 +1099,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 28);
+    assert_eq!(version, 29);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",
@@ -1105,7 +1115,7 @@ fn version_ten_migrates_to_latest_and_twenty_eight_is_refused() {
     drop(store);
     Connection::open(path.join("host.db"))
         .unwrap()
-        .execute_batch("PRAGMA user_version = 29;")
+        .execute_batch("PRAGMA user_version = 30;")
         .unwrap();
     assert!(Store::open(&path).is_err());
 }

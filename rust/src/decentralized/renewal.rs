@@ -139,9 +139,7 @@ pub(super) fn reapplied(
     let unsettled = !frozen.is_empty();
     let mut body = current.clone();
     if unsettled {
-        body.rules = content.rules;
-        body.capability_rules = Some(content.capability_rules);
-        body.trusted_hosts = Some(content.trusted_hosts);
+        body.set_content(content);
         body.edits = Some(body.edits_with(host, last));
     }
     Ok(Reapplied {
