@@ -12,8 +12,8 @@ under 2 minutes. Written from docs/conversations-contract.md, sections C5 and C7
 """
 import os
 
-from harness import (Suite, api_error, check, create_network, departed_of, find_message, join_new_person, peer, refused,
-                     show_targets, ssh_key, target_of, view_as, wait_for, wait_view)
+from harness import (Suite, api_error, check, create_network, departed_of, find_message, join_new_person, message_id,
+                     peer, refused, show_targets, ssh_key, target_of, view_as, wait_for, wait_view)
 
 suite = Suite("conversations_context", __doc__)
 suite.use_clock()  # C5 Verification `stopped`: the 24-hour move needs the test clock before any host starts
@@ -1114,6 +1114,77 @@ def _():
     check(ids_of(got["messages"]) == [u2], f"the new lead's claim {ids_of(got['messages'])}, want u2")
     lead_claim(got, nxt, label_in(after, nxt), True)
     no_claim(rest, "of an unaddressed message when not the new lead")
+
+
+NO_PARTICIPANT = "No such participant in that conversation."
+CONFLICT = "This message_id was already used with different content."
+NEEDS_CONTENT = "addressed_to needs content"
+
+
+def conversation_ids(host):
+    status, body = host.api("GET", "/v1/conversations?state=all")
+    check(status == 200, f"{host.name}: conversations: {status} {body}")
+    return {c["conversation_id"] for c in body["conversations"]}
+
+
+@suite.case("lead_start_addressed", "C7 Starting with `addressed_to` (CONV-35), Waking; "
+                                    "Verification Start addressed")
+def _():
+    need("alice_p")
+    sa, = new_agents("sa7", host=a)
+    sx, sy, sz = new_agents("sx7", "sy7", "sz7")
+    sx_p, sy_p = participant(sx), participant(sy)
+    path = "/adapter/v1/conversations"
+    targets = ["bob/sx7", "bob/sy7"]
+    # Refusals first, each persisting nothing.
+    before = conversation_ids(a)
+    status, body = sa.post(path, {"participants": targets, "content": "for nobody", "addressed_to": ["bob/sz7"]})
+    api_error(status, body, 404, "not_found", NO_PARTICIPANT)
+    status, body = sa.post(path, {"participants": targets, "addressed_to": ["bob/sx7"]})
+    api_error(status, body, 400, "invalid", NEEDS_CONTENT)
+    result = a.cli("conversation", "start", "bob/sx7", "--to", "bob/sx7")
+    check(result.code == 1, f"`conversation start --to` without --message: exit {result.code}, want 1")
+    check(conversation_ids(a) == before, "a refused start persisted a conversation")
+    for x in (sx, sy, sz):
+        no_claim(x, "after refused starts")
+    # Addressed to one of two targets: only that one wakes.
+    mid = message_id()
+    content = "start addressed to sx7"
+    status, body = sa.post(path, {"participants": targets, "content": content, "message_id": mid,
+                                  "addressed_to": ["bob/sx7"]})
+    check(status == 201 and body["message"]["message_id"] == mid and body["message"]["addressed_to"] == [sx_p],
+          f"addressed start: {status} {body}")
+    conv = body["conversation"]["conversation_id"]
+    check(all(i["state"] == "joined" for i in body["invites"]), f"invites {body['invites']}")
+    delivered(conv, mid, sx_p, sy_p, as_agent="sa7")
+    for x in (sx, sy):
+        got = claim_one(x)
+        check(got["notification"]["kind"] == "roster", f"{x.name}'s `added` claim {got['notification']}")
+    got = claim_one(sx)
+    new_message(got, conv, mid)
+    no_claim(sy, "of a start addressed to sx7")
+    no_claim(sa, "of its own start")
+    check(parked(sy, conv) == 1, f"sy7's parked {parked(sy, conv)}, want the first message parked")
+    # C6's repeat rule on the start's first message: same addressed_to repeats, another conflicts.
+    send_path = f"{path}/{conv}/messages"
+    status, body = sa.post(send_path, {"content": content, "message_id": mid, "addressed_to": ["bob/sx7"]})
+    check(status == 200 and body["message"]["message_id"] == mid, f"repeat with the same addressed_to: {status} {body}")
+    status, body = sa.post(send_path, {"content": content, "message_id": mid, "addressed_to": ["bob/sy7"]})
+    api_error(status, body, 409, "conflict", CONFLICT)
+    # The same start without addressed_to wakes no agent: the creator is the lead.
+    status, body = sa.post(path, {"participants": targets, "content": "start, unaddressed"})
+    check(status == 201 and body["message"]["addressed_to"] == [], f"unaddressed start: {status} {body}")
+    plain, plain_mid = body["conversation"]["conversation_id"], body["message"]["message_id"]
+    delivered(plain, plain_mid, sx_p, sy_p, as_agent="sa7")
+    for x in (sx, sy):
+        got = claim_one(x)
+        check(got["notification"]["kind"] == "roster", f"{x.name}'s `added` claim {got['notification']}")
+        no_claim(x, "of an unaddressed start by an agent creator")
+        check(parked(x, plain) == 1, f"{x.name}'s parked {parked(x, plain)}, want 1")
+    # The CLI's --to, for alice's person as creator.
+    started = a.ok("conversation", "start", "bob/sx7", "bob/sy7", "--message", "for sy7", "--to", "bob/sy7",
+                   timeout=60)
+    check(started["message"]["addressed_to"] == [sy_p], f"start --to: {started['message']}")
 
 
 @suite.case("lead_none", "C7 The lead (no joined agent: no lead), Views; Verification No lead")
