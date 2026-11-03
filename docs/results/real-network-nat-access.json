@@ -1,11 +1,11 @@
 {
   "corrected_target": {
+    "existing_ssh_private_key_material_exposed_or_copied": false,
     "interfaces_and_machine_id_verified": false,
     "network_restart": false,
     "new_exact_management_route_added": true,
     "old_owned_management_route_removed": true,
     "placement": "Owner reports intended NYC1 VPC peered with existing NYC2 VPC",
-    "private_key_read_or_copied": false,
     "public_key_provided_privately_to_owner": true,
     "ssh_authentication": "Current workspace public key refused",
     "tcp_ssh_handshake_reachable": true,
