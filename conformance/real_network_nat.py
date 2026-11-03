@@ -642,7 +642,7 @@ def main():
     failed = False
     cleanup = True
     try:
-        for kind,offset in (('machine',0),('teammate',4)):
+        for kind,offset in (('teammate',4),('machine',0)):
             if failed:
                 results.extend(dict(phase=phase,scenario=kind,passed=False,stage='not_run_after_first_failure') for phase in ('ceremony','work'))
                 continue
