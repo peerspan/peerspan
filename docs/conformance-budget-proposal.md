@@ -1,6 +1,6 @@
 # A budget for the conformance suites
 
-Status: **Accepted on 2026-11-03.** The owner accepted all four recommendations ([DEC-OWN14 to DEC-OWN17](decision-log.md#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)). The budget and the two tiers are in place (AGENTS.md, `.github/workflows/conformance.yml` and `conformance-full.yml`); the shared fixtures and the wrapper retirement wait for guided final acceptance. Measurements are from `main` at `6b4b5df` and the Conformance run of `002f1a0`.
+Status: **Accepted on 2026-11-03.** The owner accepted all four recommendations ([DEC-OWN14 to DEC-OWN17](decision-log.md#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)). The budget and the two tiers are in place (AGENTS.md, `.github/workflows/conformance.yml` and `conformance-full.yml`); the shared fixtures and the wrapper retirement wait for guided final acceptance. [DEC-OWN18](decision-log.md#dec-own18-installed-acceptance-runs-locally-2026-11-03) later moved the installed checks off CI to `scripts/installed-acceptance.sh`. Measurements are from `main` at `6b4b5df` and the Conformance run of `002f1a0`.
 
 ## The problem
 
