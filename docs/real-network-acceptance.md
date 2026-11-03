@@ -59,6 +59,14 @@ partial result, not complete N1 acceptance. Section22 permits this refusal when
 its captured scope changes during IO; the refusal alone does not establish its
 cause. The N1 contract below now defines one narrowly bounded fresh observation
 after explicit public scope revalidation, without changing the production guard.
+The next [retained run](results/real-network-nat-baseline-failure.json) again
+passes machine ceremony42.338s/work25.314s. Its new baseline refuses the
+composed host-info response before any incoming-progress dispatch: it incorrectly
+expected only the foundation's three identity fields, omitting the later required
+coordinator/protocol fields. This is an independent fixture defect with unchanged
+host identity, not a production failure. The author corrected that new assertion
+against the composed current contracts, audited the other new shapes, and kept
+all original proof checks and5s/120s bounds. This failed run remains failed.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
