@@ -217,7 +217,7 @@ export const tools = [
   {
     name: 'run_task',
     description:
-      'Run a command in the runtime of the host named by an owner-authorized destination whose action is runtime.run, in a fresh microVM without network. argv is the command and its arguments. workspace_path, a directory you can read, is packed (inside a git working tree, only files git does not ignore) and becomes /workspace in the VM. results is output (the default: stdout.log and stderr.log), changes (also changes.tar and deleted.txt for files the command changed or removed in /workspace) or none. kind=task_update events with event_kind output carry the command\'s new output in meta.output; the final one carries the run result (exit_code, signal, timed_out, duration_ms, ...) as its content and the result files in meta.artifacts, which artifact_save saves. Follow it with task_status.',
+      'Run a command in the runtime of the host named by an owner-authorized destination whose action is runtime.run, in a fresh microVM without network. argv is the command and its arguments. workspace_path, a directory you can read, is packed (inside a git working tree, only files git does not ignore) and becomes /workspace in the VM. Instead, peerfs_workspace names a workspace of the host\'s peerfs space, which the run works in and which keeps what it changes; the run result\'s snapshot names the peerfs snapshot taken after it, and results may not be changes. results is output (the default: stdout.log and stderr.log), changes (also changes.tar and deleted.txt for files the command changed or removed in /workspace) or none. kind=task_update events with event_kind output carry the command\'s new output in meta.output; the final one carries the run result (exit_code, signal, timed_out, duration_ms, ...) as its content and the result files in meta.artifacts, which artifact_save saves. Follow it with task_status.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -230,6 +230,7 @@ export const tools = [
           items: { type: 'string', minLength: 1, maxLength: 4096 }
         },
         workspace_path: { type: 'string', minLength: 1, maxLength: 4096 },
+        peerfs_workspace: { type: 'string', pattern: '^(?!\\.{1,2}$)[^/\\u0000]+$', minLength: 1, maxLength: 255 },
         cwd: { type: 'string', minLength: 1, maxLength: 4096 },
         env: { type: 'object' },
         resources: { type: 'object' },
@@ -1564,6 +1565,10 @@ export function createAdapter({
     }
     if (name === 'run_task') {
       if (!validArguments(name, args)) return errorResult('Invalid run_task arguments.');
+      if (args.workspace_path !== undefined && args.peerfs_workspace !== undefined)
+        return errorResult('Give workspace_path or peerfs_workspace, not both.');
+      if (args.peerfs_workspace !== undefined && args.results === 'changes')
+        return errorResult('results changes is not available with peerfs_workspace: its history keeps the changes.');
       if (args.workspace_path !== undefined && !transfer) return errorResult('artifact transfer is not available');
       const taskId = args.task_id ?? `task_${randomBytes(16).toString('hex')}`;
       let workspaceArchive;
@@ -1582,6 +1587,7 @@ export function createAdapter({
       }
       const run = { argv: args.argv };
       for (const key of ['cwd', 'env', 'resources', 'results']) if (args[key] !== undefined) run[key] = args[key];
+      if (args.peerfs_workspace !== undefined) run.workspace = { peerfs: args.peerfs_workspace };
       try {
         const out = await scopedCall('POST', '/adapter/v1/runs', {
           destination: args.destination,

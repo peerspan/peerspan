@@ -727,6 +727,10 @@ pub enum RuntimeCommand {
         /// Workspace and result bytes per run; default 104857600
         #[arg(long, value_name = "N")]
         max_artifact_bytes: Option<i64>,
+        /// A workspace of the runtime's peerfs space that runs may use;
+        /// repeat for each; default none
+        #[arg(long = "peerfs-workspace", value_name = "NAME")]
+        peerfs_workspaces: Vec<String>,
         /// Accept runs from senders whose membership lapsed
         #[arg(long)]
         allow_disconnected: bool,
@@ -1559,6 +1563,10 @@ pub enum TaskCommand {
         /// Directory packed as the run's /workspace
         #[arg(long, value_name = "DIR")]
         workspace: Option<PathBuf>,
+        /// Instead, a workspace of the peer's peerfs space, which keeps
+        /// what the run changes
+        #[arg(long, value_name = "NAME", conflicts_with = "workspace")]
+        peerfs_workspace: Option<String>,
         /// none, output (the default), or changes
         #[arg(long, value_name = "WHAT")]
         results: Option<String>,

@@ -1020,9 +1020,12 @@ impl Store {
         };
         let mut run = r.run;
         if let Some(sha) = &r.workspace_archive {
-            run.workspace = Some(crate::runtime_task::Workspace {
-                archive: sha.clone(),
-            });
+            if run.workspace.as_ref().is_some_and(|w| w.peerfs().is_some()) {
+                return Err(Error::Invalid(
+                    "a run takes workspace_archive or a peerfs workspace, not both".into(),
+                ));
+            }
+            run.workspace = Some(crate::runtime_task::Workspace::Archive(sha.clone()));
         }
         if let Some(old) = tx
             .query_row(

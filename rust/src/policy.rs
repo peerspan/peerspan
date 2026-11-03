@@ -130,6 +130,9 @@ pub struct RuntimeRule {
     pub max_seconds: i64,
     pub max_output_bytes: i64,
     pub max_artifact_bytes: i64,
+    /// The peerfs workspaces its principals may run on, in ascending
+    /// order (RUN-6).
+    pub peerfs_workspaces: Vec<String>,
     pub allow_disconnected: bool,
 }
 impl RuntimeRule {
@@ -162,8 +165,24 @@ impl RuntimeRule {
                 )));
             }
         }
+        if self.peerfs_workspaces.len() > MAX_PEERFS_WORKSPACES
+            || !self.peerfs_workspaces.iter().all(|n| peerfs_workspace(n))
+            || !self.peerfs_workspaces.windows(2).all(|w| w[0] < w[1])
+        {
+            return Err(invalid(
+                "a runtime rule's peerfs_workspaces are 0-64 distinct workspace names in ascending order",
+            ));
+        }
         Ok(())
     }
+}
+
+const MAX_PEERFS_WORKSPACES: usize = 64;
+
+/// Whether `name` is a peerfs workspace's name (runtime task contract):
+/// 1 to 255 bytes, not `.` or `..`, without `/` or NUL.
+pub fn peerfs_workspace(name: &str) -> bool {
+    (1..=255).contains(&name.len()) && name != "." && name != ".." && !name.contains(['/', '\0'])
 }
 
 /// One `edits` entry (coordination contract, concurrent edits): the

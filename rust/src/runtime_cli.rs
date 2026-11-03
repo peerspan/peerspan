@@ -27,6 +27,7 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
             max_seconds,
             max_output_bytes,
             max_artifact_bytes,
+            peerfs_workspaces,
             allow_disconnected,
             network,
             person_key,
@@ -43,8 +44,24 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
                 max_seconds: max_seconds.unwrap_or(3600),
                 max_output_bytes: max_output_bytes.unwrap_or(1_048_576),
                 max_artifact_bytes: max_artifact_bytes.unwrap_or(104_857_600),
+                peerfs_workspaces: peerfs_workspaces
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
                 allow_disconnected: *allow_disconnected,
             };
+            if let Some(name) = rule
+                .peerfs_workspaces
+                .iter()
+                .find(|n| !peerspan_host::policy::peerfs_workspace(n))
+            {
+                bail!("--peerfs-workspace {name:?} is not a workspace name");
+            }
+            if !rule.peerfs_workspaces.is_empty() && report["peerfs"] != Value::Bool(true) {
+                bail!("--peerfs-workspace needs a runtime that serves a peerfs space");
+            }
             for (name, value, field) in [
                 ("--max-cpus", rule.max_cpus, "max_cpus"),
                 ("--max-memory-mib", rule.max_memory_mib, "max_memory_mib"),

@@ -25,6 +25,7 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     let Command::Task(TaskCommand::Run {
         peer,
         workspace,
+        peerfs_workspace,
         results,
         cpus,
         memory_mib,
@@ -70,7 +71,15 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
         run.insert("resources".into(), Value::Object(resources));
     }
     if let Some(results) = results {
+        if peerfs_workspace.is_some() && results == "changes" {
+            bail!(
+                "--results changes is not available with --peerfs-workspace: the workspace's history holds them"
+            );
+        }
         run.insert("results".into(), json!(results));
+    }
+    if let Some(name) = peerfs_workspace {
+        run.insert("workspace".into(), json!({ "peerfs": name }));
     }
     let mut body = json!({
         "peer_host_id": peer,

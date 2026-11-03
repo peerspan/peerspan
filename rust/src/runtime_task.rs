@@ -53,10 +53,29 @@ pub struct RunSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub results: Option<String>,
 }
+/// `run.workspace`: an archive input artifact, or a workspace of the
+/// receiving host's peerfs space.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct Workspace {
-    pub archive: String,
+pub enum Workspace {
+    #[serde(rename = "archive")]
+    Archive(String),
+    #[serde(rename = "peerfs")]
+    Peerfs(String),
+}
+impl Workspace {
+    /// The peerfs workspace's name, if it is one.
+    pub fn peerfs(&self) -> Option<&str> {
+        match self {
+            Self::Peerfs(name) => Some(name),
+            Self::Archive(_) => None,
+        }
+    }
+}
+impl RunSpec {
+    fn peerfs_workspace(&self) -> Option<&str> {
+        self.workspace.as_ref().and_then(Workspace::peerfs)
+    }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -233,17 +252,29 @@ pub(crate) fn validate(r: &TaskRequest) -> Result<(), Error> {
     {
         return Err(invalid("results"));
     }
-    if let Some(ws) = &run.workspace {
-        let listed = r.artifacts.iter().flatten().any(|e| {
-            e.sha256 == ws.archive
-                && matches!(
-                    e.media_type.as_str(),
-                    "application/x-tar" | "application/gzip"
-                )
-        });
-        if !crate::artifact::valid_digest(&ws.archive) || !listed {
-            return Err(invalid("workspace"));
+    match &run.workspace {
+        Some(Workspace::Archive(archive)) => {
+            let listed = r.artifacts.iter().flatten().any(|e| {
+                e.sha256 == *archive
+                    && matches!(
+                        e.media_type.as_str(),
+                        "application/x-tar" | "application/gzip"
+                    )
+            });
+            if !crate::artifact::valid_digest(archive) || !listed {
+                return Err(invalid("workspace"));
+            }
         }
+        Some(Workspace::Peerfs(name)) => {
+            if !crate::policy::peerfs_workspace(name) {
+                return Err(invalid("workspace"));
+            }
+            // The run result names the snapshot instead (RUN-7).
+            if run.results.as_deref() == Some("changes") {
+                return Err(invalid("results"));
+            }
+        }
+        None => {}
     }
     Ok(())
 }
@@ -334,6 +365,9 @@ fn authorize(
             || over(res.memory_mib, rule.max_memory_mib)
             || over(res.timeout_seconds, rule.max_seconds)
             || manifest_total(&r.artifacts).unwrap_or(0) > rule.max_artifact_bytes
+            || run
+                .peerfs_workspace()
+                .is_some_and(|name| !rule.peerfs_workspaces.iter().any(|n| n == name))
         {
             return Err(forbidden(
                 "forbidden",
@@ -472,6 +506,7 @@ struct RunResult {
     output_truncated: bool,
     results_dropped: Vec<String>,
     results_same: BTreeMap<String, String>,
+    snapshot: Option<String>,
     error: Option<String>,
 }
 impl RunResult {
@@ -486,6 +521,7 @@ impl RunResult {
             output_truncated: false,
             results_dropped: Vec::new(),
             results_same: BTreeMap::new(),
+            snapshot: None,
             error: Some(error.into()),
         }
     }
@@ -502,6 +538,7 @@ impl RunResult {
             output_truncated: (streamed as u64) < stdout_bytes + stderr_bytes,
             results_dropped: Vec::new(),
             results_same: BTreeMap::new(),
+            snapshot: v["snapshot"].as_str().map(str::to_owned),
             error: v["error"].as_str().map(str::to_owned),
         }
     }
@@ -619,13 +656,16 @@ fn start_body(store: &Store, t: &Task) -> Result<Value, Error> {
         .as_ref()
         .ok_or_else(|| Error::Internal(anyhow::anyhow!("a runtime task without bounds")))?;
     let res = run.resources.clone().unwrap_or_default();
-    let archive = run.workspace.as_ref().map(|w| {
-        store
-            .artifact_dir()
-            .join(&w.archive)
-            .to_string_lossy()
-            .into_owned()
-    });
+    let archive = match &run.workspace {
+        Some(Workspace::Archive(sha)) => Some(
+            store
+                .artifact_dir()
+                .join(sha)
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        _ => None,
+    };
     Ok(json!({
         "run_id": t.internal.run_id,
         "argv": run.argv,
@@ -637,6 +677,7 @@ fn start_body(store: &Store, t: &Task) -> Result<Value, Error> {
             "timeout_seconds": res.timeout_seconds.unwrap_or(rule.max_seconds),
         },
         "workspace_archive": archive,
+        "peerfs_workspace": run.peerfs_workspace(),
         "results": run.results.clone().unwrap_or_else(|| "output".into()),
     }))
 }
@@ -749,6 +790,14 @@ async fn pass(
         Ok(out)
     })
     .await?;
+    // Runs on one peerfs workspace take turns: a queued task waits while
+    // another task on its workspace is dispatched or running.
+    let mut in_use: HashSet<String> = tasks
+        .iter()
+        .filter(|(t, _)| t.internal.dispatched || t.status.state == "running")
+        .filter_map(|(t, _)| t.request.run.as_ref()?.peerfs_workspace())
+        .map(str::to_owned)
+        .collect();
     // Free slots, from the runtime's own report; none while it is off or
     // unreachable, so a queued task is started only into a free slot.
     let mut free: Option<i64> = None;
@@ -758,7 +807,16 @@ async fn pass(
             follow(store, following, shutdown, key, false);
             continue;
         }
-        if t.status.cancel_requested || !ready {
+        let workspace = t
+            .request
+            .run
+            .as_ref()
+            .and_then(RunSpec::peerfs_workspace)
+            .map(str::to_owned);
+        if t.status.cancel_requested
+            || !ready
+            || workspace.as_ref().is_some_and(|w| in_use.contains(w))
+        {
             continue;
         }
         if free.is_none() {
@@ -828,9 +886,15 @@ async fn pass(
             continue;
         }
         free = free.map(|f| f - 1);
+        if let Some(w) = workspace.clone() {
+            in_use.insert(w);
+        }
         match start(store, &key.0, &key.1).await? {
             Started::Accepted => follow(store, following, shutdown, key, true),
             Started::Unknown => follow(store, following, shutdown, key, false),
+            // The runtime holds the workspace for a run of its own: later
+            // tasks may still start.
+            Started::Busy if workspace.is_some() => free = free.map(|f| f + 1),
             // Every slot is busy: later tasks wait their turn.
             Started::Busy => break,
             Started::Ended => {}
