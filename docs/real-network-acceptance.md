@@ -80,6 +80,13 @@ original ceremony/work phases remain required on the same committed source.
 The third run's helper cleanup first referenced a wrong private staging filename;
 a follow-up verified the owned PID/start token/argv and stopped it. First failure
 records remain retained, and all owned diagnostic/test processes are stopped.
+A fourth [retained run](results/real-network-nat-network-view-failure.json)
+exercises the fresh two-person case first and stops in18.005s before progress
+dispatch. The new network baseline compared a CLI creation result (which carries
+CLI-only `trusted` metadata) to the API NETWORK_VIEW keyset. Every original
+network/root/provider pin is unchanged. The independent author is correcting
+that envelope comparison against wire section16.2, preserving the authority
+guards. Remaining phases were skipped and all owned resources stopped.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
