@@ -2009,6 +2009,10 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     // In-memory fetch backoff per artifact row, from 1 second to 60 seconds;
     // a restart retries at once.
     let fetch_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
+    // When each job last took a slot: due jobs are offered least recently
+    // served first, so held runtime polls, due again at once, rotate with
+    // other work instead of keeping every slot.
+    let mut served: HashMap<(String, String), Instant> = HashMap::new();
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
@@ -2075,7 +2079,10 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                 }
             }
         }
+        served.retain(|k, _| keys.contains(k));
+        keys.sort_by_key(|k| served.get(k).copied());
         for claim in dispatcher.claim(keys) {
+            served.insert(claim.key().clone(), Instant::now());
             let store = store.clone();
             let key = claim.key().clone();
             let is_poll = polls.get(&key).copied().unwrap_or(false);

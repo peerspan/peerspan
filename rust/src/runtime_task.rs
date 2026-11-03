@@ -125,6 +125,10 @@ pub(crate) struct Internal {
     /// The runtime's `exited` result, once stored.
     #[serde(default)]
     pub exited: Option<Value>,
+    /// The task is final and the runtime may still hold its run: the run is
+    /// deleted until the runtime answers 200 or 404.
+    #[serde(default)]
+    pub cleanup: bool,
 }
 
 fn invalid(field: &str) -> Error {
@@ -655,7 +659,54 @@ fn finish(
             crate::artifact::STORED,
         )?;
     }
+    let mut i = internal(&tx, sender, task_id)?;
+    if i.socket.is_some() {
+        i.cleanup = true;
+        save_internal(&tx, sender, task_id, &i)?;
+    }
     tx.commit()?;
+    Ok(())
+}
+
+/// Deletes the runs of final tasks that the runtime may still hold, and
+/// forgets each once the runtime answers 200 or 404.
+async fn clean_up(store: &Arc<Store>) -> Result<(), Error> {
+    let pending = crate::api::blocking(store.clone(), |s| {
+        let conn = s.connection()?;
+        let mut statement = conn.prepare(
+            "SELECT sender, task_id FROM received_tasks WHERE json_extract(request, '$.executor') = 'runtime' AND json_extract(record, '$.runtime.cleanup') = 1",
+        )?;
+        let keys = statement
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut out = Vec::new();
+        for (sender, id) in keys {
+            let i = internal(&conn, &sender, &id)?;
+            out.push((sender, id, i));
+        }
+        Ok(out)
+    })
+    .await?;
+    for (sender, id, i) in pending {
+        let Some(socket) = i.socket else { continue };
+        let path = format!("/v1/runs/{}", i.run_id);
+        if !matches!(
+            call(&socket, Method::DELETE, &path, None).await,
+            Ok(a) if a.status == 200 || a.status == 404
+        ) {
+            continue;
+        }
+        crate::api::blocking(store.clone(), move |s| {
+            let mut conn = s.connection()?;
+            let tx = conn.transaction()?;
+            let mut i = internal(&tx, &sender, &id)?;
+            i.cleanup = false;
+            save_internal(&tx, &sender, &id, &i)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    }
     Ok(())
 }
 
@@ -786,6 +837,9 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     let following: Following = Default::default();
     loop {
         if let Err(e) = pass(&store, &following, &shutdown).await {
+            eprintln!("runtime tasks: {e:?}");
+        }
+        if let Err(e) = clean_up(&store).await {
             eprintln!("runtime tasks: {e:?}");
         }
         tokio::select! {
@@ -1074,7 +1128,7 @@ async fn follower(
             Applied::Results(artifacts) => {
                 let (s, sender2, id2) = (store.clone(), sender.clone(), id.clone());
                 crate::api::blocking(s, move |s| results(s, &sender2, &id2, artifacts)).await?;
-                let _ = call(&socket, Method::DELETE, &path, None).await;
+                // The worker, woken as this follower ends, deletes the run.
                 return Ok(());
             }
         }
