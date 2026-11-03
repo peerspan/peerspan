@@ -96,7 +96,7 @@ class PackageReleaseTests(unittest.TestCase):
         if architecture is None or not shutil.which("flock"):
             self.skipTest("requires a supported Linux architecture and flock")
         # Package from an isolated copy of the sources: package-release.sh
-        # builds under its own checkout's rust/target, which the cargo shim
+        # builds under its own checkout's target, which the cargo shim
         # must never overwrite in the real checkout.
         self.repo = self.root / "repo"
         (self.repo / "scripts").mkdir(parents=True)

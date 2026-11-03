@@ -259,7 +259,7 @@ One host schema version adds every table and the index in the proposal's [Persis
 
 ### Verification
 
-`conformance/slim/conversations.py`, written from this section by an author who does not read `rust/` or `integrations/`, runs as its own CI job (`conversations` in the `suite` matrix of `.github/workflows/conformance.yml`), Rust/Rust, in under 2 minutes.
+`conformance/slim/conversations.py`, written from this section by an author who does not read `src/`, `tests/` or `integrations/`, runs as its own CI job (`conversations` in the `suite` matrix of `.github/workflows/conformance.yml`), Rust/Rust, in under 2 minutes.
 
 **Setup.** Hosts alice and bob in one coordinator-free network (`create_network`, `join_new_person`). bob registers fixture agent `bert` with `b.agent("bert")` (a directory session, channel verified). bob allows alice to message his agents with `allow alice --person-key KEY` (or `allow alice --no-tasks --person-key KEY`, giving only `message.append`), and the setup waits until both hosts hold that policy version (`POST /v2/networks/{id}/sync`, `GET /v2/networks/{id}/access-versions`), as `work.py` does. alice needs no rule: bert's messages to alice's person are authorized by her joining. The fixture agent claims with `bert.post("/adapter/v1/conversation-notifications/next")` until it gets a non-null claim, then posts `.../{id}/forwarded`. Policy changes in a case use `deny alice` (and, after it, the same sync wait for bob's new version where the case depends on alice's host holding it).
 

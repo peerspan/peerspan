@@ -122,9 +122,9 @@ command -v cargo >/dev/null 2>&1 || {
   echo "missing required command: cargo" >&2
   exit 1
 }
-cargo_target="$repo/rust/target/peerspan-package-$rust_target"
+cargo_target="$repo/target/peerspan-package-$rust_target"
 CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
-  --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-host
+  --target "$rust_target" --manifest-path "$repo/Cargo.toml" --bin peerspan-host
 cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
 
 case "$(file -b "$bundle/bin/peerspan-host")" in

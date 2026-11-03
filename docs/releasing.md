@@ -7,7 +7,7 @@ Coordinator-free host packages need no coordinator address, coordinator public k
 ## Build a draft candidate
 
 1. Merge the reviewed source and run the Rust checks and all slim conformance suites at the intended revision. Record that exact commit. The remaining installed and live checks qualify the resulting draft before publication.
-2. Set the version in `rust/Cargo.toml` to the intended release version. The workflow requires its `version` input to match. Use a new version for each release; do not replace assets for an existing tag.
+2. Set the version in `Cargo.toml` to the intended release version. The workflow requires its `version` input to match. Use a new version for each release; do not replace assets for an existing tag.
 3. Run **Draft Linux release** from `main` with the version without the `v` prefix. The workflow checks the selected branch and creates `vVERSION` at the workflow commit only after both host bundles pass.
 
 With authenticated GitHub CLI, dispatch and follow the candidate build:

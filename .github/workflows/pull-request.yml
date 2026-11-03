@@ -66,7 +66,7 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt
           rustup default stable
       - name: Rust format
-        run: cargo fmt --check --manifest-path rust/Cargo.toml
+        run: cargo fmt --check
 
   clippy:
     name: Rust Clippy
@@ -85,10 +85,9 @@ jobs:
           rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           cache-on-failure: true
       - name: Rust Clippy
-        run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   test:
     name: Rust tests and build
@@ -107,9 +106,8 @@ jobs:
           rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           cache-on-failure: true
       - name: Build shipped Rust binaries
-        run: cargo build --locked --manifest-path rust/Cargo.toml --bins
+        run: cargo build --locked --bins
       - name: Existing Rust tests
-        run: cargo test --locked --manifest-path rust/Cargo.toml
+        run: cargo test --locked

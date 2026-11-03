@@ -392,17 +392,17 @@ class Suite:
     def __init__(self, name, description):
         parser = argparse.ArgumentParser(description=description)
         parser.add_argument("--bin", type=Path, default=None,
-                            help="directory holding peerspan-host (default: rust/target/debug)")
+                            help="directory holding peerspan-host (default: target/debug)")
         parser.add_argument("--only", action="append", default=[], help="run only these cases")
         parser.add_argument("--skip", action="append", default=[], help="do not run these cases")
         parser.add_argument("--keep", action="store_true", help="keep the temporary directory")
         self.args = parser.parse_args()
         repo = Path(__file__).resolve().parents[2]
-        bindir = self.args.bin or repo / "rust" / "target" / "debug"
+        bindir = self.args.bin or repo / "target" / "debug"
         self.host_bin = (bindir / "peerspan-host").resolve()
         self.probe_bin = (bindir / "peerspan-peer-probe").resolve()
         if not self.host_bin.exists():
-            sys.exit(f"missing {self.host_bin}; build with cargo build --manifest-path rust/Cargo.toml --bins")
+            sys.exit(f"missing {self.host_bin}; build with cargo build --bins")
         self.name = name
         self.work = Path(tempfile.mkdtemp(prefix=f"slim-{name}-"))
         self.clock = None

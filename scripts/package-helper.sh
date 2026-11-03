@@ -96,9 +96,9 @@ if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$chec
 fi
 
 # The same target directory as the Rust host bundle, so both share one build.
-cargo_target="$repo/rust/target/peerspan-package-$rust_target"
+cargo_target="$repo/target/peerspan-package-$rust_target"
 CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
-  --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml" --bin peerspan-helper
+  --target "$rust_target" --manifest-path "$repo/Cargo.toml" --bin peerspan-helper
 cp "$cargo_target/$rust_target/release/peerspan-helper" "$bundle/bin/peerspan-helper"
 case "$(file -b "$bundle/bin/peerspan-helper")" in
   *ELF*"$file_arch"*) ;;

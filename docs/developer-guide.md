@@ -7,10 +7,10 @@ This is the source-checkout path. For the user path, follow the [quick start](qu
 From the repository root:
 
 ```sh
-cargo build --locked --manifest-path rust/Cargo.toml --bins
+cargo build --locked --bins
 ```
 
-This builds `peerspan-host` (the daemon and CLI, also installed as `peerspan`), the optional `peerspan-helper`, and the `peerspan-peer-probe` and `peerspan-link-probe` conformance fixtures under `rust/target/debug/`. The probes are test clients, not deployment binaries. The [architecture map](architecture-onboarding.md) identifies the daemon, CLI, storage, transport, and adapter entry points.
+This builds `peerspan-host` (the daemon and CLI, also installed as `peerspan`), the optional `peerspan-helper`, and the `peerspan-peer-probe` and `peerspan-link-probe` conformance fixtures under `target/debug/`. The probes are test clients, not deployment binaries. The [architecture map](architecture-onboarding.md) identifies the daemon, CLI, storage, transport, and adapter entry points.
 
 ## Package a release bundle
 
@@ -26,9 +26,9 @@ The host script currently packages native Linux builds, bundles pinned Node inte
 The [implementation instructions](../AGENTS.md) map each changed contract or CLI surface to its required checks. The language checks, as run in CI, are:
 
 ```sh
-cargo fmt --check --manifest-path rust/Cargo.toml
-cargo test --locked --manifest-path rust/Cargo.toml
-cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
 CI also runs the [slim conformance suites](../conformance/slim/) (one small black-box suite per area, written from the spec; DEC-OWN6, DEC-OWN9, DEC-OWN10) against the Rust host and peer probe, in parallel. To run one locally after building the binaries, put `peerspan-host` and `peerspan-peer-probe` in one directory and run, for example:
@@ -64,6 +64,4 @@ With `PEERSPAN_TIMING=1`, a debug build prints one `timing #N KIND WHAT MS` line
 - [Manual agent testing](manual-agent-testing.md) covers candidate installation and live work on separate machines.
 - [Coordinator-free spec](decentralized-spec.md), [wire appendix](decentralized-wire-formats.md) and [runtime contract](decentralized-runtime-contract.md) explain current enrollment and transport. The coordination contract describes the retired coordinator product.
 - [Connectivity evaluation](connectivity-evaluation.md) explains the controlled network benchmarks and their limits.
-- `PEERSPAN_TIMING=1` in debug builds prints per-request timings (see above), and the ignored Rust connectivity benchmarks in `rust/src/quic/` can be run on demand.
-
-The [earlier prototype](../legacy/README.md) has its own Go module and test requirements. It is historical code, separate from the current hosts.
+- `PEERSPAN_TIMING=1` in debug builds prints per-request timings (see above), and the ignored Rust connectivity benchmarks in `src/quic/` can be run on demand.

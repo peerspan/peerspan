@@ -1,14 +1,12 @@
 # Implementation instructions
 
-The Rust host service in `rust/` is the only host implementation in this repository ([DEC-OWN5](docs/decision-log.md)). The Go implementation is maintained separately at https://github.com/peerspan/peerspan-go and is not built, tested or packaged here. Shared specifications are in `docs/`; binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository.
-
-The earlier prototype lives in `legacy/` with its own Go module. Do not extend its combined control-plane and execution model for the new host service.
+The Rust host service (the crate at the repository root: `src/` and `tests/`) is the only host implementation in this repository ([DEC-OWN5](docs/decision-log.md)). The Go implementation is maintained separately at https://github.com/peerspan/peerspan-go and is not built, tested or packaged here. Shared specifications are in `docs/`; binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository.
 
 Coordination remains outside the collaboration data path. Hosts enforce permissions and own execution and local state. Agent identities are distinct from sessions. Membership, ownership, and access are separate.
 
 The administration API is owner-local over a private Unix socket. The opt-in peer API has a separate router and authenticates host keys over mutual TLS; never expose local administration through it. Peers receive only explicitly granted message access. Owner labels, capabilities, and registry attachments do not establish network authority or integration readiness.
 
-Implement working slices rather than empty packages. Record shared external behavior in `docs/host-service-contract.md`; record broader product decisions in the system design.
+Implement working slices rather than empty modules. SQLite operations belong on blocking workers. Keep `Cargo.lock` tracked, and add dependencies only for a concrete need. The CLI uses Clap with typed commands and arguments; keep parsing separate from daemon lifecycle and local request execution, and preserve the shared command contract when extending it. Record shared external behavior in `docs/host-service-contract.md`; record broader product decisions in the system design.
 
 ## Coordinator-free redesign stream
 
@@ -31,7 +29,7 @@ Tests come from the specification, not from an implementation. Agent-written tes
 
 From the repository root, run the language checks (CI runs the same):
 
-- `cargo fmt --check --manifest-path rust/Cargo.toml`, `cargo test --locked --manifest-path rust/Cargo.toml`, and `cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings`.
+- `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`.
 
 Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-log.md), DEC-OWN9, DEC-OWN10): one small black-box suite per area, written from the spec by a separate author who never reads the implementation, each under 2 minutes and at most about 1,000 lines, split by area rather than by phase when it needs more. The per-push Conformance workflow stays within 15 job-minutes; a new suite states its lines and seconds in its PR, and one that would take the workflow over budget goes to the second tier or to the owner ([DEC-OWN14](docs/decision-log.md), [budget proposal](docs/conformance-budget-proposal.md)). CI builds `peerspan-host`, `peerspan-peer-probe` and `peerspan-helper` once and runs the suites in parallel, in two tiers (DEC-OWN15): every push runs one suite per area plus `onboarding` and `guided_machine` (`.github/workflows/conformance.yml`); the per-section guided suites and the installed bundle, upgrade and participant checks run nightly, by hand, and on a pull request labelled `full-conformance` (`.github/workflows/conformance-full.yml`). When external behavior changes, run the suite for that area locally with the debug binaries in one directory, for example `python3 conformance/slim/join.py --bin DIR`:
 
