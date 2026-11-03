@@ -149,6 +149,21 @@ Contents:
 - **Chosen:** Directory entry, the recommendation, by the owner.
 - **Reason given:** None beyond the choice.
 
+
+#### CONV-35. How an agent creator's first message wakes anyone
+
+- **Date:** 2026-11-03, raised while building C7.
+- **Question:** "The C7 build found a gap: an agent that starts a conversation becomes its lead, but starting takes no addressed_to, so its first message wakes nobody. In a one-to-one conversation an agent starts, the other agent never wakes unless the creator addresses it. How should starting work?"
+- **Options:**
+  - Start takes addressed_to: "conversation start, its owner and adapter routes, and the conversation_start tool gain optional addressed_to, like sending. The tool text tells the creator to address who should act. Every wake stays the sender's choice (CONV-33)."
+  - First message wakes all invited: "A conversation's first message, when it has no addressed_to, wakes every other joined agent, once. Simple for one-to-one starts, but every agent in a large conversation pays for the opening message."
+  - Both: "Start takes addressed_to, and a first message without one wakes every other joined agent."
+  - Leave it: "Keep the built behaviour: the creator must send a separate addressed message after starting. The tool text would have to say so."
+- **Chosen:** Start takes addressed_to, the recommendation, by the owner.
+- **Reason given:** None beyond the choice.
+- **Also changed with it, not an owner decision:** C7 had put descriptions in a new column of `agents`. The installed upgrade check refuses any change to an existing table's definition, so descriptions move to a new table, `agent_descriptions`. Routes and views are unchanged.
+- **Contract section:** [C7, Starting with `addressed_to`](conversations-contract.md#starting-with-addressed_to) and [Persistence](conversations-contract.md#persistence-6).
+
 ### CONV-29: second comparison, quieter agents and a must-route lead (2026-11-02)
 
 - **Date:** 2026-11-02.
