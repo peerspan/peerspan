@@ -23,6 +23,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/host", get(identity))
         .route("/v1/agents", get(agents).post(register))
         .route("/v1/agents/{id}", get(agent))
+        .route("/v1/agents/{id}/description", post(describe))
         .route("/v1/sessions", get(sessions).post(attach))
         .route("/v1/sessions/{id}", get(session))
         .route("/v1/sessions/{id}/detach", post(detach))
@@ -124,6 +125,41 @@ async fn agent(
     Path(id): Path<String>,
 ) -> Result<Json<Agent>, Error> {
     Ok(Json(blocking(store, move |s| s.agent(&id)).await?))
+}
+/// `POST /v1/agents/{id}/description` (conversations C7).
+async fn describe(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Agent>, Error> {
+    // C7's text exactly, without the `invalid request: ` prefix.
+    let refused = || {
+        crate::directory::coded(
+            400,
+            "invalid",
+            "description must be 1 to 200 bytes on one line, without control characters".into(),
+            serde_json::json!({}),
+        )
+    };
+    let body = body.map_err(|_| refused())?;
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| refused())?;
+    let description = match value.as_object() {
+        Some(o) if o.len() == 1 => match o.get("description") {
+            Some(serde_json::Value::String(d)) => d.clone(),
+            _ => return Err(refused()),
+        },
+        _ => return Err(refused()),
+    };
+    if !description.is_empty() && !crate::model::valid_description(&description) {
+        return Err(refused());
+    }
+    Ok(Json(
+        blocking(store, move |s| {
+            s.agent(&id)?;
+            s.describe_agent(&id, &description)
+        })
+        .await?,
+    ))
 }
 async fn attach(
     State(store): State<Arc<Store>>,

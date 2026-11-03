@@ -445,16 +445,22 @@ def _():
     check(got["addressed"] is True and got["addressed_to"] == [bert_p] and got["addressed_to_labels"] == ["bob/bert"],
           f"bert's claim: {got}")
     plain = say(conv, "for everyone")
-    # bea holds the addressed message unclaimed first: pending_work reads `addressed` from its notifications.
     show_targets(a, conv, plain, bea_p, "delivered")
     show_targets(a, conv, mid, bea_p, "delivered")
-    bea_claims = claim_messages(bea, mid, plain)
-    got = bea_claims[mid]["messages"][0]
-    check(got["addressed"] is False and got["addressed_to"] == [bert_p] and got["addressed_to_labels"] == ["bob/bert"],
-          f"bea's claim: {got}")
-    got = bea_claims[plain]["messages"][0]
-    check(got["addressed"] is True and got["addressed_to"] == [] and got["addressed_to_labels"] == [],
-          f"bea's claim of a message with no --to: {got}")
+    # C7: bert is the lead, so bea, neither named nor the lead, is woken by neither. Both stay visible to it.
+    claimed = []
+    while (body := claim(bea)) is not None:
+        claimed.append(body["notification"].get("message_id"))
+    check(mid not in claimed and plain not in claimed, f"bea claimed a parked message: {claimed}")
+    status, body = bea.call("GET", f"/adapter/v1/conversations/{conv}/messages")
+    check(status == 200, f"bea: history: {status} {body}")
+    bea_views = {m["message_id"]: m for m in body["messages"]}
+    got = bea_views.get(mid, {})
+    check(got.get("addressed") is False and got.get("addressed_to") == [bert_p]
+          and got.get("addressed_to_labels") == ["bob/bert"], f"bea's view: {got}")
+    got = bea_views.get(plain, {})
+    check(got.get("addressed") is True and got.get("addressed_to") == [] and got.get("addressed_to_labels") == [],
+          f"bea's view of a message with no --to: {got}")
     got = claim_message(bert, plain)["messages"][0]
     check(got["addressed"] is True, f"bert's claim of a message with no --to: {got}")
     # By participant ID; the author may be named; entries for one participant count once; roster order.
@@ -494,17 +500,19 @@ def _():
     status, pending = bea.call("GET", "/adapter/v1/pending")
     check(status == 200, f"bea: pending: {status} {pending}")
     entry = next(e for e in pending["conversations"] if e["conversation_id"] == conv)
-    check(entry["addressed"] is True, f"bea holds an unseen message for everyone: {entry}")
+    check(entry["addressed"] is True, f"bea holds an unseen message addressed to it: {entry}")
     lone = new_agent("lone")
     conv2 = start("bob/lone", "bob/bea")
     only_lone = a.ok("conversation", "say", conv2, text("only lone"), "--to", "bob/lone")["message"]["message_id"]
     show_targets(a, conv2, only_lone, bea_p, "delivered")
     show_targets(a, conv2, only_lone, participant(lone), "delivered")
-    for adapter, want_addressed in ((bea, False), (lone, True)):
+    # C7: only lone wakes; bea's notification is parked, and pending_work lists no parked one.
+    for adapter, want_addressed in ((bea, None), (lone, True)):
         status, pending = adapter.call("GET", "/adapter/v1/pending")
         check(status == 200, f"{adapter.name}: pending: {status} {pending}")
-        entry = next(e for e in pending["conversations"] if e["conversation_id"] == conv2)
-        check(entry["addressed"] is want_addressed, f"{adapter.name}: pending {entry}, want {want_addressed}")
+        entry = next((e for e in pending["conversations"] if e["conversation_id"] == conv2), None)
+        got = entry and entry["addressed"]
+        check(got is want_addressed, f"{adapter.name}: pending {entry}, want addressed {want_addressed}")
     # Owner views, and the readable forms.
     own = show(a, conv)
     check(find_message(own, plain)["addressed"] is True, "alice's own unaddressed message is not addressed to her")

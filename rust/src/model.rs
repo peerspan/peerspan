@@ -15,6 +15,19 @@ pub struct Agent {
     pub owner: String,
     pub capabilities: Vec<String>,
     pub created_at: String,
+    /// The owner's one-line description (conversations C7), null when none.
+    pub description: Option<String>,
+}
+
+/// Whether `text` is a valid agent description (conversations C7): 1 to
+/// 200 bytes of UTF-8 with no C0 or C1 control character or DEL, and not
+/// only spaces.
+pub fn valid_description(text: &str) -> bool {
+    (1..=200).contains(&text.len())
+        && !text
+            .chars()
+            .any(|c| c <= '\u{1f}' || ('\u{7f}'..='\u{9f}').contains(&c))
+        && !text.chars().all(|c| c == ' ')
 }
 
 #[derive(Debug, Deserialize)]

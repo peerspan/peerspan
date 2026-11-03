@@ -23,7 +23,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+from schema28_compatibility import CONVERSATION_TABLES, NEWER_TABLES, drop_conversations
 
 from harness import (Suite, UnixHTTPConnection, check, create_network, join_new_person,
                      parse_time, ssh_key)
@@ -656,12 +656,12 @@ def _():
     check(get(legacy, "/v1/sessions/" + session["id"])["state"] == "detached", "migration attached historical session")
     legacy.stop()
     migrated = records(legacy)
-    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (29,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
+    check(migrated["$version"] == (30,) and migrated[TABLE] == () and migrated["onboarding_adapter_flows"] == ()
           and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not create empty schema-24/25/26/27 flow tables")
-    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES)}
+    check({key: value for key, value in migrated.items() if key not in ("$schema", "$version", TABLE, "onboarding_adapter_flows", "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES)}
           == {key: value for key, value in old.items() if key not in ("$schema", "$version")},
           "additive migration changed legacy registry/DEC logical records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed existing table definitions")
@@ -702,9 +702,9 @@ def _():
             db.execute("DROP TABLE onboarding_project_flows")
             db.execute("CREATE TABLE onboarding_project_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future30")
+    future = clone_state(source, "future31")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 30")
+        db.execute("PRAGMA user_version = 31")
     refuse_start(future)
 
 

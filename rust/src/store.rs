@@ -25,6 +25,10 @@ CREATE INDEX sessions_agent ON sessions(agent_id);
 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, subject_id TEXT NOT NULL, created_at TEXT NOT NULL);
 PRAGMA user_version = 1;
 ";
+/// Schema 30 (conversations C7): one row per agent with an owner's
+/// description.
+const DESCRIPTIONS: &str =
+    "CREATE TABLE agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL);";
 
 /// Serializes directory queries to one host in one network.
 pub(crate) type HostQueryLock = Arc<tokio::sync::Mutex<()>>;
@@ -179,7 +183,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=29).contains(&version) {
+        if !(0..=30).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -293,6 +297,17 @@ impl Store {
         if version < 28 && !main_conversations {
             tx.execute_batch(crate::conversations::SCHEMA)?;
         }
+        // Conversations C7: owners' agent descriptions, in a table of their
+        // own so the upgrade changes no existing definition. A state lowered
+        // to an earlier version to repair one table may already have it.
+        let described: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'agent_descriptions')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !described {
+            tx.execute_batch(DESCRIPTIONS)?;
+        }
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;
         crate::onboarding::check_schema(&tx)?;
@@ -300,7 +315,8 @@ impl Store {
         crate::onboarding_invitation::check_schema(&tx)?;
         crate::decentralized::storage::check_schema(&tx)?;
         // 29 is runtime tasks (runtime task contract): new record fields only.
-        tx.execute_batch("PRAGMA user_version = 29;")?;
+        // 30 is conversations C7: the agent_descriptions table.
+        tx.execute_batch("PRAGMA user_version = 30;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")
@@ -480,6 +496,7 @@ impl Store {
             owner,
             capabilities,
             created_at: now(),
+            description: None,
         };
         let encoded = serde_json::to_string(&agent.capabilities)?;
         let mut connection = self.connection()?;
@@ -504,10 +521,35 @@ impl Store {
 
     pub fn agent(&self, id: &str) -> Result<Agent, Error> {
         Ok(self.connection()?.query_row(
-            "SELECT id, name, owner, capabilities, created_at FROM agents WHERE id = ?1",
+            "SELECT a.id, a.name, a.owner, a.capabilities, a.created_at, d.description FROM agents a LEFT JOIN agent_descriptions d ON d.agent_id = a.id WHERE a.id = ?1",
             [id],
             read_agent,
         )?)
+    }
+
+    /// `POST /v1/agents/{id}/description` (conversations C7): sets the
+    /// description, or clears it with `""`.
+    pub fn describe_agent(&self, id: &str, description: &str) -> Result<Agent, Error> {
+        let conn = self.connection()?;
+        let known: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if !known {
+            return Err(Error::NotFound);
+        }
+        if description.is_empty() {
+            conn.execute("DELETE FROM agent_descriptions WHERE agent_id = ?1", [id])?;
+        } else {
+            conn.execute(
+                "INSERT INTO agent_descriptions (agent_id, description) VALUES (?1, ?2) ON CONFLICT(agent_id) DO UPDATE SET description = excluded.description",
+                params![id, description],
+            )?;
+        }
+        drop(conn);
+        self.presence_changed();
+        self.agent(id)
     }
 
     pub fn agents(&self) -> Result<Vec<Agent>, Error> {
@@ -515,7 +557,7 @@ impl Store {
     }
     pub(crate) fn agents_in(&self, connection: &Connection) -> Result<Vec<Agent>, Error> {
         let mut statement = connection.prepare(
-            "SELECT id, name, owner, capabilities, created_at FROM agents ORDER BY created_at, id",
+            "SELECT a.id, a.name, a.owner, a.capabilities, a.created_at, d.description FROM agents a LEFT JOIN agent_descriptions d ON d.agent_id = a.id ORDER BY a.created_at, a.id",
         )?;
         Ok(statement
             .query_map([], read_agent)?
@@ -723,6 +765,7 @@ fn read_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
         owner: row.get(2)?,
         capabilities,
         created_at: row.get(4)?,
+        description: row.get(5)?,
     })
 }
 

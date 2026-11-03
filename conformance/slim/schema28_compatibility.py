@@ -10,6 +10,11 @@ CONVERSATION_TABLES = ('conversation_notifications', 'conversation_targets',
                        'conversation_messages', 'conversations')
 
 
+# Schema 30 (conversations C7) adds this table; a synthetic older state
+# drops it too, so the migration creates it from a real older state.
+NEWER_TABLES = ('agent_descriptions',)
+
+
 def drop_conversations(db):
-    for table in CONVERSATION_TABLES:
+    for table in CONVERSATION_TABLES + NEWER_TABLES:
         db.execute('DROP TABLE ' + table)

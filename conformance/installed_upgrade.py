@@ -179,8 +179,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema29 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema29')
+                raise CheckFailure('old binary did not refuse schema30 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema30')
         finally:
             self.process = None
             PROCESSES.discard(process)
@@ -247,6 +247,33 @@ def observations(host, network, agent, session, conversation=None):
         result['conversation'] = host.api('GET', f'/v1/conversations/{conversation}')
         result['messages'] = host.api('GET', f'/v1/conversations/{conversation}/messages?limit=100')
     return result
+
+
+def before_c7(value):
+    """Upgraded observations as an older host shows them: conversations C7
+    adds `description` to agents, null until an owner sets one, and `lead` to
+    the conversation view."""
+    value = json.loads(json.dumps(value))
+    for a in [value['agent'], *value['agents']]:
+        require(a.pop('description', None) is None, 'installed upgrade gave an agent a description')
+    if 'conversation' in value:
+        view = value['conversation']
+        require(view.pop('lead', None) == expected_lead(view), 'installed upgrade showed the wrong conversation lead')
+    return value
+
+
+def expected_lead(view):
+    """C7's lead of a conversation view: the creator if a joined agent, else
+    the creator's person's first joined agent, else the first joined agent."""
+    agents = [p for p in view['participants'] if p['kind'] == 'agent' and p['state'] == 'joined']
+    creator = next((p for p in view['participants'] if p['id'] == view['created_by']), None)
+    if creator is not None and creator in agents:
+        return creator['id']
+    if creator is not None and creator.get('person_id'):
+        for p in agents:
+            if p.get('person_id') == creator['person_id']:
+                return p['id']
+    return agents[0]['id'] if agents else None
 
 
 def proposal(host, label):
@@ -324,7 +351,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
 
         host.binary = installed
         host.start()
-        require(observations(host, network, agent['id'], session['id'], conversation) == baseline_public,
+        require(before_c7(observations(host, network, agent['id'], session['id'], conversation)) == baseline_public,
                 'installed upgrade changed public identity/network/agent/session/history')
         if pending:
             require(host.api('GET', BASE + '/' + pending['flow_id']) == pending,
@@ -333,8 +360,8 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 29 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
-                'installed upgrade did not create schema29 with both complete table histories')
+        require(upgraded['version'] == 30 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
+                'installed upgrade did not create schema30 with both complete table histories')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
         host.binary = old_binary
@@ -360,7 +387,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(restored_records['version'] == expected_version, 'old binary changed restored schema version')
         preserve_history(original, restored_records)
         require(tree(restored.config) == manifests['config'], 'old binary changed restored original key/config')
-        return {'original_schema': expected_version, 'upgraded_schema': 29,
+        return {'original_schema': expected_version, 'upgraded_schema': 30,
                 'backup_mode_hash_match': True, 'public_history_retained': True,
                 'pending_review_retained': pending is not None, 'new_review': True,
                 'old_binary_refused_without_db_mutation': True, 'complete_restore_reopened': True,
