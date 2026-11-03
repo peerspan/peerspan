@@ -1,0 +1,355 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "archive_source_revision": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+  "changed_attachment": false,
+  "cleanup_confirmed": true,
+  "cleanup_private_log_index_sha256": {},
+  "controller_failure_log_sha256": null,
+  "daemon_log_hashes_are_phase_snapshots": true,
+  "daemon_restart": false,
+  "direct_traversal_verified_by_driver": false,
+  "fleet_sha256": "4aa8d4f0f95793e26463c03e3a97f0f9694ecfbf2be097827cfcac9924b3f1ca",
+  "format": 1,
+  "helper_count": 1,
+  "helper_public_key_sha256": "e7a23efbc84e9fd17e9651384ee78e33e7529db14aa720a996d793d262551ca2",
+  "helper_sha256": "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_peer_configuration_operations": 0,
+  "model_receipt": false,
+  "nat_translation_verified_by_driver": false,
+  "native_terminal_receipt": false,
+  "owner_worker_sha256": "adce7b8b05775b4dec3da2ba7d16bac17144a773d917c608b3413ea155c62ea2",
+  "passed": true,
+  "prior_failed_runs_remain_failed": true,
+  "qualification": "n1_managed_cloud_protocol_observation",
+  "remaining_limits": [
+    "two_independent_nats",
+    "home_office_or_mobile_gateway",
+    "changed_network_attachment",
+    "native_model_on_this_nat_topology",
+    "transparent_adapter_restart_on_this_nat_topology",
+    "task_artifact_on_this_nat_topology"
+  ],
+  "results": [
+    {
+      "cleanup_confirmed": false,
+      "daemon_log_sha256": {
+        "left": "d95a63ed04ea3ee47805812d9c2273cb549c6ce6c15b278750514e6b2449e5b7",
+        "right": "1e53b8295b1da60d607b052259d0503175ccaf1ba5f56a24557fac5f844625f3"
+      },
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_log_index_sha256": "2cb19294e224c2aa25c357cce733f37e8a7901b5ea2ba0099d910c5e7e5d95ba",
+      "progress": {
+        "attempts": 1,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": true,
+      "scenario": "teammate",
+      "seconds": 40.899,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "d95a63ed04ea3ee47805812d9c2273cb549c6ce6c15b278750514e6b2449e5b7",
+        "right": "1e53b8295b1da60d607b052259d0503175ccaf1ba5f56a24557fac5f844625f3"
+      },
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "addressed_appends": 1,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 1,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "original_key_custody_verified": true,
+        "paths": [
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "left",
+            "path": "relay",
+            "target": "right"
+          },
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "right",
+            "path": "relay",
+            "target": "left"
+          }
+        ],
+        "receiver_enforcement_checked": true,
+        "receiver_rejections": 2,
+        "requester_consent_unchanged": true,
+        "withdrawals": 1
+      },
+      "passed": true,
+      "phase": "work",
+      "private_log_index_sha256": "19a4e6a72505b3c2cd3f5e54405b69a0895255713cbca15fc5cc1d252e3b3074",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": false,
+      "scenario": "teammate",
+      "seconds": 25.983,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": false,
+      "daemon_log_sha256": {
+        "left": "f7ce5b95d79fbc8f2d1299999b87d7c1c496988408387a5a34c065195fd6a404",
+        "right": "06901b25d9d397cdbe8e2e96c5d06c3e55bbb4e0627b77f08ae420bfff4ea8ba"
+      },
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_log_index_sha256": "acea3db2c62873a4db27ea4f762cd23fd41460acb5f8a97e0f4328f2c348fefb",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": true,
+      "scenario": "machine",
+      "seconds": 42.789,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "f7ce5b95d79fbc8f2d1299999b87d7c1c496988408387a5a34c065195fd6a404",
+        "right": "06901b25d9d397cdbe8e2e96c5d06c3e55bbb4e0627b77f08ae420bfff4ea8ba"
+      },
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "addressed_appends": 2,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "original_key_custody_verified": true,
+        "paths": [
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "left",
+            "path": "relay",
+            "target": "right"
+          },
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "right",
+            "path": "relay",
+            "target": "left"
+          }
+        ],
+        "receiver_enforcement_checked": false,
+        "receiver_rejections": 0,
+        "requester_consent_unchanged": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "work",
+      "private_log_index_sha256": "64c6b0eeb304205ed329637f23641302bf439a1f7199ffbcc11a529efcba6641",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": false,
+      "scenario": "machine",
+      "seconds": 23.926,
+      "stage": "complete",
+      "transport_unavailable": false
+    }
+  ],
+  "root_execution_git_head": "7ef50e8bda092bd66b51a5fff545ae239b95785c",
+  "root_operator_cleanup": {
+    "captures_stopped": true,
+    "helper_stopped": true,
+    "hosts_stopped": true,
+    "operator_return_codes": {
+      "capture-start": 0,
+      "capture-stop": 0,
+      "helper-start": 0,
+      "helper-stop": 0,
+      "master-close": 0
+    },
+    "ssh_master_stopped": true,
+    "vpc_nat_gateway_and_management_ssh_access_retained": true
+  },
+  "root_private_evidence_sha256": {
+    "n1-attempt-5-capture-start.private.json": "d150ea1b8efc022f9c0584082b8fec8e40663cc9a8940240d85119a499b35717",
+    "n1-attempt-5-capture-stop.private.json": "b1c586731f234cf5edb2bcc24ca8c8d8422ff4bbc0825fcbfa18196f8daaf91a",
+    "n1-attempt-5-execution.private.json": "58cfdaaa2eb3cfc3954f90dbcb662cdb71ed735fee3948f8832b1e09c663bacb",
+    "n1-attempt-5-summary.private.json": "68bd08edf19fb0e60c9b68c073cdaf133037fbde282ee54e02927e4b03ab5200",
+    "n1-attempt-5-wire-analysis-v3.private.json": "fc3add163a8a3750ef6c57f91724f2fdd4e14969d2aa4289bb0ae232c72b354a",
+    "n1-attempt-5/receipt.json": "c5f91975f513b03a5d5acf20f6734a7f9db7c9dc8b7d6db2ebba7454d360b336",
+    "n1-release-staging-v2.private.json": "cfeb04df068c867c1b1ff9d6f7dec9fc1e2dc1dbaff56bf6b2e292ad4802d704",
+    "private-vm-egress-active.private.json": "9b10b3504bf900583076cca787fef5c7c45899afb10c9fceeeb8ff558657c90f",
+    "workspace-private-vm-preflight.private.json": "5f66c1ad1d083b0792acfa8473362143e7d167b0f5ce55ef13b2a49f0c8c1024"
+  },
+  "root_topology_capture_confirmation_required": true,
+  "root_topology_confirmation": {
+    "confirmation_satisfies_driver_requirement": true,
+    "helper_outside_peered_vpcs": true,
+    "inbound_port_forwarding": false,
+    "management_only_ssh_peering": true,
+    "observed_sources_match_owner_gateway": true,
+    "operator_peer_traffic_blocking": false,
+    "private_only_vm_interfaces_and_metadata_verified": true,
+    "public_ipv6_bypass": false,
+    "same_archive_on_both_hosts": true,
+    "separate_deployment_identities_verified": true,
+    "source_trees_unchanged_since_frozen_release": true,
+    "tcp_and_udp_egress_acknowledged_at_outside_participant": true
+  },
+  "root_total_elapsed_seconds": 140.49,
+  "root_traffic_observation": {
+    "analysis_source_sha256": "8804c9ac792d062e1026eb62840d96045da794f8e261c6d1b2e2edbc8759d852",
+    "capture_analysis": "TLS ClientHello offered ALPN and encrypted record hash identity across actual NAT",
+    "capture_bytes": {
+      "left": 5301000,
+      "right": 3124410
+    },
+    "capture_sha256": {
+      "left": "edd3b1276b01131e6187d83b7236c17a421244c68aa4e6ea059600f23babeb7b",
+      "right": "1103a9b4eb43898e416d29209aa673f0fc9184ed5b6bb81669aa067486d47581"
+    },
+    "direct_hole_punching_success_claimed": false,
+    "exclusive_per_message_path_attribution": false,
+    "identical_encrypted_tls_application_records_across_nat": {
+      "peerspan-bootstrap/1_client": 183,
+      "peerspan-bootstrap/1_server": 244,
+      "peerspan-relay/4_client": 428,
+      "peerspan-relay/4_server": 444
+    },
+    "matched_nat_helper_connections_by_sole_offered_alpn": {
+      "peerspan-bootstrap/1": 61,
+      "peerspan-relay/4": 2
+    },
+    "offered_alpn_not_server_negotiation_decryption": true,
+    "packets_dropped_by_kernel": {
+      "left": 0,
+      "right": 0
+    },
+    "phase_windows": [
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 229212,
+          "peerspan-bootstrap/1_tcp_payload_packets": 415,
+          "peerspan-relay/4_tcp_payload_bytes": 268382,
+          "peerspan-relay/4_tcp_payload_packets": 338
+        },
+        "observed_nat_egress_only_helper_tcp_payload": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 137930,
+          "peerspan-bootstrap/1_tcp_payload_packets": 255,
+          "peerspan-relay/4_tcp_payload_bytes": 134915,
+          "peerspan-relay/4_tcp_payload_packets": 164
+        },
+        "phase": "machine-ceremony",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 23089,
+          "peerspan-bootstrap/1_tcp_payload_packets": 88,
+          "peerspan-relay/4_tcp_payload_bytes": 308563,
+          "peerspan-relay/4_tcp_payload_packets": 406
+        },
+        "observed_nat_egress_only_helper_tcp_payload": {
+          "peerspan-relay/4_tcp_payload_bytes": 154237,
+          "peerspan-relay/4_tcp_payload_packets": 196
+        },
+        "phase": "machine-work",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 256399,
+          "peerspan-bootstrap/1_tcp_payload_packets": 449,
+          "peerspan-relay/4_tcp_payload_bytes": 296072,
+          "peerspan-relay/4_tcp_payload_packets": 362
+        },
+        "observed_nat_egress_only_helper_tcp_payload": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 147370,
+          "peerspan-bootstrap/1_tcp_payload_packets": 265,
+          "peerspan-relay/4_tcp_payload_bytes": 149484,
+          "peerspan-relay/4_tcp_payload_packets": 179
+        },
+        "phase": "teammate-ceremony",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 25188,
+          "peerspan-bootstrap/1_tcp_payload_packets": 96,
+          "peerspan-relay/4_tcp_payload_bytes": 491032,
+          "peerspan-relay/4_tcp_payload_packets": 612
+        },
+        "observed_nat_egress_only_helper_tcp_payload": {
+          "peerspan-relay/4_tcp_payload_bytes": 245443,
+          "peerspan-relay/4_tcp_payload_packets": 302
+        },
+        "phase": "teammate-work",
+        "public_participant_clock_window": true
+      }
+    ]
+  },
+  "run_configuration_sha256": "882a3c4a23a654a624b090043c5ab5047cfdf86b44bdf2c09a467de1d97e006d",
+  "separate_machine_metadata_verified": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_nat.py": "8bbc1ba2240a02d5c654af3f54e5bb291154090e2cd486f0baa51d900aa5a5f1",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true,
+  "task_artifact_qualification": false,
+  "topology_class": "managed_cloud_one_nat",
+  "two_independent_nats": false
+}
