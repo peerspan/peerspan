@@ -1,12 +1,52 @@
 # Real-machine and NAT qualification
 
-Status: recorded cloud cases passed. Managed NAT machine linking and two
-addressed sends passed; the first two-person ceremony stopped at a controlled
-`409 review_changed`. N1 qualification remains incomplete. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
+Status: independent-machine cloud cases and managed-provider N1 qualification
+passed. Both fresh N1 ceremonies and work phases passed on one committed test
+source and the same frozen release. The owner prioritized this qualification
+before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
 is merged at `caea24b9eb41bb078749c5a1f739cd3d186d060e`. Its
 [final receipt](https://github.com/peerspan/peerspan/pull/35#issuecomment-6581460238)
 proves installed flows and an actual model reply using two fixtures on one
 machine. It does not establish independent-machine or real-router behavior.
+
+## Managed NAT result
+
+The [final N1 receipt](results/real-network-nat.json) records one private-only
+VM behind a managed provider NAT gateway and one separately deployed public
+participant. On committed source `7ef50e8`, using frozen release `7da06b7`:
+
+| Fresh phase | Result | Seconds |
+| --- | --- | ---: |
+| Two-person invitation, original/admin/requester consent and both applications | Passed | 40.899 |
+| Receiver denial, one narrow guided grant/delivery, withdrawal and denial | Passed | 25.983 |
+| Same-person machine linking and both signed applications | Passed | 42.789 |
+| Ordinary directory lookup and exact addressed delivery in both directions | Passed | 23.926 |
+
+The two-person incoming-progress call succeeds on its first attempt: one call,
+zero refusals and zero revalidations. Both ceremonies retain finite device7 /
+binding2 authority, exact requester consent and local original-key custody.
+There are no manual peer pins, original-key transfers or SSH peer-data tunnels.
+Both work phases report relay paths. Root matches two helper relay connections
+across the actual gateway using captured ClientHello identity and encrypted TLS
+record hashes in both directions, and observes translated relay payload during
+each phase. Both captures report zero kernel drops. This qualifies working relay
+transport through this NAT; it does not prove direct hole punching or an exclusive
+per-message path. All owned test hosts, helper, captures and SSH master are stopped.
+The owner's gateway and management access remain available.
+
+Root reviewed the committed test source and the retained private evidence;
+Codex reviewed `7ef50e8` with no new findings. Its prior refusal-counter finding
+is fixed by counting non-200 responses before privacy validation. Earlier failed
+runs below remain failed and retained. The latest source corrects only new
+fixture envelope/time validation and receipt accounting; production remains
+frozen at `7da06b7`.
+
+Two independent NATs, home/office/mobile gateways and changed-network attachment
+remain unverified. This N1 run does not repeat the native model, daemon restart
+or artifact checks already recorded on the earlier cloud topology. The next
+implementation slice is [PeerFS host integration](#next-peerfs-host-integration).
+
+## Deployment and retained qualification history
 
 The owner identified an existing authorized DigitalOcean droplet. It and the
 development server are separately deployed Linux machines with public IPv4
@@ -22,7 +62,7 @@ The owner initially supplied the private endpoint and confirmed that its NAT
 Gateway was not yet created. The jump host now has a narrowly scoped host route through
 its existing VPC gateway, without a networking restart. The first private SSH target timed out
 before authentication; its first TCP preflight was retained for the owner
-to check peering/firewall state. No protocol test has started on this VM. The
+to check peering/firewall state. At that preparation stage no protocol test had started on this VM. The
 [preparation receipt](results/real-network-nat-preparation.json) records only
 these prerequisites and evidence hashes; no NAT result is claimed yet. Managed provider NAT is a valid real external
 gateway for N1; home/office routers and mobile networks remain distinct,
@@ -84,7 +124,7 @@ A fourth [retained run](results/real-network-nat-network-view-failure.json)
 exercises the fresh two-person case first and stops in18.005s before progress
 dispatch. The new network baseline compared a CLI creation result (which carries
 CLI-only `trusted` metadata) to the API NETWORK_VIEW keyset. Every original
-network/root/provider pin is unchanged. The independent author is correcting
+network/root/provider pin is unchanged. The independent author corrected
 that envelope comparison against wire section16.2, preserving the authority
 guards. Remaining phases were skipped and all owned resources stopped.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
