@@ -324,9 +324,10 @@ and live pinned directory. Persist the immutable view, device/inode/account and
 state atomically in its private SQLite database. Tombstones survive restart.
 Do not add a second database, signing-key file, background provider monitor,
 per-signature audit table or signature-byte log. This document allocates no
-schema number: baseline main already uses 29 for runtime tasks. Allocate the
-additive migration against actual main in the implementation PR and check
-existing identity/authority/history, old-binary refusal and full-state restore.
+schema number on its own: the original baseline used29 for runtime tasks.
+The implementation allocation below follows actual main, including its later
+conversations schema30. Check existing identity/authority/history, old-binary
+refusal and full-state restore.
 
 PF-1(a) is additive **schema31 over prior-main30** (which includes agent
 descriptions). Its private storage is exactly:

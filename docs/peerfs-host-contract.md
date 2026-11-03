@@ -169,11 +169,11 @@ change gets its own small PR and affected independent checks, with the same
 host contract supplied to the Go repository. The tracking PR must not claim the
 whole milestone complete when only a local adapter exists.
 
-Current main uses schema29 for runtime tasks; the conversations track also has
-pending storage proposals. This plan reserves no schema number and changes no
-signed policy or database format. Each storage change
-allocates its additive schema against current main and tests upgrade/restore;
-it must not take a version reserved by another accepted track.
+The plan's original baseline used schema29 for runtime tasks. Conversations
+subsequently added schema30; PF-1(a) allocates additive schema31 in the
+[local contract](peerfs-local-contract.md#7-storage-errors-and-implementation-order).
+Later storage changes allocate against actual main and test upgrade/restore;
+they must not take a version reserved by another accepted track.
 
 ## Verification
 

@@ -5006,8 +5006,10 @@ and explicit model authorization/evidence-limit decision remain open.
   prefix-only generic signing, automatic legacy-history migration, extending
   strict legacy response shapes, implicit provider relocation and treating a
   hash-consistent public key or contact as historical admission.
-- **Next:** review the [PF-1 exact local contract](peerfs-local-contract.md) and
-  public vectors, then implement the host/PeerFS adapters with one compact
-  independently authored suite under the current conformance budget. Signed
-  whole-branch access and cross-host pull follow. No runtime/schema change is
-  claimed by this contract proposal.
+- **Status:** the [PF-1 exact local contract](peerfs-local-contract.md) and public
+  vectors merged in #121. PF-1(a) implements local preparation, lookup/list,
+  release and canonical host signing at schema31, after conversations schema30.
+  Its conformance is authored separately from the contract alone. Fresh
+  host-backed initialization, provider activation and historical key recognition
+  remain subsequent PF-1 pieces; signed whole-branch access and cross-host pull
+  follow in PF-2/PF-3.
