@@ -803,6 +803,7 @@ def _():
 # docs/launch-contract.md and docs/host-service-contract.md, only. Agent names carry a 7 since this suite already
 # registers `bert` and `bea` on bob for C5's cases, and a second agent of one name would not be addressable.
 
+C7_GAP = "C7 not built yet (#112); remove this marker when it lands"
 DESCRIPTION_RULE = "description must be 1 to 200 bytes on one line, without control characters"
 
 
@@ -898,7 +899,7 @@ def areas_of(got):
 
 
 @suite.case("lead_unaddressed", "C7 The lead (rule 2), Waking, Parked notifications, Claiming (lead, areas), Views; "
-                                "Verification Unaddressed wakes the lead only")
+                                "Verification Unaddressed wakes the lead only", known=C7_GAP)
 def _():
     alice_p, = need("alice_p")
     ann, = new_agents("ann7", host=a)
@@ -941,7 +942,7 @@ def _():
 
 
 @suite.case("lead_addressed", "C7 Waking (addressed_to naming P, not naming P, only people), The lead (rule 3); "
-                              "Verification Addressed wakes those named")
+                              "Verification Addressed wakes those named", known=C7_GAP)
 def _():
     alice_p, ctx = need("alice_p", "lead")
     conv, ann, bert, bea, view = (ctx[k] for k in ("conv", "ann", "bert", "bea", "view"))
@@ -975,7 +976,7 @@ def _():
 
 
 @suite.case("lead_own_message", "C7 Waking (an unaddressed message the lead wrote wakes no agent); "
-                                "Verification The lead's own message")
+                                "Verification The lead's own message", known=C7_GAP)
 def _():
     _, ctx = need("alice_p", "lead")
     check("m2" in ctx, f"an earlier case did not finish: {sorted(ctx)}")
@@ -992,7 +993,7 @@ def _():
 
 
 @suite.case("lead_gather", "C7 Claiming (step 6 gather, coalesced, window), Parked notifications (unseen, parked); "
-                           "Verification Gather and window")
+                           "Verification Gather and window", known=C7_GAP)
 def _():
     _, ctx = need("alice_p", "lead")
     conv, ann, bert, bea, view = (ctx[k] for k in ("conv", "ann", "bert", "bea", "view"))
@@ -1017,7 +1018,7 @@ def _():
 
 
 @suite.case("lead_later_parked", "C7 Claiming step 6 (parked messages sorting after the new one stay parked); "
-                                 "Verification Later parked messages stay")
+                                 "Verification Later parked messages stay", known=C7_GAP)
 def _():
     _, ctx = need("alice_p", "lead")
     conv, ann, bea = (ctx[k] for k in ("conv", "ann", "bea"))
@@ -1033,7 +1034,7 @@ def _():
 
 
 @suite.case("lead_recheck_gather", "C7 Claiming step 6 (fail: block); C5 The handoff recheck; "
-                                   "Verification Recheck on gather")
+                                   "Verification Recheck on gather", known=C7_GAP)
 def _():
     need("alice_p")
     lea, = new_agents("lea7", host=a)
@@ -1060,7 +1061,7 @@ def _():
 
 
 @suite.case("lead_leaving", "C7 Parked notifications (leaving withdraws); C5 What an agent may see; "
-                            "Verification Leaving withdraws")
+                            "Verification Leaving withdraws", known=C7_GAP)
 def _():
     need("alice_p")
     lev, = new_agents("lev7", host=a)
@@ -1079,7 +1080,7 @@ def _():
 
 
 @suite.case("lead_changes", "C7 The lead (rule 1, rule 3 after the creator leaves; every host from its roster), "
-                            "Waking; Verification Lead changes")
+                            "Waking; Verification Lead changes", known=C7_GAP)
 def _():
     alice_p, = need("alice_p")
     cara, = new_agents("cara7", host=a)
@@ -1128,7 +1129,7 @@ def conversation_ids(host):
 
 
 @suite.case("lead_start_addressed", "C7 Starting with `addressed_to` (CONV-35), Waking; "
-                                    "Verification Start addressed")
+                                    "Verification Start addressed", known=C7_GAP)
 def _():
     need("alice_p")
     sa, = new_agents("sa7", host=a)
@@ -1187,7 +1188,7 @@ def _():
     check(started["message"]["addressed_to"] == [sy_p], f"start --to: {started['message']}")
 
 
-@suite.case("lead_none", "C7 The lead (no joined agent: no lead), Views; Verification No lead")
+@suite.case("lead_none", "C7 The lead (no joined agent: no lead), Views; Verification No lead", known=C7_GAP)
 def _():
     alice_p, = need("alice_p")
     started = a.ok("conversation", "start", "person:bob", timeout=60)
@@ -1227,7 +1228,7 @@ def peer_entry(agent_id):
 
 
 @suite.case("lead_descriptions", "C7 Agent descriptions, In the directory, Areas; launch contract Peer route and "
-                                 "Discovery; host service contract; Verification Descriptions")
+                                 "Discovery; host service contract; Verification Descriptions", known=C7_GAP)
 def _():
     need("alice_p")
     dora = new_agent("dora7")
