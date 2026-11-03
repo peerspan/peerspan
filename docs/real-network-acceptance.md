@@ -1,8 +1,8 @@
 # Real-machine and NAT qualification
 
-Status: recorded cloud cases passed; managed NAT SSH, private-only interfaces,
-release staging and actual TCP/UDP egress are verified. N1 protocol execution
-is next. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
+Status: recorded cloud cases passed. Managed NAT machine linking and two
+addressed sends passed; the first two-person ceremony stopped at a controlled
+`409 review_changed`. N1 qualification remains incomplete. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
 is merged at `caea24b9eb41bb078749c5a1f739cd3d186d060e`. Its
 [final receipt](https://github.com/peerspan/peerspan/pull/35#issuecomment-6581460238)
 proves installed flows and an actual model reply using two fixtures on one
@@ -50,7 +50,15 @@ product protocol pass is inferred from staging. The
 [infrastructure receipt](results/real-network-nat-preflight.json) binds this
 preflight and deployment evidence. The independent
 [manual N1 driver](../conformance/real_network_nat.py) is committed and statically
-reviewed; no protocol run has started.
+reviewed. Its [first real NAT attempt](results/real-network-nat-first-attempt.json)
+passes same-person linking in42.352s and two addressed CLI sends in24.768s.
+The two-person ceremony stops in19.508s at incoming-progress with controlled
+`409 review_changed`; its work phase is not run. Both host daemons, the helper,
+captures and the owned SSH control master are stopped. This is a retained
+partial result, not complete N1 acceptance. Section22 permits this refusal when
+its captured scope changes during IO; the refusal alone does not establish its
+cause. The N1 contract below now defines one narrowly bounded fresh observation
+after explicit public scope revalidation, without changing the production guard.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
@@ -427,6 +435,46 @@ owner outcome with an actual attempt is not an exact peer HTTP403 claim. Do not
 replace a receiver check with an address-resolution failure. Preserve existing
 authority, reviewed policy, requester consent and original-key custody; check
 that no manual peer/grant configuration was introduced.
+
+At the selected-prefix checkpoint in the two-person ceremony, capture a private
+public-API baseline before the first incoming-progress call. Freeze both host
+identities; both latest attached project flow/review/context/agent and attachment;
+the owner's network descriptor, context, current root state/key/epoch and complete
+provider; both views of the exact request/packet, person/host/device tuple, mode,
+creation and original expiry; the requester's exact owner/selection IDs and
+approved profile7 owner review with its fixed request-created-plus7day lifetime;
+the requester's unchanged join flow/outcome; and absent administrator consent.
+Use the existing host, current project lookup, network, request, requester join/
+owner lookup and admission-consent lookup APIs. Requester selection remains
+approved, requester commit remains unapproved, and the administrator has neither
+approval. Later stages, cancellation, expiry, target adoption or administrator
+intent are ineligible. Do not reconstruct this baseline after a refusal.
+
+Permit at most two explicit incoming-progress calls in this ceremony, each with
+the same original `{context,request_id}` and literal5s owner-operation bound.
+An exact first200 must satisfy the existing selected owner/selection and
+`review_administrator_consent` assertions. Only a controlled first409 with
+`code:review_changed` permits one additional call: first repeat every public
+baseline observation and require the same eligible scope. The administrator's
+retained prefix may only advance from absent IDs to the exact frozen requester
+owner/selection IDs, without regression, replacement, consent or later stages.
+Any failed or changed revalidation stops the case. The second call must return
+an exact200 satisfying every original selected-proof and admission-inspection
+assertion. A second refusal, waiting result, malformed/private output, other
+error code/status, transport failure or response loss stops the case. No third
+call, sleep/backoff, generic retry loop, fresh review window, phase reset or
+repeated signing/approval/completion/send is permitted.
+
+Public observations are not one atomic snapshot and do not expose private
+operation bytes or the latest stage creation time. They do not establish why
+the first refusal occurred. The second call's existing atomic eligibility,
+private-operation/root/context rechecks and ordinary time limits remain decisive;
+a new race must refuse and end this bounded sequence. Retain the first response
+and report progress-attempt/refusal/revalidation counts, distinguishing a fresh
+observation from first-attempt success. Selected: one explicitly scoped fresh
+observation after the documented refusal. Discarded: weakening the production
+pin guard, treating every409 as transient, polling until green, skipping the
+selected-proof check, or resetting a deadline.
 
 Use the existing 120 second bound for each ceremony/work phase and unchanged
 owner-operation bounds. An initially unknown send may observe only that exact
