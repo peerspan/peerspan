@@ -197,6 +197,10 @@ def host_job_witness(host, pending, owners, adopted, operations):
 def initial_host_complete(namespace, host):
     database = namespace['db_path'](host)
     last = {'initial_jobs': 0, 'stored_host_slots': 0, 'skipped_jobs': 0, 'satisfied': False}
+    observation_errors = {'fatal_busy_observations': 0, 'fatal_locked_observations': 0,
+                          'fatal_sqlite_observations': 0, 'fatal_value_observations': 0,
+                          'fatal_type_observations': 0, 'fatal_key_observations': 0}
+    failure_locations = {'snapshot': None, 'host_job_witness': None, 'decoded_object': None}
     def observed():
         nonlocal last
         try:
@@ -209,14 +213,38 @@ def initial_host_complete(namespace, host):
                 operations = {row[0] for row in db.execute('SELECT request_id FROM dec_operations')}
             ready, last = host_job_witness(host, pending, owners, adopted, operations)
             return ready
-        except (sqlite3.Error, ValueError, TypeError, KeyError):
+        except (sqlite3.Error, ValueError, TypeError, KeyError) as error:
+            try:
+                if isinstance(error, sqlite3.Error):
+                    code = getattr(error, 'sqlite_errorcode', None)
+                    primary = code & 0xff if type(code) is int else None
+                    field = ('fatal_busy_observations' if primary == sqlite3.SQLITE_BUSY else
+                             'fatal_locked_observations' if primary == sqlite3.SQLITE_LOCKED else 'fatal_sqlite_observations')
+                else:
+                    field = ('fatal_value_observations' if isinstance(error, ValueError) else
+                             'fatal_type_observations' if isinstance(error, TypeError) else 'fatal_key_observations')
+                observation_errors[field] += 1
+                # Only own public source positions: no messages, paths, frame
+                # locals or exception arguments are inspected or serialized.
+                locations = ((observed.__code__, 'snapshot'), (host_job_witness.__code__, 'host_job_witness'),
+                             (decoded_object.__code__, 'decoded_object'))
+                current = error.__traceback__
+                while current is not None:
+                    for function, name in locations:
+                        if current.tb_frame.f_code is function and current.tb_lineno in {
+                                line for _start, _end, line in function.co_lines() if line is not None}:
+                            failure_locations[name] = current.tb_lineno
+                    current = current.tb_next
+            except BaseException:
+                pass  # Diagnostics must preserve the original fatal handling.
             namespace['check'](False, 'initial original-host signature witness unavailable')
     try:
         namespace['wait_for'](observed, timeout=5, interval=.1,
             message='actual approved initial original-host signature storage')
     finally:
         try:
-            print('owner_host_job_prerequisite_public=' + json.dumps(last, sort_keys=True), flush=True)
+            print('owner_host_job_prerequisite_public=' + json.dumps(
+                {**last, **observation_errors, 'failure_locations': failure_locations}, sort_keys=True), flush=True)
         except BaseException:
             pass
 
