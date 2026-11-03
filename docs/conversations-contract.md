@@ -1430,6 +1430,18 @@ These texts are the ones the CONV-29 comparison's route arm showed the model ([r
 
 The MCP server instructions do not change. `list_conversations` and `conversation_history` return the new view fields, and `list_agents` returns `description`.
 
+### Starting with `addressed_to`
+
+An agent that starts a conversation is its lead (rule 1), so without this a first message from an agent creator would wake no one. From C7 the first message may be addressed (CONV-35):
+
+- `POST /v1/conversations` and `POST /adapter/v1/conversations` gain optional `addressed_to`, with C6's limits (at most 16 strings of at most 256 characters each), allowed only with `content`; with no `content` it is 400 `invalid` with `addressed_to needs content`. An empty array is the same as none.
+- **Resolution,** after C2's step 3 and before anything is persisted: each entry must name the creator or one of the start's targets, in the forms C6 accepts for a participant, against the creator and the targets as step 3 resolved them. No match is 404 `{code: "not_found", error: "No such participant in that conversation."}` and several are 409 `ambiguous`, as in C6; either persists nothing.
+- **Stored** at C2's step 8 as C6 stores `addressed_to`: the resolved participant IDs in roster order, leaving out any target that roster version 1 left out (`refused`). With none left, the first message is unaddressed.
+- C6's repeat rule for `message_id` compares `addressed_to` on a start's first message as it does on a send.
+- C6's sentence `The first message of POST /v1/conversations and POST /adapter/v1/conversations has no addressed_to.` no longer applies.
+- **CLI:** `conversation start TARGET... --message TEXT [--to PARTICIPANT ...]`, where `--to` fills `addressed_to` as for `conversation say`, and is a usage error without `--message`.
+- **`conversation_start`** gains `addressed_to`, with `conversation_send`'s schema for it. Its description gains: `If you start a conversation you are its lead, and an agent you don't address won't wake: set addressed_to to the participants who should act on your first message.`
+
 ### `addressed_to`
 
 C6's [`addressed_to`](#addressed_to) opens with `Every joined participant still receives an addressed message. The field only tells the others it is not mainly for them.` From C7 it reads: `Every joined participant still receives an addressed message, and it stays visible to each. The field also decides which agents wake (C7): only those it names.` CONV-11 is unchanged: the 60-message limit, `addressed_to`, and the guidance that an agent need not answer every message all stand.
@@ -1444,7 +1456,7 @@ C6's [`addressed_to`](#addressed_to) opens with `Every joined participant still 
 ### Persistence
 
 - The parked mark lives in the notification's `record`, beside the C5 marks. No new column for it.
-- The agent description is a new nullable column `description` of `agents`, added in the next schema version (29, after schema 28 on `main` when this was written), which upgrades a host's state in place, as earlier schema versions do.
+- Agent descriptions live in a new table, `agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL)`, one row per agent that has one, added in the next schema version (29, after schema 28 on `main` when this was written). Clearing a description deletes its row. The upgrade only adds that table and changes no existing table's definition, as the [guided final acceptance contract](guided-final-acceptance-contract.md) requires of every upgrade (CONV-35).
 
 ### Verification
 
@@ -1461,6 +1473,7 @@ Spec-only cases added to `conformance/slim/conversations_context.py`, written fr
 - **Recheck on gather.** A parked notification for `bert` from alice; after `deny alice` on bob, a message from a local agent on bob addressed to `bert` wakes it: the claim does not list alice's message in `coalesced` or `window`, and `parked` stays 0 after `allow alice`, since the notification was blocked.
 - **Leaving withdraws.** With one parked notification, `bea` leaves: after it is added again, history does not list that message (C5's rule for withdrawn notifications).
 - **Lead changes.** The creating agent of an agent-started conversation is its lead. After it leaves, the conversation view's `lead` on both hosts is the next agent by rule 3 once they hold the new roster, and an unaddressed message wakes that agent.
+- **Start addressed.** An agent creator's `POST /adapter/v1/conversations` with `content` and `addressed_to` naming one of two targets wakes only that target, and the other has it parked. The same start without `addressed_to` wakes no agent. An entry naming neither the creator nor a target is 404 with nothing persisted, `addressed_to` without `content` is 400 `invalid` with the text above, and a repeat of the start's `message_id` with another `addressed_to` is 409 `conflict`. `conversation start ... --to` without `--message` exits 1.
 - **No lead.** A conversation of alice's and bob's persons with no agent has `lead` null in the conversation view.
 - **Descriptions.** `agent describe bert "database"` on bob: `GET /v1/agents/BERT` has `description` `database`; after `agents --refresh` on alice, `GET /v1/directory` and `agents --json` list it; the lead's claim on alice in a conversation with `bert` has it in `areas`. `--clear` makes it null in both after a refresh. 201 bytes, a newline, and a missing field are 400 `invalid` with the text above; an unknown agent ID is 404.
 - **A malformed peer description.** A probe answer can't be injected into the directory, so this is a Rust unit test (below).
