@@ -19,12 +19,20 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 use std::{cell::RefCell, ops::Deref};
 thread_local! {
-    static READ_TIME: RefCell<Option<String>> = const { RefCell::new(None) };
+    static READ_TIME: RefCell<Option<(String, bool)>> = const { RefCell::new(None) };
 }
 /// A synchronous status read samples authority time once. This cannot affect
 /// controller/signing clocks, and never survives an await or worker handoff.
 pub(crate) fn with_read_time<T>(time: &str, read: impl FnOnce() -> T) -> T {
-    struct Restore(Option<String>);
+    with_time(time, true, read)
+}
+/// Pin a receiver read's clock without the status summary's omission of
+/// unavailable evidence. This stays synchronous and restores nested callers.
+pub(crate) fn with_strict_read_time<T>(time: &str, read: impl FnOnce() -> T) -> T {
+    with_time(time, false, read)
+}
+fn with_time<T>(time: &str, tolerate_unavailable: bool, read: impl FnOnce() -> T) -> T {
+    struct Restore(Option<(String, bool)>);
     impl Drop for Restore {
         fn drop(&mut self) {
             READ_TIME.with(|t| {
@@ -32,16 +40,17 @@ pub(crate) fn with_read_time<T>(time: &str, read: impl FnOnce() -> T) -> T {
             });
         }
     }
-    let _restore = Restore(READ_TIME.with(|t| t.replace(Some(time.to_owned()))));
+    let _restore =
+        Restore(READ_TIME.with(|t| t.replace(Some((time.to_owned(), tolerate_unavailable)))));
     read()
 }
 fn read_time() -> Result<String> {
     READ_TIME
-        .with(|t| t.borrow().clone())
+        .with(|t| t.borrow().as_ref().map(|(time, _)| time.clone()))
         .map_or_else(controls::local_decision_time, Ok)
 }
 fn status_unavailable(error: &Error) -> bool {
-    READ_TIME.with(|t| t.borrow().is_some())
+    READ_TIME.with(|t| t.borrow().as_ref().is_some_and(|(_, tolerant)| *tolerant))
         && matches!(
             error.code,
             "clock_rollback"

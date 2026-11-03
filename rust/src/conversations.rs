@@ -54,6 +54,53 @@ CREATE TABLE conversation_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, cr
 PRAGMA user_version = 24;
 "#;
 
+/// Validate the complete reserved namespace before adding conversations to a
+/// genuine pre-conversations history. Never accept a partial earlier migration.
+pub(crate) fn check_namespace(connection: &rusqlite::Connection) -> anyhow::Result<()> {
+    for statement in SCHEMA.split(';').map(str::trim) {
+        if !statement.starts_with("CREATE ") {
+            continue;
+        }
+        let name = statement.split_whitespace().nth(2).unwrap_or_default();
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name=?1)",
+            [name],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(
+            !exists,
+            "reserved conversation object exists before migration"
+        );
+    }
+    Ok(())
+}
+
+/// Check both genuine main24 and combined28 without repairing corrupt tables.
+pub(crate) fn check_schema(connection: &rusqlite::Connection) -> anyhow::Result<()> {
+    use rusqlite::OptionalExtension;
+    let normalized = |value: &str| value.split_whitespace().collect::<Vec<_>>().join(" ");
+    for statement in SCHEMA.split(';').map(str::trim) {
+        if !statement.starts_with("CREATE ") {
+            continue;
+        }
+        let name = statement.split_whitespace().nth(2).unwrap_or_default();
+        let actual: Option<String> = connection
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE name=?1",
+                [name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        anyhow::ensure!(
+            actual
+                .as_deref()
+                .is_some_and(|sql| normalized(sql) == normalized(statement)),
+            "corrupt conversation schema"
+        );
+    }
+    Ok(())
+}
+
 const MAX_CONTENT: usize = 65_536;
 const MAX_TITLE: usize = 200;
 const MAX_NOTE: usize = 4_096;

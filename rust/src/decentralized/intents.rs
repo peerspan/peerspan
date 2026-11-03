@@ -184,6 +184,9 @@ impl Intent {
                         | "migration_identity"
                         | "selection"
                         | "requester_commit"
+                        | "access_review"
+                        | "machine_owner_review"
+                        | "machine_requester_review"
                 ),
         )?;
         let r = &self.record;
@@ -261,8 +264,10 @@ impl Intent {
                     && r.provider.lease_id == "-"
             }
             "requester" => {
-                matches!(self.kind.as_str(), "selection" | "requester_commit")
-                    && r.provider.signature_format == "ed25519"
+                matches!(
+                    self.kind.as_str(),
+                    "selection" | "requester_commit" | "machine_requester_review"
+                ) && r.provider.signature_format == "ed25519"
                     && r.provider.lease_id == "-"
                     && r.provider.signer_public_key == r.device_public_key
                     && key(&r.person_public_key)
@@ -272,8 +277,10 @@ impl Intent {
             _ => false,
         })?;
         check(
-            matches!(self.kind.as_str(), "selection" | "requester_commit")
-                == (r.provider.kind == "requester"),
+            matches!(
+                self.kind.as_str(),
+                "selection" | "requester_commit" | "machine_requester_review"
+            ) == (r.provider.kind == "requester"),
         )?;
         require(
             self.secret.is_none()
@@ -285,6 +292,41 @@ impl Intent {
         )?;
         if r.review_base64 != "-" {
             parse(&b64(&r.review_base64, 1 << 20)?, 1 << 20)?;
+        }
+        if matches!(self.kind.as_str(), "access_review" | "machine_owner_review") {
+            check(
+                ident(
+                    &r.operation_id,
+                    if self.kind == "access_review" {
+                        "arev_"
+                    } else {
+                        "mrev_"
+                    },
+                ) && r.completed
+                    && r.terminal == "-"
+                    && r.result_base64 == "-"
+                    && r.review_base64 != "-"
+                    && r.templates.is_empty()
+                    && r.signatures.is_empty()
+                    && self.secret.is_none()
+                    && matches!(r.provider.kind.as_str(), "original" | "device")
+                    && key(&r.person_public_key)
+                    && key(&r.host_public_key)
+                    && ident(&r.root_state_id, "ds_"),
+            )?;
+        }
+        if self.kind == "machine_requester_review" {
+            check(
+                r.completed
+                    && r.terminal == "-"
+                    && r.result_base64 == "-"
+                    && r.review_base64 != "-"
+                    && r.templates.is_empty()
+                    && r.signatures.is_empty()
+                    && self.secret.is_none()
+                    && r.scopes == 7
+                    && ident(&r.root_state_id, "ds_"),
+            )?;
         }
         if self.kind == "migration_identity" {
             check(

@@ -16,6 +16,11 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 Contents:
 - [Full entries](#full-entries), with options:
   - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
+  - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
+
+- [CONV-30 to CONV-34: the must-route lead](#conv-30-to-conv-34-the-must-route-lead-2026-11-02) (2026-11-02)
+  - [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
+  - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
   - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
@@ -71,6 +76,131 @@ Contents:
 - **Chosen:** (a).
 - **Reason given:** options not compared beyond the question; against (c): "More runtime work, and it overlaps with history."
 - **Note:** peerfs has `ws snapshots` and `ws restore` but no `ws diff`; the question named one.
+
+### GU.impl2: native frontend in the existing Claude conversation (2026-10-29)
+
+- **Authority:** implementation choice within GU-OWN1 and GU-OWN2; not an
+  additional owner decision.
+- **Selected:** Claude's native mod interface for commands and human controls,
+  with a bounded local prompt/tool challenge that preserves the current native
+  conversation. The first entry is read-only; authority review callbacks and
+  the agent data path remain later work.
+- **Rationale and discarded options:** section 2 of the
+  [guided onboarding contract](guided-session-contract.md). Channel startup
+  flags, lifecycle-only hooks and model polling loops are not the default.
+  A model-authored approval is not an owner decision.
+- **Validation boundary:** Claude 2.1.303 native runtime; real-model receipt
+  remains outstanding because the live attempt hit the account's weekly limit.
+
+### GU.impl1: one owner-local onboarding observation (2026-10-28)
+
+- **Authority:** implementation choice within the accepted GU-OWN1 experience
+  and GU-OWN2 feature-branch delivery model; not a new owner decision.
+- **Selected:** one read-only owner-local snapshot of existing network,
+  session, adapter-connection and pending-request views, with an advanced CLI
+  command. Preserve live-lease and verified-delivery observations separately.
+- **Rationale and discarded options:** recorded under **Implementation choices**
+  in the [guided onboarding contract](guided-session-contract.md).
+- **Scope:** GU-01a/GU-02a only. This does not implement flow mutations, reviews,
+  the plugin or the complete accepted experience.
+
+### GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery (2026-10-28)
+
+- **Authority:** owner's confirmation and follow-up instruction in the guided
+  onboarding discussion, 2026-10-28.
+- **GU-OWN1, chosen experience:** "Connect this project" from inside the existing
+  agent session; "Invite someone" or "connect my other computer"; each
+  participant reviews the relevant identity and permissions in their own guided
+  flow; Peerspan completes the intermediate steps and shows actual connection
+  readiness.
+- **GU-OWN2, delivery instruction:** "start a fresh branch completely separate
+  from main - with a tracking PR. We want to break this down into small pieces
+  and eventually merge one large feature PR into main, after some level of
+  testing."
+- **Options:** alternative options not recorded in the owner's instructions.
+- **Plan:** [guided session onboarding](guided-session-onboarding.md) records the
+  accepted scope, integration branch, small implementation slices, authority
+  boundaries, merge gates and implementation recommendations with discarded
+  options. This is a plan; implementation and validation remain pending.
+- **Tracking PR:** [#35](https://github.com/peerspan/peerspan/pull/35).
+
+### CONV-30 to CONV-34: the must-route lead (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), after the comparisons [CONV-28](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) and [CONV-29](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02).
+- **Source:** [conversations-lead-proposal.md, Owner decisions needed](conversations-lead-proposal.md#owner-decisions-needed), decisions 1 to 4 (CONV-30 to CONV-33), and a question put to the owner after the second comparison (CONV-34).
+- **Contract section:** [conversations-contract.md, C7: the lead](conversations-contract.md#c7-the-lead).
+- **Implementing PRs:** none yet.
+
+#### CONV-30. Who decides which agents wake
+
+- **Options:**
+  - (a) Today's rule: each agent, by taking the turn.
+  - (b) A lead, as above.
+  - (c) One of the [other options](conversations-lead-proposal.md#other-options).
+- **Chosen:** (b), in the must-route form the second comparison tested: when the lead can't fully answer, it must address the likely holders in `addressed_to`, since naming an agent without addressing it doesn't reach it. The owner's words: "accept the must-route lead, write the contract".
+- **Reason given:** None beyond the acceptance. The comparison it followed found that a lead told to route finished every answer at about two-thirds of today's cost, saving mostly when it held the answer itself ([results](results/conversations-wake-comparison-2.json)).
+- **Accepted cost:** agents that aren't addressed can't offer help unprompted. In both comparisons, the agent holding the T4 blocker was never woken under a lead (0 of 6 sets), while today's rule and the quieter-agents arm raised it in 5 of 6 sets ([run 1](results/conversations-lead-comparison.json), [run 2](results/conversations-wake-comparison-2.json)).
+- **Effect on earlier entries:** refines [CONV-10](#conv-10-what-a-receiving-session-gets-each-turn): a claim that gathers parked notifications also gets a window. [CONV-11](#conv-11-how-to-bound-back-and-forth-between-agents) is unchanged.
+
+#### CONV-31. How the lead is chosen
+
+- **Options:**
+  - (a) Derived from the roster, with no new field.
+  - (b) An explicit `lead` roster field that the creator can change, which needs every host to upgrade.
+- **Chosen:** (a), the proposal's recommendation.
+- **Basis:** after the second comparison, the owner was told that the other decisions "can take my recommendations unless you say otherwise", and replied "accept the must-route lead, write the contract" with no objection. This is recorded as that, not as an explicit choice of this option.
+- **Reason given in the proposal:** "It needs no wire change, and an explicit field can follow if people ask to change the lead."
+
+#### CONV-32. Whether an owner can refuse the lead role for their agent
+
+- **Options:**
+  - (a) No. No owner pays more than today.
+  - (b) Yes, a per-agent setting that skips the agent when working out the lead. Every host would have to know that setting, so it needs a roster or wire change.
+- **Chosen:** (a), the proposal's recommendation, on the same basis as CONV-31.
+- **Reason given in the proposal:** "If it proves unfair, (b) can follow together with 2(b)."
+
+#### CONV-33. Whether a conversation can opt out
+
+- **Options:**
+  - (a) No setting. A sender who wants everyone addresses everyone: `addressed_to` already takes up to 16 participants, the most a conversation can have.
+  - (b) A per-conversation wake mode.
+- **Chosen:** (a), the proposal's recommendation, on the same basis as CONV-31.
+- **Reason given in the proposal:** "It adds no state, and every wake stays the sender's explicit choice."
+
+#### CONV-34. Where the lead's area labels come from
+
+- **Question:** "The must-route lead needs each agent's area label, and no such field exists. Where should the label come from?"
+- **Options:**
+  - Directory entry: "Each owner sets an optional one-line description for an agent on its own host. Hosts serve it in the directory they already share, and the lead's host puts the labels into the lead's event from its directory cache. The roster doesn't change, and an older host just shows no label."
+  - Roster participant entry: "Home copies the description into the roster when the agent joins, so every host sees the same label at the same roster version. Because rosters refuse unknown fields, every host in a conversation has to upgrade."
+  - No labels, guidance only: "No new field. The lead routes from agent names and its must-address guidance. This is the least work, but untested: the comparison changed labels and guidance together, so it's unknown whether labels were needed."
+- **Chosen:** Directory entry, the recommendation, by the owner.
+- **Reason given:** None beyond the choice.
+
+### CONV-29: second comparison, quieter agents and a must-route lead (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), after [CONV-28](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02).
+- **Question:** Whether to run a second comparison of two variants, after the first showed a lead saving about half the cost and finishing fewer tasks.
+- **Options, both posed for the same run:**
+  - Quieter agents, no lead: stronger guidance not to post when there's nothing to add.
+  - A lead that must route: when it can't answer, it has to address the likely holder, and it knows each agent's area.
+- **Chosen:** Run both, by the owner ("go ahead with the second comparison").
+- **Reason given:** None beyond asking for the run.
+- **Effect:** Results are in [conversations-wake-comparison-2.json](results/conversations-wake-comparison-2.json). The proposal's decisions 1 to 4 stay open.
+
+### CONV-28: comparison run for the lead proposal (2026-11-02)
+
+- **Date:** 2026-11-02.
+- **Area:** conversations, the [lead proposal](conversations-lead-proposal.md), decision 5.
+- **Question:** Whether to run a live comparison before building it all.
+- **Options:**
+  - (a) Build it, then run real agents.
+  - (b) First run the same tasks with real agents under today's rule and with a lead, and compare turns, tokens and whether the work got done. Addressing can't simulate a lead, because it doesn't stop a wake today, so this needs a minimal wake rule and parked rows on a branch that is never merged.
+- **Chosen:** (b), by the owner, who merged the proposal and asked for the comparison run.
+- **Reason given:** None beyond asking for the run.
+- **Effect:** Results are in [conversations-lead-comparison.json](results/conversations-lead-comparison.json). The proposal's decisions 1 to 4 stay open.
 
 ### RUN-1 to RUN-5: runtime tasks (2026-10-27 and 2026-10-31)
 
@@ -2191,3 +2321,2570 @@ omitted only after independent current evaluation; their retained maxima stay.
 The separate author derives exact-byte/purity, missing/fork/expiry and native
 unavailable-key controls after reviewed merge. No implementation or runtime
 success is claimed by this contract.
+
+## GU.impl3 — Exact local project reviews (2026-10-29)
+
+Selected within the accepted guided-onboarding scope: start orchestration with
+an immutable review of one local project/native conversation and explicitly
+chosen agent. Preparation stores only the review; approval atomically records
+the reviewed agent/session metadata. Existing startup detachment invalidates
+a committed metadata attachment; replay never resurrects it. Pending reviews
+and decline decisions survive restart. Exact retries preserve terms and expiry;
+replacement is explicit and retains the old review. Schema24 adds one private
+flow table without changing DEC authority. The native human callback is the
+selected next frontend; no model approval tool is added.
+
+Discarded: speculative credential issuance during preview, name-based adoption,
+fresh default expiry on retry, rewriting reviewed terms, metadata as readiness,
+and model output as human consent. Teammate/device admission, permission grants
+and adapters remain separate reviewed paths. See guided session contract
+section3 for concrete fields, races, migration and independent cases. This is
+an implementation choice, not an additional decision attributed to the owner.
+
+## GU.impl4 — Native project selection and exact decisions (2026-10-29)
+
+Selected: a private context lookup and native project picker/review controls
+that retain exact host flow references. A read resumes the actual retained
+choice; explicit new/existing selection prepares terms; native human callbacks
+inspect the captured review and recheck the current root/conversation before
+submitting an exact decision. Close/reload clears callback authority while
+durable host state remains observable. This records metadata; adapter setup
+and permission grants remain later separately reviewed steps.
+
+Discarded: model approval tools or slash-argument consent, preparing on entry,
+first-agent/name-based adoption, copied frontend state as host truth, truncated
+or redacted consent, silently substituted terms and automatic decision retries.
+Section4 of the guided session contract records concrete race/privacy and real
+native-host verification. This is an implementation choice under GU scope.
+
+## GU.impl5 — Exact guided adapter authorization (2026-10-29)
+
+Selected within GU-OWN1/2: a second immutable owner-local review for issuing one
+scoped credential to the already attached project session. The first guided
+credential expires at a fixed reviewed time, 24 hours after preparation, without
+renewal. It handles work already authorized for that agent and gets no
+directory, outbound-route or capability-call power. Existing grants and local
+harness permissions continue to govern work and files.
+
+Selected recovery: retain the approved outcome and derive its private token
+with domain-separated HMAC-SHA256 under the host seed. Store only the normal
+token hash; a separate exact owner-local retrieval recovers that same current
+credential after a lost response. Normal issuance remains random. Schema25 adds
+one child-flow table; the project and DEC contracts stay intact.
+
+Discarded: credential issuance during metadata approval, blanket send/call
+power, automatic replacement of an offline or unbound adapter, silently renewed
+consent, plaintext token persistence and one-shot secrets lost on interruption.
+Section5 specifies the fields, recovery, invalidation, schema allocation and
+independent cases. Native connection and real model receipt remain subsequent
+gates. This is an implementation choice, not another owner confirmation.
+
+## GU.impl6 — Native adapter consent and scoped lease (2026-10-29)
+
+Selected within GU-OWN1/2: native human review of the complete immutable child
+authorization and its attached project, then a separate explicit Connect.
+The private stdin transport wrapper reproduces the original instance using
+domain-separated HMAC under the credential and returns the selected local
+adapter socket. The frontend keeps secrets in memory, renews a bounded scoped
+lease and stops on context, authorization or transport failure. Close retains
+an established runtime; Stop halts renewal; reload requires explicit reconnect.
+
+Selected delivery scope: first make consent and the local lease reviewable.
+Keep incoming work and model acknowledgment as the next independently verified
+slice. Display connected, incoming delivery and peer exchange separately.
+
+Discarded: implicit connect on approval/reload, storing plaintext transport
+files, random replacement instances on reload, owner API calls over the adapter
+socket, model approval tools, interpreting a saved verified channel or a live
+lease as receipt, and hidden retry after an uncertain decision. Native HTTP has
+no abort/timeout option in the pinned runtime; use a logical five-second
+deadline, ignore late responses and never reschedule stale work. An already
+sent request can still complete once. Section6 records the contract and
+independent cases; real terminal evidence records its exact source heads.
+This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl7 — Explicit native incoming messages (2026-10-29)
+
+Selected within GU-OWN1/2: enable messages explicitly after lease connection,
+because this starts a model turn using the current allowance. A fresh nonce
+and current main-engine acknowledgment precede scoped host readiness and any
+claim. Register only readiness, seen and reply tools on enable; owner powers,
+outbound destinations and local harness permissions remain unchanged. Poll
+messages first, leaving unsupported task/update work on the host.
+
+Selected failure behavior: one60-second challenge with explicit retry, bounded
+single-flight handoffs, no replay of uncertain content, lease renewal separate
+from message-attempt failure, and separate submitted/seen/replied evidence.
+Native runtime checks and a quota-refused real terminal attempt are recorded
+separately from actual model receipt and installed two-machine acceptance.
+
+Discarded: automatic model turns on connection/reload, automatic second hello,
+saved channel status as current proof, queue acceptance as model receipt,
+claiming unsupported task work, owner/admin tools in model context, new broad
+send/call permission and automatic replay after an uncertain submission. The
+explicit enable is an implementation choice under the accepted scope, not a
+new decision attributed to the owner. Contract section7 defines exact fields,
+timers, scope and independent verification before implementation.
+
+## GU.impl8 — Explicit native assigned tasks (2026-10-29)
+
+Selected within GU-OWN1/2: enable assigned tasks separately under the already
+verified current native message route. Reuse that delivery proof without
+another verification model turn. Register only five scoped lifecycle tools;
+the host still owns held-task selection, acceptance authorization, idempotency,
+running-task adoption and cancellation semantics. Task input remains external
+data under existing local harness permissions.
+
+Selected failure and evidence boundaries: separate task/cancellation polling,
+message polling and lease renewal; stop task authority when its native proof
+or context changes; allow a task-only failure/Stop without cancelling host work
+or messages. Deduplicate offered delivery IDs, count submitted prompts separately
+from successful model lifecycle calls, and never replay uncertain input. The
+existing real-model quota refusal is not task acceptance evidence.
+
+Discarded: consuming tasks automatically on message-ready, auto-accept/cancel,
+a second readiness prompt, forwarding unsupported task-update notifications,
+new outbound destinations, interpreting artifact metadata as local file access,
+and rechecking a revoked peer grant to override an already accepted task. File
+transfer and outward delegation remain separate integration work. Section8
+records exact shapes, scoped operations and independent cases before code.
+This is an implementation choice, not an additional owner confirmation.
+
+## GU.impl9 — Exact contact-invitation review (2026-10-29)
+
+Selected within the accepted four-step experience: an explicit attached-project
+review of a named network, member label, optional person-key pin, current public
+connection hints and fixed expiry before creating a contact-only introduction.
+Use the existing owned host signer and ordinary invitation/return protocol;
+keep membership, machine powers and agent access as later distinct decisions.
+No native/model owner tool is added by this backend slice.
+
+Selected durability: record the review before signing; mint contact/return state
+and the issued flow result in one transaction; retrieve the exact retained code
+only on a private explicit handoff. The flow stores no additional plaintext
+secret. Retrying or inspecting cannot extend expiry or mint another invitation.
+An explicit additional invitation can coexist with an older exported code;
+contact introductions have no global revocation claim.
+
+Discarded: selecting the first network, using introduction possession as an
+access grant, hidden person/device/root signing, automatic renewed consent,
+returning codes through status or model tools, partial issuance across separate
+commits, and copying a return secret into another durable flow table. Schema26
+is additive; earlier flow/DEC tables and semantics remain intact. Contract
+section9 settles external fields and independent verification before code.
+
+## GU.impl10 — Native invitation consent and private reveal (2026-10-29)
+
+Selected under the accepted GU experience: an explicit attached-project human
+intent, read-only resume before choosing a network, no default network, and an
+exact contact-only review before issuance. Display the public network/context
+and key terms to distinguish identities while keeping flow/native-session
+references internal. Validate the canonical review digest and captured terms.
+
+Selected handoff: separate explicit native reveal, with exact host/parent/flow
+inspection, public response binding and fixed expiry; keep the code only in
+current UI memory. Hide, Refresh, navigation, context/surface changes and expiry
+remove it. The user may select terminal text. Existing established delivery
+runtimes survive ordinary pane navigation. Retrying reveal retrieves the same
+code; explicit additional invitations do not revoke old exports.
+
+Discarded: first-network selection, automatic approve/export/copy, model owner
+tools or secret prompts, clipboard writes, new files/plugin storage, a second
+frontend cryptographic verifier, hidden recipient admission/access, and calling
+an introduction proof of reachability or receipt. Section10 precedes code and
+settles independent native checks. Joining and participant permissions remain
+separate working slices, not completed by this inviter control.
+
+## GU.impl11 — Recipient inspection before identity selection (2026-10-29)
+
+Selected within the accepted GU flow: verify and display an incoming contact
+introduction before choosing/generating an original person or publishing any
+request. Reuse the signed-wire verifier, exact attached-project binding and a
+read transaction. Return exact public network/signer/pin/contacts/hints/expiry
+terms and their canonical digest, with no secret or signed blob. Contact
+sequence is a decimal u64 string, preserving its full range through JavaScript.
+Legacy no-return introductions remain inspectable; signature possession does
+not establish signer membership or authority.
+
+Selected native input: explicit human-only paste into a volatile terminal pane,
+then a separate Inspect action. The pinned Input supports visible text; no
+masking is claimed. Clear the code before asynchronous inspection; keep it out
+of model context, argv, storage and diagnostics. Refresh/navigation/context
+loss/reload/expiry discard the recipient view. Identity consent and joining
+remain real subsequent work; no inert Join button is offered.
+
+Discarded: automatic key generation/import or joining on paste/inspection,
+model owner tools, persistent secret copies, clipboard/file import, a second
+frontend cryptographic verifier, contact validity as authority/readiness, and
+new schema/state just for read-only inspection. Section11 and independent
+verification cases precede code. No new owner confirmation is attributed.
+
+
+## GU.impl12 — Exact recipient request publication (2026-10-29)
+
+Selected under the accepted guided flow: a durable public review binds the exact
+verified invitation, selected person public key and attached project before one
+explicit request-publication decision. Selection is not possession proof. This
+backend does not discover, create or import a person key; native identity and
+key persistence remain the next slice. Machine linking retains its separate
+ceremony and never requires copying an original key.
+
+Selected atomicity: reuse ordinary request creation inside the same transaction
+as the recorded decision/outcome. Retain a public review and token digest only;
+the ordinary protocol remains the sole durable store of pairing material.
+Replay returns the historical outcome and never republishes after cancellation
+or expiry. Schema27 is additive; installed upgrade/recovery remains a main
+merge gate.
+
+Discarded: hidden key generation, a public key as proof of ownership, implicit
+admission/access/selection, separate commits for request and decision, duplicate
+secret stores and a second pairing protocol. Section12 settles shapes and
+independent verification before code. These are implementation choices within
+the accepted scope, not new owner confirmations.
+
+
+## GU.impl13 — Native existing-identity request consent (2026-10-29)
+
+Selected under the accepted guided experience: explicitly choose among existing
+local generated/SSH-agent original public identities, then review and approve
+one exact join request in the human terminal. No first-key default or key
+creation on paste/inspection. New original identity creation and same-person
+machine linking are separate slices. An empty inventory is an honest limit.
+
+Selected privacy/recovery: one joining-specific volatile private input across
+exact preview/choice/approval; durable state remains the existing public review
+and protocol request. Read-only outcome lookup after uncertainty/reload never
+replays an approval. Existing private inspection retains its pure behavior.
+
+Discarded: arbitrary key-path imports, implicit key generation/copy, treating
+public selection as owner proof, silent pin filtering, stored raw codes, hidden
+participant/access approval and request publication as connection readiness.
+Section13 and independent verification precede code. No new owner confirmation
+is attributed and no full-feature acceptance gate is closed by this slice.
+
+
+## GU.impl14 — Explicit local original creation (2026-10-29)
+
+Selected under the accepted guided flow: an empty unpinned local identity chooser
+may review and explicitly approve creation of a new original on this computer.
+Persist the complete0600 key atomically without replacement before offering its
+public key for separate request consent. Normal inventory recovers uncertain
+writes; no new schema, owner API or secret journal. Use pinned directory handles,
+private temporary files and no-replacement hard links; unsupported filesystems
+refuse. Private orphan temporary names after crashes require owner cleanup.
+
+Discarded: hidden generation on invitation inspection, replacing an existing
+original/SSH-agent choice, creating against a person pin, copying an original
+for device linking, overwriting public sidecars, claiming filesystem/UI atomicity,
+and automatic publication/retry/deletion. Section14 and independent verification
+precede implementation. This is an implementation decision, not a new owner
+confirmation. The unfinished section13 actual-terminal reopen gate stays open.
+
+
+## GU.impl15 — Exact public request progress (2026-10-29)
+
+Selected within the accepted guided flow: an explicit read-only progress snapshot
+of the exact published ordinary request, bound to its historical join review and
+project context. Derive next participant/action from durable protocol state;
+show requester consents and local application separately from current authority,
+access or readiness. No new schema, signing, peer polling or hidden protocol step.
+Participant approval controls remain subsequent small slices.
+
+Discarded: publication as a connected network, progress reads that call resume
+or consume incoming evidence, newest-request selection, automatic polling and
+fake approval controls. Exact snapshot, strict privacy/binding and independent
+verification are specified in section15 before implementation. Manual terminal
+creation/reopen, installed artifacts and final feature acceptance remain open;
+this is an implementation choice, not a new owner confirmation.
+
+
+## GU.impl16 — Reuse exact new-original owner consent (2026-10-29)
+
+Selected under the accepted guided experience: first implement owner consent
+for a new original person's own request, reusing the existing durable unapproved
+protocol owner intent. Bind the complete public proposal to its join context
+and compare before atomically recording ordinary approval. Fixed profile7 and
+request-created+7d avoid new default-expiry drift; original signature and native
+controls follow separately. Lookup/retry recover existing global protocol
+approval without attributing it to a new frontend or copying a secret.
+
+Discarded: a schema28 duplicate approval journal, importing/copying originals,
+signing in the daemon, widening to15/admin8, device/root fallback and approval
+as membership/access/commit/readiness. Section16 and independent verification
+precede code. All installed/actual-terminal/model and final main gates stay open.
+
+
+### GU.impl16a — Synchronize an existing delayed-progress test
+
+Selected: the separate contract-only test author will make the existing
+late-progress navigation fixture wait for the old effect to enter its delayed
+response before navigating and advancing virtual time. The case repeatedly
+hit its five-second timeout locally and in PR53 CI while also passing unchanged;
+its asynchronous response construction can outlive a virtual-clock settle.
+Preserve the late completion, newer confirmation and privacy assertions and
+all212 cases. No production/native behavior change is inferred from this fixture
+failure. Discarded: timeout inflation, deleting assertions, repeated CI reruns
+until green, and modifying product behavior to satisfy a scheduling assumption.
+
+
+### GU.impl17 — Native owner consent before original signing
+
+Selected within the accepted guided-onboarding scope: explicit native Review
+owner powers and exact Approve owner powers, using section16's durable ordinary
+intent and owner-only private stdin CLI. Recovery is pure lookup; Leave changes
+no protocol state. Display all powers, finite terms and bounded later effects;
+historical ordinary approval does not attribute frontend consent or active
+membership/access. Native volatile callback/expiry authority follows project,
+conversation and host boundaries. No new Rust/API/schema or signer handling.
+
+The following slice will add a bounded local original-signing action. Discarded:
+combining review/approval/key use in one opaque action, broad link CLI automation,
+a daemon key provider, automatic preparation/retry/decline and metadata as grant.
+Section17 defines independent native cases, existing212 preservation and final
+all16 suite gates; actual terminal/installed/model/upgrade recovery remains open.
+
+
+### GU.impl17a — Establish the pending connection in its cancellation fixture
+
+Selected: the independent test author will explicitly await the existing
+initial adapter connect HTTP dispatch/delay registration before pressing Close or Back
+in its shared pending-connection cancellation fixture. Original212 passed in the first
+full run; the next run passed all20 new owner cases but this old case observed
+zero HTTP calls where its fixture assumed one. The same scheduling failure has
+occurred in earlier slices. Preserve all original semantic assertions, delay
+and timeout; establish the intended in-flight stimulus deterministically.
+Discarded: product changes to force a request after cancellation, weakening the
+HTTP/no-renewal assertions, timeout inflation and retrying until green.
+
+
+### GU.impl18 — One bounded local original owner-offer signature
+
+Selected: an advanced private-stdin owner sign command with an explicit
+sign_original_owner_offer decision, exact approved section16 review/intent and
+one typed authority SSHSIG slot. Use existing FixedPacket/PersonSigner/link
+validation, secure non-creating normal-key reads or exact SSH-agent selection,
+fresh project/host/request checks and one ordinary signature submission. Complete
+offer retries are read-only; ordinary host-owned selection/publication remain
+bounded by existing consent. No new schema/API or signature attribution store.
+
+Native signing control follows after independent CLI conformance. Discarded:
+combining approval/key use, broad signing/resume loops or later F work, unsafe
+path/discovery fallback, daemon key handling/copy/import, auto retry and treating
+historical approval as possession or connection readiness. Section18 pins faults,
+recovery and all17 suite gates; key use/context changes/POST are not one atomic
+transaction and cannot retract an already-dispatched signature.
+
+### GU.impl18a — Preserve ordinary stage expiry in the signing fixture
+
+Selected: the independent author removes an invalid fresh-signing stimulus
+that waited beyond the approved fifteen-minute review window after an ordinary
+resume. Spec8 expires a still-unoffered request after ten minutes without a new
+recorded stage; resume does not extend that boundary. The real ceremony must
+sign while eligible, then exercise actual expired-history pure replay. The
+client's review-expiry distinction remains a source-coverage limit where the
+ordinary stage rule prevents a truthful fresh-success fixture. Discarded:
+fabricating authority rows, changing protocol expiry, or relabeling a rewritten
+public review as the daemon's retained exact consent.
+
+### GU.impl18b — Establish the old invitation handoff before navigation
+
+Selected: the independent author synchronizes the existing late-old-reveal
+fixture on its old handoff having captured the authentic response and registered
+the original1000ms delay before Back and the new invitation. Final CI passed231
+of232 cases but timed out in this fixture: clock.settle alone can leave the old
+handoff undispatched, so the new reveal becomes the first delayed response while
+the test awaits it before advancing time. Preserve the first-response flag,
+delay, all old/new-code privacy and no-decision assertions and default5000ms
+timeout. This establishes the intended pending old response; no native product
+change. Discarded: timeout inflation, removing assertions, forcing product work
+after navigation and rerunning unchanged until green.
+
+### GU.impl19 — Explicit native original owner-offer signing
+
+Selected: one human Sign original owner offer action after exact approved owner
+consent, reusing section18's bounded private-stdin CLI. Fresh parent/host/join/
+review/request/time checks precede one literal45s command; strict returned public
+evidence stays separate from completed offer/admission/access/readiness. Pure
+Check never invokes sign, including uncertain partial-signature recovery. Request
+expiry bounds new key use; the approved review's old15min window is historical.
+Leave/navigation clears volatile callback authority without promising retraction.
+
+Discarded: combined approval/key use, frontend key inventory/selection, hidden
+sign-as-read recovery, broad link/resume/finalization automation, new API/schema/
+persistence, automatic retries and historical evidence as current permissions.
+Section19 pins independent native cases and original232/all17 CI preservation;
+terminal/installed/physical/model/schema23-to27 recovery acceptance stays open.
+
+### GU.impl20 — Inspect the incoming original/selection prefix before admission
+
+Selected: a pure owner-local admission inspection of an already retained incoming
+new-original request. Reuse ordinary typed request/owner/selection and adopted
+network projection validators, bind the exact attached project and expose only
+closed public identities/terms/effects with a stable digest. No signer choice,
+intent creation or authority mutation. Administrator consent/signing and native
+controls follow in separate reviewable slices.
+
+Ordinary admissions preview imports/polls and creates durable intent state, so it
+cannot serve as an observation. Discarded: calling it from a read action, manual
+code import here, automatic provider/approval/signing, new schema/secret journal,
+and interpreting original possession or incoming role as admission/access.
+Section20 defines independent admission_onboarding and final all18/native252
+verification while retaining existing manual/installed/model/recovery gates.
+
+### GU.impl20a — Isolate the CLI signer in the existing signing fixture
+
+Selected: the separate author explicitly configures both owner_signing daemon
+constructors with an absent --person-key-file path and no person agent, while
+the CLI retains its genuine normal generated key. Its existing full-ceremony
+case observed zero CLI submissions after the approved original authority/host
+signatures were already retained: the documented daemon fallback can read keys
+created after startup and fulfill approved work before the explicit CLI runs.
+Retain all six case bodies, one-submission/proof/privacy assertions, host-owned
+signing, later ceremony and pure-history checks. This isolates the intended
+CLI-generated signature stimulus without a product change. Discarded: weakening
+the one-submission assertion, treating global recorded evidence as frontend
+attribution, disabling owned host work or rerunning until the race disappears.
+
+### GU.impl20b — Retain the selected prefix before measuring inspection
+
+Selected: the independent fixture explicitly resumes its already returned
+incoming request during setup until ordinary public observation confirms the
+exact owner/selection prefix, then stops the remote and settles transport before
+inspection purity snapshots. Automatic invitation return delivered the request
+but did not itself retain the later packets. All first-run cases stopped before
+an inspection assertion at that missing-prefix setup; shared dependents must
+report setup failure rather than recreate the same project name. Discarded:
+calling admissions preview/import, fetching from the inspection route, invented
+authority rows and accepting an unverified/missing selected prefix.
+
+### GU.impl20c — Redact rejected admission arguments at the parser boundary
+
+Selected: keep typed Clap parsing and its normal help/exit behavior, but emit a
+fixed error for failed invocations containing the literal onboarding admission
+command path. Clap's default unknown-argument diagnostic echoed a rejected
+positional request ID before the private stdin handler ran. Inspecting argv here
+selects only the error redaction policy; it never accepts arguments, routes a
+command or performs IO. All admission values still require strict private stdin.
+Discarded: accepting a positional ID, removing the no-echo conformance assertion,
+filtering selected secret prefixes, and changing unrelated command diagnostics.
+
+### GU.impl21 — Exact durable root administrator consent
+
+Selected: explicit prepare/lookup/approve over the existing ordinary
+administrator intent, fixed network_root ed25519 using the current locally owned
+root seed. One transaction binds exact attached context, verified selected new
+original, current root and P/H drafts and approval digest; pure history reports
+global protocol consent without frontend attribution. No schema or second
+approval journal. Approval permits ordinary background root/host signatures and
+publication; original F/requester commit remain separate. Section21 defines
+independent admission_consent6 and all19 CI, keeping existing gates intact.
+Discarded: automatic provider choice, original/device fallback, external key
+handling, separate frontend consent storage, hidden signing/polling/import and
+claiming an approved administrator intent is membership/access/readiness.
+
+### GU.impl21a — Refuse local time before fresh consent creation
+
+Selected: fresh administrator preparation/first approval checks raw local time
+as well as ordinary guarded time against request/intent/stage creation, again
+before commit. An independent stale-clock case observed approval because the
+ordinary five-minute rollback allowance clamped a two-minute-old local clock to
+the retained intent's creation. Pin this stricter first-write bound explicitly;
+keep shared protocol clock smoothing and pure approved-history recovery intact.
+Discarded: accepting the clamped value as proof of fresh local consent time,
+changing all ordinary clocks, disabling historical recovery or weakening the
+independent stale-clock refusal assertion. No new test stimulus or timeout.
+
+### GU.impl21b — Use the existing ordinary code form in negative setup
+
+Selected: reconcile a stale wire-format claim that ordinary admission HTTP
+accepts code:- plus request_id. The runtime contract/table and shipped endpoint
+use the exact code-based body; retained request IDs are resolved privately by
+the CLI. A genuine negative SSH-root fixture reached HTTP400 on that extra
+field, so the independent author uses its real private reply code and omits
+request_id before measuring guided refusal. All retained-provider/purity
+assertions remain. Discarded: treating this malformed setup as provider
+validation, weakening the negative case, or expanding an unrelated ordinary
+HTTP API as part of the guided-consent backend.
+
+### GU.impl22 — Explicit bounded incoming proof progress
+
+Selected: one owner-local explicit fetch of already returned incoming original/
+selection evidence, using retained pinned carriers and ordinary validation, then
+one atomic pending-only retention under rechecked parent/request/root/time pins.
+Cached complete-prefix retry is pure. No authority, intent, consent/signature,
+publication, endpoint learning or new persistence. A pre-retention test barrier
+with no held DB lock permits genuine cancellation/context/deadline checks.
+Section22 defines independent incoming_progress6 and all20 final CI.
+Discarded: implicit polling in inspection, calling broad resume/observer engines,
+automatic provider/approval/selection/commit, external endpoint inputs, contact
+learning, partial failed retention and another schema/journal.
+
+### GU.impl22a — Validate each carrier's encrypted frames before union
+
+Selected: reject an endpoint's complete snapshot if any frame fails ordinary
+decryption/plaintext validation, before combining it with healthy responses.
+The initial review found that outer-envelope validation alone let one invalid
+encrypted snapshot block another carrier's valid prefix. Keep the later atomic
+retention, context/proof validation and cross-snapshot ambiguity checks.
+Discarded: letting arrival order choose a carrier, dropping individual invalid
+frames from a snapshot, weakening atomic retention or changing ordinary polling.
+
+### GU.impl22b — Use public parent replacement and approved-work drivers
+
+Selected: the independent in-flight parent fixture first detaches the existing
+parent, then explicitly replaces and approves it, as section3 requires. The
+completion fixture may use ordinary explicit resume only after the new action
+has independently fetched the prefix and exact guided consent is approved.
+Initial local4/6 and CI2/6 stopped on forbidden attached replacement and an
+unpromised passive root-publication deadline. Preserve the zero-retention and
+same-request F/commit/history assertions. Discarded: allowing attached metadata
+replacement, administrator resume to obtain the missing prefix, hidden signing
+inside progress, longer passive waits or retrying unchanged failed fixtures.
+
+### GU.impl23 — Native incoming proof and administrator review controls
+
+Selected: explicit paged incoming request choice, lookup-first recovery, separate
+bounded proof fetch, verified inspection then explicit review preparation and
+exact durable root consent approval. Native authority is volatile and rechecked
+against project/host/request/review/time before each action. Existing host APIs
+own verification, approval and later protocol work. Section23 defines20 new
+independent native cases with original252 preserved, existing real-host suites
+and all20 CI gates. Discarded: auto-selection/poll/prepare/approve, inputting raw
+IDs/codes, frontend keys/signatures, broad resume, approval mirrors and consent
+as membership/access/readiness. This is an implementation choice under the
+accepted guided flow; no additional owner confirmation is attributed.
+
+### GU.impl23a — Recheck returned views and expire request actions
+
+Selected: before displaying an incoming response, re-inspect the authoritative
+host-side parent and host identity. Null-consent/fetched-prefix views also carry
+the signed request deadline, including across in-flight work; expired views keep
+only historical Check/Leave. Initial review found cached-only post-IO checks
+could restore stale review controls and null consent had no expiry timer.
+Discarded: relying only on the next approval guard, dispatching expired progress/
+preparation and using a fresh review window to extend the signed request.
+
+### GU.impl23b — Navigate explicitly and settle terminal delivery in fixtures
+
+Selected: re-enter incoming selection after Leave and choose the adapter's
+specific Back to project when preserving an attached project. First native
+run270/272 stopped on absent choices after Leave and a generic Back matcher
+leaving the parent project. Separately, real-host incoming5/6 stopped on carrier
+traffic after local application while the genuine terminal outcome still had
+zero delivery acknowledgments. Drain ordinary terminal publication with both
+participants/carriers available before no-IO purity measurements. Preserve every
+old/new assertion, timeout and strict DB/file/zero-IO check. Discarded: retaining
+hidden native selection, changing parent Back semantics, counting linked as
+delivery completion, weakening purity or rerunning unchanged failed fixtures.
+
+### GU.impl23c — Use documented terminal deadline retirement for purity setup
+
+Selected: after full genuine application, use the test clock past the signed
+request deadline and observe ordinary background retirement of frames, secret,
+terminal read capability and outbound delivery before measuring pure completed
+history. The acknowledgment-drain attempt still ended5/6 in115s, timing out at
+35s; its transport return was not retained, so its exact transport cause remains
+unclassified. Live cached no-IO and live post-intent refusal remain separate
+assertions, and every historical DB/file/zero-IO assertion stays. Immediate
+post-application scheduling attribution remains an explicit coverage limit.
+Discarded: longer acknowledgment waits, assumed guaranteed delivery, disabling
+background work, editing authority/storage rows or weakening measured purity.
+
+### GU.impl23d — Isolate invitation return polling and drive terminal cleanup
+
+Selected: use the genuine minimum60s invitation, then move both fixture clocks
+together past its deadline only after automatic return and genuine remote
+original/selection publication, while its independent3600s request stays live.
+Observe return-row retirement before measuring strict carrier counters. At the
+later request deadline, explicitly drive ordinary terminal resume/cleanup once
+before observing retirement; no periodic cleanup interval was promised.
+The preceding run4/6 in78s exposed case3's combined purity diagnostic and a
+5s wait for undriven cleanup. Separate strict DB/file versus carrier assertions
+with safe category names/numeric counts, keeping both checks. The exact earlier
+case3 failure category is unclassified because its before values were discarded.
+Discarded: attributing every carrier connection to the measured route, counting
+only one saved carrier, longer quiet gaps, disabling workers or editing rows.
+
+### GU.impl23e — Drive expiry maintenance through ordinary fresh creation
+
+Selected: after the full original ceremony and its request deadline, one genuine
+fresh unsigned requester creation plus immediate public cancellation drives
+ordinary capacity/expiry maintenance before the historical purity baseline.
+It has a fresh fixture person pin, no invitation/helpers or participant approval;
+its device/secret/cancellation setup is outside measured calls. The isolated
+run5/6 in99s passed all five live/strict/atomic cases, but terminal resume returned
+HTTP200 linked without the awaited retirement. Do not claim that retry drives
+cleanup or infer its exact underlying cause. Periodic and terminal-resume
+retirement remain explicit limits. Discarded: manual row deletion, speculative
+nonterminal-resume cleanup, larger timeouts, authority fabrication or weakening
+the original historical digest/DB/file/zero-IO assertions.
+
+
+### GU.impl24 — Inspect verified original finalization parents before signing
+
+Selected: a pure owner-local snapshot for the exact approved new-original intent,
+reusing ordinary full administrator/owner preparation checks over retained
+evidence. Bind the original immutable consent, selected owner, root/P/H, approving
+writer/signer and fixed profile/lifetime without creating timestamped B/D/F
+drafts. Keep explicit proof transport, bounded original signing, requester commit
+and native controls as following slices. This makes each dependency reviewable
+while the feature branch remains isolated. Discarded: broad resume as observation,
+new signing/consent journals, key use on inspection, silently approving final
+commit and treating pending administrator statements as adopted membership.
+
+
+### GU.impl24a — Preserve project detach on daemon restart
+
+Contract-only author review identified ambiguous restart-success wording.
+Selected: repeat live inspections keep a stable digest; after restart settles
+the existing detached parent causes a pure review_changed refusal, with immutable
+section16 consent and ordinary evidence preserved. Created_at is the signed
+request creation time. Materialized ordinary drafts during explicit setup are
+allowed; inspection changes none. Discarded: resurrecting the original attachment
+through approval replay/reconnect or rebinding an old published flow to a fresh
+context. Startup mutations stay outside the measured pure-inspection baseline.
+
+
+### GU.impl25 — Reuse requester progress and bound original finalization signing
+
+Selected: existing approved requester/approver worker fetches retained mailbox
+evidence and materializes its already authorized host-side work. Add one explicit
+CLI action, bound to original consent and exact section24 digest, for at most
+B/D issuer batch then F authority batch (three original signatures total).
+Record source-derived progress evidence: requests_io::approver_worker already
+polls unfinished requester operations. No duplicate proof-fetch endpoint is
+needed. Keep pure inspection/history and separate requester commit. Already
+completed F refuses Sign purely rather than claiming the caller's unverified
+finalization digest was signed. Discarded: extra fetch API, a protocol-driving
+loop, per-slot UI prompts, new consent/signature journal, original-key fallback
+and automatic final commit. This recommended adjustment follows source evidence.
+
+
+### GU.impl25a — Bounded recovery after partial original finalization
+
+Contract-only author clarified asynchronous dependent readiness and lost results.
+Selected: lost first B/D response ends that invocation before F key use/second
+POST. A genuine fixture may prove B/D retention, explicitly wait for ordinary F
+readiness and issue one later explicit F-only decision, with original operation
+caps preserved. Initial completed-F refusal is pure regardless of a different
+well-typed inspection digest; it makes no historical attribution. Discarded:
+retry-until-green signing, assuming immediate dependent host work or silently
+continuing after an uncertain first mutation.
+
+
+### GU.impl25b — State the signing deadline at its actual cancellation boundary
+
+Selected:90s asynchronous orchestration deadline ends further work/submissions;
+already queued/dispatched blocking key/agent operations cannot be retracted and
+may delay process shutdown. Abandoned key results cannot submit another batch.
+The future native caller sets a separate process bound. This clarifies40fe2c3's
+whole-command wording before conformance assertions. Discarded: claiming Tokio
+future cancellation kills blocking work or retracts a dispatched signature POST.
+
+
+### GU.impl25c — Isolate independent requester polling during read purity
+
+Initial CI old finalization inspection5/6 in31s counted one extra connection on
+each relay and zero added bytes during case3; local old signing5/6 in48s changed
+dec_outbox and a rollback-journal path at its terminal historical check. Selected:
+independent diagnosis and a public setup/observed in-flight transport barrier
+that keeps ordinary requester background polling outside each measured read,
+while preserving all logical DB/file/bothcarrier assertions. Invitation return
+expiry alone does not stop unfinished requester polling. The terminal outbox/
+journal cause remains unclassified pending evidence. Discarded: unmeasured quiet
+gaps as proof of no worker activity, filtering one carrier or storage category,
+editing protocol rows, disabling workers, longer timeouts or retry-until-green.
+
+
+### GU.impl25d — Order eager test helpers and share genuine agent recovery setup
+
+Independent first new signing suite5/6 in121s reached a test NameError in case3: 
+pure mutation helper declared after an eagerly executed Suite.case. Selected:
+move helpers before cases; share the genuine successful exact multi-identity
+agent/valid different generated-key stimulus with lost-B/D/F-only recovery,
+retaining all original three-signature/exact-key/batch/home/no-replacement and
+privacy assertions. Five other cases passed; lost firstB/D caps passed before
+the helper failure. No product assertion failed. Discarded: larger timeouts,
+dropping key-source checks, re-running unchanged or accepting a partial run.
+
+
+### GU.impl25e — Confirm live TLS hold and actual terminal outbox retirement
+
+Selected independent fixture proposal: consume/count a real ClientHello, hold
+server bytes outsideDB, and verify the same actually live held generation both
+before/after each pure read while retaining every original bothcarrier/wholeDB/
+state/home assertion and original delay/timeout. Do not assume parallel endpoint
+polls. For terminal history keep both genuine peers online through explicit
+pinned peer registration and one ordinary sync each, then observe actual empty
+outboxes/absent rollbackjournal before issuer stop and the unchanged historical
+checks. Sync acknowledgment is observed, not inferred. The retained failure
+fixture later had empty queues/no journal on both hosts, which cannot establish
+its earlier change direction/cause. Discarded: stale hold flags, row edits,
+worker disabling, dropping queue/journal/counter checks or larger timeouts.
+
+### GU.impl26 — Native explicit original finalization and pure recovery
+
+Selected: one explicit pure review of the existing section24 projection, then
+one exact section25 CLI call under the captured digest and approved original
+consent. Fresh authoritative parent/host/flow/owner/projection checks guard
+dispatch/display;95s native process bound is separate from90s async orchestration.
+Completed F recovers through pure owner lookup without historical digest or
+frontend signature attribution. Keep requester commit/access/readiness separate.
+Section26 defines independent native coverage with all old272 and host22
+preserved. Discarded: new backend/progress APIs, approval as key-use consent,
+frontend keys/templates, implicit signing/retries, automatic requester commit
+and more onboarding persistence. This continues the accepted four-step flow.
+
+### GU.impl26a — Keep internal review bindings private in native terms
+
+Contract-only author clarified presentation/navigation before tests/code freeze.
+Selected: recorded F uses the literal Original finalization: recorded plus its
+public packet reference; internal flow/review/intent/session/native identifiers
+stay private transport bindings. Leave returns to published joining outcome
+with both review controls cleared; reopening is explicit. Discarded: exposing
+internal digest/intent references as user choices, preserving stale review
+controls after Leave or attributing global F to this pane.
+
+### GU.impl26b — Isolate the signing suite's own live inspection transport
+
+Initial local existing owner_finalization_signing5/6 in93s stopped case3 at a
+pure inspection baseline: one added zero-byte connection on each relay. Selected:
+independent author adapts the documented25e consumed-ClientHello/same-live-held-
+generation setup to this suite's separate Relay/quiet helpers, preserving every
+original assertion/delay/timeout and strict bothcarrier/DB/state/home category.
+The exact earlier per-connection cause is unclassified. No product changes or
+unchanged rerun; native20 is committed separately before execution. Discarded:
+assuming invitation expiry/quiet gaps isolate requester polling, filtering any
+counter/category, disabling workers, row edits and retry-until-green.
+
+### GU.impl26c — Read the signing clock after asynchronous native guards
+
+Source review selected: read native time after the final asynchronous context
+check, then check callback generation synchronously before deadline validation
+and dispatch. A slow context check cannot preserve an earlier signing timestamp
+past expiry. Backend checks and final-check/dispatch race limits remain; no new
+API or test changes. Discarded: treating time captured before asynchronous
+preflight as the immediate dispatch deadline check.
+
+### GU.impl26d — Use verified statement parents and consistent owner fixtures
+
+First combined native CI275/292 in44.82s preserved all original272 passes but
+the positive finalization fixture supplied drs_ root and issuer '-'. Selected:
+clarify existing sections24/25's ds_ root/P/H/verified issuer forms; independent
+author corrects positive setup, pending-before-approval progression and missing-
+owner preparation consistency while retaining every original assertion/timeout.
+The new terms must name the fixed powers profile7 as contracted. Discarded:
+accepting unsupported catalog/provider forms in signing projections, testing
+unapproved advanced stages as valid owner approval, or treating a prepared
+globally approved consent as a missing-owner result. Preserve initial failures.
+
+### GU.impl26e — Bound transport holds to individual typed fault commands
+
+Corrected host fixture47a050d5/6 in132s preserved the original case3 proof but
+the new held-generation guard expired across case5's23-command corpus. Selected:
+keep its original aggregate DB/files equality; refresh/confirm outside each
+individual command, adding per-command strict DB/files/BOTHcounter/held-generation
+checks. No aggregate IO assertion existed or is removed. Ordinary inter-command
+writes remain caught by aggregate equality. Discarded: longer timeouts, stale
+hold flags, refreshing during measurement, omitting a command/category or retries
+until green. Independent author commits correction before its next full run.
+
+### GU.impl27 — Exact durable requester commit before bounded completion
+
+Selected: reuse the ordinary requester_commit intent and full finalization
+projection, atomic exact approval/request pins and pure global history. No new
+schema/journal or route-driven key signature/transport/application. The existing
+approved worker can sign/publish afterward; bounded application and native
+controls follow separately. This keeps the final human decision independently
+reviewable. Section27 defines new requester_commit6 with old22/native292 intact.
+Discarded: another durable consent table, implicit prepare on approval, broad
+commit/resume observation, conflating original ownership and requester consent,
+frontend signing and recorded consent as adoption/access/readiness.
+
+### GU.impl27a — Pin real commit stage and rollback stimuli
+
+Independent author clarification selected: all successful actions HTTP200;
+temporary schema-only intent INSERT/approval UPDATE ABORT triggers prove atomic
+rollback without authority-row edits or an invented SQL error code. Fresh real
+needs_commit has no manifest/activation/outcome, regardless of older native mock
+mapping. Historical key absence covers original/agent sources; unavailable
+owned-device seed remains source/fault coverage absent a public deletion API.
+Discarded: treating mocks as protocol evidence, deleting secret/authority rows
+to invent a public failure path, or weakening rollback/privacy assertions.
+
+### GU.impl27b — Separate atomic consent evidence from concurrent owned work
+
+Independent author clarification selected: a coherent intent/request snapshot
+proves durable atomic approval; preapproval purity and SQL rollback remain
+strict. Approved worker signatures/publication may already appear before the
+HTTP response and cannot be attributed to this route from global counters.
+Route-only no-signature/transport/apply stays source-reviewed absent genuine
+public synchronization; fixture application is a separate explicit action.
+Discarded: asserting global post-response absence, claiming an after-commit
+barrier is globally unobserved, or adding worker-disabling test endpoints.
+
+### GU.impl27c — Distinguish early local time from elapsed approval
+
+Selected independent clarification: raw time before request/stage/intent
+creation returns commit_review_unavailable even within ordinary rollback clamp;
+actual elapsed review/signed/fixed/stage bounds return review_expired. Both are
+pure refusals. Discarded: accepting clamped time as fresh human consent or
+changing shared protocol clock smoothing and historical approval recovery.
+
+### GU.impl27d — Null lookup observes absence without preparing consent
+
+Selected independent clarification: a valid published request with no ordinary
+commit intent returns pure commit:null even while F is absent; fresh prepare/
+approval still refuse missing F. Discarded: requiring fresh-prepare eligibility
+for a null observation or creating intent while reading. Final source review
+also retains raw lower/upper/stage/parent checks at the last observation before
+commit, rather than trusting an earlier clock read.
+
+### GU.impl27e — Correct the existing join-suite count
+
+The unchanged join suite has 12 cases and passed 12/12 in 99s against frozen
+production daf53e4. Section 27's join14 label was a stale count; correct it to
+join12. The file and every existing case/assertion/delay/timeout remain unchanged.
+Discarded: claiming 14 passing cases or adding duplicate tests to fit the label.
+
+### GU.impl27f — Preserve actionable public delivery failure evidence
+
+Final-head CI 9335093 passed all requester-commit cases, the other 21 suites and
+standard PR checks, but existing delivery failed 11/5 on inviter application
+timeout. The same runtime/test sources passed on db7766e. Cause stays unclassified;
+the runner discarded retained state. Selected: independently authored bounded
+failure-only public diagnostics after the original wait, preserving every
+assertion/action/delay/timeout and rethrowing the original failure. Keep the
+failed run and one retained local diagnostic run. Discarded: calling the failure
+a proven flake, retrying unchanged until green, weakening the timeout or dumping
+private DB/state artifacts into CI. Production remains frozen.
+
+
+### GU.impl28 — Bounded continuation of exact approved requester consent
+
+Selected: a private explicit completion action over the existing approved
+requester intent, with checks inside its ordinary signing and application
+transactions, bounded exact-request publication and pure verified application
+replay. Section 28 precedes production and independent requester_completion6.
+Native commit controls follow as a separate small PR. Keep approval history,
+local application, participant delivery and agent readiness distinct. The human
+approval window does not revoke already recorded protocol consent. Document
+partial-work/worker attribution and cancellation limits; retain the unclassified
+prior delivery timeout. Discarded: another journal, implicit approval, broad
+resume/polling, original-key selection, whole-attempt atomicity and local
+application as readiness.
+
+### GU.impl28a — Late application rollback and historical precedence
+
+Selected independent clarification: a schema-only dec_operations INSERT ABORT
+for the genuine request proves rollback of the whole application transaction,
+including its earlier network/provider/event/outcome/retirement writes. Another
+already authorized application winning before the fresh guarded transaction
+is verified historical evidence, even if parent/time subsequently changed.
+Discarded: editing authority rows, disabling workers, claiming competing work
+was this command or forcing a false refusal instead of pure historical recovery.
+
+### GU.impl28b — Require real transport isolation for expiry evidence
+
+Selected independent clarification: never treat a partial-signature barrier as
+a live carrier hold. Exercise raw/signed expiry with genuine confirmed transport
+and retain existing partial signatures exactly. Record approved-but-unsigned
+stage expiry as a source/barrier limit when no reliable public stimulus exists;
+keep ordinary stage-timeout coverage and real application synchronization.
+Discarded: invented hold flags, omitted counters, worker disabling or timing
+retries. Historical precedence bypasses fresh eligibility checks, while pure
+metadata/context observations remain allowed.
+
+### GU.impl28c — Preserve native timeout evidence and restore host isolation
+
+The first unchanged native run passed287/292 in71.32s; five existing cases hit
+their5000ms timeout while an external Clippy build overlapped. Selected: retain
+the failed run and observed load, then run the full unchanged suite once after
+the host is actually idle. Exact per-case load attribution remains unproven.
+Discarded: changing tests/timeouts, calling the failure a proven product bug or
+retrying unchanged until green. Runtime and host suites stay serial locally.
+
+### GU.impl28d — Pin application lifecycle and rollback/delivery evidence
+
+Selected: preserve the exact prior completed requester-intent record with only
+its ordinary terminal lifecycle changing to applied. Verify proof-publication
+outbox rollback with application authority; carrier frames are a separate
+earlier phase. Unavailable-carrier participant delivery uses separate explicit
+ordinary completed-requester repair during setup, outside pure replay measures.
+Keep the first independent CI result before any fixture correction. Discarded:
+freezing a pre-application terminal label, omitting proof outbox from rollback or
+attributing advanced delivery repair to pure guided history.
+
+### GU.impl28e — Observe ordinary progress over a real reachable carrier
+
+First requester_completion CI on3ce0fe4 passed4/6 in95s: all-carriers-drop setup
+could not reach the already-signed/framed prerequisite in its existing15s wait;
+history then lacked a completion. Selected: retain that failed execution and
+independently make the authentic mailbox carrier reachable for ordinary
+approved-worker progress, then apply transport faults outside measurements.
+Apply GU.impl28d's exact lifecycle/outbox/repair corrections before one corrected
+run. Discarded: longer waits, hidden signing/resume loops, weaker expectations,
+unclassified failure deletion or changing production to fit an offline fixture.
+
+### GU.impl28f — Diagnose terminal retry eligibility before changing setup
+
+Corrected CI c686831 passed 5/6 in 88s: repair, actual recipient application,
+both peer registrations and both bounded sync calls succeeded, then the existing
+five-second terminal outbox/journal wait failed. Runtime retry backoff can be up
+to 60s; sync success alone does not prove an outbox ACK. The failed category and
+cause remain unclassified. Selected: independent failure-only closed diagnostics
+at that exact wait, followed by one retained local run. Keep all original waits,
+assertions and purity categories. Discarded: assuming a future retry or wrong
+target without evidence, increasing the timeout, dropping queued categories,
+editing authority/queue rows, disabling workers or repeating unchanged CI.
+
+### GU.impl28g — Make a recorded retry eligible before historical measurement
+
+Final candidate ec4d63d CI passed 5/6 in 95s. Closed diagnostics identify one
+requester proof-outbox row targeting the actual issuer, attempts=4, due_now=false,
+eight seconds until retry; issuer outbox empty and both journals absent. This
+classifies that run as a premature fixture baseline, without classifying the
+earlier runner's missing evidence. Selected: after real repair/application/peer
+registration/sync, read documented retry timestamps and advance both debug test
+clocks once to their maximum/current time plus one second, within the runtime's
+60s retry horizon and live protocol bounds. Then retain the original five-second
+strict retirement wait and full historical purity measurements. Independent
+author commits before one corrected run. Discarded: sleeping longer, retry loops,
+queue edits, force-ACK/worker controls or a production change for test timing.
+
+### GU.impl29 — Native exact requester consent and bounded completion
+
+After merged69, select separate human Review, Approve and Complete controls over
+sections27/28, with pure lookup-first recovery and strict public projections.
+Section29 precedes code and independent native conformance. Preserve original
+consent, exact immutable F/terms, parent/native/time guards and distinct local
+application/delivery/access/readiness evidence. No schema/Rust/protocol or
+frontend keys/model tools/journal. Discarded: a combined approve-and-complete
+press, hidden mutation during Check/reload, provider selection, automatic agent
+access and recorded local application as a verified connection.
+
+### GU.impl29a — Historical entry and explicit leave semantics
+
+Independent author clarifications: retained approved original/F permits explicit
+requester entry even for expired/cancelled history, never fresh preparation.
+Public Check and a validated completion reply may both say Local application:
+recorded with public references, without inventing marker/interface attribution.
+Leave clears owner/finalization/requester panes, requiring explicit reentry.
+Discarded: hidden prepare on historical recovery or retained actionable panes
+after Leave. These clarify section29 before production implementation.
+
+### GU.impl29b — Reject invented application references before commit retention
+
+Initial PR73 review found a P2: approved five-stage needs_commit validation
+checked only manifest absence, allowing invented activation/outcome references
+to survive preflight. Existing sections27/29 already require all three absent
+at this stage. Select the same strict invariant for approved and unapproved
+five-stage snapshots; preserve legitimate six/seven-stage advancement. Extend
+the independent projection/preflight corpus before its first execution.
+Discarded: weakening public stage checks or treating approval as application.
+
+### GU.impl29c — Retain closed contact-purity failure metadata
+
+PR73's initial unchanged host CI repeated the known section24 final-history
+failure: dec_contacts changed without file/carrier changes,5/6in60s. All other
+23 suites and PR checks passed, with unchanged Rust. Select an independent
+failure-only snapshot metadata observer and one retained local diagnosis,
+preserving the whole original test after removing that observer. Discarded:
+guessing a cause, skipping contact state, raw dumps, larger waits or unchanged
+CI retry. Keep earlier69 missing-evidence failures unclassified.
+
+### GU.impl29d — Preserve captured flow bindings and valid short-deadline fixtures
+
+First combined native CI bfdffd0 passed308/312 in48.25s. Retain one old fallback
+wording failure and three new invalid fixture setup failures. Select truthful
+advanced-administration fallback plus separate participant review guidance;
+independent fixtures must respond to the captured old inspection flow after
+authoritative replacement, and bound original review expiry by signed request
+deadline before timing/lifecycle stimuli. Preserve every case/assertion/barrier/
+delay/timeout. Discarded: silently rebinding a click to new IDs, accepting invalid
+owner history or relaxing timing, privacy or exact-argv assertions.
+
+
+### GU.impl30 — Inspect project-bound agent-access terms before grant consent
+
+2026-10-30. Implementation choice under the accepted guided-onboarding scope.
+Section 30 precedes production and independent conformance. Select one pure
+owner-local snapshot of the exact attached project, verified network/local
+binding/selected person, signed policy and separately enforced content. Reuse
+ordinary projection and pending-withdrawal enforcement, with no provider probe.
+Discard membership as access, implicit label/network selection, copied frontend
+authority, a second authorization evaluator, new inspection storage and this
+read's digest as grant consent. Exact grant approval/signing, native controls and
+observed connection readiness follow separately; no full feature gate is complete.
+
+
+GU.impl30a — Before independent assertions, clarify Content's closed public
+shape as rules/capability_rules/trusted_hosts, retaining empty arrays. An
+unknown selected person is unavailable authority (409); only an absent network
+is 404. These settle the contract author's questions without adapting to runs.
+
+
+GU.impl30b — Preserve signed policy JSON field presence exactly, including an
+explicit zero artifact bound; typed policy normalization belongs only to the
+enforced-content projection. Independent case 3 must compare the signed JSON
+object, not a normalized CLI display. Also make stdin-only CLI parse-error
+privacy explicit when normal global flags separate command words. These
+clarifications precede source fixes and independent regression assertions.
+
+
+GU.impl30c — The first independent local run passed5/6in89s. Case2 exposed
+an erroneous production remapping of an unknown project flow from section5's
+404 to409. Preserve the inherited404; no status assertion is weakened. Clarify
+ordinary DEC Ed25519 public-key validity: an unknown valid key is409, while
+an invalid encoded public key is400. Correct an invalid unknown-person fixture
+with a genuinely generated public key before the next execution, retaining its
+409 assertion and all other cases/assertions/delays/timeouts.
+
+
+### GU.impl30d / GU.impl28h — Diagnose observed purity and retry prerequisites
+
+Corrected access CI6/6in35s and local5/6in75s expose an unidentified aggregate
+purity category. The same head's old completion5/6in86s reports a proof retry
+11s ahead despite prior one-time clock alignment. The alignment's captured
+generation and actual failed category are missing; no timing or product fix is
+inferred. Select independent failure-only closed captured-snapshot diagnostics
+for access and bounded before/after-alignment public retry metadata for old
+completion. Preserve exact prior AST/source after diagnostic normalization and
+all existing assertions/actions/clock counts/delays/timeouts. Commit before one
+retained diagnostic run per suite. Discard repeated unchanged runs, larger
+waits, missing purity categories, queue/authority edits, forced ACK, worker
+controls and a second clock-advance/protocol loop.
+
+### GU.impl30e — Retire genuine setup work before access purity accounting
+
+The first diagnostic access run5/6in73s passed DB/files but caught carrier IO;
+the specific cause remains unknown. Source/spec evidence establishes1800s is
+before the fixture's actual3600s invitation/request windows, and preceding
+revocation creates unrelated delivery work. Select actual observed expiry and
+ordinary retirement prerequisites, bounded by live measured authority, plus a
+separate genuine revocation fixture. Count every enabled path and preserve both
+original carrier counters and all strict measured assertions/timeouts. A separate
+author commits setup before execution. Discard a larger magic clock constant,
+quiet samples as retirement proof, discarded categories, uncounted transports,
+queue/authority edits, worker controls, forced ACK and unchanged reruns.
+
+### GU.impl28i — Establish counted normal peer delivery before terminal history
+
+Diagnostic CI4d262bf5/6in84s proves the same queued proof row attempted3→4
+after alignment and failed transport_unavailable. The local6/6in131s does not
+fix that failure. Select a genuinely advertised, authenticated and counted QUIC
+path only after both applications/all earlier bootstrap barriers; verify both
+normal peer routes, then preserve existing peer registrations/syncs/one clock
+alignment/strict5s retirement and every historical assertion. Add UDP accounting
+to both existing TCP counters. Independent author commits before execution.
+Discard more clock steps, sync as ACK evidence, early transport bypasses,
+uncounted carriers, queue edits, forced ACK, worker controls and longer waits.
+
+### GU.impl28j — Identify the observed historical carrier before changing setup
+
+First corrected local access6/6in97s passes strict state/files/all TCP+UDP purity.
+Old completion5/6in131s passes real delivery/ACK retirement, then its restarted
+API replay sees carrier IO with unchanged DB/state/home. Select independent
+failure-only counter-delta diagnostics over existing captured tuples before
+another setup change. All assertions/actions/delays/timeouts stay intact and
+diagnostics normalize to exact prior bytes/AST. Discard attributing background
+IO to the replay without evidence, extra waits, uncounted paths or worker control.
+
+### GU.impl28k — Observe actual startup directory completion before history
+
+Retained diagnostic5/6in154s sees2datagrams/2400bytes toward the stopped issuer,
+with no replies or DB/files/TCP change. Specific caller remains unknown. Public
+contract requires in-memory startup directory queries. Select one bounded
+synchronous refresh for the exact network after the existing restart, validating
+the known stopped issuer's completed error before unchanged quiet/purity checks.
+No current permission is invented; refresh is not a global transport fence.
+Independent setup commits before execution. Discard attributing IO to replay,
+refresh/retry loops, larger sleeps/waits, worker controls and missing counters.
+
+
+### GU.impl31 — Exact project-bound consent over one ordinary policy action
+
+After merged75, select separate durable consent before bounded completion.
+Section31 precedes implementation and independent conformance. The first fixed
+profile adds messages/tasks (65536 message bytes, zero artifacts, no delegation,
+capability/trust/offline sharing). Disclose ordinary owner-wide agent-NAME scope
+alongside the exact project/agent ID; no new authorization evaluator. Reuse
+schema27 dec_intents with one strict nonsigning access_review receipt plus one
+ordinary unsigned policy action, atomically prepared/approved with full current
+scope1/head/edit/clock guards. Preserve raw signed baseline fields and unrelated
+rules. Exact history/replacement is recoverable; no signer probe/signature or
+publication in this slice. Discard a new SQL table/schema for metadata, a second
+signing protocol, advanced approval as guided consent, silent payload refresh,
+automatic reapply, root fallback and a combined consent/signing press.
+
+#### GU.impl31a — Refusals and independent consent prerequisites
+
+Select raw-time-before-creation refusal before clamped live-work classification;
+keep the single captured raw/guarded pair throughout the transaction. A missing
+referenced ordinary action or predecessor receipt is corrupt guided state,
+409 access_review_unavailable; an unknown requested access ID remains404.
+Explicit replacement and approval cannot inherit advanced ordinary approval.
+Discard treating corrupt references as absent requested work, rollback as a
+different live review, or advanced approval as a reason to create another receipt.
+
+For independent advanced-approval setup, select the documented ordinary explicit
+external original public key and SSHSIG slots. Automatic selected-provider
+signing requires an available signer and is a different prerequisite. This does
+not add a guided signer override or possession probe. Preserve all consent
+assertions and retain the initial parser/clock/fixture failures; discard accepting
+an assumed successful setup or weakening history, rollback and traffic checks.
+
+### GU.impl32 — Separate exact policy signing from local application
+
+After merged77, select a small signature-storage slice with explicit private
+signing decision and pure signature recovery. Reuse the approved immutable
+ordinary action's single issuer slot; the exact human receipt stays nonsigning
+and unchanged. Current project/latest receipt, policy/provider/scope1/root/
+parent/edit/time/budget guards surround actual local or external signing.
+Selected device cannot fall back; original uses exact daemon-configured agent
+then a safe matching configured owner file, never global key discovery or argv.
+Record only signature/completed and clock atomically, with no policy/outbox/event
+write. Pure fully signed history claims recorded signatures only. Document the
+90s server/95s CLI and unknown-outcome/read-only recovery boundary.
+Discard a new signing protocol/table/receipt, implicit approval, broad key
+fallback, copied/refreshed policy, and combining signatures with application,
+peer delivery or native readiness. Independent section32 conformance precedes
+runtime execution; full acceptance and PR35 remain open.
+
+### GU.impl32a — Fault-response verification boundary
+
+For section32 late schema-only SQLite ABORT injection, select a controlled
+non2xx response with no private detail and exact signature/clock/all-state
+rollback. Discard pinning a new mandatory storage-failure code: injected internal
+storage failure is distinct from the specified corrupt-retained-state refusal.
+The implementation may return access_signing_unavailable; the independent
+case must retain every rollback capture/assertion without relying on that choice.
+
+### GU.impl32b — Preserve the existing access projection on reads
+
+The signing reader preserves section31's access object, including read-only
+current-state validation for unapproved receipts. Its no-probe boundary forbids
+external agent/key-file discovery or signing. Existing local retained-provider
+reads needed by that old projection stay read-only. Approved unsigned/signed
+history does not perform fresh authority/provider validation. Discard changing
+old access-state semantics or treating local reads as consent for signer IO.
+
+### GU.impl32c — Canonical observation-time fixture correction
+
+First independent signing execution on frozen production fc8cdf4 reported1/6
+passing in46s. Its observation regex requires a fourth colon-separated time
+component, so it rejects the specified canonical RFC3339 UTC observation.
+Select the existing ordinary YYYY-MM-DDTHH:MM:SSZ timestamp, explicitly restated
+in section32, and have the independent author correct that one regex typo.
+Discard changing runtime clock format or weakening time/shape/other assertions.
+Keep the initial log and dependent missing-signature-fixture failures as evidence.
+No production change or unchanged retry is attributed to this correction.
+
+### GU.impl32d — Preserve and diagnose old purity failures
+
+New signing passes local6/6in109s and CI6/6in79s; candidate325df66 has a clean
+review and passing PR checks. Existing completion history5/6in84s observes two
+issuer UDP datagrams/2400bytes; existing finalization history5/6in62s observes
+only dec_contacts3-to3 rows. Causes remain unclassified. A single unchanged local
+completion diagnosis6/6in138s does not erase that evidence. Select separately
+authored diagnostic-only support for documented unbound contact rows and bounded
+daemon-only timing categories under section32, retaining all original strict
+verdicts and complete proof captures. Discard guessing startup/anti-entropy
+causes, refresh as a global fence, filtering traffic or unchanged retry-to-green.
+No production or authority change is inferred.
+
+### GU.impl33 — Apply the exact signed project policy locally
+
+After merged79 (830c1ee), select explicit local publication/application of the
+exact dual-approved and stored-signed ordinary policy action, followed by pure
+verified historical recovery. First apply checks current project/provider/
+inspection/authority/edit/time pins in its one final transaction. Merge the
+ordinary proof/projection, settle the local edit, queue bounded ordinary peer
+delivery and save the ordinary action result/clock/event atomically. No new
+signature, consent, table, journal, protocol or direct guided transport call.
+Discard implicit apply during signing, refreshed payload/provider fallback,
+auto retry and treating a local commit as peer delivery or connection readiness.
+Native access controls/readiness and the full feature acceptance remain open;
+PR35 stays unmerged. Preserve PR79's unclassified failures and all existing
+strict assertions rather than guessing another refresh/sync/quiet fence.
+
+### GU.impl33a — Check ordinary provenance without an unsupported discriminator
+
+First independent application execution on unchanged production a8ccff3 is
+2/6 in62.31s. Cases1/4 stop at a literal basis.kind=current assertion; cases5/6
+then lack the positive fixture. Case2 current guards and case3 late all-state
+rollback pass. The retained first application has exact policy/proof references,
+terminal applied, and ordinary retention provenance with13 evidence IDs.
+Storage section4 permits current/retention/migration and fresh section33 guards
+do not promise that private discriminator. Select an independently authored
+closed ordinary provenance/structure/reference check while preserving all
+signature/payload/current-enforcement/evidence assertions and every action,
+wait, capture and carrier comparison. Discard changing ordinary admission
+semantics or accepting a provenance label as proof. Retain the first failure
+and its dependent cases; no production change or unchanged retry is justified.
+
+### GU.impl33b — Establish the new history generation and live hints explicitly
+
+After the provenance correction, cases1–4 pass on unchangeda8ccff3; history's
+startup prerequisite and following retirement wait fail. Exact retained metadata
+shows a return outbox for case5's newly created policy, attempts2 with a retry
+17s after the history target, and both remote signed hints already expired;
+standalone authority deadlines remain valid. These identify unmet setup, not
+the directory caller's exact failure or the causes of PR79's old observations.
+Select actual latest-generation retirement before restarts plus genuine current
+signed contact handoffs and their documented expiry/ordinary maintenance before
+the unchanged strict history baselines. Any retry alignment uses its real
+recorded time within current hint/authority bounds, not a larger timeout or
+forcedACK. Discard assuming prior quiescence settles new writes, treating
+refresh as a global fence, queue/authority edits and traffic filtering. Preserve
+both first logs, dependent cases, all old suites and frozen production.
+
+GU.impl33b clarification: earlier expired hints may also require genuine
+contact handoffs before the newly created policy generation's queue can settle.
+Observe that actual proof outbox/journal retirement without claiming that
+short invitation secrets have expired. Carry every real invitation deadline
+into the later shared cleanup before any strict history baseline. Discard
+assuming a manual address proves a current signed contact or forcing an
+intermediate whole-transport claim while a genuine invitation window is live.
+
+### GU.impl33c — Close retained admission references before historical success
+
+Fresh review on52b1958 findsP2: private admission shape validation accepts a
+still well-formed evidence_ids array with required references removed. The
+normal signed historical result proves signature/consent closure but does not
+validate those local admission references. Select checking the exact signed
+statement/root/direct-parent IDs before returning any locally_applied history
+marker; both pure observation and explicit applied replay must refuse a damaged
+record without repair. An independent restored negative admission-evidence
+case must expose the initial behavior and verify the correction. Discard
+treating private schema validity as complete provenance, silently reconstructing
+missing evidence, or weakening the historical state/carrier comparisons. Keep
+the first six-pass baseline and prior failures; source changes require fresh
+Rust/affected conformance/final-head CI and review.
+
+### GU.impl33d — Identify the newly retained section25 contact change
+
+Final78df456 CI passes application6/6, all27 other suites except section25,
+all PR checks and fresh review. Section25 historical F refusal reports only
+changed dec_contacts in5/6in102s, without row/caller attribution. Select one
+independent failure-only projection of already captured contact snapshots,
+then one retained local diagnosis on frozen4842404. Preserve every strict old
+comparison/action/delay/timeout and record this failure before proceeding.
+Discard treating the earlier similarly named failure as the same caller,
+guessed global fences, disabling workers/paths, altered counters or unchanged
+retry-to-green. A passing diagnostic run leaves this CI cause unknown.
+
+GU.impl33d result: the independent130-addition observer plus call restores
+entire830c source by bytes/AST when removed; all other60 old files stay exact.
+One frozen4842404 local diagnosis passes6/6in147.75s, above120s, and the observer
+does not trigger. Retain the failure and duration; neither a changed contact
+row/caller nor a runtime/setup fix is established. Final changed-diagnostic-head
+CI/review follows without an unchanged rerun or altered old verdict/timeout.
+
+### GU.impl33e — Establish the actual current own hint before history purity
+
+Diagnostic b937f96 CI identifies one local bound contact renewal: sequence and
+issued/expiry move past original request expiry, payload unchanged. Select one
+unconsumed short public invitation and actual expiry/ordinary maintenance to
+establish a current genuine own hint before the unchanged strict history checks.
+The original real commit, clock advance, cleanup, restart and replay stay.
+Discard hand-edited hints, stopping maintenance, longer sleeps, filtered rows or
+claiming the new observation identifies old PR79 callers. An independent author
+adds only contract-defined setup; preserve every prior failure and147.75s limit.
+
+### GU.impl33f — Diagnose the separate relay completion failure before repair
+
+On the same b937f96, delivery11/16in98s stops at inviter application after60s;
+requester is linked, inviter needs_commit, four later failures are dependent.
+Select bounded failure-only retained-state and existing daemon-timing projections
+plus classification of the original commit attention. No new protocol driver or
+changed wait/setup/verdict. Discard treating a helper storage ACK or requester
+local outcome as inviter application, a longer timeout, guessed transport fixes
+and unchanged retry-to-green. An independent author commits before one retained
+run; a pass does not erase the original failure or establish its cause.
+
+### GU.impl33g — Correct the new fixture's unsupported empty-QUIC expectation
+
+The first current-own-hint run passes1–5 but stops at the added payload check
+before cleanup/history,5/6in138.67s. Retained payload counts are bootstrap1
+matching the configured relay, QUIC1, relays0. The fresh peer-enabled runtime
+advertises its actual listener; select the exact known h.peer_address in that
+added fixture expectation. An independent one-line correction retains all other
+new checks and every old assertion/action/order/wait. Discard dropping the exact
+transport comparison, changing runtime advertising, or claiming a product fix.
+Keep the first failure and frozen production; one corrected-source run follows.
+
+### GU.impl33h — Make the new failure observer observe the actual host store
+
+Before its first runtime, static review finds the newly added single-*.db
+assumption excludes the standard host+bootstrap-store fixture. Select only its
+existing host.db in one read-only transaction. Also explicitly classify the
+already documented recovery_required/quota_exceeded transport categories and
+the existing served timing's bare trailing HTTP status. A separate author makes
+only these diagnostic corrections. Discard unknown-by-construction metadata,
+probing/mutating the bootstrap store, arbitrary error output or changing tests'
+verdicts/driver/waits. Preserve initial author bytes and correction provenance;
+this is pre-execution review with no new runtime/product change.
+
+### GU.impl33i — Recognize the displayed transport-code prefix
+
+Select fixed-category parsing of the existing attention prefix before its colon,
+without emitting or interpreting explanatory text. Exact bare-string comparison
+misses the supported displayed form. An independent metadata-only correction
+preserves all old behavior and the first local diagnostic's65222cc2 attribution.
+Discard copying raw attention/error text or changing protocol retries/waits.
+
+GU.impl33e/g result: first added payload prerequisite stops5/6in138.67s before
+history. Independent exact current-listener correction preserves all other
+checks and passes6/6in135.98s with the genuine own hint/expiry/cleanup before the
+unchanged strict history and restart. Durations exceed120s; no runtime/old
+assertion/timeout changes. This does not identify original PR79 callers.
+
+GU.impl33f/h/i result: one frozen-source delivery diagnostic run passes16/16in
+69.56s without triggering. The first CI relay failure remains unclassified.
+Pre-execution store/status corrections and later category-prefix parsing are
+independently attributed; the running original source stayed frozen. All old
+verdicts/actions/waits/exception behavior remain, and removing the additions
+restores the entire original bytes/AST. Fresh final combined-head CI/review
+follows without an unchanged local rerun or a claimed transport fix.
+
+### GU.impl33j — Give the standalone input corpus a real fresh-start window
+
+Combinedcfbe31d CI passes27/28/all PR checks/clean review; section31 input_refusal
+fails5/6in62s with both dec_clock and dec_contacts changed, no state/home paths.
+The actual caller is unclassified. Select a fully observed ordinary restart of
+both existing hosts before this standalone input case, actual explicit sync/
+current hints/directory/retirement, and a monotonic entire-case bound before the
+normal first60s periodic sync. All real workers/paths/arguments/clock and lifetime
+counters remain enabled and unchanged; all earlier history cases remain exact.
+Require observed authority, binding/member and contact lifetimes to cover the
+remaining monotonic window; discard instant-only validity that can expire during
+the input corpus. This adds read-only guards and no renewal action.
+An independent author adds only setup/metadata; removing it restores the old
+source bytes/AST. Discard guessed global directory fences, delaying/disabling
+workers, hidden traffic, larger waits or changing any old assertion/verdict.
+No runtime fix or retrospective caller attribution is claimed. Commit before
+one retained frozen-source run and fresh final combined CI/review.
+
+### GU.impl34 — Native access inspection and exact nonsigning approval
+
+After merged80, select a small human-only native slice composing sections30/31.
+Choose explicit network/person inventory, complete verified public inspection,
+lookup-first proposed-grant recovery and a separate exact approval. Show the
+ordinary owner/name scope and full baseline/proposal; keep signing/application
+for subsequent controls. Discard pasted keys, label identity, automatic actions,
+replacement, provider fallback, new persistence and readiness inference. Pin
+contract before implementation and use a separate contract-only native author.
+Preserve all312 existing native cases/all28 host suites; re-use unchanged Rust
+local gates and require full final-head CI/review. Hostless people and unsafe
+JS-u64 presentation remain explicit native limits; no second evaluator added.
+
+GU.impl34 clarification: ordinary membership lists machine labels independently
+of person-lease labels. Group choices by exact person key and show each distinct
+quoted machine label; inspection separately supplies the verified person label.
+Discard cross-label equality and treating one machine alias as person identity.
+This corrects the contract before any runtime execution.
+
+GU.impl34 pre-execution clarification: retain the selected DEC network's context
+from onboarding and reject a different member context before offering people.
+Legacy history is not a grant choice. Quoted project root belongs in the private
+human review, while remaining absent from model/log/outside-UI/argv; internal
+transport IDs remain undisplayed. Independent fixture privacy expectations must
+respect this boundary rather than forbid the required human project review.
+
+GU.impl34 verification: retain first load failure (old312 pass), executable
+325/332 (six wording assertions, one missing parent prerequisite), and corrected
+317/332 (15 default5s timeouts, nine old), plus draft CI's two unchanged host
+purity failures. An external Cargo status-fix build overlaps the timeout run;
+this is not established cause. Choose required final exact-head CI on a separate
+runner to verify current source. Discard an unchanged local retry-to-green,
+increasing deadlines, stopping another track or editing old tests. Public kit
+argument order, genuine baseline/parent prerequisites and private human-root
+classification are independently corrected; all20 cases/assertions/delays stay.
+
+### GU.impl34a — Preserve inherited policy action ordering
+
+Fresh03c05f4 bot review P2 identifies native order-sensitive matching of the
+ordinary fixed-profile rule. The backend compares action sets and preserves raw
+inherited order. Select set equality only at this matching check, preserving
+complete policy bytes/digests/display and fixed grant actions. Discard sorting
+public JSON, new duplicate rules or treating additional actions as the profile.
+Independent fixture semantics plus one positive reverse-order regression precede
+root verification. Retain all previous failures; wait for the observed external
+compiler to finish before the corrected-source run, without stopping that track
+or changing test bounds. Final exact-head CI/review remains required.
+
+### GU.impl35 — Finish approved agent access through one native action
+
+After merged82, choose one explicit Finish agent access to compose exact approved
+signing and local application, with pure Check application first for recovery.
+Existing approval/entry/Check stay nonsigning, preserving333 original cases.
+Discard two technical mutation buttons, automatic work after a read/approval,
+new consent/provider/state, retry and local-application readiness claims. Each
+existing mutation keeps its own95s client/90s server bound and the original
+five-minute deadline. Fresh guards precede each dispatch; unknown signing stops
+before apply. Contract-first independent native cases and full final-head gates
+remain required. No Rust/protocol/evaluator changes or new peer/model IO.
+
+### GU.impl36 — Observe current project readiness evidence without advancing it
+
+After merged85, add an owner-local project/network/person-bound read snapshot.
+Reuse current section30 verified inspection, the ordinary receiver directory's
+exact advertised authorizations and only this project's session connections,
+under one DB transaction/DEC read time. Preserve origin restrictions, blocks,
+self/grant paths and current enforced policy; keep channel/reachability/model
+evidence separate. No new consent/keys/schema/storage/peer IO or frontend yet.
+
+Discarded: ready boolean from historical application, frontend rule evaluation,
+agent-wide channel borrowing, implicit peer/model probes, new durable workflow
+and changed ordinary directory/adapter behavior. Independent six-case29th slim
+suite plus unchanged349 native cases/all28 old suites, final CI and fresh review
+precede owner merge; the full observed-readiness/feature acceptance remains open.
+
+GU.impl36 source review: a sampled DEC read time must not imply status-summary
+tolerance. Readiness keeps ordinary receiver projection errors strict, rather
+than turning unavailable evidence into successful empty authorizations. Existing
+status behavior stays the same; nested read-time guards restore both time and
+error mode. This clarification precedes the corresponding source correction.
+
+GU.impl36 first host run retains2/6 in34s: valid array directory replies cannot
+pass a copied dict-only contact helper; a repeated retirement pass also collides
+with an existing scratch-key filename. Actual HTTP status for the former was
+not retained, so no claim of observed200 is made. The missing fresh-window
+field is a downstream setup failure. Contract-first independent corrections
+change only those fixture prerequisites, preserving all assertions/traffic/DB
+checks/delays/timeouts. Product stays frozen; the first result remains recorded.
+
+### GU.impl37 — Native explicit current connection status
+
+After merged86, add Check connection status to verified selected-person access
+views. Read the exact section36 snapshot only on that explicit action. Present
+receiver advertisements and exact-session adapter observations separately; show
+full public details without internal native/session/adapter plumbing. A fixed
+30s/earliest finite-bound timer clears stale evidence without IO. Current native
+model/peer/overall readiness is not inferred. Existing runtime remains separate.
+
+Selected: one read-only human status pane with explicit Check/details/access
+review/Leave. Discarded: implicit work after approvals, an overall-ready badge,
+permission unions/evaluation in the frontend, borrowed channels, automatic model
+or peer probes, new storage and edits to349 existing tests. Independent16-case
+source precedes root runtime; unchanged Rust/local gates are reused, final all29/
+four checks/fresh review run on one head. Full feature acceptance remains open.
+
+
+### GU.impl38 — Explicit selected-machine authenticated reachability
+
+After merged87, add one owner-local exact-project/network/person/remote-host
+check. Reuse the ordinary pinned peer directory GET, with contact learning
+disabled only for this explicit observation. One target and8s exchange/12s API/
+15s CLI bounds keep the operation finite while retaining current direct/helper
+routing and the existing safe cached-connection retry. Recheck complete current
+inspection/project pins after IO; no durable readiness or directory-cache write.
+An authenticated HTTP response, including403/404, proves only the outbound
+transport exchange. Incoming delivery, model receipt and overall readiness stay
+unverified. Native controls follow separately.
+
+Selected: one explicit bounded current-route check and no response-body trust.
+Discarded: fanout, directory refresh/contact-learning sync, short direct-only
+timeouts that exclude existing helper fallback, new ping/admin protocol, remote
+permission inference, implicit model/work probes and a combined ready badge.
+Independent six-case real-host source precedes root execution; all365 old native/
+29 old host suites stay exact and final all30/four checks/fresh review run.
+
+GU.impl38 verification: preserve all15 local first gate outcomes and initial
+CI failures. New conformance6/6in53.07s passes on frozen1e78059 after contract-
+first independent public setup and new-selector corrections. The latest failed
+recovery has actual target-thread upstream_receive blocking, zero counted IO,
+and a failed independent fresh probe despite exact hint match. Choose only a
+nonblocking new proxy; discard a guessed production transport/cache fix,
+shared-helper changes, relaxed checks or larger waits. All6 ordered case ASTs
+remain exact after the pre-execution permitted error alternative; all78 old
+plugin/conformance files stay identical. Earlier uninstrumented causes and the
+initial unchanged owner-finalization immutable-history CI failure remain
+unclassified. Final all30/four checks and fresh bot/root review run on one final
+head; native reachability controls and full-feature acceptance remain open.
+
+### GU.impl39 — Native explicit one-machine outbound connection check
+
+After merged89, choose explicit remote machine selection from a verified local
+status roster, followed by a separate Check outbound connection. Keep a fixed
+short roster/evidence lifetime and exact remote public-key pins around existing
+section38 CLI IO; validate current complete inspection rather than use consent
+history. Current metadata may change while the chosen key stays bound. Display
+transport status/direction separately from permissions/incoming/model evidence.
+Discard defaults, fanout, automatic probes/repair, direct sockets, new durable
+state, overall-ready badges and broader native runtime scope. Contract-first
+independent16 native cases preserve365 old cases/all30 host files; root serial
+gates and final all30/four checks/fresh review precede owner merge. Main PR35 and
+full-feature acceptance remain open.
+
+GU.impl39 source-review clarification before first runtime: roster expiry and
+result display expiry are separate authorities. Clearing a result for another
+choice or explicit check cancels only that result's timer; the original roster
+bound keeps guarding pending work. Discard retaining an earlier result deadline
+as authority over a new target, or extending the roster to the latest response.
+
+GU.impl39 pre-execution presentation review: an unavailable attempted check
+must not say no check was performed. Keep volatile attempted/result states
+distinct and display no result available after an attempt. This adds no work,
+retry, persistence or readiness claim; no runtime failure is attributed.
+
+GU.impl39 pre-execution wording audit uses the contract's literal public
+outbound direction sentence, with plain apostrophes. No semantics, tests,
+permissions, traffic, timing or validation change is implied.
+
+GU.impl39 verification: new16/16 pass on their first native run; full379/381 in
+70.08s retains two unchanged old5s access-completion timeouts, unclassified.
+Strict303 validation and old real-host reachability6/6in51.25s pass. Preserve
+all59 old test/helper files, old deadlines and every first outcome/hash. Choose
+required final exact-head CI on a separate runner plus fresh review; discard an
+unchanged local retry, guessed runtime fix or weaker tests. Existing Rust gates
+are reused from merged89, with the full final all30/four matrix repeated. Actual
+terminal/reload/installed/physical/model/other-computer/schema23-to27/full-state/
+final combined acceptance remains open.
+
+### GU.impl40: request this computer under a pinned existing person
+
+Implementation recommendation under GU-OWN1: select a separate explicit native
+machine-request lane using sections11/12/15's existing public-key-only backend.
+The original key stays on its existing computer. No local identity inventory,
+new key substitute, schema or durable UI lane is required. Exact pinned public
+identity is reviewed separately from publication; owner/device powers remain
+later reviews on the authorized computer. Discard original-key copying/import,
+arbitrary unpinned key entry, ownership claims from pins and reusing new-original
+owner controls for a remote existing person. Section40 contracts twelve separate-
+author native cases before implementation; preserve all381 old native cases,
+all30 host suites, deadlines and earlier unclassified outcomes. Existing-
+computer guided approval and all full-feature acceptance gates remain open.
+
+GU.impl40 pre-execution source review: preserve the fixed machine-review timer
+through pending guards/IO, and retain the private invitation only through the
+explicit volatile identity-review stage before publication review. Clear both
+on expiry/navigation; do not cancel expiry when a human starts another action
+or drop the required code before its next explicit review. This is a source
+correction before any runtime execution, with no test failure attribution.
+
+GU.impl40 pre-execution review keeps the labeled existing-person public key and
+pin-versus-ownership explanation visible in publication review/history as well
+as the preceding invitation review. Discard losing that identity context when
+moving between two separate human decisions. The contract-only author's
+disclaimer assertion accepts equivalent negative wording (including neither),
+without changing the reviewed facts or removing its ownership/authority check.
+
+GU.impl40 first native run:390/393 in72.71s, new11/12. Fix the controlled
+guidance to say pinned invitation explicitly; its preceding pins wording was
+semantically similar but less direct. Preserve the first failure. Two unchanged
+old access-completion5s timeouts remain unclassified, with no known compiler in
+pre/mid/post samples. The pinned303 CLI has no test-file selector; run corrected
+new12 in a byte-exact plugin copy containing only its committed test file, then
+the full393 in required final CI. Discard unchanged old-case local retries,
+assertion edits, timeout changes or a guessed runtime diagnosis.
+
+GU.impl40a: first final-head8183a22 CI passes four PR checks/native393/Rust gates
+but two unchanged host suites fail strict purity (28/30 pass). Their existing
+metadata lacks an exact caller; retain both as unclassified. Choose separate-
+author failure-only phase/key/contact-lifecycle and one bounded pure directory-
+cache observation, contracted in section40 before author edits. Preserve all
+original assertions/captures/actions/delays/timeouts/counters/records; diagnostic
+removal must restore source bytes/AST. Discard blind reruns, transplanting an
+earlier suite's cause, guessed setup changes, worker disabling and weaker gates.
+
+GU.impl40a verification: one retained requester diagnostic run passes6/6 in
+137.39s (over the2-minute target), owner diagnostic6/6in79.45s. Neither observer
+triggers; neither pass classifies the original CI cause or proves a runtime fix.
+Root independently confirms removing only diagnostics restores both original
+source bytes and full AST. All381 prior native cases and other58 prior test/
+helper files remain exact. Frontend/Rust stay frozen; final full CI and fresh
+review run on the combined documentation/diagnostic head. Preserve first CI,
+first local outcomes, duration and unknown causes; no unchanged rerun.
+
+GU.impl40b: revised78668d1 CI passes native393/four checks and29/30 host suites;
+both prior diagnostic suites pass. Access-signing's unchanged startup-query
+prerequisite fails without returning its state in the log. Choose compact
+captured-response-only diagnostics by the separate author, preserving the exact
+successful-peer assertion and all setup/actions/bounds. No cause inferred,
+new network attempt, relaxed state, larger wait or unchanged rerun.
+
+GU.impl40b verification: the first actual retained access-signing diagnostic
+run passes6/6in109.99s without observer output; the earlier CI prerequisite cause
+remains unclassified. Initial preflight saw an unrelated compiler and started
+no suite; actual execution began only after it cleared. Root verifies exact
+byte/AST restoration after removing helper/call. All original actions/assertions/
+bounds/counters and frontend/Rust stay unchanged. Required final combined CI
+and fresh review follow; no runtime fix or weaker success criterion is claimed.
+
+### GU.impl41: current existing-computer machine-owner review
+
+Select a pure project-bound backend inspection before adding exact existing-
+person owner consent/signing and native controls. Use the persisted public
+original/device selection and verified current membership/authority, actual
+incoming keys and finite profile7 capped by the provider deadline. Read no
+signer seeds/files/agents; public authority and private availability are separate.
+Discard root fallback, key copying, implicit approval, silent scope downgrade,
+new schema and reusing the requester-local new-original review. Section41 fixes
+the external shape and six independent cases before implementation. Keep all
+existing suites/native393 and full-feature acceptance limits.
+
+GU.impl41 pre-conformance review: unpinned means signed request pins, not an
+extra invitation-as-authority rule. Digest stability requires the same live
+attached parent; ordinary restart detachment refuses old contexts and a fresh
+attachment changes the review. Source inspection found the ordinary snapshot
+memo fingerprint hashes root_seed despite not using it for public authority.
+Use a narrowly scoped public snapshot load that bypasses that fingerprint and
+reads only its existing public/marker columns; preserve other callers/cache.
+The first Rust compilation also exposed an inaccessible field helper; use the
+existing typed codec object/text accessors. Retain the failed compile receipt.
+
+GU.impl41 contract-only author found stale runtime-contract section3 creator
+wording contradicting accepted decentralized-spec section6/DEC-Q21/Q21a/Q27/Q30
+and independent creator-device fixtures. Reconcile it to creation-selected
+device15 and the existing narrowly bounded creator renewal exception; preserve
+older exact original-provider historical results. No runtime creation change
+or new owner choice is introduced. Discard encoding the stale no-device claim
+as a new conformance prerequisite or fabricating a creator-device fixture.
+
+GU.impl41 local verification resource boundary: corrected Rust tests/Clippy/build
+pass. A later corrected-format gate cannot save its receipt: errno28 no space
+left on device in shared /dev/shm; child outcome was not retained. Immediately
+following unchanged join_onboarding exits120 in2.01s with an empty log, so its
+case progress/outcomes are unknown. Preserve both attempts. Known disk capacity
+then recovers, but choose a concrete fixture-environment correction: relocate
+only this task's artifacts/TMPDIR to regular disk /tmp/gu41-runtime (125GiB free),
+keep frozen binary hashes, test source/actions/bounds and product unchanged.
+Run the affected gates once in that corrected environment; this is not evidence
+of a product fix or classification of earlier unrelated suite failures.
+
+GU.impl41 root orchestration error: the corrected-environment join_onboarding
+run was still active when root started ordinary join. Stop the newer join with
+SIGINT (exit130,28.18s; three completed cases pass), retain its partial first log,
+and make no complete local join claim. Join_onboarding finishes14/14in75.64s;
+the overlap is a limitation of that receipt. Add a task-owned nonblocking gate
+lock to the local runner before further runtime execution. Do not retry these
+unchanged suites locally for a cleaner receipt; the required final exact-head
+CI must independently run both in its existing isolated matrix jobs. No tests,
+product, assertion or bound changes.
+
+GU.impl41 pre-execution independent-test audit distinguishes dp_ exact-envelope
+proof IDs from ds_ semantic statement IDs, derives both using public specification
+messages and verifies actual request dpk_ after genuine host/device signatures.
+Separate author commits4c0615/7776522 precede the first suite execution; all old
+tests/bounds remain exact. Record the author's bounded fixture and syscall/5s
+client-cutoff limits in section41 rather than infer those from snapshots.
+
+GU.impl41a first draft CI: new suite0/6in22s. Four exact-member failures reveal
+product inspection used member_for, whose device summary is dash; ordinary
+members includes the active creator device. Use current members projection
+without relaxing the test. Ordinary approval setup in case5 separately fails
+with unobserved status/code; case6 cancellation expectation is consequently
+unestablished. Contract bounded captured-response diagnostics by separate author
+before guessing or changing that fixture. Retain CI log06f14af6 and all first
+outcomes; native/Rust checks pass, full matrix still being observed.
+
+GU.impl41b: distinguish actual compilation from an unrelated long-lived cargo
+test wrapper, observed with test child but no rustc and a separate mmfix target.
+Keep the task gate lock and block actual rustc/native or other cargo work; allow
+that noncompiling test wrapper while explicitly retaining its PID/activity in
+all local receipts. Discard killing others, pretending global idle or waiting
+indefinitely on the cargo process name. No tests/deadlines/counters change.
+Re-run Rust gates on the actual local-member product correction before suite.
+
+GU.impl41 corrected verification: fresh format, existing Rust155/2ignored, Clippy
+and build pass for tree4f9ac21c. First local six-case diagnostic suite passes6/6
+in36.19s on hashed fresh binaries, with no known compiler at before/during/after
+samples and no observer output. This does not recover the first CI case5
+status/code; preserve that unknown cause. All74 old conformance/native files and
+native393 stay exact; independent diagnostic removal restores prior bytes/AST.
+The verification record retains first CI0/6, all30 existing host suites/four
+checks passing, compile/resource/orchestration limits and every source/test/
+binary/log hash. No unchanged local suites are rerun for cleaner receipts.
+Final combined-head all31+build/four checks/fresh bot/root review follow. Exact
+existing-owner consent/signing/native controls/requester completion and all
+full-feature acceptance remain open.
+
+### GU.impl42: exact existing-person machine-owner consent
+
+After merged93, select a nonsigning project-bound receipt in existing dec_intents
+paired with the ordinary owner intent. Fixed inspected person/machine/provider/
+finite7/deadline and human expiry are immutable; explicit current-parent review
+replacement retains protocol templates/time. Dual flags/time approve atomically;
+ordinary background signing/publication/finalization is explicitly authorized,
+requester consent remains separate. Preserve history without attributing another
+interface's approval to the project. Discard mutable-review reconstruction, new
+schema, key copying, root fallback, silent replacement and readiness inference.
+Section42 fixes inputs/reviews/quotas/atomicity and six independent cases before
+implementation. Native controls and bounded signer continuation follow.
+
+
+GU.impl42 verification/corrections: first CI4/6in27s, diagnostic CI4/6in29s
+and root2/6in21s are retained. Independent captured-only observers classify
+catalog-only excess pending change and approve/provider review code mismatch.
+Preserve unsigned incoming catalog; shared approved first-offer completion
+retains revalidated public proof before its frames. Map changed current terms to
+review_changed. Corrected CI5/6in31s exposes automatic owner polling before
+approval; require a validated approved nonterminal ordinary owner intent. Keep
+independent requester polling and advanced preparation semantics. No fixture
+waiting/hold workaround, changed old case, relaxed assertion/counter or deadline.
+
+The final owner-guard treeff15f3fe passes existing Rust155/2ignored, format,
+Clippy/build; compiler-idle local machine_owner6/6in35.26s. The first local new
+suite5/6in29s captures an unrecognized existing-side logical table change during
+history CLI, with no file/carrier/schema changes. A contracted allowlist-only
+observer then passes6/6in49.26s without observer output; the earlier table cause
+remains unclassified. All84 old conformance/native files and native393 remain
+exact. Owner-guard CI passes all32 suites+build/four checks/native393 and fresh
+bot/root review. The verification record retains compile failures, no-starts,
+language-only separate-target overlap, all CI/local first outcomes, original
+requester-completion UDP failure and source/coverage limits. No claim that later
+passing samples diagnose earlier failures. Final evidence-only head requires
+fresh full CI/review on PR94; leave94/35 unmerged for owner review.
+
+
+### GU.impl43: bounded existing-computer initial owner signing
+
+After merged94, select private signing/sign endpoints and stdin commands under
+the exact section42 receipt. Original and owned-device first packet plus reviewed
+fold issuer use ordinary typed slots; configured exact source only,90s bounded
+phases and atomic ordinary signature/pending/catalog/clock storage. Keep original
+receipt deadlines and current public eligibility, pure completed-history replay,
+no new approval/attribution/schema or explicit publication/F/commit driver. Test
+the guided-only device proof-retention path and the original safe file/agent
+paths independently. Discard caller signer/material inputs, client device seeds,
+broad resume, root fallback and proofless/readiness claims. Section43 settles
+all behavior and six independent cases before product code; native controls and
+requester completion remain separate. Recommended under delegated GU-OWN1.
+
+GU.impl43a retains first runtime4/6 and fixes positive fixture prerequisites:
+the genuine invitation's member must match the current verified person member.
+Preserve spec8.4 automatic requester selection after ordinary work is released;
+the strict held signing action still changes no requester state. Commit remains
+separate. After real expiry, establish actual helper ciphertext retirement before
+whole-state historical assertions; first helper-table changes remain explicitly
+unclassified. Discard relaxing invite pins, changing ordinary selection policy,
+excluding helper tables or rerunning an unchanged failure. Section43 records
+the exact first hashes, independent correction and remaining limits.
+
+Final product Rust105e8c54 passes fmt/test155+2ignored/Clippy/build; corrected
+independent signing6/6in68s verifies actual guided device proof publication and
+requester retention. Bot P2 fixes stale beginning-of-phase wall time with a
+fresh guarded read and all fixed deadlines immediately before commit. First CI
+passes all32 old suites+build/four checks/native393 while new cases4/6 fail the
+documented prerequisites. Unchanged local consent first6/6in38s, later final
+sample5/6in49s: outside-approval-held TCP counters changed, DB/files unchanged;
+cause remains unclassified. Preserve every first log, all85 old test/native
+files, and all source-only limits; no unchanged local retry. Final exact-head
+CI and review receipts on PR96 remain required before owner review.
+
+GU.impl43b keeps first final3e026ab requester-completion5/6in86s: wrong-review
+pure refusal, issuer UDP+2/+2400, no returns and requester DB/files unchanged.
+All other32 suites+build/four checks/native393/fresh review pass. Select only
+independent failure metadata at the untagged generic refusal assertion; removal
+restores the old source bytes/AST and all other84 old files stay exact. No
+runtime policy/counter/wait change or guessed transport fix. One diagnostic
+execution and a new final combined head must retain the original unknown cause.
+
+Independent8ef1b77/rootd3a50cb restores old requester source cb852ae2 and its
+full AST exactly when removed. Its only local diagnostic passes6/6in143s with
+no observer output, so the original CI cause remains unknown; retain over2min
+duration and runner-label no-start. Rust105e8c54, signing0cd90eeb, other84 old
+files and native393 stay exact. No additional local retry or transport change;
+new final-head full CI/fresh review remains required.
+
+
+### GU.impl44: native existing-computer machine-owner controls
+
+After merged96, select one explicit retained-request lane composing the closed
+sections41/42/43 public APIs: pure review, exact nonsigning consent and explicit
+bounded initial signing. Keep original/device selection on the host, project
+attribution and fixed windows, view-only history and separate readiness facts.
+Discard auto-approval/signing/retry, key copying, root fallback, native review
+replacement, a new protocol driver and signed-as-linked presentation. Section44
+settles the public native contract and independent fixture cases before code.
+Requester completion and full feature acceptance remain separate.
+
+GU.impl44 first bot P2: an independently validated receipt from another still-
+attached project can legitimately remain review. Keep it view-only, comparing
+the current inspection only for this exact project's actionable review. Never
+convert foreign review into approval/signing eligibility or attribute it here.
+
+GU.impl44 privacy clarification before first native execution: retain exact
+private context comparisons but omit native conversation IDs and parent flow/
+review/session plumbing from human review. Show public project/agent labels and
+actual machine/consent terms. Discard raw context dumping. The first validator
+runner invocation stopped before launch on root's incorrect expected-head
+literal; retain it as no-start, not a product/runtime test failure.
+
+GU.impl44 first local native413/415in79.82s (runner80.67s): new21/22; the
+no-attribution assertion matches a negated “this interface” phrase followed by
+retained signed evidence. Select concise “Signing attribution: not established”
+without changing the independent assertion. Old access-completion case8 exceeds
+its unchanged5s default; cause remains unclassified, no timeout/case change.
+First CI197 passes Rust/four checks/native393in99.09s and32/34 conformance jobs:
+access_signing4/6in83s reports genuine peer startup not completed (state error);
+machine_owner5/6in31s reports whole DB/files changed on refusal, all carriers
+unchanged. Retain both unknown causes; Rust and all64 old test files stay exact.
+
+Corrected native source47553ed passes all22 new cases; complete run412/415in
+79.14s (runner79.87s). Three unchanged old cases fail: access signed-result
+corpus and access navigation exceed5s; adapter pending-HTTP conversation case
+expects one dispatched connection but observes zero. Causes remain unclassified.
+No source/test/timeout edit or unchanged local retry follows. Prior combined
+bcc2 CI414/415in78.62s fails only the now-corrected wording case; old393 pass.
+All64 preexisting test/conformance files and Rust105e8c54 remain exact. Final
+combined-head CI and fresh bot/root review must establish the review candidate.
+
+
+### GU.impl45: pure verified new-computer requester commit review
+
+After merged97, select a private join-flow-bound inspection of received remote
+existing-person owner/selection/admission/F evidence. Reuse ordinary verification
+and fixed finite7/2 bounds; retain folded admission's absent administrator stage,
+actual provider/P/H/B/D and original stage deadline. No local original owner
+receipt/key is a requester prerequisite. Discard new-original consent reuse,
+pretending a folded admin packet exists, key copying, broad resume as lookup,
+implicit commit/adoption and a new schema. Section45 settles the exact closed
+public contract and independent six-case suite before product code. Requester
+consent, bounded completion and native controls follow as small feature PRs.
+
+GU.impl45 verification choices: allow one explicit ordinary finalize using the
+existing computer's configured original under its exact prior approval; the
+requester receives no original. Allow isolated stopped-requester malformed
+catalog negative with restart/fresh parent before snapshot and no positive
+reuse. Discard authority-row fabrication, positive corrupt fixtures and worker
+disabling. Record bounded separate-admin/reused-binding gaps honestly.
+
+GU.impl45 first Rust compile fails on the large JSON macro's recursion depth.
+Split the fixed effects object into its own value; preserve the exact public
+shape and crate limits. Independent static audit notes restarted requested
+flows cannot rebind their detached parent, so that refusal cannot prove catalog
+corruption validation. Preserve that distinction as a source-only coverage
+limit; do not invent restoration or claim authority-validation execution.
+
+GU.impl45 pure fixture availability choice: a genuine existing computer may
+go offline after verified F publication and before the whole-state baseline.
+The requester stays live and both hosts/files/carriers remain counted. Select
+explicit offline-owner coverage; discard claiming both-live worker attribution,
+requester/worker-flag/queue/authority edits or mid-snapshot shutdown. No service
+is needed to inspect its already retained finite signed authority.
+
+GU.impl45 corrected Rust398f4d47 passes fmt, existing155+2ignored, Clippy and
+fresh build. First independent six-case runtime passes6/6in70s (runner70.34),
+compiler-idle before/during/after, using hashed fresh binaries. Genuine remote
+device15 and configured original F, finite caps/fold, independent digest and
+strict both-host DB/files/bidirectional TCP/UDP measurements pass. Existing
+computer goes offline before measurement; requester stays live. No both-live
+worker attribution, fabricated grant or requester original. All65 old files/
+full native415 tree stay exact. Retain macro-size and formatter-edit failures,
+source/fault-only authority/expiry/privacy limits and prior unclassified history;
+no unrelated local rerun. Final combined-head34 suites+build/four checks/native
+415 and fresh bot/root review remain required on PR98.
+
+GU.impl45 root source review adds an explicit non-root folded-host issuer check.
+Comparing only its signing key to the owner assumes role-distinct keys; equal
+keys must not admit the advanced root-fold exception. Ordinary verification
+already binds every non-root issuer to the owner path, so preserve all typed
+checks and the public shape. The genuine reused-root-key negative remains
+source/fault-only; verify normal original/device folds on fresh binaries, keep
+independent source unchanged and require new final-head CI/review.
+
+### GU.impl46: exact machine requester consent
+
+Select one immutable unsigned project receipt alongside the ordinary requester
+commit intent, freezing section45's remote evidence and finite deadlines.
+Separate Prepare and exact approval; recover history read-only. Reuse dec_intents
+and ordinary templates/device/budget checks without schema changes. Discard live
+authority as a historical prerequisite, new-original owner consent reuse, implicit
+preparation/approval, advanced-work adoption, receipt replacement/rebinding,
+original copying and signing/applying inside consent. Frozen flow attribution
+makes replacement unnecessary here. Section46 settles the public contract and
+six independent cases before product. Completion and native controls follow.
+
+GU.impl46 first formatter invocation stopped before compilation: the new nested
+requester module needed the same explicit requester_commit path as the existing
+consent module. Correct the module path; no compiler/runtime execution occurred.
+
+GU.impl46 first Rust run compiles, then the unchanged legacy person vector
+test fails decoding its fixed invitation: EXPIRES2026-11-01T00:00:00Z is now
+in the past. Use existing decode_at with the vector's AT for both successful
+decode and wrong-prefix refusal, preserving signatures/expiry and every
+assertion; production decoding keeps actual-time expiry checks. The first
+Clippy run finds a collapsible validation if; collapse it without changing the
+input contract. Retain both first failures. All66 host/native conformance files
+and complete native415 tree stay exact; the existing Rust unit fixture is the
+sole test adjustment, removing its dependence on the wall calendar.
+
+GU.impl46 postapproval verification choice: assert coherent ordinary/pending
+approval with an unapproved project receipt and state invalidated after an
+explicit advanced approval. Do not infer global no-signature/traffic behavior
+from that live state-only observation. Strict complete DB/files/BOTH-carrier
+purity remains on readers with genuine settled prerequisites; no worker flags,
+queue edits or category exclusions manufacture it.
+
+GU.impl46 first independent runtime4/6in107s (runner108.6): exact Prepare/replay,
+original finite cap, both INSERT faults, late dual-approval UPDATE rollback,
+atomic approval, strict private/router corpus and approved expiry/detach/restart
+whole-state/carrier history pass. The cancelled-request fixture tries to prepare
+a second join on an immutable already-requested project flow (HTTP409); the
+advanced-approval mutation times out20s while reader transport holds remain.
+Retain both setup failures without attributing the timeout to product behavior.
+Independent correction must use a genuine new parent for the fresh attempt and
+release genuine carrier holds before external mutation, without larger waits,
+row edits, assertion changes or worker disabling.
+
+GU.impl46 root source review separately corrects approval-refusal ordering. An
+ordinary approval without matching project approval invalidates the receipt
+before lifetime/progress checks, and exact guided Approve refuses review_changed
+before consulting live evidence. Otherwise independent worker progress could
+change that refusal to unavailable. Preserve the receipt and all prior windows;
+no new consent is adopted and approved project history remains pure.
+
+GU.impl46 independent correction ece2ee8 adds only genuine fresh project setup
+and release_reader_holds before outside mutation, restarting the original old
+host with unchanged identity and passing the real carriers. Removing that helper,
+one call and one fresh-parent assignment restores prior test bytes and AST. All
+six original cases/assertions/counters/timeouts and66 old files remain exact.
+Fresh2f374215 Rust gates and hashed build pass; one corrected six-case run follows.
+
+GU.impl46 corrected first runtime passes6/6in117s (runner117.5), compiler-idle
+before/during/after on fresh hashed2f374215 binaries. All66 prior conformance/
+native files and fullnative415 tree exact. Remote device/original capped F,
+exact receipts/digests, atomic rollback/approval, private corpus, real signed/
+stage expiry and strict expired/detached/restarted whole-state/BOTH-carrier
+history pass. External ordinary approval remains a coherent state-only check,
+without project attribution or global worker claims. First failures and narrow
+unit-vector/calendar fix remain recorded. Final35suites+build/four checks/
+native415 and fresh bot/root review are required on the PR; fullfeature35 and
+requester completion/native/installed/physical/model acceptance remain open.
+
+GU.impl46 first combined CI b558: all4 checks/native415 pass;33/36 conformance
+jobs succeed. Old inspection3/6 and new consent5/6 fail at exact existing-owner
+finalization setup; old owner-consent5/6 records a requester TCP connection-only
+crossing, DB/files/all other carriers unchanged. Causes remain unclassified;
+no old66 file edit or unchanged rerun follows. New-suite failure-only closed
+diagnostics retain the original finalize assertion and its bounded action.
+
+Bot P2 finds history recovery reaching the fresh300s clock-rollback guard before
+loading its receipt, through both owner binding and consent dispatch. Separate
+validated retained-clock observation (max raw/retained, no save) from fresh
+authorization in both paths. Old callers keep guarded binding; fresh consent
+continues full raw/guarded checks. Extend independent new-suite history coverage
+to actual >300s rollback, using public clocks only; retain all prior categories.
+No policy/runtime authority or timeout weakening is selected.
+
+GU.impl46 clock correction31c7e5fa passes fmt/Rust155+2ignored/Clippy/fresh
+build. Independent b9d0e85 adds genuine anchor−301s API/CLI approved-history
+regression plus fresh refusal, never editing clock rows; all6 cases pass127s
+(runner128.64), no known compilers before/during/after. Retain the local
+two-minute target overrun; no unchanged retry or timeout increase. Failure-only
+finalize diagnostics do not trigger locally, so first CI setup/TCP causes stay
+unclassified. All66 files/fullnative415 unchanged. Select last-known validated
+clock observation for historical recovery; discard clock repair as a prerequisite,
+disabling fresh rollback enforcement or adding a history schema. Final exact-head
+CI and fresh bot/root review remain required; receipts follow on PR99.
+
+GU.impl46 second CI1b41991: fresh bot clean, all4 checks pass; old inspection
+and owner-consent pass. Only new consent fails3/6in72s: finalize observer twice
+records exit1 with owner/selection/F present and HTTP200; historical case loses
+its failed original fixture prerequisite. No raw diagnostic or signer inference
+is available. Choose the actual exact two-host F prerequisite after one bounded
+explicit driver, preserving every independent authority/target/profile check,
+over a CLI English substring as setup success. Reject parse/crash/timeout and
+missing/mismatched F; discard arbitrary ignored errors, signing retries and
+broader timeouts. Explicitly permit only that setup-guard replacement in new46
+and old45 progress helpers under independent authorship/restoration audit. All
+other65 prior files and native415 stay exact. Earlier causes remain unclassified.
+
+GU.impl46 setup strengthening keeps the first subject inspection inside its
+original whole-state/carrier baseline. Select independent retained-envelope
+checks before measurement; discard an unmeasured preliminary subject-API read
+that could mask a first-use mutation. Existing full inspection checks stay in
+place. Only the copied setup guard/read-only exact-F prerequisites may change.
+
+Automatic approval review rejects integrating75eee5 because its proposed old45
+setup edit conflicts with the standing byte-exact prior-suite requirement.
+Discard that two-file integration; preserve75eee5 as unintegrated author history.
+Select the safer new46-only correction, independently committed from b9d0e85,
+with all66 prior files and native415 exact. No denied prior-suite mutation or
+indirect workaround is performed. No prior-suite local run is needed; final
+combined-head CI still checks the complete tree.
+
+GU.impl46 new-only independent commits e396be15/e4eff8c1 integrate as
+ e64d8a3/b3ba23f; all66 prior files/fullnative415 stay byte-exact. Root inverse
+ audit restores new46 to b9d0e85 bytes/AST and leaves every case/other helper
+ unchanged. One corrected root run passes6/6in126s (runner126.62), compiler-idle
+ throughout on unchanged31c7e5fa fresh binaries. Preserve this second local
+ two-minute target overrun; no timeout increase, mutation retry or unchanged
+ retry. The verified-F setup correction does not classify earlier unknown
+ failures. The finalization follow-up record retains second CI35/36 and all4
+ checks, actual closed failure metadata, independent provenance, denied old45
+ proposal and selected safe alternative. Final pushed-head CI and fresh review
+ remain required; their receipts belong on PR99.
+
+GU.impl47 follows merged99/a025f28. Select bounded requester completion
+through the existing ordinary signing/publication/application pipeline with
+exact section46 dual-approved machine receipt guards. Preserve historical
+application before fresh eligibility and all67 prior fixtures/native415.
+Discard new consent/journal/schema, copying original keys, broad ceremony resume
+and presenting local application as readiness. Independent contract-only suite
+precedes root runtime; native controls and full35 acceptance stay separate.
+
+GU.impl47 first format passes; first Rust test gate fails to compile because
+the completion module calls the internal name machine_consent_in instead of
+the exported machine_requester_consent_in alias. Fix that single reference;
+retain first139.02s/exit101/source9206593 log in verification. No runtime began.
+Select two genuine fixture worlds (device15 fold/original capped) plus exact
+late SQL ABORT and one forwarded lost-response completion. Advanced-only
+without guided metadata remains47 source/fault-only, already tested46; discard
+a third duplicate ceremony. Terminal setup uses existing real delivery and
+retirement rules without unmeasured completion warmup or counter exclusions.
+
+GU.impl47 independent draft44603a7 is committed but never executed. Focused
+contract-only audit finds unsupported cancel200 after commit persistence.
+Select removing that invalid stimulus before first runtime, retaining actual
+time/parent barriers and exact detached refusal. Mark cancellation and remote
+original positive completion source/fault-only; discard a third fresh ceremony
+for duplicate coverage. Confirm genuine transport holds before time-barrier
+baseline, preserving every full purity category and fixed wait. No old67 edit.
+
+GU.impl47 first runtime45c39f7/fea76e95 fails0/6in73s, runner73.35. Device
+post-SQL-fault setup cannot observe a new unsigned TLS poll despite retained
+fully signed/ACKed work; original clock-refusal full snapshot crosses helper
+mailboxes/frames only. Preserve all four dependent failures and captured state.
+Select stronger actual signed publication-drain/ACK prerequisites and helper
+retirement outside measured expiry baselines; keep all full purity assertions
+and fixed waits, real holds for unsigned readers. Discard fabricated live
+holds, counter/table exclusions, worker disabling and unchanged retries.
+No production change is inferred; exact earlier subcase timing remains unknown.
+
+GU.impl47 corrected643d165/865a1ad passes5/6in95s, runner96.51. All exact
+application/SQL fault/lost response/privacy/raw/time/parent cases pass. History
+stops before baseline on normal-peer contact setup probe nonzero exit. Its
+error cause is unknown; retained participants each have one application/network.
+Select bounded failure-only closed probe/category/thread/counter diagnostics
+in new suite, exact original result/assertion preserved. Discard inferred UDP
+fix, extra probe, larger wait, old-helper mutation or unchanged retry.
+
+GU.impl47 diagnostic22703b5 fails4/6in101s. Both TCP carriers cross parent
+boundary without DB/files/UDP change. Terminal probe exits1 with timeout,
+UDP threads alive and unchanged UDPcounts. Select failure-only existing-argv
+operation/destination-match/program/before-thread classification; discard dead
+proxy attribution and additional drivers. Preserve first CI old28 expired UDP
+and new47 malformed UDP/contact failures; fourchecks and botpass do not waive
+conformance. No old67 edits or unchanged retry.
+
+GU.impl47 target diagnostic92c5393 records3/6in90s, runner91.48. Contact
+POST uses expected counted A path, timeout/no UDPdelta while threads alive;
+no deadproxy attribution. Select actual fresh terminal config/endpoints with
+every old/new UDPpath retained, genuine old-A offline after unapplied barriers,
+and malformed corpus before application with both successful history reads
+relocated intact to settled terminal history. Discard retries at failedaddress,
+worker flags/counter exclusions, claimed rootcause, larger waits or dropped
+assertions. New-suite independent correction precedes next run; old67 exact.
+
+GU.impl47 independent7d044aa integrates6208987:6/6in116s, runner119.54 on
+unchanged Rust0047. Actual terminal endpoints/state/identity verification and
+phase-specific unapplied privacy/time/parent prerequisites preserve every old
+protocol call/assertion/timeout, full DB/schema/files/all old+new TCP/UDP
+counters. Root inverse restores095670c2 bytes/fullAST; all67/native415 exact.
+This passing sample does not identify earlier timeout/carrier causes. Retain
+first CI35/37 plus all4 checks and all local0/5/4/3 outcomes in phase follow-up.
+Select final exact-head complete CI/review before owner review; discard
+unchanged reruns, old-suite edits, cause attribution or broader readiness claims.
+
+GU.impl47 CI41c5d66 first final candidate exposes unchanged old45 original
+finalization guard failure3/6in38s before subject inspection. Two dependent
+fixtures fail; cause unknown without original stderr/response category. Select
+a separate independently authored failure-only launcher around the exact
+existing Host.cli finalization result/exception. Preserve all67 files/native
+415, args/kwargs, calls/assertions/timeouts and exit. Discard old-suite edits,
+new diagnostic IO, guessed product fixes, ignored errors or unchanged retry.
+
+GU.impl47 CI41c5d66 completes36/37, sole old45setup3/6in38s. New47six/six
+in93s, old28six/sixin103s, fourchecks/native415/Rust155+2ignored and bot clean.
+Independent launcher31a7261 integrates9ffc177 with only CI conditional wiring;
+all67/new47/native415/Rust0047 exact. Root fake forwarding/privacy/exception/
+SystemExit checks pass. Temporary runner first dispatch splits inside the word
+finalization and never starts runtime; correct only that temporary dispatch.
+First actual diagnostic runtime passes6/6in70s (runner70.26), compiler-idle,
+no observer output. Preserve unknown first finalization cause and prior unknown
+carrier causes; no production fix inferred. Select fresh complete final-head
+CI/review, discard old-suite edits, verdict/timeout relaxation or waiver.
+
+GU.impl47 diagnosticd13b3a9 captures old45 exit1/no JSON/no recognized public
+code, request fields unknown. Select finite public English-error class/field
+projection from the same stderr; no raw text, new IO or causal inference.
+Independent launcher-only extension precedes one meaningful new run; retain
+all67/new47/native415 and every original verdict/assertion/timeout. No guessed
+product fix follows from this insufficient first diagnostic.
+
+GU.impl47 independent3b984d0 integratesf3d78ea; original launcher guard/
+forwarding/exception/emit/main bytes exact and inverse restores659eb85e. Root
+finite-pattern privacy/forwarding/restoration checks pass. First local diagnostic
+6/6in70s (runner70.27), compiler-idle, emits no observer. No product fix/cause
+is inferred; d13b3a9 first36/37+all4/bot and its closed unknown-class failure
+remain committed. All67/new47/native415/Rust0047 unchanged. Fresh complete CI
+and exact-head review remain required; discard relaxing failure or readiness.
+
+GU.impl47 c0e8d12 unknown English class remains insufficient; separate old24
+after-expiry dec_contacts refresh also fails. Preserve both. Select bounded
+encryption of only final captured/redacted stderr line with a diagnostic RSA
+public key, privatekey root/tmp only, one2s encryptor on existing failure and
+fixed512byte ciphertext artifact1day. Never plaintext logs/files/argv, keys or
+extra host/API/state/network IO. Independently implement/audit fixture-only
+capture; root syntheticcrypto check precedes changed runtime. Discard further
+blind classifiers and unchanged reruns; old67/native415 remain exact.
+
+GU.impl47 captureaa26f26 integratescb6c82a; all67/new47/native415/Rust0047
+exact. Root fake/inverse/privacy and real synthetic RSA roundtrip pass; first
+synthetic payload-length assertion before encryption and audit-record digest
+serialization error are retained, substantive checks already passed. First
+changed diagnostic6/6in70s, runner70.32, compiler-idle, no ciphertext/observer.
+Earlier unknown failures remain; c0e8d12all4/bot plus35/37 and old24contact
+phase diagnostics stay committed. Select full fresh CI with bounded encrypted
+error capture for concrete root diagnosis; discard guessed fixes or waivers.
+
+GU.impl47 encrypted first2b05ea9 old45failure identifies daemon proof_required.
+Select ordinary finalize-only truthful incomplete/error context, preserving
+structured cause/nonzero exit and adding no IO/retry/success claim; all other
+commands/errors unchanged. Missing proof/failed phase and earlier causes remain
+unclassified. Discard a guessed authority fix, hidden retry, success invention
+or test edit. Existing old45requires actual subsequent F. Remove temporary RSA
+capture/publicfixture/upload by independent exact restoration; retain encrypted
+provenance only. New Rust/freshbins/old45/new47/fullCI/review required.
+
+GU.impl47 final proof-context193c971 plus independent capture-restoration
+b6369ed→d17c7c6 yields Rust918d. Format/155Rust+2ignored/Clippy/freshbins
+pass; old45six/sixin70s and new47six/sixin118s pass serially/compiler-idle.
+Runner120.55 (0.55above120) retained, without retry/timeout/fixture changes.
+Only captured2b05ea9 proof_required is classified; missing proof/phase and
+earlier causes remain unknown. Context preserves cause/nonzero, no success
+claim or authority/IO change. All67/new47/native415 exact; no final RSA/key
+dependency. Select exact pushed-head complete CI/bot/root gate; discard waiver.
+
+
+## GU.impl48 — native machine requester controls
+
+Selected: compose the existing45–47 public review, immutable receipt and bounded
+completion in the pinned terminal pane. Separate explicit Review/Prepare/Approve/
+Complete and pure Check preserve human consent and uncertain-outcome recovery.
+The original remains on the existing computer; local application stays distinct
+from access/delivery/readiness. Conservative native stage bounds leave advanced
+signed-work completion available. Discarded: new host APIs/schema/consent,
+new-original owner fallback, automatic retries/protocol driving, key copying,
+frontend persisted authority and success badges inferred from publication.
+Separate contract-only tests precede root execution; full feature acceptance
+remains open.
+
+### GU.impl48a — Settle completed delivery attempts and current contact first
+
+Second CI449c800 retains35/37: old28 initial attempt0 was aligned before a
+recorded completed attempt, then its unchanged5s retirement failed; old24
+strict history caught a genuine signed own-contact renewal after a clock jump.
+Select separate independent setup launchers: read-only35s completed-generation
+prerequisite before the single original old28 alignment; genuine unused65s
+contact invitation/current signed hint/expiry and actual reference retirement
+before old24 snapshots. All70 files/full comparisons/old5s waits stay exact.
+Discard longer waits, sync200 as proof, fabricated rows/ACKs, worker suppression,
+filtered IO and unchanged reruns. Contract first; preserve both CI failures and
+unclassified earlier causes, run each changed affected suite once, then full
+combined CI/review before ready. Rust/native product remains frozen.
+
+Pre-execution independent public-shape review: last_error_detail permits empty
+bounded text. Select recorded non-dash failure code plus positive attempts and
+strictly future canonical retry in the same record, allowing empty/dash detail.
+Discard the unsupported nonempty-detail witness before author source/runtime.
+
+GU.impl48a result: independent57fb58c adds only two launchers; root static/fake
+forwarding/restoration and all71 protected-file hashes pass. First committed
+5c4255b frozen-Rust918d runs pass old28six/sixin142s/runner143.62 and old24
+six/sixin82s/runner82.4. Retain old28's120s target overrun, every prior failure
+and unknown caller. Original actions/assertions/5s wait/full DB/files/TCP/UDP
+remain exact; no product change or general transport fix. Final combined-head
+CI and fresh bot/root review must still pass before the slice is ready.
+
+### GU.impl48b — Observe machine-history delivery phase before alignment
+
+Third8f7349f CI36/37 and all4checks/native440in107.06/clean bot retain only
+old47 pre-measurement5s outbox/journal retirement failure (5/6in65s). Exact
+row/attempt/caller remains unknown; old24/28 now pass. Select one independent
+new launcher reusing the existing read-only completed-attempt witness after
+old47's one existing requester sync, before its inline retry timestamps.
+Preserve all73 current files and every original guard/action/5s wait/full
+comparison. Discard extra syncs/retries, assumed old28 attribution, replaced
+case bodies, longer waits, filtered IO or worker suppression. Contract first,
+one changed affected run then full combined-head CI/review; no product change.
+
+GU.impl48b result: independent3ae5df0 adds one86-line launcher; root fake
+forwarding/guard/order/result/exception/inherited-method/global restoration
+checks pass and all73 prior files remain exact. First45ed815 affected run
+passes6/6in112s, runner115.37s on hashed unchanged Rust918d binaries. All
+original strict history/state/files/carriers/5s waits remain. Prior CI cause
+stays unclassified; no general transport fix or full acceptance is claimed.
+Fresh final combined-head CI and bot/root review are still required.
+
+## GU.impl49 — Combined genuine guided machine-link acceptance
+
+After merged101, select one shared two-host creator-device15/folded ceremony
+through guided project/invitation/pinned request, exact owner review/sign and
+ordinary automatic selection/F, then requester consent/one Complete with a
+real lost200 result and fresh Lookup recovery. Verify actual typed application,
+finite7/B2/current membership and unchanged preexisting policy; report legitimate
+same-person self access separately from grants and unverified delivery/readiness.
+Original stays only on A. Discard advanced F/resume or fabricated-authority
+fixtures, repeated mutations, an exhaustive duplicate matrix, assuming all
+access is denied and claiming GUI/installed/physical/model/upgrade acceptance.
+Three compact independent contract-derived cases,74 prior files unchanged,
+first-run evidence and full final-head CI/review. Actual automatic-F stalls
+remain blockers to fix with evidence, without a fallback driver or longer wait.
+
+Execution choice: serialize this stream's compiler/host/native gates and record
+existing unrelated processes. Initial preflight twice refused an unrelated
+Cargo parent before compiling anything; normal-process inspection identifies
+its long-running Rust test child in another track, not a shared-target build.
+Leave it untouched. Discard treating a restricted PID view as global exit or
+requiring all independent tracks to become idle; no global idle/causal claim.
+
+First combined run at `de3e654` failed0/3 in16s (16.3s runner),
+source `c1838345`, original Rust918d/host20062a1c. The15s automatic
+return checkpoint failed; the two dependent cases were not exercised. Retained
+read-only evidence: A has only its invitation-return row; B has its exact
+request and one unacknowledged outbound frame; both embedded mailboxes are
+empty. No owner approval/signature, selection/F or requester consent occurred.
+The ordinary create route dispatches request publication and invitation return
+after commit; guided Join only ran post-commit fault barriers. Its background
+worker polls before publication, so empty mailboxes cannot bootstrap it.
+
+Correction selected: on the FIRST committed guided creation only, dispatch the
+existing encrypted request publication and invitation return with independently
+bounded30s attempts outside SQLite and the response path. The response remains
+publication consent, never proof of delivery. Decline, historical approval
+replay, Inspect and Lookup dispatch nothing; no new consent or original-key IO.
+Discard blocking a guided response on remote reachability, sending again on
+historical recovery, longer conformance waits, manual return-code import and
+advanced resume/F drivers. Section12 already authorizes post-commit transport;
+section49's independent unchanged suite is the regression gate. Preserve the
+first failure and all74 earlier files. No unchanged rerun-to-green.
+
+Fresh corrected-product build at e836b98 passes; unchanged source c1838345
+now receives the real automatic return and reaches owner Prepare, then fails
+0/3 in2.79s on a new-suite reference mismatch before owner approval. Its
+expiry assertion used the pending JSON rather than section42's complete public
+LINK_VIEW. Independent author correction a5d787c uses that existing public
+expires_at with the identical exact minimum-deadline assertion, and aligns
+failure-only diagnostic states with the closed public runtime enum. No weakened
+assertion, changed wait or extra driver. All74 older files remain exact; source
+changes to678561e1. Original run and binary/log hashes are retained in
+`docs/results/guided-combined-machine-verification.json`. Format, existing Rust
+tests and Clippy pass on the product change before this fixture correction.
+
+First corrected new-suite run6db9bbd passes3/3 in27s (27.28runner), including
+automatic selection/F, real lost Complete reply/Lookup and both applications.
+Existing join_onboarding then fails13/14 in56.07s at its unchanged section15
+whole-state/home purity guard. Retained progress pending state has two carrier
+endpoints and one acknowledged endpoint despite the fixture's empty hints;
+this alone cannot identify the before/after difference or actor. Preserve the
+first failure and choose a contract-only independent diagnostic wrapper around
+existing capture calls before another execution. No changed old verdict, wait,
+comparison, transport or mutation driver. Discard masking authorized work or
+assuming it caused this failure without a captured difference.
+
+Captured-only diagnostic68feeb9 preserves13/14 failure in57.34s: only
+dec_pending.record.outbound_frames changes across the exact original baseline;
+row count1/1 and schema/version unchanged. Home comparison was short-circuited,
+not observed unchanged. Root retained state has the own endpoint acknowledgment
+and no owner/selection/commit authority. Ordinary publication can finish after
+this consent-only response, even with empty advertised hints; reads need a
+settled publication phase before the whole-state baseline. Select one separate
+contract-only five-second read-only own-request ACK prerequisite before the
+original progress action. No additional transport/consent, stopped worker,
+fabricated ACK or altered original assertion/timeout. Discard changing product
+response timing merely to isolate this read-only fixture or masking its strict
+whole-state guard. All75 earlier files plus standalone diagnostic stay exact.
+
+First own-publication prerequisite04fdeff passes original join14/14 in64s
+(runner64.02), with one actual saved request/own endpoint/ACK and every old
+comparison intact. First fullCI7901877 passes35/38 conformance jobs; join
+pre-fix guard and two old owner live-history LINK_VIEW equalities fail (5/6
+each, before signing). Capture their existing response/GET differences before
+a conditional read-only all-participant initial-publication prerequisite; no
+assumed field/actor or changed original guard. All other35 jobs passed,
+including combined guided3/3. PR checks3/4 pass; native439/440in119.34s fails
+one unchanged signed-result corpus at5000ms (5097.74ms recorded). Preserve
+this unclassified timing sample; no native deadline change/retry-to-green.
+Full final-head CI and fresh review remain required. Bot P2 on the known join
+prerequisite is addressed in04fdeff; receipt/thread resolution follows push.
+
+Owner diagnostics d489da1: onboarding5/6in40.15s does not reproduce the
+live equality; instead the earlier initial lookup whole-state guard fails,
+precise changed rows/caller unknown. Signing4/6in20.4s captures live attention
+1→0 only with both views pending/completed1/workrefs0/approvals0; an earlier
+source-refusal parent-symlink guard also fails, changed rows/caller unknown.
+Keep those unknowns. Select the same genuine initial-publication phase before
+every published join's first owner action/baseline, own endpoint ACKs for
+offline fixtures and all participants only for the two live cases. This proves
+a setup boundary for the new run, not the cause/actor of earlier unclassified
+failures. Discard a live-only prerequisite leaving other asynchronous initial
+publication active under strict whole-state comparisons. Every original test
+remains untouched; no signer/authority setup or extra send is added.
+
+First all-owner publication source a450161b: onboarding5/6in12.34s reaches
+link admit but gets rate_limited (exact preview/later call not captured);
+signing5/6in55.17s passes unsafe-source/live cases, but authentic-response
+fault whole-state guard fails. Retained faults intent has only approved slot1
+host, no authority signature; exact changed rows/caller remain unknown. Select
+a narrow initial unapproved CLI admission-preview retry, once honoring only
+typed429/rate_limited/one1–2s Retry-After; preserve API429 visibility and never
+repeat approval/signing. Discard relaxing server quotas, changing pinned guided
+GET behavior, matching error strings or retrying a whole approved command.
+Observe the existing authorized host-slot job before the original signing
+settled baseline, retaining every original3s wait/guard and no original signer
+source. This establishes a new setup witness, not an earlier-actor diagnosis.
+
+CLI-only retry cc5ad2a builds fresh in9.96s and passes fmt/Rust155+2ignored/
+Clippy. Its unchanged combined678561e1 run stops0/3in2.38s at generic409
+before owner consent. The exact operation/code is unclassified; retained A
+has the automatic-return row but0frames, B1request frame. Select a stronger
+completed incoming-frame witness within the same15s return checkpoint before
+the original owner operations, plus safe failure-only closed API metadata.
+No extra mutation, import/resume, stopped worker or expanded wait. This proves
+new-run setup; it does not identify the original409 actor/cause. All older
+files/assertions and subsequent exact consent/F/one Complete guards remain.
+
+Independent host-job phase a3a9399/4b9be464 passes fake coherent-read, negative,
+privacy/forwarding and exact inverse audits; no author product reads/runtime.
+Its first current-tree owner onboarding run passes6/6in46.26s and signing
+passes6/6in83.8s, including the original authentic-response fault corpus and
+live finalization/history. All74 protected files and original3s settling/whole
+state guards remain exact. An initial preflight prevented execution while an
+unrelated release build used a separate target; actual runs retained that
+external activity and serialized this stream. No global-idle or retrospective
+earlier-cause claim. Final combined-suite checkpoint and full-head CI/review
+remain required before PR104 leaves draft.
+
+The independently strengthened incoming-frame source8688173/525a7173 passes
+all three combined cases on its first run in27.12s. The same15s checkpoint
+observes the actual matching encrypted requester frame on both hosts before
+owner consent. Automatic selection/folded finalization, one actual lost Complete
+response followed by CLI Lookup, both real applications and separate current
+membership/access/readiness all pass. No added mutation, enlarged deadline or
+changed old assertion. The earlier generic409 remains unclassified. Root review
+finds no remaining actionable issue in this slice; publish the complete changes
+for final-head CI and fresh bot review. Record those receipts on PR104/35, keep
+all full-feature acceptance gates open, and leave merges to the owner.
+
+### GU.impl50: ship the existing native frontend in the host archive
+
+Merged104 (`80b445c`) verifies the composed backend machine ceremony. Release
+archives still omit the native onboarding frontend. Select a small packaging
+slice: include its explicit runtime inventory and a relocatable local marketplace,
+stamp only the packaged plugin version from the host release, and install with
+Claude's own CLI while pinning the moved host executable. Existing-session users
+can then reload the installed plugin without a development checkout. This is
+installation evidence, not real reload, model receipt, physical exchange or
+full-feature acceptance. Section50 precedes implementation and independent
+contract-only packaging/install cases. Preserve every prior test/runtime byte.
+
+Discard a required hosted marketplace or Git checkout, automatic install during
+extraction, direct user-settings edits and a vendored Claude runtime. A local
+relative plugin source makes archive verification and relocation meaningful;
+release version stamping avoids stale version-cache reuse. Native CLI/userConfig
+behavior was checked against pinned2.1.303 help and official plugin CLI/local
+marketplace documentation on2026-11-02. References:
+[local marketplaces](https://code.claude.com/docs/en/plugin-marketplaces),
+[CLI reference](https://code.claude.com/docs/en/plugins/cli-reference).
+
+Independent section50 cases30a41b0 preserve all79 prior files and pass static/
+fake privacy, exact argv, unsafe-archive and inherited-HOME audits before root
+execution. First real product archive9e3a102 builds in557.46s without a compiler
+shim and with clean source metadata; SHA2560026fca6…124873d1. First packaging
+fixture run passes5/5in1.87s; unchanged release publication4/4in5.017s and
+unchanged real installed-bundle smoke6.62s pass. The same artifact's actual
+relocated strict native installation passes in6.99s, including expected enabled
+release version and executable configuration. No actual user Claude settings
+change, original-key action or model turn. The verification record retains
+exact source/artifact/log hashes. Bundled guide contract links now resolve in
+the feature repository instead of assuming absent source-doc files in the
+installed plugin. Final-head CI builds a new artifact and fresh review follows;
+all full-feature reload/model/physical/upgrade gates remain open.
+
+### GU.final: freeze feature additions and accept the combined head (2026-11-02)
+
+- **Authority:** implementation recommendation within GU-OWN1/GU-OWN2, following
+  the owner's request for when #35 will be ready after four days.
+- **Selected:** consolidate final acceptance and merge current main before
+  running installed/live gates. Both tracks independently used schema24;
+  schema28 preserves their actual database histories and adds their union.
+- **Rationale:** slice checks on a stale branch cannot establish that the feature
+  works with the current main. Preserve populated state and the actual existing
+  conversation while testing consent, enforcement, interruption and recovery.
+- **Discarded:** more feature slices; overwriting either migration; marking old
+  CI as combined-head proof; manufacturing an old database by changing its
+  version; using mocked native effects as real UI/model acceptance.
+- **Verification:** [final acceptance contract](guided-final-acceptance-contract.md).
+  The owner retains the final #35 merge decision. An archived tracking history
+  retains earlier slice receipts; it is not current merge readiness.
+
+
+### GU.final.rate: retry exact completion within its existing budget
+
+- **Selected:** on an actual HTTP429/rate_limited response with a valid positive
+  Retry-After, resend the same pinned completion plan within its original
+  30-second deadline. Apply the same rule to TCP and encrypted QUIC.
+- **Evidence:** the independent two-host public-wire diagnostic observed the
+  requester linked while the original participant remained pending during a
+  brief real rate-limit burst. One later exact resume applied both, preserving
+  signed authority, requester consent and application bytes/IDs. This reproduces
+  a publication gap; it does not prove the cause of every earlier CI failure.
+- **Rationale:** local application must retain its exact operation while a
+  replaceable transport temporarily refuses delivery. The bounded retry requires
+  no new human action, signatures, authority, durable worker or schema.
+- **Discarded:** increasing receiver limits; immediately trying another
+  transport against the same exhausted bucket; suppressing arbitrary errors;
+  extending deadlines; re-planning or re-signing; treating a later diagnostic
+  resume as first-attempt success.
+- **Verification:** preserve the original strict expected failure until the
+  unchanged independent case reports XPASS, remove only its known marker, then
+  require all46 slim suites,52 checks, fresh installed/live evidence and review
+  on the final combined head. The owner retains the #35 merge decision.
+
+
+### GU.final.bootstrap: keep absent routes absent under a charged bucket
+
+- **Evidence:** a separate genuine TLS1.3/bootstrap experiment observes400 for
+  a malformed known activation,429 after nine attempts,429 for the owner-only
+  route from a second fresh transport key on the same source, then429 again for
+  the known route. Its controls pass and the distinct required404 gate XFAILs.
+  This confirms the gap; the earlier unrecorded CI response remains unattributed.
+- **Selected:** preserve every-attempt key/source charging and active/header
+  bounds, classify the bounded header using the existing router, return404 for
+  its not_found classification, then enforce the recorded rate refusal before
+  known-route credentials, body or handler work. Apply shared TCP/QUIC handling.
+- **Rationale:** response ordering must not make an owner-local route appear on
+  a peer listener. Certificates supply transport identity, not owner authority.
+- **Discarded:** exempting absent routes from charging, increasing limits,
+  bypassing limits on known routes, changing route classification, or weakening
+  the frozen boundary assertion. Independent cases retain their original bodies
+  and deadlines; strict XPASS is required before removing the new known marker.
+
+
+### GU.final.expiry: complete due resource retirement before the purity baseline
+
+- **Evidence:** integrated5f7cd90 passed52/52 acceptance checks and review. A fresh
+  tracking35 run passes51/52; signed-request expiry changes two unknown owner
+  carrier tables with unchanged files and TCP/UDP counters. The original table
+  identities and actor remain unattributed. A read-only callgraph audit finds
+  inspection uses host state read transactions and cannot call carrier collection;
+  independent resource maintenance can run without traffic after a clock jump.
+- **Selected:** an independent contract-only author checks the already-held
+  whole-state snapshot for completed due ciphertext/tombstone retirement before
+  the final phase's strict baseline. Use only the existing quiet predicate's
+  captures and unchanged three-second deadline. Add the three documented carrier
+  table names to closed diagnostics. Every original body, state comparison,
+  carrier counter, assertion and whole-suite limit stays intact.
+- **Rationale:** two equal100ms observations after advancing the test clock can
+  precede asynchronous resource retirement. Establish actual lifecycle completion
+  before attributing subsequent writes to the read-only action.
+- **Discarded:** excluding carrier tables/databases, resetting counters, editing
+  rows, extra API/DB/file/socket observations, sleeps, longer deadlines, production
+  scheduling changes or rerunning an unexplained failure unchanged.
+- **Verification:** execute the independent launcher once, retain closed pre-call
+  lifecycle counts and all first failures, then require fresh full tracking CI and
+  review. The installed artifact's production and packaging trees are unchanged;
+  the final-artifact live-model authorization/evidence-limit decision stays open.
+
+### GU.final.replay: recover the exact already-framed requester operation
+
+- **Evidence:** corrected trackingf0b356b passes51/52, with machine-owner6/6,
+  native440, Rust and every installed gate passing. The remaining ordinary
+  requester commit returns409/state_conflict without its durable phase recorded.
+  A receive-only local run passes6/6 in81seconds from an unframed approved prefix;
+  it does not resolve the CI conflict. Both first observations remain retained.
+- **Confirmed gap:** source audit finds preparation of an already-framed complete
+  activation can reject its own existing authority as a new generation. Approval
+  and signing phases already reload under the same store mutex; a stale signing
+  batch is not established. The original CI phase remains unattributed.
+- **Selected:** validate the exact approved, completed, durably framed retained
+  request/intent/activation and all supplied pins before returning retained
+  review/progress. Preserve existing ordinary preview wildcard behavior. Do not
+  construct another intent, sign, replace the catalog or write a decision clock
+  in this replay branch. Ordinary publication/application retains current guards.
+- **Discarded:** broad self-generation exceptions, suppressing conflicts, treating
+  a later repair as first completion, weakening authority/pin checks, or changing
+  the frozen history fixture to avoid the existing operation.
+- **Verification:** an independent real two-person public ceremony held at the
+  documented committed-frame barrier, altered-pin refusal, one exact replay,
+  unchanged signed commit/consent and actual application on both hosts. Separate
+  strict old-binary replay failure from controls; require XPASS on the correction
+  before removing only the known marker. Final source/archive/installed gates,
+  full tracking CI/review and explicit model authorization/limit decision apply.
+
+
+The framed-replay proof passes its controls on the old binary in6seconds with
+replay409/state_conflict/XFAIL. The first fixed-binary fixture also held later
+legitimate completion frames and timed out; retain that failure. Disarming the
+barrier immediately after its initial entered marker preserves the original
+held caller/continue, deadlines and every assertion. Corrected fixture: old
+controls pass and replay XFAILs in5seconds; fixed controls plus four frozen cases
+pass with strict replay XPASS in14seconds. Only its known marker is removed.
+The frozen requester-commit suite passes6/6 in81seconds. Fresh clean d819cf8
+archive de999b56 passes installed terminal3/3, both participant paths and all
+three genuine upgrade/full-restore histories. Full final tracking CI/review and
+model authorization/evidence-limit decision remain open; original CI attribution
+is not invented from the separate proof.
+
+
+### GU.final.machine-clock: preserve the negative raw-creation stimulus
+
+- **Evidence:** bbdc596 passes51/52 checks, including completion6/6, requester
+  commit6/6, machine owner6/6, all Rust/native440/installed jobs and45/46 slim
+  suites. Maximum suite runtime89seconds. The machine-completion time case
+  returns200 instead of409 in one of two unlabelled refusal phases; its dependent
+  case fails. The original phase and cause remain unattributed.
+- **Audit:** this guided route cannot reach the new ordinary replay branch. It
+  checks actual raw creation/signed expiry before work, around IO and in final
+  application. Historical200 requires an exact verified local application.
+- **Selected:** an independent prerequisite labels the original two phases,
+  runs original quiet first, then reestablishes only the original consent-created
+  minus-one target with floor rounding before the original baseline. Record
+  actual lost/rearmed boundary booleans, verify external clock sidecars and that
+  the same boundary still holds at dispatch, and fail setup without retry if lost.
+  Signed-expiry clocks, restores, time/parent barriers, every frozen body/assertion/
+  state/counter comparison and existing deadline remain unchanged.
+- **Rationale:** real UTC plus an integer ceil offset can cross its intended
+  negative boundary during retirement/settling. The action must receive the
+  documented negative stimulus before its refusal can be judged.
+- **Discarded:** accepting200 as refusal, inventing an earlier target, extending
+  windows/deadlines, altering product guards, skipping cases, relaxing purity or
+  attributing an ambiguous first response without phase evidence. Production and
+  packaging stay identical to d819cf8; current installed archive evidence stands.
+
+
+The independent machine-clock prerequisite passes all6 frozen cases in88seconds.
+It observes before-consent dispatch409/machine_commit_completion_unavailable and
+unchanged signed-expiry409/review_expired, with actual final time/parent and pure
+history assertions passing. Its local raw precondition was not already lost
+before rearm; this is not attribution of the original ambiguous CI failure.
+No product/packaging change or new archive; full corrected tracking CI/review
+and explicit model authorization/evidence-limit decision remain open.
+
+
+### GU.final.model: complete the explicitly approved final-archive check
+
+- **Authority:** the owner explicitly approved the previously blocked bounded
+  live-model check: two logical Haiku turns in the existing test conversation.
+- **Selected:** enable the installed adapter through actual native controls,
+  establish fresh model readiness, then retrieve one correlated nonce reply
+  between the two local fixture hosts. Preserve the original conversation,
+  component reload, explicit Stop/reconnect and the existing300second bound.
+- **Evidence:** verified archive de999b56 passes. First-party conversation
+  records show exactly one readiness and one reply turn (`claude-haiku-5-5`);
+  the originating host verifies nonce/request/agent/host/local-session matches.
+  The stricter290second controller ends normally and closes owned processes.
+  No authentication secrets are read/copied; the original person key is not copied.
+- **Discarded:** accepting historical model evidence as a waiver, issuing extra
+  model turns, copying credentials/keys, claiming terminal readiness alone proves
+  a reply, or claiming separate physical machines/NAT from loopback fixtures.
+- **Verification:** [final receipt](results/guided-final-acceptance.json) and
+  [readable evidence](results/guided-final-acceptance.md). Product/packaging
+  trees remain byte-identical to the verified release. Require final CI/review
+  on the documentation-only receipt commit; record that exact head on PR35
+  without another repository edit. The owner retains the final main merge.

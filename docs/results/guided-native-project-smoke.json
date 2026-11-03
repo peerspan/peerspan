@@ -1,0 +1,37 @@
+{
+  "checked_at": "2026-10-29T04:15:04.456453+00:00",
+  "claude_build": "2.1.303",
+  "frontend_head": "e9d06dde1f942ac7d484a394ea8fa08c8b458a64",
+  "rust_source_head": "19b4189d90e74358342561a33b56436a034ffcec",
+  "fixture": "real temporary host, real native terminal, empty temporary project",
+  "actions": [
+    "/peerspan",
+    "Connect this project",
+    "Review new agent",
+    "Approve attachment",
+    "Close",
+    "/reload-plugins",
+    "/peerspan",
+    "Connect this project"
+  ],
+  "observed_after_reload": "Project: attachment recorded; Adapter connection is next",
+  "flow_count": 1,
+  "record_counts": {
+    "agents": 1,
+    "sessions": 1,
+    "adapter_credentials": 0,
+    "networks": 0
+  },
+  "activity_counts": {
+    "agent.registered": 1,
+    "session.attached": 1
+  },
+  "assistant_usage_records": 0,
+  "model_acknowledgment_verified": false,
+  "adapter_delivery_verified": false,
+  "limitations": [
+    "metadata attachment only",
+    "fixture host on the same machine",
+    "not an installed bundle or full connection flow"
+  ]
+}

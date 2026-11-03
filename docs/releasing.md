@@ -27,6 +27,28 @@ scripts/package-release.sh rust VERSION dist
 scripts/package-helper.sh VERSION dist
 ```
 
+The host archive includes the native Claude onboarding plugin and a local
+marketplace rooted at `share/peerspan`. Its plugin version matches
+`RELEASE.json.version`; the runtime sources are copied from the reviewed tree.
+No plugin installation runs during packaging or extraction. Users explicitly
+install from the archive through Claude's plugin CLI; see the bundled native
+frontend guide for that route.
+
+The PR's **Installed onboarding bundle** job builds a real Linux amd64 archive,
+runs the unchanged installed-bundle smoke test, and checks the relocated native
+plugin with Claude Code2.1.303. The draft-release architecture jobs run both
+installed checks too. To check an already built archive locally, with Python3.12+:
+
+```sh
+python3 conformance/installed_bundle.py --archive ARCHIVE --node /absolute/path/to/node
+python3 conformance/onboarding_bundle.py --archive ARCHIVE --claude /absolute/path/to/claude
+```
+
+Keep the archive's matching `.sha256` beside it. The native check installs only
+inside a new private temporary Claude configuration. It verifies strict manifests,
+the enabled version and the relocated executable setting. It does not run a model
+or establish actual UI reload, delivery, remote access or host-state upgrade.
+
 The helper archive is `peerspan-helper-VERSION-linux-ARCH.tar.gz`. Its named root contains `bin/peerspan-helper`, the operator guide as `README.md`, and `RELEASE.json`; it needs no Node or host integration bundle. It supplies transport only. The [operator contract](decentralized-helper-contract.md) explains explicit state/listen/account configuration and identity handoff. Normal host bundles and the host installer do not install or launch it.
 
 ## Qualify the candidate

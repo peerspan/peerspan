@@ -9,3 +9,7 @@
 
 __pycache__/
 node_modules/
+
+# Claude emits build-specific declarations for locally loaded development mods.
+integrations/claude-onboarding/.claude-plugin/types/
+integrations/claude-onboarding/tsconfig.json

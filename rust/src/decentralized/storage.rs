@@ -453,6 +453,21 @@ impl Snapshot {
             e
         })
     }
+    /// Public authority only. The ordinary memo fingerprint hashes entire rows,
+    /// including the unused networks.root_seed. Pure signer-independent reviews
+    /// bypass that fingerprint and copy only the columns load_inner needs.
+    pub(crate) fn load_public(
+        connection: &Connection,
+        network_id: &str,
+        own_host_key: &str,
+    ) -> Result<Self> {
+        Self::load_inner(connection, network_id, own_host_key).map_err(|mut e| {
+            if e.code == "invalid" {
+                e.code = "state_conflict";
+            }
+            e
+        })
+    }
     fn load_inner(connection: &Connection, network_id: &str, own_host_key: &str) -> Result<Self> {
         check(ident(network_id, "net_") && key(own_host_key))?;
         let raw: String = connection

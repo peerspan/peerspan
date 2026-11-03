@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-29",
+  "kind": "contract-derived conformance; no actual terminal creation smoke",
+  "contract_commit": "3ddb733",
+  "production_and_test_source_commit": "997e9b6d8f0f738c6421f9ca3daad21f61508da2",
+  "rust_source_commit": "a851292",
+  "host_sha256": "b17c5434a9e256c52b8f6e0b0857be99c1e444a1be154061fbdc9586670fdf88",
+  "native_runtime": "Claude Code 2.1.303; updates disabled; no inference",
+  "local_results": {
+    "native": {
+      "passed": 200,
+      "failed": 0,
+      "seconds": 22.41,
+      "original_cases_unchanged": 184,
+      "new_cases": 16
+    },
+    "join_onboarding": {
+      "passed": 11,
+      "failed": 0,
+      "seconds": 26,
+      "original_case_bodies_unchanged": 8,
+      "new_cases": 3
+    },
+    "rust": {
+      "passed": 155,
+      "ignored": 2,
+      "failed": 0
+    },
+    "format": "pass",
+    "clippy": "pass",
+    "native_strict_validation": "pass"
+  },
+  "coverage": [
+    "Separate empty/unpinned creation review, explicit save and later public-key/request consent",
+    "Real private filesystem original persistence, SSH-derived public key, no sidecar, strict input and unsafe destination refusals",
+    "Concurrent creators, repeat refusal, inventory recovery and preservation after observed post-persistence parent loss",
+    "Exact native effects, freshness, cancellation, unknown outcomes and callback/privacy boundaries using mocked process effects"
+  ],
+  "findings_fixed": [
+    "Named Cancel control was hidden during pending zero-inventory recheck; kept it visible without changing assertions"
+  ],
+  "fixture_corrections": [
+    "New host helper initially assumed a .pub sidecar; changed to read-only ssh-keygen -y while retaining no-sidecar assertions",
+    "Removed unspecified LF assumption for OpenSSH header; validity still checked by ssh-keygen"
+  ],
+  "limits": [
+    "Hardlink/fsync crash interval and old rendered callback closures remain source/fault-injection evidence, not deterministic black-box interruption proof",
+    "Native effects are mocked; no real terminal creation, plugin reload or actual daemon restart acceptance claimed",
+    "PR50 final manual outcome reopen remains incomplete after automatic approval review rejected the terminal action; merge is not retry approval",
+    "Installed two-machine/distinct-person flow, participant admission/access, model receipt and schema23-to27 upgrade/recovery remain feature acceptance gates",
+    "Initial CI/review passed on30543df; final-head CI/review evidence is maintained in PR51 and tracking PR35"
+  ]
+}

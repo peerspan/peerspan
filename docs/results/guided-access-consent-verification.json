@@ -1,0 +1,515 @@
+{
+  "status": "Local verification complete; final evidence-commit CI/review must be recorded on PR77/35 after this commit.",
+  "base": "524546f84d9983ed9fb5689b611a378ab20635ef",
+  "pr": "https://github.com/peerspan/peerspan/pull/77",
+  "frozen_production": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+  "production_history": {
+    "1af0d6f": "1af0d6f7f4b2781b73d95b8ac59e498cf8f09677",
+    "af9930e": "af9930edd5416f8e11311b280e6c813ea0b93c96",
+    "7fed4df": "7fed4df25f9ad0f077dd1705ec720a0dc2558c46",
+    "3fa769c": "3fa769c5891dde04c9d795e7db1f61d8b41b697f"
+  },
+  "independent_source": {
+    "author": "separate contract-only agent; no production reads, imports, runtime or builds",
+    "committed_before_execution": [
+      "590d7c14875132e3dc656827d8e0dce3ae76dd1a",
+      "41919b562b6556b96c376359f1ec159210f3bfff",
+      "5c50c771d6020dda465367928e755f9d1ccb318f",
+      "d7f2d8eb006808bcb094b666d1e7709af985c50c"
+    ],
+    "integrated": [
+      "361de3382cc0aff1403f0ef99cc60eb589fc68b8",
+      "52fa4f3a647a65d240e5c3085e90f87646020c58",
+      "88d14e379dfb30086e6619fb3557e87c04491b23",
+      "751ceb8d89d6f4491391d0ac39281219dfcfb1a4"
+    ],
+    "final_sha256": "4426bce1c7cf8821df552dc04c542827a41c07b4add715beb5cd109339cafda5",
+    "audit": "Removing missing-reference23-line addition restores590d7c1 bytes/AST; removing failure-only diagnostic and restoring only advanced fixture provider_id/format reproduces41919b5 bytes/AST. All original consent assertions/actions/delays/timeouts preserved.",
+    "fixture_correction": "Existing ordinary explicit external original public key plus sshsig, under docs d69b647; no guided signer override or key probe.",
+    "negative_storage": "Only schema-only late ABORT triggers and offline genuine nonsigning metadata host/reference faults, exact original bytes restored; no authority/action/template/key/seed/catalog/protocol fabrication.",
+    "old25_suites_harness_counted_helper_native_tree_unchanged": true,
+    "diagnostic_preservation": "Five helpers and21 return-unchanged wrappers; independent byte/AST restoration to5c50c77 and root AST restoration audit pass. Complete original comparisons, capture count/order/short-circuiting, actions/delays/timeouts preserved. Failure metadata only, no raw paths/rows/IDs/keys."
+  },
+  "required_gate_history": {
+    "initial": {
+      "head": "1af0d6f7f4b2781b73d95b8ac59e498cf8f09677",
+      "results": {
+        "fmt": {
+          "exit": 0,
+          "seconds": 3.77,
+          "log": "/dev/shm/peerspan-gu-consent-initial-fmt.log"
+        },
+        "rust": {
+          "exit": 101,
+          "seconds": 127.81,
+          "log": "/dev/shm/peerspan-gu-consent-initial-rust.log"
+        }
+      }
+    },
+    "af9930e": {
+      "fmt": {
+        "exit": 0,
+        "seconds": 3.11,
+        "log": "/dev/shm/peerspan-gu-consent-p2-fmt.log"
+      },
+      "rust": {
+        "exit": 0,
+        "seconds": 97.31,
+        "log": "/dev/shm/peerspan-gu-consent-p2-rust.log"
+      },
+      "clippy": {
+        "exit": 0,
+        "seconds": 35.61,
+        "log": "/dev/shm/peerspan-gu-consent-p2-clippy.log"
+      },
+      "build": {
+        "exit": 0,
+        "seconds": 73.13,
+        "log": "/dev/shm/peerspan-gu-consent-p2-build.log"
+      }
+    },
+    "7fed4df": {
+      "fmt": {
+        "exit": 0,
+        "seconds": 3.27,
+        "log": "/dev/shm/peerspan-gu-consent-parser-fmt.log"
+      },
+      "rust": {
+        "exit": 0,
+        "seconds": 109.67,
+        "log": "/dev/shm/peerspan-gu-consent-parser-rust.log"
+      },
+      "clippy": {
+        "exit": 0,
+        "seconds": 42.15,
+        "log": "/dev/shm/peerspan-gu-consent-parser-clippy.log"
+      },
+      "build": {
+        "exit": 0,
+        "seconds": 89.98,
+        "log": "/dev/shm/peerspan-gu-consent-parser-build.log"
+      }
+    },
+    "3fa769c": {
+      "fmt": {
+        "exit": 0,
+        "seconds": 3.43,
+        "log": "/dev/shm/peerspan-gu-consent-raw-fmt.log"
+      },
+      "rust": {
+        "exit": 0,
+        "seconds": 139.97,
+        "log": "/dev/shm/peerspan-gu-consent-raw-rust.log"
+      },
+      "clippy": {
+        "exit": 0,
+        "seconds": 42.72,
+        "log": "/dev/shm/peerspan-gu-consent-raw-clippy.log"
+      },
+      "build": {
+        "exit": 0,
+        "seconds": 100.59,
+        "log": "/dev/shm/peerspan-gu-consent-raw-build.log"
+      }
+    }
+  },
+  "initial_rust_failure": {
+    "source": "1af0d6f7f4b2781b73d95b8ac59e498cf8f09677",
+    "pass": 138,
+    "fail": 1,
+    "ignored": 2,
+    "case": "quic::tests::relayed_peers_switch_to_a_validated_direct_path",
+    "error": "src/quic.rs1878 read peer response: connection lost",
+    "cause": "unclassified; no QUIC source/test changed; later required source-changing gate runs pass; a pass does not establish the earlier cause."
+  },
+  "local_results": [
+    {
+      "source": "af9930edd5416f8e11311b280e6c813ea0b93c96",
+      "test_source": "590d7c14875132e3dc656827d8e0dce3ae76dd1a",
+      "suite": "access_consent",
+      "pass": 0,
+      "fail": 6,
+      "seconds": 145,
+      "failure": "fresh prepare400; optional replace_access_id was incorrectly required by the strict required-field list",
+      "corrected_by": "7fed4df25f9ad0f077dd1705ec720a0dc2558c46",
+      "fixtures": "/dev/shm/peerspan-gu-consent-temp/slim-access_consent-lffyvw9k"
+    },
+    {
+      "suite": "access_consent",
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "test_source": "5c50c771d6020dda465367928e755f9d1ccb318f",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 88,
+      "failure": "case3 consent published/signed/remote-carrier combined check after exact own approval-pair comparison passed",
+      "cause": "First changed category unknown: remote whole snapshot OR any carrier; no category captured. Later pass cannot identify original cause.",
+      "fixture": "/dev/shm/peerspan-gu-consent-temp/slim-access_consent-t7ufavt5",
+      "next": "One independently authored metadata-only diagnostic source run; no unchanged retry/weakening."
+    },
+    {
+      "suite": "access_onboarding",
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "pass": 4,
+      "fail": 2,
+      "seconds": 100,
+      "failure": "extra alice-expiry-revocation daemon admin socket wait; then repeated-refusal aggregate dec_clock/dec_contacts change",
+      "startup_cause": "retained daemon says path must be shorter than SUN_LEN; adapter.sock108 bytes exceeds107 byte filesystem pathname limit including NUL",
+      "aggregate_cause_limit": "changed table categories captured; origin unclassified after incomplete prior setup, not retrospectively attributed",
+      "fixture": "/dev/shm/peerspan-gu-consent-temp/slim-access_onboarding-e00f9mu2"
+    },
+    {
+      "suite": "access_onboarding",
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "pass": 6,
+      "fail": 0,
+      "seconds": 99,
+      "test_source": "unchanged from merged75",
+      "environment_correction": "TMPDIR shortened to/dev/shm/g31-tmp; no source/action/assertion/delay/timeout changed"
+    },
+    {
+      "suite": "policy",
+      "pass": 9,
+      "fail": 0,
+      "seconds": 40,
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "test_source": "unchanged from merged75"
+    },
+    {
+      "suite": "join",
+      "pass": 12,
+      "fail": 0,
+      "seconds": 98,
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "test_source": "unchanged from merged75",
+      "note": "One diagnostic run; does not establish cause of candidate88d14e3 boundary failure."
+    },
+    {
+      "suite": "native",
+      "pass": 312,
+      "fail": 0,
+      "seconds": 49.96,
+      "runtime": "Claude2.1.303",
+      "strict_validation": "pass",
+      "tree": "unchanged from merged75",
+      "scope": "native test runtime with independent host/model fixtures, not an actual-model/physical/installed acceptance run"
+    },
+    {
+      "suite": "access_consent",
+      "pass": 6,
+      "fail": 0,
+      "seconds": 92,
+      "source": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+      "test_source": "d7f2d8eb006808bcb094b666d1e7709af985c50c",
+      "first_diagnostic_run": true,
+      "note": "Original full comparisons pass with bounded failure-only wrappers and short TMPDIR. This pass does not identify the first combined purity failure category or traffic origin.",
+      "fixture": "/dev/shm/g31-tmp/slim-access_consent-bhcm7zs6"
+    }
+  ],
+  "ci_history": {
+    "1af0d6f": {
+      "conformance": 41124578539,
+      "pr_checks": 41124578312,
+      "all_old25": "success",
+      "pr_checks_result": "success"
+    },
+    "532e6fe": {
+      "conformance": 41125574050,
+      "pr_checks": 41125573949,
+      "all_old25": "success",
+      "pr_checks_result": "success",
+      "access_consent": {
+        "pass": 0,
+        "fail": 6,
+        "seconds": 57,
+        "failure": "same first-consent parser400"
+      }
+    },
+    "7fed4df": {
+      "conformance": 41126082016,
+      "pr_checks": 41126081914,
+      "all_old25": "success",
+      "pr_checks_result": "success",
+      "access_consent": {
+        "pass": 2,
+        "fail": 4,
+        "seconds": 33,
+        "failures": {
+          "case2": "automatic unavailable-original advanced setup did not produce expected unsigned slots",
+          "case4": "raw-before-created approval returned a different closed error",
+          "case5_and_6": "follow case4 early exit with its clock offset left changed; not independently classified"
+        },
+        "correction": "d69b647 contract +3fa769c production +5c50c77 independent fixture; no consent assertion weakened"
+      }
+    },
+    "88d14e3": {
+      "conformance": 41126919519,
+      "pr_checks": 41126919475,
+      "pr_checks_result": "success",
+      "access_consent": {
+        "pass": 6,
+        "fail": 0,
+        "seconds": 67
+      },
+      "join": {
+        "pass": 10,
+        "fail": 2,
+        "seconds": 44,
+        "failure": "expired_invite_refused: join at expires_at-1s returnedexpired; stage_inactivity_limit then lacksclock_at",
+        "cause": "unclassified. Existing fixture uses ceil integer seconds offset and a real-running clock; actual decision-time boundary was not captured. No join source/assertion/timeout changed."
+      },
+      "other_old24": "success"
+    },
+    "751ceb8": {
+      "conformance": 41128435395,
+      "pr_checks": 41128435390,
+      "all26_jobs": "success",
+      "pr_checks_result": "success",
+      "access_consent": {
+        "pass": 6,
+        "fail": 0,
+        "seconds": 59
+      },
+      "join": {
+        "pass": 12,
+        "fail": 0,
+        "seconds": 53
+      },
+      "cause_limit": "Passing later independent diagnostics/unchanged join do not attribute earlier failures."
+    }
+  },
+  "review": {
+    "initial_p2": 4428260533,
+    "fix": "af9930edd5416f8e11311b280e6c813ea0b93c96",
+    "error_precedence_followup": "7fed4df25f9ad0f077dd1705ec720a0dc2558c46",
+    "independent_case2": "pass in candidate88d14e3",
+    "resolved_thread": "PRRT_kwDOVZ-Tss6yIrEU",
+    "clean_candidate_review": 6533326171,
+    "clean_candidate": "88d14e379dfb30086e6619fb3557e87c04491b23",
+    "final_review": "pending"
+  },
+  "initial_preflight": {
+    "frozen_rust": "af9930edd5416f8e11311b280e6c813ea0b93c96",
+    "head": "532e6fee62a504443e89af2ccb05671b1cf7c93b",
+    "binary_hashes": {
+      "peerspan-host": "1baa025babe93885b63a38fc46c6e3d81119bcdef42b1bd10a3d09a83bbefeb9",
+      "peerspan-peer-probe": "dd11f01960b4a50435799d8e009cc3849369faa6354a8f9c8bc067709a078617",
+      "peerspan-helper": "20c0228db873b0abcb66316cd65bc4d308295158b7ee05a55a3baa1d9ca52aa3"
+    },
+    "tests": {
+      "access_consent.py": "6319dfd425e4033db283eb230a579c838956a192e39d51218116f2c8738a1c0d",
+      "access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863"
+    },
+    "process_counts": {
+      "cargo": 1,
+      "rustc": 8,
+      "peerspan-host": 4,
+      "claude": 3
+    },
+    "time_utc": "2026-10-30T20:45:19Z"
+  },
+  "final_preflight": {
+    "frozen_rust": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+    "head": "88d14e379dfb30086e6619fb3557e87c04491b23",
+    "binary_hashes": {
+      "peerspan-host": "23bd8507a21c95669ab2337cfe3ac798c981e59098d35f4bfa8d1f95426d6db6",
+      "peerspan-peer-probe": "2a0e0397b0baf7cdb285a099f31c98610fd1eef0a51902a350386771c793da07",
+      "peerspan-helper": "e80dcebd02e27fc1b2954e525e1c510666a33569684ac0ae527729dc6ee29695"
+    },
+    "tests": {
+      "access_consent.py": "4f9d2f2e23995f2f3fccd524932409740c06bd63bb8605046f52e2602a658211",
+      "access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+      "policy.py": "40a0b7882ac367dc8ebdafbd675c728f0b65e17623785464dae0906827d7f5c2",
+      "join.py": "6b9cce214bec81e807d8b88dfe6affe835b21332b0e3954351577fe7003908cd",
+      "harness.py": "be0e0c3354ea76fc3ee0f4b4ed00d94db90c13d1fc0a5160602309adfec66830",
+      "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863"
+    },
+    "process_counts": {
+      "cargo": 1,
+      "rustc": 0,
+      "peerspan-host": 4,
+      "claude": 4
+    },
+    "time_utc": "2026-10-30T20:59:17Z"
+  },
+  "runtime_policy": "Primary-owned compilers and suites/native runtime serialized. Preflight external process counts are snapshots only; no continuous monitor or causal attribution.",
+  "limits": [
+    "Genuine creator setup already retained a policy stream; absent-policy execution not claimed.",
+    "No genuine complex fork/incomplete/unsettled sibling, independent root/member/lease changes or broken owned-device seed constructed.",
+    "Full-u64/local-edit exhaustion, deterministic first-action collision and aggregate receipt/intent/output quotas remain source/manual limits.",
+    "Unsafe/oversize public projection cannot yield a genuine section30 digest in this compact fixture; no digest invented.",
+    "No signer file-open syscall/subsecond-race claim; no native access controls, bounded policy completion/publication or observed readiness in this slice.",
+    "Installed/physical/actual-model/schema23-to27/full-state upgrade/recovery/full-feature acceptance remain separate; PR35 stays unmerged."
+  ],
+  "ci_boundary": "Final record commit must pass all26 suites and PR Rust/native checks with fresh exact-head review; final links/results recorded on PR77/35 after this evidence commit.",
+  "runner_path_correction": {
+    "initial_tmpdir": "/dev/shm/peerspan-gu-consent-temp",
+    "corrected_tmpdir": "/dev/shm/g31-tmp",
+    "retained_admin_path_bytes": 106,
+    "retained_adapter_path_bytes": 108,
+    "linux_sun_path_bytes_including_nul": 108,
+    "scope": "Only runner TMPDIR; no product, clock, assertion, timeout, carrier or state alteration."
+  },
+  "contract_history": {
+    "8cf52bd": "8cf52bd3687201c7712eb4a40657415d5d349385",
+    "330ae2f": "330ae2fc3352ca3e72ee68892d3b2568599654eb",
+    "3dc9f0a": "3dc9f0abf44f8f4c7646bb814e95517d645cd52a",
+    "249ad37": "249ad3748afe31531a6f5a8f4564e0ffa50458c8",
+    "6424fe3": "6424fe39e5e1d390128e25a29ee827fa3e1aea02",
+    "2881798": "2881798148760ba530353ccea9a99ecd7bd2e882",
+    "d69b647": "d69b64747fe495b9250d0da1051f547da940615a",
+    "8b94419": "8b94419891c296c135849f3f4563055b2e334135"
+  },
+  "contract_ordering": "Core section31 before1af0d6f; raw-time fixture clarification before3fa769c; bounded failure diagnostics clause before independent d7f2d8e. Clarifications preserve existing consent assertions.",
+  "local_runner_results": {
+    "short_tmpdir": {
+      "access_onboarding": {
+        "exit": 0,
+        "seconds": 99.64,
+        "log": "/dev/shm/peerspan-gu-consent-3fa769c-short-access_onboarding.log"
+      },
+      "policy": {
+        "exit": 0,
+        "seconds": 39.92,
+        "log": "/dev/shm/peerspan-gu-consent-3fa769c-short-policy.log"
+      },
+      "join": {
+        "exit": 0,
+        "seconds": 97.81,
+        "log": "/dev/shm/peerspan-gu-consent-3fa769c-short-join.log"
+      },
+      "native-validate": {
+        "exit": 0,
+        "seconds": 1.19,
+        "log": "/dev/shm/peerspan-gu-consent-3fa769c-short-native-validate.log"
+      },
+      "native": {
+        "exit": 0,
+        "seconds": 49.96,
+        "log": "/dev/shm/peerspan-gu-consent-3fa769c-short-native.log"
+      }
+    },
+    "diagnostic": {
+      "exit": 0,
+      "seconds": 92.42,
+      "log": "/dev/shm/peerspan-gu-consent-3fa769c-diagnostic-access_consent.log"
+    }
+  },
+  "diagnostic_preflight": {
+    "head": "751ceb8d89d6f4491391d0ac39281219dfcfb1a4",
+    "frozen_rust": "3fa769c5891dde04c9d795e7db1f61d8b41b697f",
+    "test_sha256": "4426bce1c7cf8821df552dc04c542827a41c07b4add715beb5cd109339cafda5",
+    "binary_hashes": {
+      "peerspan-helper": "e80dcebd02e27fc1b2954e525e1c510666a33569684ac0ae527729dc6ee29695",
+      "peerspan-peer-probe": "2a0e0397b0baf7cdb285a099f31c98610fd1eef0a51902a350386771c793da07",
+      "peerspan-host": "23bd8507a21c95669ab2337cfe3ac798c981e59098d35f4bfa8d1f95426d6db6"
+    },
+    "process_counts": {
+      "cargo": 0,
+      "rustc": 0,
+      "peerspan-host": 1,
+      "claude": 3
+    },
+    "time_utc": "2026-10-30T21:10:54Z",
+    "tmpdir": "/dev/shm/g31-tmp"
+  },
+  "final_frozen_local_source_head": "751ceb8d89d6f4491391d0ac39281219dfcfb1a4",
+  "logs": {
+    "/dev/shm/peerspan-gu-consent-3fa769c-access_consent.log": {
+      "bytes": 1476,
+      "sha256": "c6bdf0399ff8f61bde5b2a5b12a95c52a79e8ecdf487e13ea1264f02a453027f"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-access_onboarding.log": {
+      "bytes": 1223,
+      "sha256": "55443de8ae2816ce9474689a1b432861a838e52eb9975a5a8f5b9f0a8cd772de"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-diagnostic-access_consent.log": {
+      "bytes": 1409,
+      "sha256": "36a401f9835d2ac1214c4251267b8ba1dabf2b449d8d0e1e9636db35aade1df8"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-short-access_onboarding.log": {
+      "bytes": 714,
+      "sha256": "f5a92a1b303d88e5777e8233317c6642b22f984c20ff0f28aba1baec2533cc44"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-short-join.log": {
+      "bytes": 1131,
+      "sha256": "41f415ec7dbe67f02062aa7d2323f17bce5095942691750d100c06b129f9a132"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-short-native-validate.log": {
+      "bytes": 3432,
+      "sha256": "1b809d091d03fd7d890fd376ee1aceb88217d92cd01698055ebb972005a2bf8b"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-short-native.log": {
+      "bytes": 37417,
+      "sha256": "4bb43b611fe5eee91b1ac2636f193b4737da4a63bf0b07d1043f33dbcc27659d"
+    },
+    "/dev/shm/peerspan-gu-consent-3fa769c-short-policy.log": {
+      "bytes": 878,
+      "sha256": "91dcd9c9ba32c914ac9fbe686a82e4b7d81b0689977749f8419d26e16d688eda"
+    },
+    "/dev/shm/peerspan-gu-consent-af9930e-access_consent.log": {
+      "bytes": 1177,
+      "sha256": "a1a2c1b4cefe1e729b7b3e6a714660e01eabdb3f2c7eea9c40a57b5d2c2cb17f"
+    },
+    "/dev/shm/peerspan-gu-consent-initial-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-consent-initial-rust.log": {
+      "bytes": 11153,
+      "sha256": "90b700a8c5af8c078a141f852d1f43744576ba6f8c7e8de0b96a3281e3d8b853"
+    },
+    "/dev/shm/peerspan-gu-consent-p2-build.log": {
+      "bytes": 147,
+      "sha256": "a591aa4abc4050cd43c91a4882e1dad9b9f880d72a17cd87daacda844ae08528"
+    },
+    "/dev/shm/peerspan-gu-consent-p2-clippy.log": {
+      "bytes": 147,
+      "sha256": "d370d3e4d66d5a2f381903a88cdee93106ac826125726a38f606a8ff135d7c03"
+    },
+    "/dev/shm/peerspan-gu-consent-p2-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-consent-p2-rust.log": {
+      "bytes": 13217,
+      "sha256": "8a043860b205eee6df5fb1c96e9cdd7299cba494b76260d8a11eb5fc2aa49d67"
+    },
+    "/dev/shm/peerspan-gu-consent-parser-build.log": {
+      "bytes": 147,
+      "sha256": "6ba3193a9e29f10804b4923085c52cda6fa9f7c6995cb518f5a5a50fe44799a3"
+    },
+    "/dev/shm/peerspan-gu-consent-parser-clippy.log": {
+      "bytes": 147,
+      "sha256": "27550d5d5369b3f236b3f17cafb291b1a96063c8cae025456ac96365f1c9a042"
+    },
+    "/dev/shm/peerspan-gu-consent-parser-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-consent-parser-rust.log": {
+      "bytes": 13217,
+      "sha256": "29617ab59cd4b197616a45f05dda49e6a13f60746b2310ddaf379363bb2bf70c"
+    },
+    "/dev/shm/peerspan-gu-consent-raw-build.log": {
+      "bytes": 147,
+      "sha256": "5809b6990bed24f6448008709312ca4c994c05dc317fb3bc18ebd3bf8e388a75"
+    },
+    "/dev/shm/peerspan-gu-consent-raw-clippy.log": {
+      "bytes": 147,
+      "sha256": "9319d7d534ca38d13154420a373da978f77640e664b3849af5d82bf6d0529b41"
+    },
+    "/dev/shm/peerspan-gu-consent-raw-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-consent-raw-rust.log": {
+      "bytes": 13218,
+      "sha256": "aaccd9a8449ecf1be393fbd1ce00b2db71caf494324875f1c35b683b7f694cd2"
+    }
+  },
+  "duration_limits": "First failed parser-only local suite145s exceeded120s target. Final consent92s, existing inspection99s/policy40s/join98s and native49.96s meet it; no assertion, delay or timeout raised.",
+  "remaining_cause_limits": "First local QUIC connection loss, first local combined consent purity category/IO origin, following incomplete old-inspection setup dec_clock/dec_contacts origin and candidate88 join decision-time boundary remain unclassified. Runner SUN_LEN failure is supported by retained error/path lengths and corrected environment; no unrelated failure is attributed to that correction or process overlap."
+}

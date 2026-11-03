@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "branch": "codex/gu-native-peer-reachability",
+  "scope": "Explicit remote-machine choice from verified native local status, one bounded exact-key outbound transport observation, complete public inspection validation and separate roster/result expiry; no incoming/model/overall-ready inference or new runtime authority.",
+  "base": "9ca61f55082b23499cfb3eb357659c457301dc7c",
+  "contract_first": "af5224e52287e312d01432d5173ad89bdc377d03",
+  "contract_clarifications": [
+    "02988b1: original fixed roster deadline and separate current result display expiry; old results cannot clear a new choice/check"
+  ],
+  "status": "New16/16 pass on first native runtime. Full379/381 in70.08s retains two unchanged old default5s timeouts; cause unclassified. Strict pinned303 validation and unchanged real-host peer reachability6/6 in51.25s pass. All59 prior test/helper files and Rust tree exact. Required final exact-head all30/four CI/fresh review follows after evidence commit.",
+  "initial_source": "79612e0493e56ee103c2080c0bfc967524e037c6",
+  "frozen_production": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+  "verified_local_source": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+  "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+  "hooks_tree": "b15b56038501362aaaa0cbb10392fa7e894c3250",
+  "source_sha256": {
+    "integrations/claude-onboarding/hooks/reachability.mjs": "761684852f41567d155ddcdc13ccda09a8edde2075060238566d5ecc6e822273",
+    "integrations/claude-onboarding/hooks/register.mjs": "d3990373b3b3f06d3a6cd771d7a15d643ab1a21510ea6ca3453f6feb6685a050",
+    "integrations/claude-onboarding/tests/peer-reachability.test.ts": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+    "conformance/slim/peer_reachability.py": "61b629a3236df9f4e3398109fbc9b0c7eeca3d46810231a66570244d968e46e3"
+  },
+  "runtime": {
+    "path": "/root/.local/share/claude/versions/2.1.303",
+    "version": "2.1.303",
+    "sha256": "375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450"
+  },
+  "reused_unchanged_host_gates": {
+    "record": "docs/results/guided-peer-reachability-verification.json",
+    "record_sha256": "41fff5b1531253ac7afebd98452596d79b6e7de0d272002565bafcd04f196833",
+    "merged_pr": 89,
+    "reviewed_head": "c26be48da4e5a5ff99f09c132251568733e000f3",
+    "frozen_production": "1e780594dc9d3a164ab0becd2f2fe6ed348724e4",
+    "local_rust": "155passed/2ignored;fmt/Clippy/all shipped binaries pass",
+    "local_readiness": "6/6 in45.60s",
+    "ci_all30": "https://github.com/peerspan/peerspan/actions/runs/41184006134",
+    "ci_four_checks": "https://github.com/peerspan/peerspan/actions/runs/41184006157",
+    "final_binary_directory": "/dev/shm/gu38/final-bin",
+    "final_binary_sha256": {
+      "peerspan-host": "43c79e423530fb5da21f34e177fdeb1c674e2ea24deee47141d38a817bf0b0d5",
+      "peerspan-peer-probe": "e3c5f355ce7d61ff6a9f69a725a8447b7b0566e431ef4269785808bb81de4ec8",
+      "peerspan-helper": "c42d8859549df2dbf38d186e3200a9810b91b174af0d572da3ccb549dc34d60c"
+    }
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-native-peer-reachability-conformance",
+    "initial_source": "984be60602dac86a374efd9e2f1d9f540a50b263",
+    "initial_integration": "0294b12",
+    "cases": 16,
+    "declaration": "Contract/public-spec/SDK/independent-fixture source only; no product/Rust/hook reads/imports or process/host/network/model execution. Source committed before root serial runtime gates; all365 old native cases/all30 old host suites/helpers unchanged."
+  },
+  "source_reviews": [
+    {
+      "commit": "02988b1",
+      "finding": "Before initial implementation/runtime, distinguish original roster expiry authority from old result display expiry; selection/new check cancels only the old result authority."
+    },
+    {
+      "commit": "eedb58f36add6679d26852910d8d1d86f2ddc6c7",
+      "finding": "Before first runtime, unavailable attempted check must say result unavailable rather than no check performed; only volatile presentation state added."
+    },
+    {
+      "commit": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+      "finding": "Before first runtime, use contract literal public outbound direction with plain apostrophes; no semantics/validation/test change."
+    }
+  ],
+  "first_failures": [
+    {
+      "gate": "native-all-first",
+      "result": "379/381 in70.08s; all16 new pass. Old closed signed-result count/reference/state/date/private-value case times out5148.91ms; old late preflight/signer/application/timer case times out5165.17ms, both unchanged default5000ms.",
+      "classification": "Unclassified older timeouts. No semantic mismatch reported. No known Cargo/rustc at preflight/mid-run/postflight samples; no causal resource attribution. Preserve both old assertions/delays/timeouts, no unchanged local retry. Final required exact-head CI on separate runner follows."
+    }
+  ],
+  "local_runs": [
+    {
+      "gate": "native-validate-first",
+      "head": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 0.76,
+      "log": "/dev/shm/gu39/native-validate-first.log",
+      "sha256": "c4b2b930379b153a0e0323d0e2a94f0241100bd9939dd772533026819aee0339",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "b15b56038501362aaaa0cbb10392fa7e894c3250",
+      "new_test_sha256": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "summary": [],
+      "failures": []
+    },
+    {
+      "gate": "native-all-first",
+      "head": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 70.08,
+      "log": "/dev/shm/gu39/native-all-first.log",
+      "sha256": "21032dbda440d4f39797950e8c12860aa8adfa8436c96f4c801800a7a9833cd9",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "b15b56038501362aaaa0cbb10392fa7e894c3250",
+      "new_test_sha256": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "summary": [
+        " 379 pass",
+        " 2 fail",
+        "Ran 381 tests across 19 files. [69.92s]"
+      ],
+      "failures": [
+        {
+          "case": "(fail) closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing [5148.91ms]",
+          "next_lines": [
+            "  Error: timed out after 5000 ms",
+            "(pass) closed application observation rejects null bare extra proof identity readiness and malformed-date terms without mutation [3810.49ms]"
+          ]
+        },
+        {
+          "case": "(fail) late preflight signer application and old timers cannot resurrect a departed or newer selected completion view [5165.17ms]",
+          "next_lines": [
+            "  Error: timed out after 5000 ms",
+            "(pass) Finish pure Check and leaving preserve the established authorized lease with no new tools prompts keys or direct transport [1320.24ms]"
+          ]
+        }
+      ]
+    },
+    {
+      "gate": "peer-reachability-first",
+      "head": "a95578b45626d6b3355718aaeb5687cc9888c2ca",
+      "command": [
+        "python3",
+        "conformance/slim/peer_reachability.py",
+        "--bin",
+        "/dev/shm/gu38/final-bin"
+      ],
+      "exit": 0,
+      "seconds": 51.25,
+      "log": "/dev/shm/gu39/peer-reachability-first.log",
+      "sha256": "b76c77f5f7fdae4cde315252d1cd941097121d5af26329adc9e38f42316cea13",
+      "preflight_active": [],
+      "rust_tree": "eac511eeece0d6811404100da5a3dcb24854232f",
+      "hooks_tree": "b15b56038501362aaaa0cbb10392fa7e894c3250",
+      "new_test_sha256": "409ed53cb5242c01002ea7c7b45ff468a0fc45dc083aa270dfa1290ab6b24f50",
+      "summary": [
+        "peer_reachability: 6 passed, 0 failed, 0 expected failures, 0 unexpected passes, 0 skipped in 51s"
+      ],
+      "failures": []
+    }
+  ],
+  "preservation": {
+    "base": "9ca61f55082b23499cfb3eb357659c457301dc7c",
+    "all_prior_native_conformance_files_byte_identical": 59,
+    "all365_native_and_all30_existing_host_suites_unchanged": true,
+    "rust_tree_unchanged": true,
+    "no_schema_protocol_authority_provider_scope_or_durable_state_change": true
+  },
+  "evidence_limits": [
+    "Native SDK fixtures stub effects; they prove no real peer exchange or current-model receipt. Existing real two-person/two-host peer suite supplies separate backend transport evidence. No frontend authorization/cryptographic evaluator or combined ready assertion.",
+    "Public kit addresses current drawings, not retained old callback closures. Final synchronous dispatch micro-races and actual digest-validation microscopic await are source-reviewed; actual supported preflight/postIO waits and delayed responses are exercised independently.",
+    "No real terminal/reload/installed/physical/model/other-computer/schema23-to27/full-state upgrade/recovery/final combined/full-feature acceptance. Earlier quota-refused model probes not repeated.",
+    "Earlier local native timeouts and host UDP/contact/relay/history failures remain unclassified; later passes do not establish old causes."
+  ],
+  "final_ci_policy": "After evidence commit require all30 host suites/four PR checks/fresh exact-head bot+root review; verify all31 conformance jobs with pagination and record receipts on slice/tracking PR.",
+  "merge_policy": "Leave slice and tracking35 unmerged for owner review."
+}

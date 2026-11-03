@@ -1,0 +1,412 @@
+{
+  "status": "local_verification_complete; final exact-head CI/review recorded on PR75 after this evidence commit",
+  "base": "4a599ca2978915a583e6b7448030c02522b99550",
+  "pr": "https://github.com/peerspan/peerspan/pull/75",
+  "frozen_production": "e928c4b2101814f720a30e6ad9cd29df4e2949f3",
+  "source_history": {
+    "265c381": "265c381e5a61427b3a7037fe24058c80d3240608",
+    "63c1351": "63c13511aafd25b0b22ed8a6aa76f44ca0ee3485",
+    "34db44d": "34db44de94ada0205ec208266c3a2ed1132d7a5d",
+    "0740444": "07404445c6807a794d529002b765a7aa4b24514a",
+    "af67511": "af67511cc6c816bee974f0fd8ff09461577ea804",
+    "8edfd9a": "8edfd9a36d20fcdf23aa7e8b1742e67778c3f0ec",
+    "a534d60": "a534d606bef2ffd69b56b57ab896e15818ee08f5",
+    "712dc48": "712dc486d66b7f6341314e2c7a38471ed2b785c7",
+    "e928c4b": "e928c4b2101814f720a30e6ad9cd29df4e2949f3",
+    "c658d84": "c658d840b0c8937fc590d803f4e4600efd3b2a4a",
+    "ad472e0": "ad472e0fe7a3e7f52352c8415e5851ed5409f85e",
+    "69198ea": "69198ea118b8c25139ba29c417a5aa13d5eace07",
+    "e66b583": "e66b583810b85732a1cdfe50b1057ed203237eb9",
+    "4d262bf": "4d262bfc248777cdc2272860dcd3d18d2ea43419",
+    "a27ecb5": "a27ecb5322b997016f86ba0efe197424f0e12fc6",
+    "933ecd1": "933ecd11d534e2c6d8a96b815b7d23559cd57d9f",
+    "0b37de1": "0b37de1ea9875b311299639e9d3a522192eb3860",
+    "e2ff44e": "e2ff44ef92d971c8dbd33d183e6bbc3de21c250b",
+    "96df058": "96df0586b6ef183bac100f80a27f43dcdba4469e",
+    "404d27a": "404d27a42ccb4ccb498faf830d4b1bf8e0fd7584",
+    "2b480eb": "2b480eb00d2adca012c67a3b280c3c2189220f85",
+    "b49769d": "b49769d97dbe4bb764a3ab85c4bcf85fb9548902",
+    "12a4ed4": "12a4ed45f42a7b3b88c6f550da3328e2bdb6e6d5",
+    "f9dc8ed": "f9dc8ed855142e08e2ddcc4ff63bc1502ff88817",
+    "981c9a2": "981c9a2180891b03c1f30ce9bbdde436a85f3a23",
+    "0d18f45": "0d18f458859ee53a4a5d7e12241921598f996e8d"
+  },
+  "local_results": [
+    {
+      "source": "af67511",
+      "test_source": "a534d60",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 89,
+      "failure": "unknown_project_409_instead_of_inherited_404"
+    },
+    {
+      "source": "e928c4b",
+      "test_source": "c658d84",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 75,
+      "failure": "repeat_refusal_aggregate_purity_changed_category_unclassified"
+    },
+    {
+      "suite": "native",
+      "pass": 312,
+      "fail": 0,
+      "seconds": 58.25,
+      "strict_validation": "pass"
+    },
+    {
+      "suite": "access_onboarding",
+      "source": "e928c4b",
+      "test_source": "e66b583",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 73,
+      "failure": "DB/files comparison passed; strict BOTH-carrier counter assertion failed; traffic source unidentified"
+    },
+    {
+      "suite": "requester_completion",
+      "source": "e928c4b",
+      "test_source": "e66b583",
+      "pass": 6,
+      "fail": 0,
+      "seconds": 131,
+      "note": "First diagnostic run passed. Does not classify or fix earlier CI failure; exceeds120s slim target."
+    },
+    {
+      "suite": "access_onboarding",
+      "source": "e928c4b",
+      "test_source": "96df058",
+      "pass": 6,
+      "fail": 0,
+      "seconds": 97,
+      "all_categories": [
+        "whole aggregate DB schema/rows",
+        "state/home files",
+        "both original bootstrap counters",
+        "both added bidirectional UDP counters"
+      ],
+      "first_full_corrected_run": true
+    },
+    {
+      "suite": "requester_completion",
+      "source": "e928c4b",
+      "test_source": "96df058",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 131,
+      "failure": "restarted completedAPI replay performed carrier IO",
+      "classified": "Terminal actual delivery/outbox/journal retirement and earlier expired/detached API/CLI history pass; immediately preceding DB/state/home snapshot equality passes. Changed carrier and traffic origin unidentified.",
+      "first_full_corrected_run": true
+    },
+    {
+      "suite": "requester_completion",
+      "source": "e928c4b",
+      "test_source": "b49769d",
+      "pass": 5,
+      "fail": 1,
+      "seconds": 154,
+      "failure": "restarted completedAPI replay performed carrier IO",
+      "diagnostic": {
+        "phase": "restarted",
+        "mode": "API",
+        "changed_carriers": [
+          {
+            "kind": "UDP",
+            "participant": "issuer",
+            "received_datagrams_delta": 2,
+            "received_bytes_delta": 2400,
+            "returned_datagrams_delta": 0,
+            "returned_bytes_delta": 0
+          }
+        ]
+      },
+      "cause_limit": "Attempted traffic toward stopped issuer; caller/subsystem remains unidentified; DB/state/home and TCP unchanged. Startup directory work is a documented missing observation, not proven attribution."
+    },
+    {
+      "suite": "requester_completion",
+      "source": "e928c4b",
+      "test_source": "981c9a2",
+      "pass": 6,
+      "fail": 0,
+      "seconds": 157,
+      "first_full_corrected_startup_run": true,
+      "note": "One real synchronous directory refresh for exact network after existing restart; observes known stopped issuer completed error. All historical API/CLI/refusal, whole DB/state/home and both original TCP plus added UDP assertions pass. Exceeds120s local slim target; no timeout increased."
+    }
+  ],
+  "ci_history": {
+    "initial69198ea": {
+      "conformance": 41107652154,
+      "pr_checks": 41107652326,
+      "compile_error": "E0277_Content_Serialize",
+      "native_pass": 311,
+      "native_fail": 1,
+      "native_seconds": 62.23,
+      "native_failure": "explicit double Enable registers only three narrow tools and submits one private fixed hello without awaiting a busy turn",
+      "native_cause": "unclassified"
+    },
+    "0740444": {
+      "conformance": 41107876100,
+      "pr_checks": 41107876125,
+      "both": "success"
+    },
+    "cf034ca": {
+      "conformance": 41108541317,
+      "pr_checks": 41108541379,
+      "both": "cancelled_superseded_by_stronger_independent_assertion"
+    },
+    "d79c258": {
+      "conformance": 41108699116,
+      "pr_checks": 41108698969,
+      "access_pass": 5,
+      "access_fail": 1,
+      "access_seconds": 38,
+      "all_old24": "pass"
+    },
+    "a45d70a": {
+      "conformance": 41109686038,
+      "pr_checks": 41109686045,
+      "access_pass": 6,
+      "access_fail": 0,
+      "access_seconds": 35,
+      "native_pass": 312,
+      "native_seconds": 69.58,
+      "old_completion_pass": 5,
+      "old_completion_fail": 1,
+      "old_completion_seconds": 86,
+      "old_completion_failure": "terminal outbox retry +11seconds vs5second baseline wait",
+      "old_completion_cause": "prerequisite_failure_alignment_generation_unclassified"
+    },
+    "4d262bf": {
+      "conformance": 41111783833,
+      "pr_checks": 41111784115,
+      "pr_checks_conclusion": "success",
+      "access_pass": 6,
+      "access_fail": 0,
+      "old_completion_pass": 5,
+      "old_completion_fail": 1,
+      "old_completion_seconds": 84,
+      "old_completion_failure": "same requester proof row attempts3/due before+after alignment, then attempts4/transport_unavailable/11seconds until next; sync is not ACK",
+      "other23_old_suites": "success"
+    }
+  },
+  "logs": {
+    "/dev/shm/peerspan-gu-access-0740444-build.log": {
+      "bytes": 139,
+      "sha256": "2f0fbd2771b972ad3939b56fb7b3786e79809972c8e1e03f1443378595d21804"
+    },
+    "/dev/shm/peerspan-gu-access-0740444-clippy.log": {
+      "bytes": 139,
+      "sha256": "fd71d6bcb459452d42de1cbba436427aab657c0b4e71916242e7704710580dce"
+    },
+    "/dev/shm/peerspan-gu-access-0740444-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-access-0740444-rust.log": {
+      "bytes": 13209,
+      "sha256": "825f503c07bdcccda52b95d3d5b19879582bec14e480fd59dfb47a9b899a5885"
+    },
+    "/dev/shm/peerspan-gu-access-69198ea-compile-failed.log": {
+      "bytes": 4332,
+      "sha256": "f1d0a7bf9742b2e4410e929b4407e114f1f323e0cc5d67154e23c9d96f705a84"
+    },
+    "/dev/shm/peerspan-gu-access-af67511-build.log": {
+      "bytes": 139,
+      "sha256": "75f0c38a5d68df56f98342831b40ad0f9ede1574d56286b0d76b1913f0d9153c"
+    },
+    "/dev/shm/peerspan-gu-access-af67511-clippy.log": {
+      "bytes": 139,
+      "sha256": "b111e5233806a46bfaca3b3a19cab9bdd74930c690b7219cc866f3d418f4ff02"
+    },
+    "/dev/shm/peerspan-gu-access-af67511-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-access-af67511-rust.log": {
+      "bytes": 13209,
+      "sha256": "a71fa39fc739d1ad395e807b93f24af16ae518cd361b51444f036fe467f23e5c"
+    },
+    "/dev/shm/peerspan-gu-access-build.log": {
+      "bytes": 139,
+      "sha256": "e39c6f9f321f0209006bf2700f511a62543afc81950d4516782d71f44818b572"
+    },
+    "/dev/shm/peerspan-gu-access-clippy.log": {
+      "bytes": 139,
+      "sha256": "3661162339f86b09a62fb19bc12a53916abcc72387d2f8f09d7667d4f9950c02"
+    },
+    "/dev/shm/peerspan-gu-access-corrected-first.log": {
+      "bytes": 799,
+      "sha256": "c0e7baff7301f5c28e623f6db14187dfb71203d99378a6a2fcb3feba5d425d2a"
+    },
+    "/dev/shm/peerspan-gu-access-first.log": {
+      "bytes": 767,
+      "sha256": "6f78bba4b2323ec0077ca14d4f5218a05d1f14655450f5c0e113eb8094b80da4"
+    },
+    "/dev/shm/peerspan-gu-access-fmt.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "/dev/shm/peerspan-gu-access-native-first.log": {
+      "bytes": 37459,
+      "sha256": "436e148960f3169e51e059a51589a5980a8784888fd46f00f3c33251fa27d1bf"
+    },
+    "/dev/shm/peerspan-gu-access-native-validate.log": {
+      "bytes": 3408,
+      "sha256": "5576daa83d9b54486a7e25a95fe767c376c4d8ce7c1f44425ef3149b996207db"
+    },
+    "/dev/shm/peerspan-gu-access-rust.log": {
+      "bytes": 13209,
+      "sha256": "b7bb6e8801d3bb6ceddf45671cdcbf41cb8a2cd39c02770a9b8904f9d565ed60"
+    },
+    "/dev/shm/peerspan-gu-access-completion-diagnostic-first.log": {
+      "bytes": 852,
+      "sha256": "aae34609082eb7ab3dad5a4ac53002d755173802c8b4ae76e8deddc4c6959f0d"
+    },
+    "/dev/shm/peerspan-gu-access-diagnostic-first.log": {
+      "bytes": 787,
+      "sha256": "7cf780ccfdda2eb44f735701ba486ebe3ee726fc848dc2b9f1fb36df44877dbf"
+    },
+    "/dev/shm/peerspan-gu-access-terminal-peer-first.log": {
+      "bytes": 993,
+      "sha256": "cda6b2066ad76cc6b77864113910d38d2d5981c3116808e038ce843210146cfd"
+    },
+    "/dev/shm/peerspan-gu-access-retirement-first.log": {
+      "bytes": 644,
+      "sha256": "90168347cb0b9db0d2c7c0d84511da238c27a7a87da1f0afbbadd6aecc4b8098"
+    },
+    "/dev/shm/peerspan-gu-access-historical-diagnostic-first.log": {
+      "bytes": 1238,
+      "sha256": "bf314dff76e5da25a570e189aa7b11fb8af04552e6fedc4c8ded7402fcb695cc"
+    },
+    "/dev/shm/peerspan-gu-access-startup-first.log": {
+      "bytes": 852,
+      "sha256": "46446033e4a9448184e78cfba59143a9b25846e2871360deb674ffbbdf1a2634"
+    }
+  },
+  "binaries": {
+    "peerspan-helper": "3b2fcf50ab114123fe4fab650b8898947a82c7b1b3b65e1d918797ffcac8b0db",
+    "peerspan-host": "c4b1c60ec9ad6dec26b4c337b0a72ea3d47aca646ee2faca2a6f143e1ba4f855",
+    "peerspan-peer-probe": "02c993bb8cb95a6ac84b874178abff32c44ba01f8e557af8afbcb8bc6802e69b"
+  },
+  "date": "2026-10-30",
+  "kind": "project-bound pure agent-access inspection; independent binary conformance and retained prerequisite diagnostics",
+  "independent_author": {
+    "task": "agent_access_inspection_conformance",
+    "contract_only": true,
+    "implementation_access": false,
+    "runtime_execution": "primary owns serialized runs",
+    "contract_before_source": true
+  },
+  "diagnostic_preservation": {
+    "source_commit": "e66b583810b85732a1cdfe50b1057ed203237eb9",
+    "normalizes_to": "c658d840b0c8937fc590d803f4e4600efd3b2a4a",
+    "suites": [
+      "access_onboarding",
+      "requester_completion"
+    ],
+    "exact_original_bytes_and_AST_after_removing_only_observers": true,
+    "checker_sha256": "3320b06b805fd1fdc039ed1979b10183d07b99dd46d03b2e0ae352ab63b51b60"
+  },
+  "rust_gates": {
+    "source": "e928c4b2101814f720a30e6ad9cd29df4e2949f3",
+    "tests_passed": 155,
+    "tests_ignored": 2,
+    "tests_failed": 0,
+    "fmt": "pass",
+    "clippy_all_targets_D_warnings": "pass",
+    "all_shipped_debug_bins": "pass",
+    "no_dependencies_or_schema_change": true
+  },
+  "native_note": "Original integrations/claude-onboarding tree byte-for-byte unchanged from merged73; strict validate and one local312/312in58.25s. Initial CI311/312 double-Enable failure retained, cause unidentified; later pass is not a fix.",
+  "source_only_or_separate_limits": [
+    "Genuine concurrent displaced pending policy withdrawal",
+    "Root/policy forks, incomplete ancestry and migration fences",
+    "Changed immutable agent metadata and excessive valid output",
+    "Multiple hosts of one person and multiple retained proof multiplicity",
+    "Signer file-open syscall tracing and microsecond expiry crossing",
+    "Exact agent-grant consent/signing and native access UI (later slice)",
+    "Observed operation delivery/connection readiness and other-computer flow",
+    "Installed/physical/actual-model/schema23-to27/full-state upgrade/recovery/full-feature acceptance"
+  ],
+  "review": {
+    "initial_P2": "Typed normalization lost explicit signed zero/default field presence",
+    "contract": "34db44d",
+    "fix": "af67511",
+    "genuine_signed_zero_regression": "case1 passed locally and CI",
+    "thread": "https://github.com/peerspan/peerspan/pull/75#discussion_r4427209247",
+    "initial_thread_resolved": true,
+    "fresh_final_head_review": "pending"
+  },
+  "prior_failure_limits": "Earlier unclassified discarded-state failures in PR69/73 remain unclassified; their existing committed verification records retain evidence. No unchanged rerun is used as a fix.",
+  "tracking": {
+    "pr35": "https://github.com/peerspan/peerspan/pull/35",
+    "left_unmerged": true,
+    "feature_acceptance_complete": false,
+    "final_exact_head_CI_and_review": "recorded on PR75 after evidence commit"
+  },
+  "fixture_correction": {
+    "contracts": [
+      "a27ecb5",
+      "933ecd1",
+      "0b37de1",
+      "e2ff44e"
+    ],
+    "independent_commit": "96df0586b6ef183bac100f80a27f43dcdba4469e",
+    "integrated_commit": "404d27a42ccb4ccb498faf830d4b1bf8e0fd7584",
+    "production_unchanged": true,
+    "original_assertion_and_wait_ASTs_preserved": true,
+    "all_six_case_names_and_order_preserved": true,
+    "old_completion_normalizes_to_prior_exact_bytes_and_AST_after_authorized_setup_additions_removed": true,
+    "preservation_checker_sha256": "54ae6acddce2578d1a3bdec7a2ccb1aa549acaef526f882fb4f3b1fafe43a6aa",
+    "access_setup": "Separate genuine expiry/revocation pair; actual invitation/request-deadline max plus1s bounded by live measured authority; ordinary unsigned create/cancel maintenance; observe all secret/frame/read-cap/outbox/journal retirement before strict comparison; counted QUIC in addition to original bootstrap counters",
+    "old_completion_setup": "Only after both applications and earlier real barriers: supported transport restart, genuine short signed contact-only handoff/import/retention and normal catalog200 both ways; both original pin registrations through counted endpoints; preserve both syncs, one retry alignment and5s retirement; all original TCP plus both UDP counters",
+    "cause_limits": "Original aggregate purity category remains unidentified; diagnostic IO source remains unidentified. Corrections establish actual missing setup prerequisites; a pass does not retrospectively classify uncaptured traffic."
+  },
+  "test_hashes": {
+    "access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+    "requester_completion.py": "3394a6f4c70ce31c5c7c66c788b5199572941ea69ae454d7cf42d7bc935636e4",
+    "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863"
+  },
+  "resource_context": {
+    "corrected_retirement_preflight": {
+      "head": "404d27a42ccb4ccb498faf830d4b1bf8e0fd7584",
+      "time_utc": "2026-10-30T19:24:34Z",
+      "external_process_categories": {
+        "compiler": 0,
+        "other_host_suite": 0,
+        "claude": 3
+      },
+      "binary_hashes": {
+        "peerspan-host": "c4b1c60ec9ad6dec26b4c337b0a72ea3d47aca646ee2faca2a6f143e1ba4f855",
+        "peerspan-peer-probe": "02c993bb8cb95a6ac84b874178abff32c44ba01f8e557af8afbcb8bc6802e69b",
+        "peerspan-helper": "3b2fcf50ab114123fe4fab650b8898947a82c7b1b3b65e1d918797ffcac8b0db"
+      },
+      "tests": {
+        "access_onboarding.py": "ec570b8028e71a5c9320b9ede1df4ff0595e49ca1e8754374802bed7c173e5c1",
+        "requester_completion.py": "b14b46714c83c22b364de60b6aa2755102e56cadedc9741f099e936f91139e94",
+        "counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863"
+      }
+    },
+    "note": "Preflight snapshot only, no continuous resource monitor or causal claim; older runs had external compilers/suites as retained in logs/notes."
+  },
+  "startup_correction": {
+    "contract_commit": "f9dc8ed855142e08e2ddcc4ff63bc1502ff88817",
+    "independent_commit": "981c9a2180891b03c1f30ce9bbdde436a85f3a23",
+    "integrated_commit": "0d18f458859ee53a4a5d7e12241921598f996e8d",
+    "normalizes_to_exact_b49769d_bytes_and_AST_without_helper_and_call": true,
+    "carrier_diagnostic_normalizes_to_exact96df058_bytes_and_AST_without_helper_and_wrapper": true,
+    "no_original_wait_timeout_or_assertion_weakened": true,
+    "limit": "Refresh completion establishes that documented setup prerequisite only, not a global transport fence or attribution of earlier UDP packets."
+  },
+  "final_frozen_local_source_head": "0d18f458859ee53a4a5d7e12241921598f996e8d",
+  "original_sources": {
+    "other23_old_host_suites_unchanged": true,
+    "original_shared_harness_unchanged": true,
+    "native_tree_unchanged_from_merged73": true,
+    "rust_tree_unchanged_after_e928c4b": true,
+    "old_completion_changes": "Independently authored metadata-only observers and genuine setup corrections under GU28h-k; original measured cases/assertions/actions/waits/delays preserved, plus all enabled UDP counters."
+  },
+  "ci_boundary": "Candidate CI results are retained above. Final evidence-commit head must pass all25 host suites, PR Rust/native checks and fresh review; authoritative final links/results are updated in PR75/35 after this record commit. No full-feature acceptance claim.",
+  "duration_limits": "Local completion runs131/154/157s exceed the120s slim target, as did prior milestone local completion runs. All original timeouts/delays retained. No continuous resource monitoring or causal attribution; final CI duration recorded on PR."
+}

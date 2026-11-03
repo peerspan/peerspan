@@ -122,7 +122,7 @@ fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str()
         .with_context(|| format!("invalid linking {k}"))
 }
-fn shape(v: &Value, names: &str) -> Result<()> {
+pub(crate) fn shape(v: &Value, names: &str) -> Result<()> {
     let o = v.as_object().context("invalid linking object")?;
     let names: Vec<_> = names.split_whitespace().collect();
     ensure!(
@@ -156,7 +156,7 @@ fn base(id: &str) -> Result<String> {
     ensure!(ident(id, "link_"), "invalid link request ID");
     Ok(format!("/v2/link/requests/{}", encoded(id)))
 }
-fn view(v: &Value) -> Result<()> {
+pub(crate) fn view(v: &Value) -> Result<()> {
     let mut fields = v.clone();
     if let Some(o) = fields.as_object_mut() {
         o.remove("display_code");
@@ -320,7 +320,12 @@ fn same_target(a: &Value, b: &Value) -> Result<()> {
     }
     Ok(())
 }
-fn check_slot(entry: &Value, r: &Value, v: &Value, local_host: &str) -> Result<(String, bool)> {
+pub(crate) fn check_slot(
+    entry: &Value,
+    r: &Value,
+    v: &Value,
+    local_host: &str,
+) -> Result<(String, bool)> {
     shape(
         entry,
         "intent_id slot_id object_type object_id role public_key format template_base64 message_base64",
@@ -539,6 +544,11 @@ async fn signatures(
             );
             id = Some(intent);
             let public = text(entry, "public_key")?;
+            // The daemon owns this key and already advances approved host work.
+            // A concurrent batch must not send its host slot to a person's agent.
+            if text(entry, "role")? == "host" && public == host {
+                continue;
+            }
             let provider = &response["review"]["provider"];
             let path = if provider["kind"] == "network_root" {
                 root_key
@@ -598,6 +608,11 @@ async fn signatures(
                 json!({"slot_id":entry["slot_id"],"role":entry["role"],"signature":signature}),
             );
         }
+        if batch.is_empty() {
+            // Report the actual pending request; do not infer completion or
+            // repeat consent while the existing worker finishes owned work.
+            return Ok(response);
+        }
         let path = format!(
             "{}/signed",
             base(text(&response["request"], "request_id")?)?
@@ -616,7 +631,7 @@ async fn signatures(
     }
     bail!("too many dependency signature batches; resume the exact retained request")
 }
-fn describe_shape(response: &Value) -> Result<()> {
+pub(crate) fn describe_shape(response: &Value) -> Result<()> {
     shape(response, "request review signing_requests")?;
     view(&response["request"])?;
     shape(
@@ -1013,7 +1028,22 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         body["scopes"] = json!(scopes);
         body["not_after"] = json!(input.not_after.unwrap_or(deadline));
     }
-    let mut result = local.post(path.into(), body.clone()).await?;
+    let preview = local.post(path.into(), body.clone()).await;
+    let retry_after = preview
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<crate::integration::DaemonError>())
+        .filter(|error| admin && error.status == 429 && error.code == "rate_limited")
+        .and_then(|error| error.retry_after)
+        .filter(|seconds| (1..=2).contains(seconds));
+    let mut result = if let Some(seconds) = retry_after {
+        // Only the unapproved preview is repeated, with the exact same terms.
+        // A second error and every approval/signing error remain visible.
+        tokio::time::sleep(Duration::from_secs(seconds)).await;
+        local.post(path.into(), body.clone()).await?
+    } else {
+        preview?
+    };
     describe_shape(&result)?;
     describe(&result["review"])?;
     if input.approve || interactive && confirm("Approve this exact machine? (y/N)").await? {
@@ -1100,7 +1130,18 @@ pub async fn run(args: LinkArgs, state: Option<PathBuf>) -> Result<()> {
         Some(LinkCommand::Finalize {
             consent: input,
             keys,
-        }) => consent(&socket, input, "finalization", Some(keys)).await?,
+        }) => consent(&socket, input, "finalization", Some(keys))
+            .await
+            .map_err(|error| {
+                if error
+                    .downcast_ref::<crate::integration::DaemonError>()
+                    .is_some_and(|cause| cause.code == "proof_required")
+                {
+                    error.context("linking is incomplete; required proof is unavailable; inspect the same request before resuming")
+                } else {
+                    error
+                }
+            })?,
         Some(LinkCommand::Select(input)) => consent(&socket, input, "selection", None).await?,
         Some(LinkCommand::Commit(input)) => consent(&socket, input, "commit", None).await?,
         Some(LinkCommand::Status { request_id }) => {

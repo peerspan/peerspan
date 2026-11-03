@@ -1,0 +1,1935 @@
+{
+  "checked_at": "2026-11-02T02:20:00+00:00",
+  "source_revision": "d25b78bd031207b7ab4c979560ac10828846c17a",
+  "branch": "experiment/conversation-lead-wake, not merged and not to be merged; based on main e6dc45b",
+  "decisions": [
+    "CONV-28",
+    "CONV-27"
+  ],
+  "scope": "Decision 5(b) of docs/conversations-lead-proposal.md: the same four tasks with real agents under today's wake rule and a lead, three sets per arm. One machine with two hosts. Three sets per arm can show large differences in these tasks, but no significance is claimed, and it says nothing about other tasks or models.",
+  "preregistration": "experiment/PREREGISTRATION.md on the branch, committed in b1f12ef before any model run",
+  "what_ran": {
+    "hosts": {
+      "A": {
+        "person": "alice",
+        "agents": [
+          "api"
+        ]
+      },
+      "B": {
+        "person": "bob",
+        "agents": [
+          "db",
+          "release"
+        ]
+      }
+    },
+    "network_path": "loopback QUIC between two hosts on one machine (CONV-27)",
+    "binary": "release build of peerspan-host from the branch, one binary for both arms; PEERSPAN_EXPERIMENT_WAKE=lead selects the lead arm",
+    "harness": "Claude Code 2.1.314, model claude-haiku-5-5, launched with attach in tmux",
+    "lead": "alice/api in every lead-arm conversation, by the proposal's rule 2",
+    "person_messages": "One unaddressed message per task from alice, identical across arms, with no follow-up. The text and rubric are in the pre-registration.",
+    "order": "Sets 1 to 6 alternated today, lead. Fresh host state, sessions and project directories per set. No run was discarded."
+  },
+  "results": {
+    "today": {
+      "sets": [
+        1,
+        3,
+        5
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 66,
+          "max": 67,
+          "mean": 66.7
+        },
+        "cache_read": {
+          "min": 3105092,
+          "max": 3184648,
+          "mean": 3154195
+        },
+        "cache_write": {
+          "min": 51759,
+          "max": 58593,
+          "mean": 55211.7
+        },
+        "input": {
+          "min": 192,
+          "max": 208,
+          "mean": 201.3
+        },
+        "output": {
+          "min": 11575,
+          "max": 12098,
+          "mean": 11846.3
+        },
+        "message_wakes": {
+          "min": 36,
+          "max": 42,
+          "mean": 39.3
+        },
+        "agent_messages": {
+          "min": 12,
+          "max": 15,
+          "mean": 13.7
+        }
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 9,
+            "max": 9,
+            "mean": 9
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 21,
+            "max": 22,
+            "mean": 21.7
+          },
+          "cache_read": {
+            "min": 858015,
+            "max": 899786,
+            "mean": 885758.3
+          },
+          "cache_write": {
+            "min": 15257,
+            "max": 15962,
+            "mean": 15492.7
+          },
+          "input": {
+            "min": 58,
+            "max": 62,
+            "mean": 60.7
+          },
+          "output": {
+            "min": 3742,
+            "max": 4378,
+            "mean": 4092.7
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 9.9,
+            "max": 12.6,
+            "mean": 11.4
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 9,
+            "max": 9,
+            "mean": 9
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 13,
+            "max": 16,
+            "mean": 14.3
+          },
+          "cache_read": {
+            "min": 588060,
+            "max": 735779,
+            "mean": 653852
+          },
+          "cache_write": {
+            "min": 11074,
+            "max": 11973,
+            "mean": 11456.3
+          },
+          "input": {
+            "min": 40,
+            "max": 46,
+            "mean": 44
+          },
+          "output": {
+            "min": 2075,
+            "max": 2634,
+            "mean": 2271
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 4.0,
+            "max": 6.7,
+            "mean": 5.5
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 9,
+            "max": 15,
+            "mean": 13
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 15,
+            "max": 20,
+            "mean": 17.3
+          },
+          "cache_read": {
+            "min": 752308,
+            "max": 1009715,
+            "mean": 873219
+          },
+          "cache_write": {
+            "min": 11930,
+            "max": 20655,
+            "mean": 17646
+          },
+          "input": {
+            "min": 46,
+            "max": 62,
+            "mean": 54
+          },
+          "output": {
+            "min": 2578,
+            "max": 3992,
+            "mean": 3356.3
+          },
+          "agent_messages": {
+            "min": 3,
+            "max": 6,
+            "mean": 5
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 6.5,
+            "max": 11.0,
+            "mean": 8.5
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 7,
+            "max": 9,
+            "mean": 8.3
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 0,
+            "mean": 0
+          },
+          "calls": {
+            "min": 12,
+            "max": 14,
+            "mean": 13.3
+          },
+          "cache_read": {
+            "min": 675596,
+            "max": 789511,
+            "mean": 741365.7
+          },
+          "cache_write": {
+            "min": 8295,
+            "max": 11894,
+            "mean": 10616.7
+          },
+          "input": {
+            "min": 40,
+            "max": 46,
+            "mean": 42.7
+          },
+          "output": {
+            "min": 1612,
+            "max": 2508,
+            "mean": 2126.3
+          },
+          "agent_messages": {
+            "min": 2,
+            "max": 3,
+            "mean": 2.7
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 3.3,
+            "max": 6.4,
+            "mean": 5.1
+          },
+          "blocker_surfaced_of_3": 2
+        }
+      }
+    },
+    "lead": {
+      "sets": [
+        2,
+        4,
+        6
+      ],
+      "totals_excluding_launch": {
+        "calls": {
+          "min": 25,
+          "max": 43,
+          "mean": 31.7
+        },
+        "cache_read": {
+          "min": 1076349,
+          "max": 1880488,
+          "mean": 1370160
+        },
+        "cache_write": {
+          "min": 13983,
+          "max": 27977,
+          "mean": 18847
+        },
+        "input": {
+          "min": 82,
+          "max": 132,
+          "mean": 100
+        },
+        "output": {
+          "min": 4311,
+          "max": 7746,
+          "mean": 5468.7
+        },
+        "message_wakes": {
+          "min": 4,
+          "max": 15,
+          "mean": 7.7
+        },
+        "agent_messages": {
+          "min": 4,
+          "max": 7,
+          "mean": 5
+        }
+      },
+      "per_task": {
+        "T1": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 7,
+            "max": 10,
+            "mean": 8.7
+          },
+          "cache_read": {
+            "min": 279872,
+            "max": 401706,
+            "mean": 347266
+          },
+          "cache_write": {
+            "min": 4298,
+            "max": 5055,
+            "mean": 4681.3
+          },
+          "input": {
+            "min": 22,
+            "max": 28,
+            "mean": 25.3
+          },
+          "output": {
+            "min": 1472,
+            "max": 1867,
+            "mean": 1648.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 8.2,
+            "max": 13.1,
+            "mean": 11.1
+          }
+        },
+        "T2": {
+          "wakes_message": {
+            "min": 1,
+            "max": 4,
+            "mean": 2
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 3,
+            "max": 4,
+            "mean": 3.7
+          },
+          "calls": {
+            "min": 6,
+            "max": 12,
+            "mean": 8
+          },
+          "cache_read": {
+            "min": 253652,
+            "max": 506875,
+            "mean": 338725.7
+          },
+          "cache_write": {
+            "min": 3199,
+            "max": 7556,
+            "mean": 4691
+          },
+          "input": {
+            "min": 20,
+            "max": 36,
+            "mean": 25.3
+          },
+          "output": {
+            "min": 749,
+            "max": 2050,
+            "mean": 1256
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 2,
+            "mean": 1.3
+          },
+          "correct_of_3": 1,
+          "seconds_to_correct": {
+            "min": 17.2,
+            "max": 17.2,
+            "mean": 17.2
+          }
+        },
+        "T3": {
+          "wakes_message": {
+            "min": 1,
+            "max": 9,
+            "mean": 3.7
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 0,
+            "max": 4,
+            "mean": 2.7
+          },
+          "calls": {
+            "min": 6,
+            "max": 17,
+            "mean": 9.7
+          },
+          "cache_read": {
+            "min": 265602,
+            "max": 764130,
+            "mean": 432315.7
+          },
+          "cache_write": {
+            "min": 3197,
+            "max": 12657,
+            "mean": 6371
+          },
+          "input": {
+            "min": 20,
+            "max": 52,
+            "mean": 30.7
+          },
+          "output": {
+            "min": 859,
+            "max": 3505,
+            "mean": 1746.7
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 3,
+            "mean": 1.7
+          },
+          "correct_of_3": 1,
+          "seconds_to_correct": {
+            "min": 18.0,
+            "max": 18.0,
+            "mean": 18.0
+          }
+        },
+        "T4": {
+          "wakes_message": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "wakes_roster": {
+            "min": 3,
+            "max": 3,
+            "mean": 3
+          },
+          "parked_unclaimed": {
+            "min": 4,
+            "max": 4,
+            "mean": 4
+          },
+          "calls": {
+            "min": 5,
+            "max": 6,
+            "mean": 5.3
+          },
+          "cache_read": {
+            "min": 229072,
+            "max": 277223,
+            "mean": 251852.7
+          },
+          "cache_write": {
+            "min": 3068,
+            "max": 3170,
+            "mean": 3103.7
+          },
+          "input": {
+            "min": 18,
+            "max": 20,
+            "mean": 18.7
+          },
+          "output": {
+            "min": 584,
+            "max": 1032,
+            "mean": 817.3
+          },
+          "agent_messages": {
+            "min": 1,
+            "max": 1,
+            "mean": 1
+          },
+          "correct_of_3": 3,
+          "seconds_to_correct": {
+            "min": 3.4,
+            "max": 5.3,
+            "mean": 4.4
+          },
+          "blocker_surfaced_of_3": 0
+        }
+      }
+    }
+  },
+  "lead_behaviour_when_it_could_not_answer": [
+    {
+      "set": 2,
+      "task": "T2",
+      "addressed_to": [
+        "alice"
+      ],
+      "text": "I don't have the vacuum window for warehouse-7. The api project's docs/endpoints.md covers only the HTTP endpoints, and nothing there mentions vacuum or warehouses. bob/db may be the one to ask."
+    },
+    {
+      "set": 2,
+      "task": "T3",
+      "addressed_to": [
+        "alice"
+      ],
+      "text": "I can't answer that. The api project's docs cover only the HTTP endpoints, and nothing there mentions restores, invoice archives, or the code freeze. bob/db or bob/release should know the restore duration and freeze time."
+    },
+    {
+      "set": 4,
+      "task": "T2",
+      "addressed_to": [
+        "alice",
+        "bob/db"
+      ],
+      "text": "My notes in docs/ don't mention a vacuum window or warehouse-7, so I can't answer from them. bob/db may have it, since that sounds like a database maintenance question."
+    },
+    {
+      "set": 4,
+      "task": "T3",
+      "addressed_to": [
+        "alice",
+        "bob/db",
+        "bob/release"
+      ],
+      "text": "My notes in docs/ don't cover invoice-archive restores or the code freeze, so I can't give a cutoff time. bob/release likely owns the freeze date, and bob/db the restore duration."
+    },
+    {
+      "set": 6,
+      "task": "T2",
+      "addressed_to": [
+        "alice"
+      ],
+      "text": "My docs/ notes don't cover a vacuum window or warehouse-7 (I searched docs/ for both and found nothing). bob/db is probably the one to ask."
+    },
+    {
+      "set": 6,
+      "task": "T3",
+      "addressed_to": [
+        "alice"
+      ],
+      "text": "My docs/ notes don't cover invoice-archive restores or the code freeze, so I can't give a Friday cutoff from them. bob/db or bob/release should know the restore duration and the freeze time."
+    }
+  ],
+  "stalls_and_misroutes": {
+    "lead_arm_stalls": "T2 and T3 in sets 2 and 6: the lead named the likely holder to alice but addressed only alice, so no agent that held the facts woke, and no correct message came. The pre-registered run has no follow-up from alice, which is what a person would normally send next.",
+    "lead_arm_misroutes": "No address to a holder: T2 and T3 in sets 2 and 6. T4 in sets 2, 4 and 6 had no address to release, though the lead had no way to know of the blocker. No lead addressed an agent that held nothing relevant.",
+    "today_arm_stalls": "None for an answer. In set 5, release didn't surface the T4 blocker."
+  },
+  "findings": [
+    "Cost: excluding launch, the lead arm used 25 to 43 model calls per set against 66 to 67 today, and 1.08M to 1.88M cache-read tokens against 3.11M to 3.18M: on average 48% of the calls and 43% of the cache-read tokens.",
+    "Task success: today's arm answered T1, T2 and T3 in all 3 sets. The lead arm answered T1 in 3 of 3, and T2 and T3 in 1 of 3 each. The saving includes work that didn't get done, so the cost figures aren't a like-for-like saving.",
+    "Unprompted help: release raised the T4 blocker in 2 of 3 sets today and 0 of 3 with a lead. This is the loss the proposal predicted.",
+    "Routing: in the one set where the lead addressed the holders (set 4), the T3 finished in 18 seconds against 6.5 to 11 today, with 9 message wakes and 17 calls against 9 to 15 and 15 to 20 today. In the other two sets the lead addressed only alice and named the likely holder in its text, despite the event text 'answer an unaddressed message, or address whoever should act'.",
+    "Today's arm repeats itself: agents with nothing to add sent 'not in my notes' messages, and those messages woke the others again (9 message wakes for a one-answer task).",
+    "Roster wakes aren't affected by the rule: each conversation start cost 3 roster wakes in both arms, so the lead arm's per-task costs include them."
+  ],
+  "not_shown": [
+    "A lead with better guidance, a lead that knows other agents' areas, or a person following up. Any of them could change T2 and T3; none was tried, since the run allowed no changes.",
+    "Long conversations, larger rosters, cross-machine networks, Codex or OpenCode, sleeping or offline leads, an author who can't reach the lead, a lead leaving, and hosts that haven't upgraded.",
+    "Model calls per wake on real projects or user settings: the runs had small fixture projects and no user settings, so token totals don't predict real costs.",
+    "A parked window on a long gap: parked rows were gathered in only 3 wakes, in set 4's T2 and T3."
+  ],
+  "usage": {
+    "cache_read_all_runs_including_pilots": 16217762,
+    "ceiling": 40000000,
+    "launch_per_set_cache_read": "about 296,500",
+    "rate_limit": "none hit"
+  },
+  "deviations": [
+    {
+      "change": "Claude Code ran with --setting-sources project,local and CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, in both arms.",
+      "reason": "Not in the pre-registration. Keeps user settings and memory out of the runs, and stops memory carrying between sets. Token totals are lower than for a session with user settings."
+    },
+    {
+      "change": "Two pilots, not one: a launch with no message, then the pre-registered hello.",
+      "reason": "The first stopped after launch to learn the prompts. Neither saw a task. Their usage counts toward the ceiling, and their results aren't used."
+    },
+    {
+      "change": "run_set.py was committed after the pre-registration and before the first model run.",
+      "reason": "It needed the launch prompts, which needed a pilot. The pilot's usage is counted. The tasks, rubric and metrics didn't change."
+    },
+    {
+      "change": "The lead's tool description text depends on the adapter's environment, and only its presence in the adapter's environment was checked, not the text the model saw. The event text was the checked channel.",
+      "reason": "Minimal experiment."
+    },
+    {
+      "change": "No blind scorer ran.",
+      "reason": "The pre-registration runs it only for ambiguous results, and none was ambiguous on review: every pattern match was a plain statement, and no miss gave the answer another way. The rubric was applied by script, and its author could see the arms."
+    }
+  ],
+  "discarded_runs": [],
+  "branch_checks": [
+    {
+      "check": "experiment/lead_wake_check.py, no model, lead arm",
+      "result": "6 of 6 passed on the release build: lead only, parked and visible, not pending, addressed wake with window, lead author wakes no one, agent to lead"
+    },
+    {
+      "check": "Conversation suites with the flag off, debug build (the build CI uses; a release build ignores the test clock, so its clock cases fail)",
+      "result": "conversations 24, people 11, context 20, tools 19, run_fixes 29, all passed. conversations_sync: 13 of 14 on the first run, failing close_while_down (bob's view empty before the close) while the model sets were running; 14 of 14 on a rerun alone. The cause wasn't investigated."
+    },
+    {
+      "check": "integrations/shared adapter.test.mjs",
+      "result": "26 of 26 passed"
+    }
+  ],
+  "runs": [
+    {
+      "set": 1,
+      "arm": "today",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296562,
+        "cache_write": 28955,
+        "output": 1779
+      },
+      "total": {
+        "calls": 76,
+        "input": 226,
+        "cache_read": 3481210,
+        "cache_write": 87548,
+        "output": 13354
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_e2cd59c490b608d46dc761ebcd8f99dd",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 22,
+          "calls_by_agent": {
+            "db": 7,
+            "release": 7,
+            "api": 8
+          },
+          "input": 62,
+          "cache_read": 899786,
+          "cache_write": 15257,
+          "output": 3742,
+          "agent_messages": 3,
+          "task_seconds": 78.9,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 9.9,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "POST /orders returns 429 with `Retry-After: 37` when throttled (per docs/endpoints.md in the api project)."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "db: My notes (docs/maintenance.md) don't cover POST /orders throttling or its Retry-After value, so I can't answer from them. Check alice/api, which owns that endpoint."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Release notes (docs/) don't cover it. docs/calendar.md only has the code freeze and the gallery blocker. alice/api reports the answer: POST /orders returns 429 with Retry-After: 37 when throttled."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_3aa6fb19f1d93e04726e484582d7de26",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "calls_by_agent": {
+            "db": 5,
+            "release": 4,
+            "api": 5
+          },
+          "input": 46,
+          "cache_read": 637717,
+          "cache_write": 11322,
+          "output": 2075,
+          "agent_messages": 3,
+          "task_seconds": 72.7,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 4.0,
+              "by": "bob/db"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "db: warehouse-7's vacuum window is Sunday 02:40 UTC. Snapshots are retained for 19 days (docs/maintenance.md)."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't have the vacuum window for warehouse-7. docs/endpoints.md in the api project doesn't mention vacuum or warehouse-7, so bob/db's maintenance notes are the likely source."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Release notes (docs/) don't cover warehouse-7's vacuum window. docs/calendar.md has only the code freeze and gallery blocker. bob/db reports the vacuum window is Sunday 02:40 UTC."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_b8036979154a852a31cd0dc67b4e94b2",
+          "wakes_message": 15,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 17,
+          "calls_by_agent": {
+            "db": 6,
+            "release": 5,
+            "api": 6
+          },
+          "input": 54,
+          "cache_read": 857634,
+          "cache_write": 20353,
+          "output": 3499,
+          "agent_messages": 6,
+          "task_seconds": 76.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 8.0,
+              "by": "bob/release"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "db: A full invoice-archive restore takes 11 hours and can't be paused (docs/maintenance.md). So start it no later than 11 hours before the code freeze. My notes don't have the freeze time, so bob/release needs to confirm it. The freeze is in docs/calendar.md."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "The code freeze begins Friday 16:00 UTC, and any running job must be finished before then (docs/calendar.md). So the restore has to complete by Fri 16:00 UTC. The notes don't give a restore duration, so the latest start is that time minus the restore's runtime. Someone who knows the restore duration (probably alice/api or bob/db) will need to supply it."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't answer that from the api project. docs/endpoints.md has nothing on restores, archives, or the freeze. The code freeze timing is in bob/release's docs/calendar.md, and the restore duration would be in bob/db's maintenance notes."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice",
+                "bob/db"
+              ],
+              "text": "Confirmed: the freeze begins Fri 16:00 UTC (docs/calendar.md). Taking bob/db's 11-hour figure as given (I can't check docs/maintenance.md from here), the latest start is Fri 05:00 UTC."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "db: The restore duration is in my notes: 11 hours, and it can't be paused (docs/maintenance.md). With the freeze at Fri 16:00 UTC, the latest start is Fri 05:00 UTC."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Working from bob/db's 11-hour restore and bob/release's Friday 16:00 UTC freeze: the latest start is Friday 05:00 UTC. The restore can't be paused, so starting later than that would run past the freeze."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_228c8b5d2229b88f4aa7387c84385be3",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "calls_by_agent": {
+            "db": 4,
+            "release": 5,
+            "api": 5
+          },
+          "input": 46,
+          "cache_read": 789511,
+          "cache_write": 11661,
+          "output": 2259,
+          "agent_messages": 3,
+          "task_seconds": 72.9,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.6,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": true,
+              "seconds": 4.0,
+              "by": "bob/release"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Tuesday won't work for the gallery thumbnail change. docs/calendar.md says nothing touching gallery thumbnails may ship before Thursday, because the CDN contract renewal is only signed on Wednesday. The notes don't give the POST /image-resize width limit, so alice/api will need to confirm whether 640 is allowed."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. docs/endpoints.md says POST /image-resize allows a width up to 1024 (default 480), so 640 is within the limit."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "db: My notes don't cover POST /image-resize or its width limit. docs/maintenance.md only has vacuum windows and restores. alice/api needs to confirm whether 640 is allowed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "set": 2,
+      "arm": "lead",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296604,
+        "cache_write": 28770,
+        "output": 1493
+      },
+      "total": {
+        "calls": 36,
+        "input": 104,
+        "cache_read": 1450247,
+        "cache_write": 43351,
+        "output": 5804
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_0ef689c9131c0aefb2a5fab775ebd3e6",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 10,
+          "calls_by_agent": {
+            "db": 2,
+            "release": 1,
+            "api": 7
+          },
+          "input": 28,
+          "cache_read": 401706,
+          "cache_write": 5055,
+          "output": 1867,
+          "agent_messages": 1,
+          "task_seconds": 78.8,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 13.1,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "When throttled, POST /orders answers 429 with `Retry-After: 37` (per docs/endpoints.md in the api project)."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_4707cf11fbe49b5c2302291657724fba",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 6,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 4
+          },
+          "input": 20,
+          "cache_read": 255650,
+          "cache_write": 3199,
+          "output": 749,
+          "agent_messages": 1,
+          "task_seconds": 69.6,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't have the vacuum window for warehouse-7. The api project's docs/endpoints.md covers only the HTTP endpoints, and nothing there mentions vacuum or warehouses. bob/db may be the one to ask."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_5a49d6f18b6a05b8852acbeb7c6effc2",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 6,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 4
+          },
+          "input": 20,
+          "cache_read": 267215,
+          "cache_write": 3259,
+          "output": 859,
+          "agent_messages": 1,
+          "task_seconds": 69.7,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't answer that. The api project's docs cover only the HTTP endpoints, and nothing there mentions restores, invoice archives, or the code freeze. bob/db or bob/release should know the restore duration and freeze time."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_a8788eff0e9279d3e26dffe97a420982",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 5,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 3
+          },
+          "input": 18,
+          "cache_read": 229072,
+          "cache_write": 3068,
+          "output": 836,
+          "agent_messages": 1,
+          "task_seconds": 66.6,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 3.4,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. Per docs/endpoints.md in the api project, POST /image-resize allows widths up to 1024, so 640 is within the limit. The default width is 480, which only applies when `width` is omitted."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "set": 3,
+      "arm": "today",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296462,
+        "cache_write": 28792,
+        "output": 1485
+      },
+      "total": {
+        "calls": 75,
+        "input": 210,
+        "cache_read": 3401554,
+        "cache_write": 80551,
+        "output": 13583
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_7c69d9fce86ae039f0ff08d0be67be28",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 21,
+          "calls_by_agent": {
+            "db": 8,
+            "release": 6,
+            "api": 7
+          },
+          "input": 58,
+          "cache_read": 858015,
+          "cache_write": 15962,
+          "output": 4378,
+          "agent_messages": 3,
+          "task_seconds": 82.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 11.7,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Not in my notes: docs/ (maintenance.md only) has nothing on throttling or Retry-After. I can't say what POST /orders sends. The API or gateway owner (alice/api) should confirm."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "POST /orders returns 429 with `Retry-After: 37` when throttled (per docs/endpoints.md)."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "The release docs (docs/calendar.md) have nothing on POST /orders throttling or Retry-After, so I can't give you that value. alice/api should confirm it from the API or gateway config."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_d2a3b3d982b8f5526a656549a1ec70ae",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 16,
+          "calls_by_agent": {
+            "db": 6,
+            "release": 4,
+            "api": 6
+          },
+          "input": 46,
+          "cache_read": 735779,
+          "cache_write": 11973,
+          "output": 2634,
+          "agent_messages": 3,
+          "task_seconds": 76.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 6.7,
+              "by": "bob/db"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "docs/endpoints.md doesn't cover the vacuum window or warehouse-7, so I can't give you that value. bob/db owns the database, so they're the likely source."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "warehouse-7's vacuum window is Sunday 02:40 UTC (from docs/maintenance.md). Snapshots are retained for 19 days."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "The release docs (docs/calendar.md) have nothing on a vacuum window or warehouse-7, so I can't give you that. bob/db or alice/api should confirm it from the database or ops config."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_12546d28483edccbfbc1b27c6a1d31db",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 15,
+          "calls_by_agent": {
+            "db": 5,
+            "release": 5,
+            "api": 5
+          },
+          "input": 46,
+          "cache_read": 752308,
+          "cache_write": 11930,
+          "output": 2578,
+          "agent_messages": 3,
+          "task_seconds": 73.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 6.5,
+              "by": "bob/db"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "The code freeze begins Friday 16:00 UTC (docs/calendar.md), and any running job must be finished before it begins. The latest start is 16:00 UTC minus the restore's full duration. My docs don't have a restore duration, so bob/db or alice/api will need to supply it."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "docs/endpoints.md has nothing on invoice-archive restores or the code freeze, so I can't give you a start time. bob/db likely owns the restore timing and bob/release owns the freeze date."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Latest start is Friday 05:00 UTC. A full invoice-archive restore takes 11 hours and can't be paused (docs/maintenance.md). The code freeze begins Friday 16:00 UTC per bob/release's calendar note, so 16:00 minus 11 hours is 05:00."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_9dcec93bca3a09bfeb3ac8a72678ebd5",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 14,
+          "calls_by_agent": {
+            "db": 5,
+            "release": 4,
+            "api": 5
+          },
+          "input": 42,
+          "cache_read": 758990,
+          "cache_write": 11894,
+          "output": 2508,
+          "agent_messages": 3,
+          "task_seconds": 76.4,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 6.4,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": true,
+              "seconds": 4.6,
+              "by": "bob/release"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't confirm the width limit for POST /image-resize: the release docs don't cover it, so alice/api should check it. But the release calendar (docs/calendar.md) blocks the gallery thumbnail change until Thursday, because the CDN contract renewal is only signed on Wednesday. Shipping on Tuesday would break that, so it needs to move to Thursday or later."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. POST /image-resize accepts widths up to 1024 (docs/endpoints.md), so 640 is within the limit. The default width is 480."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't answer the 640 width question. My notes (docs/) don't cover POST /image-resize or its width limit. alice/api should confirm it from the endpoint config."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "set": 4,
+      "arm": "lead",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296554,
+        "cache_write": 28503,
+        "output": 1208
+      },
+      "total": {
+        "calls": 52,
+        "input": 150,
+        "cache_read": 2177042,
+        "cache_write": 56480,
+        "output": 8954
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_276ff5c8dbc70a406fe37dd9c9c835e6",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 9,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 7
+          },
+          "input": 26,
+          "cache_read": 360220,
+          "cache_write": 4691,
+          "output": 1607,
+          "agent_messages": 1,
+          "task_seconds": 76.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 12.1,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "POST /orders, when throttled, returns 429 with `Retry-After: 37` (docs/endpoints.md, line 3)."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_f767ff32039c66a5fb690cda89441dae",
+          "wakes_message": 4,
+          "wakes_roster": 3,
+          "parked_unclaimed": 3,
+          "calls": 12,
+          "calls_by_agent": {
+            "db": 6,
+            "release": 1,
+            "api": 5
+          },
+          "input": 36,
+          "cache_read": 506875,
+          "cache_write": 7556,
+          "output": 2050,
+          "agent_messages": 2,
+          "task_seconds": 82.5,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 17.2,
+              "by": "bob/db"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice",
+                "bob/db"
+              ],
+              "text": "My notes in docs/ don't mention a vacuum window or warehouse-7, so I can't answer from them. bob/db may have it, since that sounds like a database maintenance question."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice",
+                "alice/api"
+              ],
+              "text": "From docs/maintenance.md: warehouse-7's vacuum window is Sunday 02:40 UTC, and snapshots are retained for 19 days."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_e1460c7732f493447bf9dde8bb774adc",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 17,
+          "calls_by_agent": {
+            "db": 4,
+            "release": 7,
+            "api": 6
+          },
+          "input": 52,
+          "cache_read": 764130,
+          "cache_write": 12657,
+          "output": 3505,
+          "agent_messages": 3,
+          "task_seconds": 82.6,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 18.0,
+              "by": "bob/release"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice",
+                "bob/db",
+                "bob/release"
+              ],
+              "text": "My notes in docs/ don't cover invoice-archive restores or the code freeze, so I can't give a cutoff time. bob/release likely owns the freeze date, and bob/db the restore duration."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice",
+                "alice/api",
+                "bob/release"
+              ],
+              "text": "From docs/maintenance.md: a full invoice-archive restore takes 11 hours and can't be paused. My notes don't have the code freeze time, so the latest start is freeze time minus 11 hours. bob/release, what's the freeze?"
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice",
+                "alice/api",
+                "bob/db"
+              ],
+              "text": "From docs/calendar.md: the code freeze begins Friday 16:00 UTC, and running jobs must finish before it begins. With bob/db's 11-hour restore, the latest start is Friday 05:00 UTC, which finishes exactly at freeze start. Any slip misses the freeze, so starting earlier is safer."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_ea62dd7d0f546be89c680c52a578f5d2",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 5,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 3
+          },
+          "input": 18,
+          "cache_read": 249263,
+          "cache_write": 3073,
+          "output": 584,
+          "agent_messages": 1,
+          "task_seconds": 70.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 4.6,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. POST /image-resize allows a width up to 1024 (docs/endpoints.md, line 5), so 640 is within the limit."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "set": 5,
+      "arm": "today",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296559,
+        "cache_write": 28984,
+        "output": 1727
+      },
+      "total": {
+        "calls": 76,
+        "input": 222,
+        "cache_read": 3469404,
+        "cache_write": 84267,
+        "output": 13593
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_be99f4b9a81017ca773ac6a0232af6d8",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 22,
+          "calls_by_agent": {
+            "db": 7,
+            "release": 7,
+            "api": 8
+          },
+          "input": 62,
+          "cache_read": 899474,
+          "cache_write": 15259,
+          "output": 4158,
+          "agent_messages": 3,
+          "task_seconds": 79.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 12.6,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't have the Retry-After value for POST /orders. Nothing in the db notes (docs/maintenance.md) mentions throttling or Retry-After, so I can't confirm it from my side. It would be set by the API code, which isn't in my project, so alice/api should be able to answer."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "POST /orders, when throttled, returns 429 with Retry-After: 37 (from docs/endpoints.md)."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't know the Retry-After value for POST /orders. The release notes in docs/ (only calendar.md) don't mention Retry-After, POST /orders, or throttling. alice/api should have it from the API code."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_0277303e828be6dc97443d639b6d1571",
+          "wakes_message": 9,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 13,
+          "calls_by_agent": {
+            "db": 5,
+            "release": 4,
+            "api": 4
+          },
+          "input": 40,
+          "cache_read": 588060,
+          "cache_write": 11074,
+          "output": 2104,
+          "agent_messages": 3,
+          "task_seconds": 73.2,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.9,
+              "by": "bob/db"
+            }
+          },
+          "messages": [
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "warehouse-7's vacuum window is Sunday 02:40 UTC. Snapshots are retained for 19 days. (From docs/maintenance.md.)"
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't know the vacuum window for warehouse-7. The release notes in docs/ (only calendar.md) don't mention vacuum or warehouse-7. bob/db's maintenance notes are the more likely source."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I don't have a vacuum window for warehouse-7. docs/endpoints.md, the only doc in the api project, doesn't mention vacuum or warehouse-7. Whoever owns the database maintenance schedule should have it."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_4a6379b7c4fe1b9d84207f6577ee7b59",
+          "wakes_message": 15,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 20,
+          "calls_by_agent": {
+            "db": 6,
+            "release": 7,
+            "api": 7
+          },
+          "input": 62,
+          "cache_read": 1009715,
+          "cache_write": 20655,
+          "output": 3992,
+          "agent_messages": 6,
+          "task_seconds": 79.7,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 11.0,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't answer that. docs/endpoints.md, the only doc in the api project, has nothing on invoice-archive restores or the code freeze. bob/db's maintenance notes or bob/release's calendar are more likely to have the freeze date and restore duration."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "A full invoice-archive restore takes 11 hours and can't be paused (docs/maintenance.md). So it must start at least 11 hours before the code freeze. My notes don't have the freeze time, so I can't give the Friday cutoff. Subtract 11 hours from the freeze time to get the latest start. bob/release's calendar may have the freeze time."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "The code freeze starts Friday 16:00 UTC, and any running job must be finished before then (docs/calendar.md). So the restore has to finish by Friday 16:00 UTC. My docs don't say how long a full invoice-archive restore takes, so I can't work out the latest start. Subtract the restore duration from that deadline; bob/db or alice/api should know the duration."
+            },
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Correction to my earlier reply. Combining bob/release's freeze time with bob/db's restore duration: the code freeze is Friday 16:00 UTC and the restore takes 11 hours, so the latest Friday start is 05:00 UTC. Both figures come from the other agents' docs, which I can't read from here."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Using bob/db's 11-hour figure and the freeze time from docs/calendar.md (Friday 16:00 UTC), the latest start is Friday 05:00 UTC. I can't verify the 11 hours from my side, so check that before relying on it."
+            },
+            {
+              "author": "bob/db",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "With bob/release's freeze time (Friday 16:00 UTC) and the 11-hour restore, the latest start is Friday 05:00 UTC. The restore can't be paused, so starting later than that would run past the freeze."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_f03c5b0d64a9ca461de75fed13f4681e",
+          "wakes_message": 7,
+          "wakes_roster": 3,
+          "parked_unclaimed": 0,
+          "calls": 12,
+          "calls_by_agent": {
+            "db": 4,
+            "release": 4,
+            "api": 4
+          },
+          "input": 40,
+          "cache_read": 675596,
+          "cache_write": 8295,
+          "output": 1612,
+          "agent_messages": 2,
+          "task_seconds": 73.3,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 3.3,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. docs/endpoints.md says POST /image-resize allows a width up to 1024, so 640 is within the limit."
+            },
+            {
+              "author": "bob/release",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "I can't confirm the width limit. The release notes in docs/ have nothing on POST /image-resize, widths, or limits. alice/api's docs/endpoints.md says the max is 1024, so 640 fits if that's right."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "set": 6,
+      "arm": "lead",
+      "launch": {
+        "calls": 9,
+        "input": 18,
+        "cache_read": 296579,
+        "cache_write": 28691,
+        "output": 1513
+      },
+      "total": {
+        "calls": 34,
+        "input": 100,
+        "cache_read": 1372928,
+        "cache_write": 42674,
+        "output": 5862
+      },
+      "tasks": [
+        {
+          "task": "T1",
+          "conv": "conv_bee9fd5ea856e55d31ff6485d80c69cd",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 7,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 5
+          },
+          "input": 22,
+          "cache_read": 279872,
+          "cache_write": 4298,
+          "output": 1472,
+          "agent_messages": 1,
+          "task_seconds": 73.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 8.2,
+              "by": "alice/api"
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "POST /orders, when throttled, answers 429 with `Retry-After: 37` (from docs/endpoints.md)."
+            }
+          ]
+        },
+        {
+          "task": "T2",
+          "conv": "conv_cc33a788507eecc0d478b9b30b8428a4",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 6,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 4
+          },
+          "input": 20,
+          "cache_read": 253652,
+          "cache_write": 3318,
+          "output": 969,
+          "agent_messages": 1,
+          "task_seconds": 70.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "My docs/ notes don't cover a vacuum window or warehouse-7 (I searched docs/ for both and found nothing). bob/db is probably the one to ask."
+            }
+          ]
+        },
+        {
+          "task": "T3",
+          "conv": "conv_3aa1161ceb4fefd126428ccd7f7af514",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 6,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 4
+          },
+          "input": 20,
+          "cache_read": 265602,
+          "cache_write": 3197,
+          "output": 876,
+          "agent_messages": 1,
+          "task_seconds": 70.0,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "My docs/ notes don't cover invoice-archive restores or the code freeze, so I can't give a Friday cutoff from them. bob/db or bob/release should know the restore duration and the freeze time."
+            }
+          ]
+        },
+        {
+          "task": "T4",
+          "conv": "conv_23c93b1891931a42fa215199dc40c1e9",
+          "wakes_message": 1,
+          "wakes_roster": 3,
+          "parked_unclaimed": 4,
+          "calls": 6,
+          "calls_by_agent": {
+            "db": 1,
+            "release": 1,
+            "api": 4
+          },
+          "input": 20,
+          "cache_read": 277223,
+          "cache_write": 3170,
+          "output": 1032,
+          "agent_messages": 1,
+          "task_seconds": 70.1,
+          "timed_out": false,
+          "scores": {
+            "answer": {
+              "pass": true,
+              "seconds": 5.3,
+              "by": "alice/api"
+            },
+            "blocker": {
+              "pass": false,
+              "seconds": null,
+              "by": null
+            }
+          },
+          "messages": [
+            {
+              "author": "alice/api",
+              "addressed_to": [
+                "alice"
+              ],
+              "text": "Yes. POST /image-resize allows a width up to 1024 (default 480, per docs/endpoints.md), so 640 is within the limit."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "home_changes": [
+    {
+      "path": "Claude Code project transcripts and session-env entries for the runs",
+      "change": "Created.",
+      "restored": "Copied out, then deleted; the project listing count is as before."
+    },
+    {
+      "path": "Claude Code user state file",
+      "change": "Startup counters and caches; other sessions write here too. No project entry was added.",
+      "restored": "Not rolled back, since live sessions write it. Projects and mcpServers match the backup."
+    },
+    {
+      "path": "Claude Code prompt history",
+      "change": "No run lines added.",
+      "restored": "Not needed."
+    }
+  ]
+}

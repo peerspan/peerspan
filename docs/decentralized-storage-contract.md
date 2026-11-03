@@ -413,7 +413,7 @@ intent_id is a fresh local random128-bit lowercase hex value prefixed `dint_`;
 it is an owner-local lookup/idempotency key, not a public authority ID. Unknown
 network/context are `-` until explicitly resolved once. kind is one of
 `owner`, `administrator`, `create`, `action`, `policy_claim`, `root_transition`,
-`migration`, `migration_identity`, `selection`, `requester_commit`. A policy_claim is the runtime's prepare-only capability claim:
+`migration`, `migration_identity`, `selection`, `requester_commit`, `access_review`. A policy_claim is the runtime's prepare-only capability claim:
 reopening/resuming its signatures cannot change it into an applying ordinary
 action. Only the separate atomic capability-create transaction may admit its
 candidate policy and associated capability/edit/delivery changes.
@@ -996,3 +996,27 @@ rewriting legacy records on open, per-language pending extensions, arbitrary
 message signing, importing private original keys, authoritative member caches,
 peer-supplied prior state, signed SQLite numbers, global helper cursors,
 expiry-based deletion of restrictive history, and timeout-based fence abort.
+
+
+## Guided project-access review receipts (schema27, GU.impl31)
+
+The guided-session contract section31 adds the strictly nonsigning access_review
+kind in the existing dec_intents table. It stores an exact bounded public review
+and references a separate ordinary policy action; it never holds templates,
+signatures or secrets and cannot authorize a signing/provider route. Both rows
+prepare/approve atomically; exact guided approval cannot be inferred from an
+advanced ordinary action approval. Section31 pins every duplicated field,
+operation key, quotas, public privacy/history and replacement behavior. Existing
+schema23–27 SQL and every old record/kind remain unchanged.
+
+## Combined onboarding and conversations migration (schema28)
+
+Main and the guided feature independently allocated schema24. The final
+integration uses schema28 for their union, preserving the existing SQL and
+records of conversations and all four guided flow tables. See the
+[final acceptance contract](guided-final-acceptance-contract.md#1-integrating-both-database-histories)
+for recognition of genuine main24 and feature24–27 histories, transaction
+boundaries, corruption refusal, full-state backup/restore and verification.
+Schema23 remains the last common baseline; historical sections above retain
+their original allocation numbers. No version rewrite or binary-only downgrade
+is supported.

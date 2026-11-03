@@ -755,8 +755,13 @@ Review:
  binding_lease_id, device_lease_id, scopes, not_after, authority_warning}
 ```
 
-**Changed (DEC-Q3):** approvals and admissions gain `request_id`, placed after
-`code`; exactly one of `code` and `request_id` is not `-`.
+**Retained request references:** the CLI may accept a retained request ID and
+resolve its private code locally. The ordinary approvals/admissions HTTP bodies
+remain the exact code-based shapes in the table and runtime contract. The
+earlier DEC-Q3 sentence advertising an additional HTTP `request_id` field was
+stale: that expansion is not available. Do not send `code:"-"` plus `request_id`.
+The guided admission-consent endpoints have their separate section21
+context/request-ID contract and do not expand these ordinary wire bodies.
 
 For an owner approval, `provider_id:"network_root"` explicitly requests the
 root-seed fold (spec 8.2). The selected owner provider still signs the owner
@@ -813,7 +818,11 @@ addresses and port 0; advertised endpoints may not. **Changed (DEC-Q20):**
 All records are strict JSON as in section 1. U64 columns store 0 to 2^63−1 as
 SQLite INTEGER and 2^63 to 2^64−1 as an 8-byte big-endian BLOB.
 
-### 19.1 Tables (schema 23, unchanged)
+### 19.1 Tables (introduced in schema 23, unchanged in schema 24)
+
+Schema24 additionally adds one owner-local project-review table, specified in
+the [guided session contract](guided-session-contract.md#advanced-cli-and-storage).
+It changes no DEC columns or authority records below.
 
 ```sql
 CREATE TABLE dec_contexts (network_id TEXT NOT NULL, context_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, context_id));

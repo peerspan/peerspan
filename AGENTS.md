@@ -45,8 +45,99 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).
 - `capabilities`: sources, sharing, calls, approval, bounds, remote MCP servers and the built-in `gh` source.
 - `basics`: info, status, errors, storage and restart (spec 14 to 17).
+- `onboarding`: the owner-local guided-onboarding observation, request privacy,
+  adapter readiness and read-only behavior (guided session contract section 1).
+- `project_onboarding`: exact local project reviews, atomic metadata attachment,
+  replay/replacement and schema24 boundaries (guided session contract section3).
+- `adapter_onboarding`: exact guided adapter authorization, private credential
+  recovery, scope/replacement boundaries and additive schema25 (section5).
+- `invitation_onboarding`: exact contact-invitation reviews, atomic issuance,
+  private handoff/recovery and additive schema26 (section9), plus read-only
+  recipient signed-invitation inspection and privacy boundaries (section11).
+- `join_onboarding`: exact recipient public-key/publication consent, atomic
+  ordinary join-request creation, replay/privacy and additive schema27 (section12).
+  Its launcher observes genuine own-request publication before the unchanged
+  section15 strict read-only progress baseline (section49).
+
+- `owner_onboarding`: exact new-original owner review, ordinary-intent atomic
+  approval, rollback/history and consent boundaries (guided session contract section16).
+- `owner_signing`: bounded local original owner-offer signing, exact generated/
+  SSH-agent selection, typed-slot faults and pure replay (section18).
+- `admission_onboarding`: read-only incoming new-original request/owner/selection
+  inspection before administrator consent, purity and privacy (section20).
+- `admission_consent`: exact durable root administrator intent preparation/approval,
+  atomic rollback, public privacy and pure historical recovery (section21).
+- `incoming_progress`: explicit bounded pinned GET/atomic incoming original and
+  selection evidence retention, before/after IO guards and no consent (section22).
 - `naming`: the default agent names from `attach` (launch contract, DEC-OWN12).
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
 Packaging changes require `conformance/installed_bundle.py` against a freshly packaged bundle (Python 3.12 or newer; the Draft Linux release workflow runs it) and `conformance/test_package_release.py`. Live runs with real models are separate manual checks.
+
+- `owner_finalization`: pure original finalization eligibility/administrator
+  root/P/H snapshot, exact original consent and privacy (guided section24).
+
+- `owner_finalization_signing`: bounded original B/D/F signing under exact
+  original consent/verified administrator parents and key/privacy (section25).
+
+- `requester_commit`: exact durable requester final-commit review, ordinary
+  intent/request atomic approval, rollback, privacy and pure history (section27).
+
+- `requester_completion`: bounded exact approved requester signing/publication/
+  local application and pure verified replay, without new consent (section28).
+
+
+- `access_onboarding`: pure exact project-bound selected-person membership and
+  signed/enforced policy inspection before agent-access consent (section30).
+
+- `access_consent`: exact project/person policy-action review, nonsigning receipt,
+  atomic ordinary-action approval, replacement/history and privacy (section31).
+
+- `access_signing`: bounded exact dual-approved policy issuer signature storage,
+  configured signer boundaries, atomic rollback and pure recovery (section32).
+
+- `access_application`: exact signed policy local publication/application,
+  atomic ordinary proof/edit/queue/result/event and pure recovery (section33).
+
+- `readiness`: current exact-project membership, receiver-advertised access and
+  exact-session adapter evidence, read purity and owner-router isolation
+  (guided session contract section36). No peer/model readiness inference.
+
+- `peer_reachability`: explicit one-machine pinned outbound peer observation,
+  current project/authority guards around IO, no contact-learning sync or
+  durable observation, privacy and owner-router isolation (section38).
+
+- `machine_owner`: pure current existing-computer owner authority and incoming
+  machine-request review, selected public provider, finite powers, privacy and
+  owner-router isolation (guided session contract section41).
+
+- `machine_owner_consent`: exact project-bound ordinary owner intent and unsigned
+  receipt, atomic dual approval, replacement/history and router/privacy boundaries
+  (guided session contract section42).
+
+- `machine_owner_signing`: bounded exact dual-approved initial owner/fold signatures,
+  configured original/owned device, atomic storage/history and owner-route privacy
+  (guided session contract section43).
+
+
+- `machine_requester_inspection`: pure exact join-flow-bound received existing-
+  owner/selection/admission/finalization evidence on the new computer, finite7/2,
+  folded admission, fixed windows and no consent/adoption (guided section45).
+
+- `machine_requester_consent`: exact frozen remote machine inspection, unsigned
+  project receipt, atomic ordinary/pending/receipt approval and pure history
+  (guided section46). No signing/application.
+
+- `machine_requester_completion`: bounded exact approved machine requester
+  signing/publication/local application and pure verified replay (guided47).
+
+- `guided_machine`: combined genuine two-host guided pinned machine request,
+  selected owner consent/signing and automatic selection/finalization; one
+  requester completion with lost reply/Lookup recovery, actual application and
+  separate membership/access/readiness (guided session contract section49).
+
+- `completion_rate_limit`: genuine two-person completion under a brief real
+  authenticated rate-limit burst; separate first-result application from exact
+  post-pressure repair, verify signed authority and unchanged requester consent
+  (guided final acceptance contract, exact completion publication).

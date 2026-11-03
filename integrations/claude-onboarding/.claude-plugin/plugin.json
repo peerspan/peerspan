@@ -1,0 +1,22 @@
+{
+  "name": "peerspan",
+  "version": "0.1.0",
+  "description": "Connect a local project through a human review and inspect Peerspan in this Claude conversation",
+  "author": { "name": "Peerspan" },
+  "repository": "https://github.com/peerspan/peerspan",
+  "license": "Apache-2.0",
+  "userConfig": {
+    "executable": {
+      "type": "string",
+      "title": "Peerspan executable",
+      "description": "Installed Peerspan executable or absolute path",
+      "default": "peerspan"
+    },
+    "state": {
+      "type": "string",
+      "title": "Host state directory",
+      "description": "Leave empty to use the normal Peerspan host",
+      "default": ""
+    }
+  }
+}

@@ -90,7 +90,7 @@ Each term is defined once here and used with this meaning throughout.
 | Device key | 32-byte seed in the existing `link_device_keys` table. One per person per host after linking. |
 | Root seed | The existing `networks.root_seed` column, when the root key is a raw key held by this host. A root moved to an SSH key is not stored. |
 | Original person key | An SSH key file or `ssh-agent` key on the person's machine. It never enters the database, a helper or another machine. Automatic renewals never need it: they use device keys (DEC-Q21). |
-| State database | SQLite, schema 23 (17 `dec_*` tables, section 17). |
+| State database | SQLite, schema 24 (17 `dec_*` tables plus local project flows, section 17). |
 | Transport file | Optional JSON file given with `serve --transport-config PATH`, naming helpers and advertised addresses. |
 | Helper state | `$XDG_STATE_HOME/peerspan/helper`, else `$HOME/.local/state/peerspan/helper`. |
 
@@ -920,8 +920,14 @@ as legacy history.
 
 ## 17. Storage
 
-Schema 23 is unchanged (DEC-Q14). It adds 17 tables; opening the database
-never joins, renews or migrates anything, and older binaries refuse it.
+Schema 23 added the 17 DEC tables below (DEC-Q14). Schema 24 additionally
+adds the owner-local `onboarding_project_flows` table, as specified in the
+[guided session contract](guided-session-contract.md#advanced-cli-and-storage).
+Schema25 adds the guided adapter-flow table; schema26 adds the guided
+contact-invitation-flow table. Both are owner-local review state, as specified
+in the guided contract, and change no DEC protocol/authority tables. Opening
+never joins, renews or adopts a network, prepares a review, mints an invitation
+or attaches a session; older binaries refuse newer schemas.
 
 | Table | Holds |
 | --- | --- |
@@ -936,7 +942,7 @@ never joins, renews or migrates anything, and older binaries refuse it.
 | `dec_operations` | Applied join outcomes. |
 | `dec_outbox` | Deliveries to peers. |
 | `dec_contacts`, `dec_helpers` | Peer contacts and configured helpers. |
-| `dec_migrations` | Unused; a schema-24 cleanup may drop it later (DEC-Q14). |
+| `dec_migrations` | Unused; retained unchanged (DEC-Q14). |
 
 Existing tables keep their data. `networks.record` holds a tagged format-2
 record for a coordinator-free network; `network_members` holds a derived cache
@@ -1001,7 +1007,7 @@ options are in the decision log. No question is open.
 | Q11 | Ranked turns spaced across the window, sync before signing, automatic resolution of forks between identical plain renewals. | DEC-Q11 |
 | Q12 | The root renews root-signed grants 4 days early; the countdown shows at N ≤ 3, with N to the latest admin or root-signed person/host deadline. | DEC-Q12 |
 | Q13 | `--retain` and `--retain-none` removed; `admin_withdraw` keeps every eligible grant by default. | DEC-Q13 |
-| Q14 | Migration fields stay, always `-`; `dec_migrations` stays unused; schema 24 may clean up later. | DEC-Q14 |
+| Q14 | Migration fields stay, always `-`; `dec_migrations` stays unused; a later schema may clean up. | DEC-Q14 |
 | Q15 | The legacy status entry keeps its shape; guidance names `network reinvite`. | DEC-Q15 |
 | Q16 | `network reinvite`: one invite per machine, a CLI loop with no new route, the stored `network_members` cache, 24-hour default expiry. | DEC-Q16 |
 | Q17 | A plan needs review only when a record it replaces or depends on is no longer current or its deadline passed; such a plan becomes terminal; unapplied terminal plans are removed after 24 h; plan `expires_at` is `-` except for link stages. | DEC-Q17 |
@@ -1231,9 +1237,9 @@ named, with no change to stored state other than the stored decision time.
 
 **Storage**
 
-59. A schema 21 or 22 database opens to schema 23 with all old data intact; an
-    old binary refuses schema 23; schema 24 is refused; `dec_migrations` stays
-    empty.
+59. A schema 21, 22 or 23 database opens to schema 24 with all old data intact;
+    older binaries refuse newer schemas; schema 25 is refused; `dec_migrations`
+    stays empty. The local project-flow table starts empty.
 60. After a Rust daemon restart, an unfinished join and an unfinished signing
     plan continue with identical approved bytes and no duplicate events.
 

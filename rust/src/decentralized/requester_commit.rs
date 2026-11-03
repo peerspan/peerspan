@@ -21,6 +21,13 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+#[path = "requester_commit/consent.rs"]
+mod consent;
+#[path = "requester_commit/machine_consent.rs"]
+mod machine_consent;
+pub(crate) use consent::{apply as consent_in, live as consent_live, proposal as consent_proposal};
+pub(crate) use machine_consent::run as machine_consent_in;
+
 struct Context {
     offer: Offer,
     prepared: PreparedFinalization,
@@ -108,6 +115,143 @@ fn review(p: &Pending, stage: &Context) -> Result<Value> {
     review["device_lease_id"] = json!(stage.prepared.device.id);
     Ok(review)
 }
+/// Pure existing-person requester review; no intent/key resolution or adoption.
+pub(crate) fn inspect_machine(c: &Connection, store: &Store, p: &Pending) -> Result<Value> {
+    machine_evidence(c, store, p, false)
+}
+pub(crate) fn inspect_machine_prepared(
+    c: &Connection,
+    store: &Store,
+    p: &Pending,
+) -> Result<Value> {
+    machine_evidence(c, store, p, true)
+}
+fn machine_evidence(c: &Connection, store: &Store, p: &Pending, prepared: bool) -> Result<Value> {
+    let r = &p.record;
+    let request = p.packet()?;
+    let created = text(&request.payload, "created_at")?;
+    let stage_at = if r.stage_at == "-" {
+        created
+    } else {
+        &r.stage_at
+    };
+    let stage_end = stamp(stage_at)? + chrono::TimeDelta::seconds(600);
+    let raw = controls::local_decision_time()?;
+    require(
+        stamp(&raw)? >= stamp(created)? && stamp(&raw)? >= stamp(stage_at)?,
+        "machine_requester_inspection_unavailable",
+    )?;
+    let guarded = controls::guarded_decision(c, &r.expected_network_id, &raw)?;
+    require(
+        stamp(&guarded)? < stamp(&p.deadline)? && stamp(&guarded)? < stage_end,
+        "review_expired",
+    )?;
+    check(
+        r.roles.iter().any(|role| role == "requester")
+            && r.mode == "new"
+            && r.migration_proposal_id == "-"
+            && r.terminal == "-"
+            && r.host_public_key == store.identity().public_key
+            && ident(&r.expected_network_id, "net_")
+            && ident(&r.expected_context_id, "ctx_")
+            && key(&r.expected_person_public_key)
+            && r.selection_approved
+            && (prepared || !r.commit_approved)
+            && r.owner_intent_id == "-"
+            && (prepared || r.commit_intent_id == "-")
+            && r.commit_packet_base64 == "-"
+            && r.manifest_id == "-"
+            && r.activation_id == "-"
+            && r.outcome_packet_base64 == "-",
+    )?;
+    let network_present: bool = c
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM networks WHERE id=?1)",
+            [&r.expected_network_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    let commit_present: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM dec_intents WHERE kind='requester_commit' AND json_extract(record,'$.operation_id')=?1)", [&p.id], |row| row.get(0)).map_err(db)?;
+    check(
+        !network_present
+            && (prepared || !commit_present)
+            && p.view(&guarded)?["state"] == "needs_commit",
+    )?;
+    let stage = context(c, store, p)?;
+    let owner = &stage.offer.owner;
+    let provider = &stage.offer.provider;
+    let person = text(&owner.object, "person_public_key")?;
+    let writer = text(&owner.object, "writer_host_public_key")?;
+    let after = stamp(&stage.now)?.max(stamp(&stage.prepared.admissions.decision_time)?);
+    let not_after = text(&owner.payload, "not_after")?;
+    require(
+        after < stamp(&p.deadline)? && after < stage_end && after < stamp(not_after)?,
+        "review_expired",
+    )?;
+    check(
+        ident(text(&owner.payload, "root_state_id")?, "ds_")
+            && ident(text(&owner.payload, "person_lease_id")?, "ds_")
+            && matches!(
+                text(object(provider)?, "kind")?,
+                "original_person" | "device"
+            )
+            && text(object(provider)?, "person_public_key")? == person
+            && text(object(provider)?, "host_public_key")? == writer
+            && writer != r.host_public_key
+            && person == r.expected_person_public_key
+            && stage.offer.descriptor.network_id == r.expected_network_id
+            && stage.offer.descriptor.context_id() == r.expected_context_id
+            && num(&owner.payload, "scopes")? == 7
+            && num(object(provider)?, "scopes")? & 7 == 7
+            && stamp(not_after)? <= stamp(created)? + chrono::TimeDelta::days(7)
+            && stamp(not_after)? <= stamp(text(object(provider)?, "not_after")?)?,
+    )?;
+    let prepared = &stage.prepared;
+    check(
+        num(prepared.binding.subject()?, "scopes")? == 2
+            && num(prepared.device.subject()?, "scopes")? == 7
+            && text(&prepared.binding.payload, "not_after")? == not_after,
+    )?;
+    for s in [
+        &prepared.admissions.person,
+        &prepared.admissions.host,
+        &prepared.binding,
+        &prepared.device,
+    ] {
+        require(
+            after < stamp(text(&s.payload, "not_after")?)?,
+            "review_expired",
+        )?;
+    }
+    let folded = r.administrator_packet_base64 == "-";
+    if folded {
+        // Exclude the advanced explicit network-root fold exception here.
+        check(
+            num(object(provider)?, "scopes")? & 8 == 8
+                && text(prepared.admissions.host.issuer()?, "kind")? != "root"
+                && prepared.admissions.host.signer("issuer")?.public_key
+                    == text(&owner.object, "signer_public_key")?,
+        )?;
+    }
+    let observed_at = after.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ordinary = p.view(&observed_at)?;
+    let mut completed = vec!["request_created", "owner_offered", "owner_selected"];
+    if !folded {
+        completed.push("administrator_offered");
+    }
+    completed.push("owner_finalized");
+    check(ordinary["state"] == "needs_commit" && ordinary["completed"] == json!(completed))?;
+    Ok(json!({"observed_at":observed_at,"request":ordinary,
+        "network":{"id":stage.offer.descriptor.network_id,"name":stage.offer.descriptor.name,
+          "context_id":stage.offer.descriptor.context_id(),"genesis_root_public_key":stage.offer.descriptor.genesis_root_public_key},
+        "member":owner.payload["member"],"owner_provider":provider,
+        "owner_root_state_id":owner.payload["root_state_id"],"root_state_id":prepared.admissions.root,
+        "person_lease_id":prepared.admissions.person.id,"host_lease_id":prepared.admissions.host.id,
+        "binding_lease_id":prepared.binding.id,"device_lease_id":prepared.device.id,
+        "host_admission":if folded {"folded_owner"}else{"separate_administrator"},"reused_binding":prepared.reused_binding,
+        "not_after":not_after,"request_stage_deadline":stage_end.to_rfc3339_opts(chrono::SecondsFormat::Secs,true)}))
+}
+
 pub(super) fn check_reference(
     p: &Pending,
     i: &Intent,
@@ -413,6 +557,31 @@ pub(super) fn approve(store: &Store, id: &str, input: &Obj) -> Result<Vec<u8>> {
             true,
         );
     }
+    if p.record.terminal == "-"
+        && p.record.commit_approved
+        && p.record.commit_packet_base64 != "-"
+        && super::approval::framed(&p, "commit")
+    {
+        // Loading the pending record validates its exact approved intent and
+        // completed packet. Its framed activation is retained evidence, not a
+        // new generation to prepare. Publication/application recheck authority.
+        let i = Intent::load(&tx, &p.record.commit_intent_id)?;
+        require(
+            i.record.approved && i.record.completed && i.record.terminal == "-",
+            "state_conflict",
+        )?;
+        let d = Descriptor::read(&b64(&p.record.descriptor_base64, MAX_OBJECT)?)?;
+        let activation = Activation::read(
+            &d,
+            &activation_bytes(&p, &b64(&p.record.commit_packet_base64, MAX_OBJECT)?)?,
+        )?;
+        require(
+            activation.id == p.record.activation_id
+                && activation.manifest_id == p.record.manifest_id,
+            "state_conflict",
+        )?;
+        return super::approval::retained_response(&p, &i, input, true, !approve);
+    }
     let stage = context(&tx, store, &p)?;
     super::approval::pins(input, &p, &stage.offer)?;
     for (name, want) in [
@@ -614,9 +783,23 @@ pub(crate) fn activation_bytes(p: &Pending, commit: &[u8]) -> Result<Vec<u8>> {
     Ok(raw)
 }
 pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
+    resume_guarded(store, id, None, |_, _| Ok(()))
+}
+/// The guided caller adds checks inside each existing phase transaction.
+/// Ordinary continuation retains its unbounded phase loop and no added checks.
+pub(crate) fn resume_guarded(
+    store: &Store,
+    id: &str,
+    maximum: Option<usize>,
+    mut guard: impl FnMut(&Connection, &Pending) -> Result<()>,
+) -> Result<()> {
+    let mut phases = 0;
     // Each pass commits exactly one dependency/signature/frame phase, releases
     // the writer guard, then exposes that real durable boundary.
     loop {
+        if maximum.is_some_and(|maximum| phases >= maximum) {
+            return Ok(());
+        }
         let mut c = store.connection().map_err(|_| Error::new("internal"))?;
         let tx = c.transaction().map_err(db)?;
         let mut p = requests::load(&tx, id)?;
@@ -628,6 +811,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
         {
             return Ok(());
         }
+        guard(&tx, &p)?;
         let stage = context(&tx, store, &p)?;
         // No new commit signature after 600 idle seconds (spec 8.5); a commit
         // already signed is past the timeout and is still published.
@@ -642,6 +826,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                 .ok_or_else(|| Error::new("state_conflict"))?
                 .pending()?
                 .is_empty();
+        guard(&tx, &p)?;
         let barrier = if binding_missing {
             budget(&tx, store, &p, &stage)?;
             let value = objects[0]
@@ -653,6 +838,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                         && slot.public_key == p.record.host_public_key
                         && slot.signature_format == "ed25519",
                 )?;
+                guard(&tx, &p)?;
                 i.record.signatures.push(Filled {
                     slot_id: 1,
                     role: slot.role,
@@ -697,6 +883,7 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
                     "device" if slot.public_key == p.record.device_public_key => &device,
                     _ => return Err(Error::new("state_conflict")),
                 };
+                guard(&tx, &p)?;
                 i.record.signatures.push(Filled {
                     slot_id: index as u64 + 1,
                     role: slot.role,
@@ -728,15 +915,19 @@ pub(super) fn resume(store: &Store, id: &str) -> Result<()> {
             let full = verify_complete(&tx, store, &p, &i, &stage, &raw)?;
             // Proof-only frames retain exact whole objects; packet frame refers
             // to the same fixed closure without crossing the2MiB component cap.
+            guard(&tx, &p)?;
             retain_catalog(&tx, store, &mut p, &catalog, &stage.now)?;
+            guard(&tx, &p)?;
             retain_outbound(&tx, store, &mut p, "commit", &raw, "-", &stage.now)?;
             p.record.catalog_base64 = encode(&full.bytes);
             requests::save(&tx, &p)?;
             "dec.frame.after_commit"
         };
+        guard(&tx, &p)?;
         controls::remember_decision(&tx, &i.network_id, &stage.now)?;
         tx.commit().map_err(db)?;
         drop(c);
+        phases += 1;
         controls::barrier(store, barrier, id)?;
         if barrier == "dec.signature.after_commit" && i.record.completed {
             controls::barrier(store, "dec.requester_commit.after_commit", id)?;

@@ -168,6 +168,8 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Read onboarding status or run advanced project and adapter reviews
+    Onboarding(crate::onboarding_cli::OnboardingArgs),
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
     Run {
@@ -2111,6 +2113,7 @@ impl Command {
             ) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Runtime(RuntimeCommand::Show { .. }) => (Method::GET, "/v1/runtime".into(), None),
+            Self::Onboarding(_) => (Method::GET, "/v1/onboarding".into(), None),
             Self::Calls(CallsCommand::List { after, limit }) => (
                 Method::GET,
                 format!("/v1/calls?after={after}&limit={limit}"),

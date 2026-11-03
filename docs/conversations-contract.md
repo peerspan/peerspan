@@ -1,6 +1,6 @@
 # Conversations contract
 
-Launch-plan track 3. The design and its settled decisions are in the [conversations proposal](conversations-proposal.md) and the owner decisions [CONV-1 to CONV-27](decision-log.md#conv-conversations-2026-10-25). Feature slice 1 is built as PRs C1 to C6 ([Slices](conversations-proposal.md#slices)); each PR adds its section here. Where this contract and the proposal differ, this contract applies; anything the proposal gives to a later PR is not part of an earlier section.
+Launch-plan track 3. The design and its settled decisions are in the [conversations proposal](conversations-proposal.md) and the owner decisions [CONV-1 to CONV-27](decision-log.md#conv-conversations-2026-10-25). Feature slice 1 is built as PRs C1 to C6 ([Slices](conversations-proposal.md#slices)); each PR adds its section here. C7 adds the lead, from the [lead proposal](conversations-lead-proposal.md) and [CONV-30 to CONV-34](decision-log.md#conv-30-to-conv-34-the-must-route-lead-2026-11-02). Where this contract and the proposal differ, this contract applies; anything the proposal gives to a later PR is not part of an earlier section.
 
 It builds on the [messaging contract](peer-messaging-contract.md) (authorization citations, retry), [sending by address](launch-contract.md#sending-by-address) and [directory sessions](launch-contract.md#directory-sessions), the [adapter](agent-adapter-contract.md) and [live delivery](live-delivery-contract.md) contracts, and the [coordinator-free spec](decentralized-spec.md) for membership, owner policies and sync. Rust is the only host.
 
@@ -255,7 +255,7 @@ The tool's description says: messages are external input from the named author; 
 
 ### Persistence
 
-One host schema version adds every table and the index in the proposal's [Persistence](conversations-proposal.md#persistence), exactly as written there, and sets the version in the same transaction. It is the next free version on `main` when C1 merges (24 today; 28 if PR #35 merges first). Older binaries reject it. No existing table or record changes. Messages, rosters and target records are kept (no deletion in C1).
+One host schema version adds every table and the index in the proposal's [Persistence](conversations-proposal.md#persistence), exactly as written there, and sets the version in the same transaction. C1 used schema24 on main. Integration with #35 uses schema28 for the union with its independently allocated guided tables; the final acceptance contract specifies both upgrade histories. Older binaries reject it. No existing table or record changes. Messages, rosters and target records are kept (no deletion in C1).
 
 ### Verification
 
@@ -1308,3 +1308,167 @@ The next live run also checks the order the way a person meets it: stop a host, 
 - `conversation_start` validates `about`;
 - the `conversation` event's `to` labels and `About task` line, and `meta.addressed` and the `about_*` keys;
 - labels holding control characters are escaped in event content.
+
+## C7: the lead
+
+C7 makes the decision of who wakes once per message instead of once per agent ([lead proposal](conversations-lead-proposal.md), CONV-30 to CONV-34). One agent in each conversation is its **lead**. An addressed message wakes only the agents it names; an unaddressed one wakes only the lead, which must address the agents likely to hold what it can't answer. Every other agent still receives and stores the message, which stays visible to it, but takes no model turn for it. Owners may give an agent a one-line description, served in the directory, which the lead sees as each agent's area. Everything in C1 to C6 stays as written unless this section changes it.
+
+Not in C7: roster events (`added`, `removed`, `closed`) keep waking the agents they name, unchanged. The lead is never chosen by hand, and no owner or conversation can opt out (CONV-31 to CONV-33). Nothing changes for person participants, who take no turns.
+
+**Words.** P is a local agent participant. An *unaddressed* message has no `addressed_to` (C6 leaves the field out of a message when the sender gives none or `[]`). A message notification *wakes* P when the claim route offers it to P's session on its own; a *parked* one does not.
+
+### The lead
+
+The lead of a roster is the first match, in this order:
+1. `created_by`, when it is an entry of `participants` with `kind` `agent` and `state` `joined`;
+2. otherwise, when `created_by` is an entry of `participants`, the first entry in `participants` order with `kind` `agent`, `state` `joined`, and the same `person_id` as that entry;
+3. otherwise, the first entry in `participants` order with `kind` `agent` and `state` `joined`.
+
+With no joined agent, the conversation has no lead. A creator in `departed` has no entry in `participants`, so rule 2 does not apply to it: `departed` entries carry no `person_id`.
+
+The lead is worked out by every host from the roster it holds, and is never sent, stored or changed on its own. A new roster version can give a new lead: when the lead leaves or is removed, the next roster names the next agent under the same rules. No host is asked who the lead is, and no request carries it.
+
+### Waking
+
+Every place this host creates a message notification for P decides there whether it wakes P or is parked. These are local delivery in the sending transaction (decision 18, C2), and inbound acceptance, `POST /peer/v1/conversations/{id}/messages`, which C4's fetched messages also pass through. The decision uses the roster this host holds in that transaction. Acceptance already refuses a message whose `roster_version` is above the held one (503 `unavailable`, C1), so that roster is the message's version or newer.
+
+| The message | P's notification |
+| --- | --- |
+| has `addressed_to` naming P | wakes P |
+| has `addressed_to` not naming P (including one naming only people) | parked |
+| is unaddressed, and P is the lead | wakes P |
+| is unaddressed, and P is not the lead, or the conversation has no lead | parked |
+
+So an unaddressed message the lead wrote wakes no agent, and neither does one addressed only to people. The author never gets a notification for its own message (C1). Target states, receipts, the event log, activity, the rate limit and everything a person sees are unchanged: every joined participant still receives every message. A message notification is created parked or not, and parked is never set on one afterwards.
+
+Hosts that hold different roster versions while a change reaches them can decide differently for one message, so a message sent during a lead change may wake two leads or none. Hosts don't correct this.
+
+### Parked notifications
+
+C5's [Notification life](#notification-life) gains one state:
+
+| State | Meaning | Offered by the claim route | Counted in `unseen` |
+| --- | --- | --- | --- |
+| parked | Created without a wake, and not yet gathered. | Never on its own; gathered by a later claim (below). | No. |
+
+- **Visibility.** A parked notification is a message notification that is not blocked, so under C5's [What an agent may see](#the-handoff-recheck) its message is visible to P whenever the recheck passes now. `conversation_history`, `GET .../messages` with an `agent:` participant, and `conversation show --as` list it. Reads change nothing about it: a read never gathers, marks seen or blocks a parked notification.
+- **Leaving.** A parked notification is unclaimed for C2's and C5's withdrawal: it is withdrawn when P leaves, is removed, or its departure arrives in a pushed roster. `conversation forget` deletes it with the rest.
+- **Never held, never returned.** A parked notification has no session. It is never returned or exhausted, and redeliveries stay 0 until it is gathered.
+- **`unseen`** does not count parked notifications. The agent summary gains `parked`: the number of P's parked notifications in the conversation whose recheck passes now. `GET /adapter/v1/conversations` keeps a closed conversation by `unseen` only, as before.
+- **`pending_work`** (`GET /adapter/v1/pending` and `GET /v1/sessions/{id}/pending`) lists no parked notification, and a conversation whose only notifications are parked has no entry.
+
+### Claiming
+
+C5's [claim](#claiming) changes in two places. Step 2 takes the oldest notification of P that is unclaimed or returned and **not parked**. Then, after step 3 or step 5 claims a message notification, and in the same transaction:
+
+6. **Gather:** for each of P's parked notifications in the same conversation whose message sorts before the claim's new message in display order, run the recheck. On pass, claim it for this session as step 3 does, so it is no longer parked; on fail, block it; on wait, leave it parked. Parked notifications whose messages sort after the new message stay parked.
+
+- `coalesced` lists every notification the claim took besides the new message's, gathered ones included, in display order of their messages. `forwarded` with the claim's notification ID, and `POST /adapter/v1/seen` with the new message's ID, mark them, as for a catch-up.
+- `catch_up` and `redelivered` stay as C5 defines them. A gather alone makes neither true.
+- **Window.** `window` and `window_total` are also filled on a claim that gathered at least one notification, with the same limits as C5: the newest of the visible messages before the new message, at most 10 messages and 16,384 bytes of cut content, each cut at 2,048 bytes. This amends CONV-10, which filled the window only on the first event and on catch-up. A gathered message that does not fit stays held, counts in `unseen`, and is reachable with `conversation_history`.
+- The claim gains `lead`: `{participant, label, you}`, the lead of the held roster with its label as this host shows it and `you` true when it is P, or null with no lead.
+- The claim gains `areas`: for the lead's own claims, one entry `{participant, label, description}` per joined agent in `participants` order, the lead included, and `[]` for everyone else. `description` is as below, or null.
+
+Roster and `undelivered` claims gather nothing, and have `lead` and `areas` as above.
+
+### Areas
+
+`description` in `areas` comes from this host's own records, never from the roster or a message:
+- for an agent on this host, its description (below);
+- for an agent on another host, the `description` of its entry in this host's in-memory [directory](launch-contract.md#discovery) cache for that host and agent ID, in the lowest network ID whose entry has one;
+- otherwise null: an agent with no description, one whose host has not answered a refresh since starting, one its host does not list to this host (the peer route lists only agents this host may reach), or one on a host that does not serve descriptions.
+
+The cache is read as it is at the claim, with no refresh, so a description can be up to one directory refresh old (5 minutes). A description change on a host counts as a presence change there ([launch contract](launch-contract.md#presence)), so hosts that receive presence refresh that host's entry sooner.
+
+### Agent descriptions
+
+An agent on this host may have a **description**, written by its owner: 1 to 200 bytes of UTF-8, with no character from U+0000 to U+001F or U+007F to U+009F, and not only spaces. It is not a label of the capabilities field, and it grants nothing.
+
+| CLI | Route | Answer |
+| --- | --- | --- |
+| `agent describe AGENT TEXT` | `POST /v1/agents/{id}/description` with `{description: TEXT}` | 200, the agent |
+| `agent describe AGENT --clear` | `POST /v1/agents/{id}/description` with `{description: ""}` | 200, the agent |
+
+- `AGENT` is an agent ID or the name of an agent on this host. The CLI resolves a name with `GET /v1/agents`; no match exits 1 with `error: not_found: No such agent on this host.`
+- The route's `{id}` is an agent ID. An unknown ID is 404 `not_found`. `description` is required and is a string; `""` clears it. A value breaking the rules above, a missing or null field, or an unknown field is 400 `invalid` with `description must be 1 to 200 bytes on one line, without control characters`.
+- `GET /v1/agents`, `GET /v1/agents/{id}` and the route's answer gain `description`, null when none.
+- Giving `TEXT` and `--clear` together, or neither, exits 1 with a usage error and sends nothing.
+
+**In the directory** (the [launch contract's peer route and discovery](launch-contract.md#peer-route)):
+- The peer route's entry gains `description` when the agent has one, and leaves it out otherwise, so an entry without one has exactly today's keys.
+- A host reading another host's answer keeps a `description` that meets the rules above, and treats any other value, including a non-string, as absent. It refuses the answer only for the reasons it does today. Older hosts' answers have no `description`. Older readers ignore it, since the entry shape they parse does not refuse unknown keys.
+- `GET /v1/directory` agents, `GET /adapter/v1/agents`, MCP `list_agents`, and `agents --json`'s `reachable` and `mine` gain `description`, null when none. Readable `agents` may show it; its layout is not shared.
+- Every readable surface escapes it as C6's [Terminal escaping](#terminal-escaping) escapes labels, and the adapter escapes it in event content.
+
+### Views
+
+- The conversation view (`GET /v1/conversations/{id}`), its summaries in `GET /v1/conversations`, and the agent summary gain `lead`: the lead's participant ID, or null.
+- The agent summary's `participants` entries gain `lead`, true for the lead's entry.
+- Readable `conversation show` adds `lead LABEL` to its header line when there is a lead. Other wording is not part of the contract.
+
+### Node adapter
+
+**The `conversation` event.**
+- `meta` gains `lead`: true when the claim's `lead.you` is true, otherwise false.
+- In the `Participants:` line, the lead's label reads `LABEL (lead)`, and `LABEL (you, lead)` for the lead itself.
+- When the claim's `lead` is not null, the content gains, after the `About task` line or else after `Participants:`, this line, where `LEAD_LABEL` is `lead.label`, escaped:
+
+  ```text
+  Wake rule: a message with addressed_to wakes only the agents it names; a message without one wakes only the lead (LEAD_LABEL). An agent that is not woken sees nothing until it next wakes, so address an agent to get its attention.
+  ```
+- When `lead.you` is true, two more lines follow it. The second appears only when at least one entry of `areas` has a description: each entry reads `LABEL: DESCRIPTION`, or `LABEL` alone when its description is null, joined with `; `, all escaped.
+
+  ```text
+  You are the lead. If you are a conversation's lead and what you hold doesn't fully answer a message, you must send a message with addressed_to set to the agents likely to hold what is missing. Naming an agent in the text without addressing it doesn't reach it.
+  Agents' areas: LABEL: DESCRIPTION; LABEL: DESCRIPTION
+  ```
+- A window filled by a gather is rendered as any window is, with C5's `Earlier messages (last K of N; conversation_history has the rest):` line.
+
+These texts are the ones the CONV-29 comparison's route arm showed the model ([results](results/conversations-wake-comparison-2.json)), except that the areas line comes from descriptions instead of the comparison's fixed labels.
+
+**`conversation_send`.** The description's sentence `You need not answer every message: answer when a message is addressed to you or when you have something useful to add; messages not addressed to you are for context.` is followed by `An agent that is not addressed will not wake, so use addressed_to to get its attention. If you are a conversation's lead and what you hold doesn't fully answer a message, you must send a message with addressed_to set to the agents likely to hold what is missing. Naming an agent in the text without addressing it doesn't reach it.` The rest of the description, the input schema and the errors are unchanged.
+
+The MCP server instructions do not change. `list_conversations` and `conversation_history` return the new view fields, and `list_agents` returns `description`.
+
+### `addressed_to`
+
+C6's [`addressed_to`](#addressed_to) opens with `Every joined participant still receives an addressed message. The field only tells the others it is not mainly for them.` From C7 it reads: `Every joined participant still receives an addressed message, and it stays visible to each. The field also decides which agents wake (C7): only those it names.` CONV-11 is unchanged: the 60-message limit, `addressed_to`, and the guidance that an agent need not answer every message all stand.
+
+### Compatibility
+
+- **A host without C7** creates every notification as today, so its agents wake for every message, the lead included. It shows no `lead` and serves no descriptions. Hosts with C7 park their own agents' notifications whatever the other hosts run.
+- **A lead on a host without C7** wakes, as everyone there does, but its adapter has no must-route guidance, so an unaddressed message that it can't answer may not reach anyone who can.
+- **Wire.** No peer route, roster field or message field changes. The directory entry gains an optional key, which older readers ignore.
+- **Existing rows.** Notifications created before C7 have no parked mark and are not parked.
+
+### Persistence
+
+- The parked mark lives in the notification's `record`, beside the C5 marks. No new column for it.
+- The agent description is a new nullable column `description` of `agents`, added in the next schema version (29, after schema 28 on `main` when this was written), which upgrades a host's state in place, as earlier schema versions do.
+
+### Verification
+
+Spec-only cases added to `conformance/slim/conversations_context.py`, written from this section by the separate author, within that suite's matrix entry and 2-minute limit. No new suite or CI job.
+
+**Setup.** As in C5: alice and bob, local fixture agents from `a.agent(...)` and `b.agent(...)`, which claim only when the suite calls the claim route. The lead follows from how a case starts the conversation: an agent that starts one with `POST /adapter/v1/conversations` is its creator and lead; for a conversation alice's person starts, the lead is alice's first joined agent in it, else the first joined agent.
+
+**Cases.**
+- **Unaddressed wakes the lead only.** alice's person starts a conversation with `ann` (alice) and `bert` and `bea` (bob). alice says m1 unaddressed. `ann`'s claim has m1, `lead` with `participant` `ann`'s ID and `you` true, and `areas` listing `ann`, `bert` and `bea` in roster order; `bert` and `bea` claim `null`. `bert`'s `GET .../messages` lists m1; its agent summary has `unseen` 0 and `parked` 1; `pending_work` has no entry for the conversation; alice's targets for both are `delivered`.
+- **Addressed wakes those named.** alice says m2 `--to bob/bert`: `bert` claims it; `ann` and `bea` claim `null`. In a conversation of its own with bob's person joined, a message addressed only to `person:bob` wakes no agent.
+- **The lead's own message.** `ann` sends m3 unaddressed: no agent's claim returns it; `bert` and `bea` see it in history.
+- **Gather and window.** After m1 to m3 above, alice says m4 `--to bob/bea`. `bea`'s claim has `messages` m4, `coalesced` the IDs of its notifications for m1, m2 and m3 (m2 parked, since it named only `bert`), a `window` of m1, m2 and m3 in display order, `window_total` 3, `catch_up` false, `redelivered` false, and afterwards `parked` 0 and `unseen` 4. `POST /adapter/v1/seen` with m4's ID makes `unseen` 0.
+- **Later parked messages stay.** A message parked for `bea` that sorts after the message that wakes it (send the waking message first, wait for its target to be `delivered`, then send the unaddressed one, then claim) stays parked after the claim, with `parked` 1.
+- **Recheck on gather.** A parked notification for `bert` from alice; after `deny alice` on bob, a message from a local agent on bob addressed to `bert` wakes it: the claim does not list alice's message in `coalesced` or `window`, and `parked` stays 0 after `allow alice`, since the notification was blocked.
+- **Leaving withdraws.** With one parked notification, `bea` leaves: after it is added again, history does not list that message (C5's rule for withdrawn notifications).
+- **Lead changes.** The creating agent of an agent-started conversation is its lead. After it leaves, the conversation view's `lead` on both hosts is the next agent by rule 3 once they hold the new roster, and an unaddressed message wakes that agent.
+- **No lead.** A conversation of alice's and bob's persons with no agent has `lead` null in the conversation view.
+- **Descriptions.** `agent describe bert "database"` on bob: `GET /v1/agents/BERT` has `description` `database`; after `agents --refresh` on alice, `GET /v1/directory` and `agents --json` list it; the lead's claim on alice in a conversation with `bert` has it in `areas`. `--clear` makes it null in both after a refresh. 201 bytes, a newline, and a missing field are 400 `invalid` with the text above; an unknown agent ID is 404.
+- **A malformed peer description.** A probe answer can't be injected into the directory, so this is a Rust unit test (below).
+
+**Cases that change.** C2, C5 and C6 cases that put more than one agent in a conversation and expect a non-lead agent to claim an unaddressed message must address that message to it, or expect `null`. Those known are in `conversations.py` (C2, `ada` and `abe`), `conversations_context.py` (C5, `boss`, `otto` and `extra`; `bea` and `bel`) and `conversations_tools.py` (C6 `addressed_to`, where `bea`'s claim of a message addressed to `bert` becomes `null` and the unaddressed message wakes only the lead). The author finds the rest by running the suites, and changes no case's purpose.
+
+**Rust.** `cargo test` covers the lead rules (each of the three, a departed creator, no joined agent, `inviting` agents skipped); a malformed, too long, or non-string peer `description` treated as absent while the rest of the answer is kept; the `areas` choice of network for an agent listed in two networks; and a notification created before C7 not being parked.
+
+**Node adapter** (`node --test` in `integrations/shared`, run by hand until CI moves, as for C5 and C6): the `Wake rule:` line, with and without an `About task` line; the two lead lines, the areas line left out when no description is known, and bare labels for agents without one; `(lead)` and `(you, lead)` in `Participants:`; `meta.lead`; escaping of a description holding control characters; and the `conversation_send` description's new sentences.
+
+**Live run** after the build, with real agents on two machines, recorded in `docs/results`: an addressed agent woken after sleeping through messages, and what its window held; the lead leaving mid-conversation; a lead its author can't reach (the target `refused`, and the agent author's `conversation_undelivered` event); one host without C7; agents with no descriptions; and the CONV-29 tasks repeated, to check the built version matches the comparison.

@@ -82,6 +82,12 @@ pub struct AdapterCredential {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replaced_adapter_ids: Vec<String>,
 }
+/// Owner-reviewed guided issuance supplies stable private material; ordinary
+/// issuance still generates both values randomly.
+pub(crate) struct CredentialMaterial {
+    pub id: String,
+    pub token: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delivery {
     pub id: String,
@@ -258,6 +264,22 @@ impl Store {
         directory: Option<i64>,
         calls: Option<i64>,
     ) -> Result<AdapterCredential, Error> {
+        self.create_adapter_material_in(tx, r, directory, calls, None)
+    }
+    pub(crate) fn create_adapter_material_in(
+        &self,
+        tx: &Transaction<'_>,
+        r: CreateAdapter,
+        directory: Option<i64>,
+        calls: Option<i64>,
+        material: Option<CredentialMaterial>,
+    ) -> Result<AdapterCredential, Error> {
+        if material
+            .as_ref()
+            .is_some_and(|m| !valid_id(&m.id, "adapter", 16) || !valid_id(&m.token, "token", 32))
+        {
+            return Err(Error::Invalid("invalid credential material".into()));
+        }
         let renewable = r.expires_at.is_none();
         let expires_at = r.expires_at.unwrap_or_else(renewed_expiry);
         let expiration = DateTime::parse_from_rfc3339(&expires_at)
@@ -347,8 +369,20 @@ impl Store {
             append_event(tx, "session.detached", &old.session_id, &at)?;
             replaced_adapter_ids.push(old.id);
         }
+        let material = match material {
+            Some(material) => material,
+            None => {
+                let mut random = [0u8; 32];
+                getrandom::fill(&mut random)
+                    .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
+                CredentialMaterial {
+                    id: new_id("adapter")?,
+                    token: format!("token_{}", hex::encode(random)),
+                }
+            }
+        };
         let a = Adapter {
-            id: new_id("adapter")?,
+            id: material.id,
             session_id: r.session_id,
             expires_at,
             revoked_at: None,
@@ -358,10 +392,7 @@ impl Store {
             calls: calls.is_some(),
             max_calls_per_hour: calls,
         };
-        let mut random = [0u8; 32];
-        getrandom::fill(&mut random)
-            .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
-        let token = format!("token_{}", hex::encode(random));
+        let token = material.token;
         tx.execute(
             "INSERT INTO adapter_credentials VALUES (?1,?2,?3,?4)",
             params![

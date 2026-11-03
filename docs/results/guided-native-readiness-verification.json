@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "tracking_pr": "https://github.com/peerspan/peerspan/pull/35",
+  "branch": "codex/gu-native-readiness",
+  "scope": "Explicit native current exact-project/network/person connection-status observation, separate receiver-advertised entries and exact-session adapter states; no authority/API/Rust/schema change, permission evaluator, peer probe, model turn or overall-ready assertion.",
+  "status": "Independent new native16/16 pass. Corrected full local363/365 in66.27s retains two unchanged old default5s timeouts, with cause unclassified. First361/365 in67.30s retains one product double-encoding presentation defect and one independent lifecycle bookkeeping defect, both corrected before the next changed-source run; all old tests/timeouts remain exact. Strict pinned303 validation passes. Final exact-head all29 CI/four PR checks/fresh bot/root review receipts follow on slice/tracking PR after this evidence commit.",
+  "base": "3e759c94124f114a8883e5df41e9638e06fad45a",
+  "contract_first": "039bd87cd56e6cfec0a8f61d5103725dcfb49fd8",
+  "contract_clarifications": [
+    "e121feb: explicit Review agent access inspects the captured selection once without resetting selectors",
+    "2fc61b5: canonical JSON details escaped once and one ordinary acknowledgment registration per actual session.start"
+  ],
+  "initial_source": "850b4b10b07503d2418d779baa2d578d417cd80c",
+  "preexecution_public_presentation": "7b853fb",
+  "frozen_production": "5899d09",
+  "verified_local_source": "a6a863ebf0d825aa127ecee82aad1be0139fa042",
+  "rust_tree": "169da285291b7e56144c4742cf6725b480d84157",
+  "reused_unchanged_host_gates": {
+    "record": "docs/results/guided-project-readiness-verification.json",
+    "merged_pr": 86,
+    "reviewed_head": "53df8fc4eecb4e62ff68befc49640b34f76d58dc",
+    "local_rust": "155 passed,2 ignored; fmt/Clippy/all shipped binaries pass",
+    "local_readiness": "6/6 in44.16s",
+    "local_old_access_inspection": "6/6 in101.41s on identical strict library before readiness-only CLI diagnostic correction",
+    "ci_all29": "https://github.com/peerspan/peerspan/actions/runs/41172437883",
+    "ci_four_checks": "https://github.com/peerspan/peerspan/actions/runs/41172437954"
+  },
+  "source_sha256": {
+    "integrations/claude-onboarding/hooks/access.mjs": "e2d283acc89380e354913fdef04722aa1056bbf3280b621fc2baa64aeb7b274d",
+    "integrations/claude-onboarding/hooks/readiness.mjs": "23d35a42c633b0d983e8a02c6656caa670e8cb2866b6f90101e02d1e97d0a035",
+    "integrations/claude-onboarding/hooks/register.mjs": "c25809e39ba23c72bc54f7413211a37211f372888e186d8556d210a07a082102",
+    "integrations/claude-onboarding/tests/readiness.test.ts": "16f2682055f659193d231b79a07cc9d2b250b8c011b56f67ad841bd89324c67a"
+  },
+  "hooks_tree": "94507711eb8274ad8cd341c21b0bcd8b51f865d3",
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "worktree": "/root/capsule/peerspan-native-readiness-conformance",
+    "initial": "abdf5337109c5f2a737bec1d844e496928572552",
+    "initial_integration": "0e20a1e",
+    "preexecution_offline_fixture": "86f7395c9f27b0c9f03e7b7c338ef7d7ae21ea3c",
+    "preexecution_offline_integration": "db3503b",
+    "lifecycle_bookkeeping": "a5c79be60a5cc56c7b62a91f1789e35766149cab",
+    "lifecycle_integration": "a6a863e",
+    "cases": 16,
+    "declaration": "Contract/public-spec/independent fixture source only, SDK-only imports, no product/Rust/hooks reads or imports, real process/network/model execution. Every source committed before root serialized execution. Offline correction changes only new helper channel expression; lifecycle correction changes only3 fixture bookkeeping expressions. All16 case bodies/assertions/delays/timeouts remain byte-identical across these corrections."
+  },
+  "source_reviews": [
+    {
+      "commit": "7b853fb",
+      "finding": "Before first new runtime, make public agent ID/incoming direction/empty authorization wording explicit. Independent expected public visibility remains unchanged."
+    },
+    {
+      "commit": "86f7395",
+      "finding": "Before first new runtime, independent offline fixture uses null current channel with retained historical verification, matching section1."
+    },
+    {
+      "commit": "5899d09",
+      "finding": "First native case2 identifies product double-JSON quotation hiding directly inspectable owner label. Emit canonical JSON once while retaining visible control/bidi escapes; no validation/privacy relaxation."
+    },
+    {
+      "commit": "a5c79be",
+      "finding": "First native case15 passes its lifecycle operations then aggregate privacy helper expects1 tool registration despite2 actual session.starts. Count actual starts and require exactly that many ordinary acknowledgments, in order, with zero additional tools. All case bodies unchanged."
+    }
+  ],
+  "local_runs": [
+    {
+      "gate": "native-validate-first",
+      "head": "850b4b10b07503d2418d779baa2d578d417cd80c",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 0.75,
+      "log": "/dev/shm/gu37/native-validate-first.log",
+      "sha256": "d42b6e73360d0afc4fa3a63376cf5a2739e326a11787a2aa99fda6270068d4a6",
+      "preflight_active": []
+    },
+    {
+      "gate": "native-validate-frozen",
+      "head": "db3503bdd47a9ac481f25542b4e9d51b055374d4",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 0.75,
+      "log": "/dev/shm/gu37/native-validate-frozen.log",
+      "sha256": "d42b6e73360d0afc4fa3a63376cf5a2739e326a11787a2aa99fda6270068d4a6",
+      "preflight_active": [],
+      "postflight_compilers": []
+    },
+    {
+      "gate": "native-all-first",
+      "head": "db3503bdd47a9ac481f25542b4e9d51b055374d4",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 67.3,
+      "log": "/dev/shm/gu37/native-all-first.log",
+      "sha256": "25933921d392661164141d88ba82db51cc5de7e8d00739bfe7a2529ca1e0368a",
+      "preflight_active": [],
+      "postflight_compilers": [],
+      "failure_summary": [
+        {
+          "case": "(fail) closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing [5002.69ms]",
+          "next_line": "  Error: timed out after 5000 ms"
+        },
+        {
+          "case": "(fail) Apply must return exact locally-applied evidence with the observed proof while bare changed or partial replies stay unknown [5007.65ms]",
+          "next_line": "  Error: timed out after 5000 ms"
+        },
+        {
+          "case": "(fail) empty authorizations and metadata-only session remain observed facts with complete purely local details [923.59ms]",
+          "next_line": "  AssertionError: expect(received).toContain()"
+        },
+        {
+          "case": "(fail) Leave Refresh end and lost terminal surface discard dispatched late observations without resurrecting terms [503.26ms]",
+          "next_line": "  AssertionError: expect(received).toEqual()"
+        }
+      ],
+      "summary": [
+        "",
+        " 361 pass",
+        " 4 fail",
+        "Ran 365 tests across 18 files. [67.07s]"
+      ]
+    },
+    {
+      "gate": "native-validate-corrected",
+      "head": "a6a863ebf0d825aa127ecee82aad1be0139fa042",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "validate",
+        "integrations/claude-onboarding",
+        "--strict"
+      ],
+      "exit": 0,
+      "seconds": 0.8,
+      "log": "/dev/shm/gu37/native-validate-corrected.log",
+      "sha256": "d42b6e73360d0afc4fa3a63376cf5a2739e326a11787a2aa99fda6270068d4a6",
+      "preflight_active": [],
+      "postflight_compilers": []
+    },
+    {
+      "gate": "native-all-corrected",
+      "head": "a6a863ebf0d825aa127ecee82aad1be0139fa042",
+      "command": [
+        "/root/.local/share/claude/versions/2.1.303",
+        "plugin",
+        "test",
+        "integrations/claude-onboarding"
+      ],
+      "exit": 1,
+      "seconds": 66.27,
+      "log": "/dev/shm/gu37/native-all-corrected.log",
+      "sha256": "f789deb9984c2fb65947ea9fb36778909b25a1d6008bbaf74197633c34a7914c",
+      "preflight_active": [],
+      "postflight_compilers": [],
+      "failure_summary": [
+        {
+          "case": "(fail) closed signed-result count reference state date and private-value faults stop before any apply or confirmed signing [5023.94ms]",
+          "next_line": "  Error: timed out after 5000 ms"
+        },
+        {
+          "case": "(fail) late preflight signer application and old timers cannot resurrect a departed or newer selected completion view [5058.90ms]",
+          "next_line": "  Error: timed out after 5000 ms"
+        }
+      ],
+      "summary": [
+        "",
+        " 363 pass",
+        " 2 fail",
+        "Ran 365 tests across 18 files. [66.02s]"
+      ]
+    }
+  ],
+  "preservation": {
+    "base": "3e759c94124f114a8883e5df41e9638e06fad45a",
+    "all_old_native_test_and_conformance_files": 57,
+    "byte_identical": true,
+    "old_native_cases": 349,
+    "old_host_suites": 29,
+    "new_native_cases": 16,
+    "total_native_cases": 365,
+    "new_test_path": "integrations/claude-onboarding/tests/readiness.test.ts",
+    "no_old_assertion_action_delay_timeout_changes": true
+  },
+  "execution": "Root alone serialized pinned303 validation/native runtime. No known Cargo/rustc/native runner active at either preflight; midpoint and postflight compiler checks empty. This observation does not establish the old timeout cause. First outcomes/log hashes retained; no unchanged local retry or deadline increase. Changed-source full rerun verifies the identified product and independent fixture corrections.",
+  "limits": [
+    "Unchanged old local native default5s timeouts remain unclassified; later passes do not establish cause.",
+    "Earlier host UDP/contact/relay callers remain unclassified.",
+    "Host crypto/current receiver evaluator/filtering reuse separate real-host evidence; native fixtures stub public runtime effects.",
+    "Obsolete rendered closures and final synchronous dispatch micro-races retain source/manual limits.",
+    "Actual terminal/reload/installed/physical/real-model/other-computer/schema23-to27/full-state/explicit-peer-reachability/final combined/full-feature acceptance remain open.",
+    "No repeat of unchanged quota-refused inference probes; local verified channel never implies peer or current model receipt."
+  ]
+}

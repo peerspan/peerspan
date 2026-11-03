@@ -483,6 +483,14 @@ fn verify(
     Ok((snapshot, projection))
 }
 fn apply(store: &Store, e: Evidence, caller: &str) -> Result<Vec<u8>> {
+    apply_guarded(store, e, caller, |_, _, _| Ok(()))
+}
+fn apply_guarded(
+    store: &Store,
+    e: Evidence,
+    caller: &str,
+    mut guard: impl FnMut(&Connection, &requests::Pending, bool) -> Result<()>,
+) -> Result<Vec<u8>> {
     e.boundary(store, caller)?;
     {
         let c = store.connection().map_err(|_| Error::new("internal"))?;
@@ -503,6 +511,9 @@ fn apply(store: &Store, e: Evidence, caller: &str) -> Result<Vec<u8>> {
         return Ok(result);
     }
     let mut pending = local_pending(&tx, store, &e)?;
+    if let Some(p) = &pending {
+        guard(&tx, p, false)?;
+    }
     let (snapshot, projection) = verify(&tx, store, &e, &controls::local_decision_time()?)?;
     let now = projection.decision_time.clone();
     let root = projection.root_state_id()?.to_owned();
@@ -540,6 +551,9 @@ fn apply(store: &Store, e: Evidence, caller: &str) -> Result<Vec<u8>> {
     }
     // The owned outcome signature and optional sealed frame belong to this
     // final decision, together with state/event/provider and secret retirement.
+    if let Some(p) = &pending {
+        guard(&tx, p, true)?;
+    }
     let outcome = outcome(store, &e, &root, &now)?;
     if let Some(p) = pending.as_mut() {
         if p.secret.is_some()
@@ -625,6 +639,9 @@ fn apply(store: &Store, e: Evidence, caller: &str) -> Result<Vec<u8>> {
     crate::store::append_event(&tx, "network.link_applied", &e.activation.request_id, &now)
         .map_err(db)?;
     let result = response(&e.activation_raw, &projection.catalog.bytes, &outcome)?;
+    if let Some(p) = &pending {
+        guard(&tx, p, true)?;
+    }
     tx.commit().map_err(db)?;
     store
         .refresh_member_pins(&c)
@@ -657,6 +674,60 @@ pub(crate) fn apply_local(store: &Store, id: &str) -> Result<bool> {
     };
     apply(store, evidence, &store.identity().public_key)?;
     Ok(true)
+}
+
+/// Pure exact saved application verification, at its saved decision time.
+pub(crate) fn local_recorded(c: &Connection, store: &Store, p: &requests::Pending) -> Result<bool> {
+    if p.record.terminal != "applied" {
+        return Ok(false);
+    }
+    let raw = retained(c, store, &p.id, &store.identity().public_key, None)?
+        .ok_or_else(|| Error::new("state_conflict"))?;
+    let activation = raw_field(&raw, "activation")?;
+    let e = Evidence::read(activation, raw_field(&raw, "catalog")?)?;
+    let outcome = Packet::read(&raw_field(&raw, "outcome")?)?;
+    check(
+        e.activation.id == p.record.activation_id
+            && e.activation.manifest_id == p.record.manifest_id
+            && outcome.id == Packet::read(&b64(&p.record.outcome_packet_base64, MAX_OBJECT)?)?.id
+            && raw_field(&e.activation_raw, "commit")?
+                == b64(&p.record.commit_packet_base64, MAX_OBJECT)?,
+    )?;
+    Ok(true)
+}
+/// Current ordinary complete projection before guided publication/application.
+pub(crate) fn local_current(
+    c: &Connection,
+    store: &Store,
+    p: &requests::Pending,
+) -> Result<String> {
+    let e = Evidence::read(
+        super::requester::activation_bytes(p, &b64(&p.record.commit_packet_base64, MAX_OBJECT)?)?,
+        b64(&p.record.catalog_base64, MAX_CATALOG)?,
+    )?;
+    e.boundary(store, &store.identity().public_key)?;
+    local_pending(c, store, &e)?;
+    let (_, projection) = verify(c, store, &e, &controls::local_decision_time()?)?;
+    Ok(projection.root_state_id()?.into())
+}
+pub(crate) fn apply_local_guarded(
+    store: &Store,
+    id: &str,
+    guard: impl FnMut(&Connection, &requests::Pending, bool) -> Result<()>,
+) -> Result<()> {
+    let e = {
+        let c = store.connection().map_err(|_| Error::new("internal"))?;
+        let p = requests::load(&c, id)?;
+        Evidence::read(
+            super::requester::activation_bytes(
+                &p,
+                &b64(&p.record.commit_packet_base64, MAX_OBJECT)?,
+            )?,
+            b64(&p.record.catalog_base64, MAX_CATALOG)?,
+        )?
+    };
+    apply_guarded(store, e, &store.identity().public_key, guard)?;
+    Ok(())
 }
 
 struct PublicationTarget {
@@ -750,6 +821,33 @@ fn verify_publication(store: &Store, id: &str, host: &str, raw: &[u8]) -> Result
     retained(&c, store, id, host, Some(&evidence))?.ok_or_else(|| Error::new("state_conflict"))?;
     Ok(())
 }
+async fn retry_rate_limited<F, Fut>(deadline: tokio::time::Instant, mut send: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    loop {
+        match send().await {
+            Err(error) if error.code == "rate_limited" => {
+                // Only the actual HTTP429 parser supplies Retry-After. Keep
+                // its positive delay inside the original publication budget.
+                let Some(seconds) = error.retry_after.filter(|seconds| *seconds > 0) else {
+                    return Err(error);
+                };
+                let Some(retry_at) = tokio::time::Instant::now()
+                    .checked_add(std::time::Duration::from_secs(seconds))
+                else {
+                    return Err(error);
+                };
+                if retry_at >= deadline {
+                    return Err(error);
+                }
+                tokio::time::sleep_until(retry_at).await;
+            }
+            result => return result,
+        }
+    }
+}
 pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
     // At most three maximum-size public request plans can occupy the send
     // queue. Responses share bootstrap_io's separately bounded receive queue.
@@ -773,7 +871,8 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
     else {
         return Ok(false);
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    tokio::time::timeout_at(deadline, async {
         let mut succeeded = BTreeSet::new();
         let mut failed = BTreeMap::new();
         for (host, target) in plan.targets {
@@ -793,13 +892,13 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                 }
             };
             for endpoint in target.tcp {
-                let result = async {
+                let result = retry_rate_limited(deadline, || async {
                     verify(
                         super::bootstrap_io::complete(store.clone(), &endpoint, plan.body.clone())
                             .await?,
                     )
                     .await
-                }
+                })
                 .await;
                 match result {
                     Ok(()) => {
@@ -828,7 +927,7 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                     public_key: host.clone(),
                     address,
                 };
-                let result = async {
+                let result = retry_rate_limited(deadline, || async {
                     verify(
                         crate::quic::completion_request(
                             store.clone(),
@@ -840,7 +939,7 @@ pub(crate) async fn publish(store: Arc<Store>, id: &str) -> Result<bool> {
                         .await?,
                     )
                     .await
-                }
+                })
                 .await;
                 match result {
                     Ok(()) => {

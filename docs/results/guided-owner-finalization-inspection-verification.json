@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "pull_request": "https://github.com/peerspan/peerspan/pull/61",
+  "scope": "Pure original finalization inspection; guided session contract section24",
+  "base_merge": "6daf07a0f520b6cada53159f67b05c3073dd725b",
+  "contract_first_commit": "9a48a1f",
+  "contract_clarifications": [
+    "2ec5e76: signed creation time and existing restart detach",
+    "4b42d31: signed deadline and ordinary inactivity both review_expired"
+  ],
+  "initial_production": "3514683a85199e600c002d00b01a1d16a19723b1",
+  "final_production": "f34b100a70468ac1e0355ad13668d0d98fd016c9",
+  "final_source_review_fix": "Preserve review_expired when expiry is reached at final projection observation; no test changes.",
+  "binary_sha256": "d97dfd243943624d605b2a5e451d978f754a92017b441020b07fdb51de818fb9",
+  "source_sha256": {
+    "rust/src/decentralized.rs": "8f29f55bc7927eb1036e90157d02b720b3408d1eaabf1ccd54f5142c617b07d7",
+    "rust/src/decentralized/ceremony_finalization.rs": "c36bc7fac61084483e1943874240d70dc1a6ecfba5100320d84ef7a22f770765",
+    "rust/src/main.rs": "bf1ca76bfee55ac13cf17531585b7f1e2c5874f9951b4b4fd607e04efd9d8896",
+    "rust/src/onboarding_cli.rs": "53c9b6072df86a05f9e0c78f3711ccd0f7b5ae80d15d3ceb106379660314dfdc",
+    "rust/src/onboarding_join/owner.rs": "1b72faa7dc6481616814b8e062c6eb231533d9703a057e472958664c59ce3f52",
+    "rust/src/onboarding_join/owner/finalization.rs": "a3e3797690f6b87521a50e2e175c97af37148a7b3baa0faf7b96a6b2d4533c53",
+    "conformance/slim/owner_finalization.py": "fcd53aed3a9f008721c2e40521f183a814fb5a5353f70bffec12518167c56c0f"
+  },
+  "independent_author": {
+    "agent": "/root/guided_onboarding_conformance",
+    "contract_only": true,
+    "implementation_read": false,
+    "author_commit": "39dfc8545d83351ee47f6e0be4817a724550436f",
+    "integrated_commit": "26a067877acd29dee2d57960371413fab6aa3c4d",
+    "committed_before_execution": true,
+    "matrix_only_registration": true
+  },
+  "local_final_source": {
+    "rust_tests": {
+      "passed": 155,
+      "ignored": 2,
+      "failed": 0
+    },
+    "fmt": "pass",
+    "clippy": "pass",
+    "all_bins_build": "pass",
+    "clippy_seconds": 33.3,
+    "build_seconds": 67,
+    "owner_finalization": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 68,
+      "first_full_run": true,
+      "adaptive_changes": false,
+      "case_seconds": [
+        11.1,
+        12.2,
+        5.8,
+        12.0,
+        1.6,
+        25.5
+      ],
+      "evidence": [
+        "Closed API/CLI shapes, exact domain digest, original consent and independently checked administrator root/P/H packet signatures and IDs",
+        "Strict logical DB/private-files/both settled relay counter equality; no added B/D/F materialization",
+        "Stable live review, restart detached-parent refusal and identical immutable section16 consent/evidence",
+        "Genuine missing/unapproved/original/admin and wrong context/review refusals",
+        "Signed deadline and ordinary inactivity read purity including unchanged persisted clock/highwater before offset restoration; public cancellation",
+        "Strict JSON/64KiB/CLI/privacy/method/scoped-peer-bootstrap boundaries",
+        "Same genuine distinct-person/two-temporary-host request completes advanced original F and separate requester commit, followed by pure inspection refusal and retained original consent"
+      ]
+    }
+  },
+  "earlier_source_regressions": {
+    "source": "3514683a85199e600c002d00b01a1d16a19723b1",
+    "binary_sha256": "5f6fce1b6ae1923b343af87022cb4dbc4767af169fa11755ef6be54f6b4a9cf1",
+    "native": {
+      "runtime": "2.1.303",
+      "passed": 272,
+      "failed": 0,
+      "files": 13,
+      "seconds": 34.36,
+      "strict_plugin_validation": "pass"
+    },
+    "owner_onboarding": {
+      "passed": 6,
+      "failed": 0,
+      "seconds": 36
+    },
+    "rust_tests": {
+      "passed": 155,
+      "ignored": 2,
+      "failed": 0
+    },
+    "fmt": "pass",
+    "clippy": "pass",
+    "all_bins_build": "pass"
+  },
+  "preservation": "All old20 conformance suites and all native272 files/assertions/delays/timeouts remain unchanged from base; final combined-head CI records are linked in PR61.",
+  "initial_remote_gates": {
+    "source": "3514683a85199e600c002d00b01a1d16a19723b1",
+    "all20_conformance": "https://github.com/peerspan/peerspan/actions/runs/41005802719",
+    "pr_checks": "https://github.com/peerspan/peerspan/actions/runs/41005802679",
+    "result": "pass",
+    "early_bot_review": "https://github.com/peerspan/peerspan/pull/61#issuecomment-6515353797",
+    "findings": false
+  },
+  "final_remote_gate_location": "PR61 and tracking PR35 record exact combined final head, all21 suites, PR checks and fresh review after this record commit; this file does not claim earlier-head checks are final-head evidence.",
+  "execution": "RAM artifacts/builds/logs; required Rust build, native suite, old owner suite, final Rust rebuild and independent new host suite ran sequentially with no build/native/host-load overlap. Independent tests committed before first execution; no failed or adaptive new-suite run.",
+  "fixture_boundaries": [
+    "Genuine signed invitations, distinct original people and two temporary real hosts; no required Peerspan service or original-key copy",
+    "Ordinary external original signing/transport and independent administrator approval supply retained evidence before measured inspection",
+    "Genuine short-invitation expiry synchronizes participant clocks to retire unrelated return polling before strict settled traffic measurements",
+    "Public setup can already materialize eligible finalization drafts; inspection changes none, not proof of a pre-materialization interval",
+    "Restart startup/session-disconnect effects settle before the refused-read purity baseline; no attachment resurrection",
+    "Clock restore occurs only after strict DB/file comparison proves no persisted highwater, terminal or evidence mutation; no persisted authority edits"
+  ],
+  "source_or_fault_limits": [
+    "Pre-materialization-only interval",
+    "Isolated missing-selection-only, device/folded and adopted-network paths",
+    "Authenticated corrupt-catalog and microscopic crossing/race stimuli",
+    "Generated-key file-open and SSH-agent-connect syscalls are not instrumented; absent original-key/agent sources and strict effects are tested, and no signer/key/agent path is invoked by the inspection source."
+  ],
+  "remaining_feature_work": [
+    "Explicit missing finalization-proof transport",
+    "Bounded original B/D/F signing and native controls",
+    "Separate guided requester commit",
+    "Agent access/readiness and other-computer flow",
+    "Actual terminal, installed artifacts, physical machines, real model receipt, schema23-to27 full-state upgrade/recovery and final combined review"
+  ],
+  "merge_policy": "Owner reviews/merges slice into feature branch; keep tracking PR35 unmerged and full acceptance gates incomplete."
+}
