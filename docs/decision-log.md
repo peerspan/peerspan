@@ -4918,3 +4918,23 @@ and explicit model authorization/evidence-limit decision remain open.
   mailbox-frame GET withheld, affected existing suites, Rust gates and a rebuilt
   installed artifact before repeating external-machine acceptance. Diagnostic
   binaries do not qualify a release.
+
+### PF-01: begin PeerFS host integration after network qualification
+
+- **Context:** #109 is merged, with actual separate-host direct/relay cases and
+  both managed-NAT ceremonies/work phases passed. Its remaining topology limits
+  stay recorded. PeerFS already has local replication and signing interfaces;
+  the daemon bridge is tracked in peerspan-internal issue137.
+- **Selected proposal:** reuse the separate PeerFS process and existing
+  replication core; specify registration and typed host-backed signing/key
+  lookup, then signed whole-branch read access and one verified cross-host pull.
+  Keep filesystem consent independent of project attachment and agent access.
+- **Rationale:** a small read-only result exercises identity, authorization,
+  reachability and actual transport before introducing remote writes or
+  durability claims. Its whole-branch review must disclose parent history.
+- **Discarded:** duplicate filesystem cores in Go/Rust hosts, export signing
+  keys, generic signing, implicit same-owner sharing, unfiltered path-sharing
+  promises and one combined mount/write/durability implementation.
+- **Status:** [boundary and delivery plan](peerfs-host-contract.md) proposed for
+  review. No runtime route, command, schema or policy encoding is added by this
+  decision. Exact slice contracts precede implementation and independent cases.
