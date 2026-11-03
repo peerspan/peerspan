@@ -128,6 +128,68 @@
     "operation": "incoming-progress"
   },
   "root_topology_capture_confirmation_required": true,
+  "root_traffic_observation": {
+    "analysis_source_sha256": "068d66308efa02df99308e400a8bf977d4e9d687274cf8a03d7a98ada45e7d16",
+    "capture_analysis": "TLS ClientHello offered ALPN and encrypted record hash identity across actual NAT",
+    "capture_sha256": {
+      "left": "61fe63263fc07d688768a555fed9df8cf2be63cdfc7662aeb10f6ffed18d424b",
+      "right": "9dde61ebf33c2a591a9e21394034ff8b413af8dd3b6a189e1c63f9a8c8d7a6e7"
+    },
+    "exclusive_per_message_path_attribution": false,
+    "identical_encrypted_tls_application_records_across_nat": {
+      "peerspan-bootstrap/1_client": 62,
+      "peerspan-bootstrap/1_server": 92,
+      "peerspan-relay/4_client": 297,
+      "peerspan-relay/4_server": 301
+    },
+    "matched_nat_helper_connections_by_sole_offered_alpn": {
+      "peerspan-bootstrap/1": 20,
+      "peerspan-relay/4": 2
+    },
+    "offered_alpn_not_server_negotiation_decryption": true,
+    "packets_dropped_by_kernel": {
+      "left": 0,
+      "right": 0
+    },
+    "peer_port_udp_also_observed": true,
+    "phase_windows": [
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 317186,
+          "peerspan-bootstrap/1_tcp_payload_packets": 272,
+          "peerspan-relay/4_tcp_payload_bytes": 132967,
+          "peerspan-relay/4_tcp_payload_packets": 164
+        },
+        "phase": "machine-ceremony",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-relay/4_tcp_payload_bytes": 310353,
+          "peerspan-relay/4_tcp_payload_packets": 396
+        },
+        "phase": "machine-work",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 60648,
+          "peerspan-bootstrap/1_tcp_payload_packets": 79,
+          "peerspan-relay/4_tcp_payload_bytes": 1550,
+          "peerspan-relay/4_tcp_payload_packets": 6
+        },
+        "phase": "teammate-ceremony",
+        "public_participant_clock_window": true
+      }
+    ],
+    "private_evidence_sha256": {
+      "n1-attempt-1-capture-start.private.json": "e0c281f0ee47a9f80db13a48b99ea462678bf0aba020480d7b7a92a9a5613647",
+      "n1-attempt-1-capture-stop.private.json": "985128f7f91850eab021f901af88c73a65e2a36dd45f629c88018212d5fd570d",
+      "n1-attempt-1-execution.private.json": "6ba470d0809a0e65619323d9c74d1f572c3fa6bcf690c9980e037ca78b8cd833",
+      "n1-attempt-1-summary.private.json": "2fa568edb111e615d952c1a5795284a14cbe303ac438347d45ad251dea8734b7",
+      "n1-attempt-1-wire-analysis-v2.private.json": "25cdab23f52592e978597154bee250d4af46916c80b428eca27b94ff1aac13ce"
+    }
+  },
   "run_configuration_sha256": "405f33ec78c6ec4aedb9e53bb45e6b0313ca39ec4e1673d9e0831053341ae466",
   "separate_machine_metadata_verified": true,
   "source_sha256": {
