@@ -10,9 +10,9 @@ CONVERSATION_TABLES = ('conversation_notifications', 'conversation_targets',
                        'conversation_messages', 'conversations')
 
 
-# Schema 30 (conversations C7) adds this table; a synthetic older state
-# drops it too, so the migration creates it from a real older state.
-NEWER_TABLES = ('agent_descriptions',)
+# Schemas30 (conversations C7) and31 (PF-1(a)) add these tables; a synthetic
+# older state drops them too, so migration sees only the intended old history.
+NEWER_TABLES = ('agent_descriptions', 'peerfs_bindings')
 
 
 def drop_conversations(db):
