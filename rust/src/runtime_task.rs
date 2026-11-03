@@ -1077,8 +1077,9 @@ async fn follower(
                     .await?;
                     return Ok(());
                 }
-                Ok(_) => cancel_sent = true,
-                Err(_) => {
+                Ok(a) if a.status == 200 => cancel_sent = true,
+                // Any other answer, like no answer, is sent again.
+                Ok(_) | Err(_) => {
                     pause(&mut shutdown, Duration::from_secs(1)).await;
                     continue;
                 }
