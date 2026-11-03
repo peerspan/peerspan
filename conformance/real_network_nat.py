@@ -206,7 +206,9 @@ def progress_snapshot(f):
         identity = g.get(host,'/v1/host')
         check(type(identity) is dict and set(identity)=={'id','public_key','created_at','default_coordinator','network_protocols'}
               and identity['id']==host.id and identity['public_key']==host.public_key
-              and type(identity['created_at']) is str and g.parse_time(identity['created_at']).utcoffset()==timedelta(0)
+              and type(identity['created_at']) is str and re.fullmatch(
+                  r'[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:[Zz]|\+00:00)',identity['created_at']) is not None
+              and datetime.fromisoformat(identity['created_at'].upper().replace('Z','+00:00')).utcoffset()==timedelta(0)
               and identity['default_coordinator'] is None and type(identity['network_protocols']) is list
               and identity['network_protocols']==['peerspan-decentralized-v1'],'progress host identity or public info changed')
         result['hosts'][host.name] = identity
