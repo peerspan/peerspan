@@ -51,7 +51,7 @@ From the repository root:
 GOCACHE=/tmp/peerspan-link-readers-cache/go \
   go -C "$PEERSPAN_GO" build -o /tmp/peerspan-link-path-go ./cmd/peerspan-link-probe
 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target \
-  cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe
+  cargo build --locked --bin peerspan-link-probe
 python3 conformance/linking_paths.py \
   --go-probe /tmp/peerspan-link-path-go \
   --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe

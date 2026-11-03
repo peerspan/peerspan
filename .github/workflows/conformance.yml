@@ -32,14 +32,13 @@ jobs:
           rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           cache-on-failure: true
       - name: Build
         run: |
           set -euo pipefail
-          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-host --bin peerspan-peer-probe --bin peerspan-helper
+          cargo build --locked --bin peerspan-host --bin peerspan-peer-probe --bin peerspan-helper
           mkdir -p bin
-          cp rust/target/debug/peerspan-host rust/target/debug/peerspan-peer-probe rust/target/debug/peerspan-helper bin/
+          cp target/debug/peerspan-host target/debug/peerspan-peer-probe target/debug/peerspan-helper bin/
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-binaries

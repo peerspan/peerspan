@@ -452,7 +452,7 @@ CREATE TABLE conversation_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, cr
 - **`conversation_reads.read_through`** is a `local_seq`.
 - **Retention.** Messages and rosters are kept until the owner runs `conversation forget` (decision 14). A home host keeps the roster row even then, as the authority the other participants still rely on. Inbound receipts are kept as one-to-one message receipts are.
 - **Activity** kinds: `conversation.created`, `conversation.roster_changed`, `conversation.message_sent`, `conversation.message_received`, `conversation.message_refused`, `conversation.closed`. The subject is `CONVERSATION_ID` or `CONVERSATION_ID/MESSAGE_ID`. Activity never holds content.
-- **Migration** creates the tables and index and sets the version in one transaction, in `rust/src/store.rs`'s ordered migration list. Older binaries reject the new version. No existing record changes, and no `dec_*` table changes. This is a schema upgrade of the host database, not a network migration.
+- **Migration** creates the tables and index and sets the version in one transaction, in `src/store.rs`'s ordered migration list. Older binaries reject the new version. No existing record changes, and no `dec_*` table changes. This is a schema upgrade of the host database, not a network migration.
 
 ## Compatibility with older hosts
 
@@ -484,8 +484,8 @@ CREATE TABLE conversation_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, cr
 Feature slice 1 (decision 21: agents and people together) is built as six small PRs, C1 to C6, each mergeable on its own. Slices 2 and 3 below are unchanged.
 
 **Every PR** has two parts, in the same PR:
-- **Implementation** in `rust/src` and, where named, the shared Node adapter (`integrations/shared`), with the matching section of `docs/conversations-contract.md`. The implementer adds no tests the contract or owner did not ask for (AGENTS.md).
-- **Spec-only test cases** appended to `conformance/slim/conversations.py`, written from that contract section by a separate author who does not read `rust/` or `integrations/`. The suite drives real Rust hosts through the CLI, the owner API and the adapter socket, using `conformance/slim/harness.py` (`Suite`, `create_network`, `join_new_person`, the fixture `Adapter`, and the debug test `Clock` for the 10-minute, 24-hour and 30-day timers). The whole suite stays under 2 minutes. C1 adds `conversations` to the `suite` matrix in `.github/workflows/conformance.yml`, so it runs as its own CI job from the first PR.
+- **Implementation** in `src/` and, where named, the shared Node adapter (`integrations/shared`), with the matching section of `docs/conversations-contract.md`. The implementer adds no tests the contract or owner did not ask for (AGENTS.md).
+- **Spec-only test cases** appended to `conformance/slim/conversations.py`, written from that contract section by a separate author who does not read `src/`, `tests/` or `integrations/`. The suite drives real Rust hosts through the CLI, the owner API and the adapter socket, using `conformance/slim/harness.py` (`Suite`, `create_network`, `join_new_person`, the fixture `Adapter`, and the debug test `Clock` for the 10-minute, 24-hour and 30-day timers). The whole suite stays under 2 minutes. C1 adds `conversations` to the `suite` matrix in `.github/workflows/conformance.yml`, so it runs as its own CI job from the first PR.
 
 The PRs, in order:
 

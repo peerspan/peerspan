@@ -41,14 +41,13 @@ jobs:
           rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
           cache-on-failure: true
       - name: Build
         run: |
           set -euo pipefail
-          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-host --bin peerspan-peer-probe --bin peerspan-helper
+          cargo build --locked --bin peerspan-host --bin peerspan-peer-probe --bin peerspan-helper
           mkdir -p bin
-          cp rust/target/debug/peerspan-host rust/target/debug/peerspan-peer-probe rust/target/debug/peerspan-helper bin/
+          cp target/debug/peerspan-host target/debug/peerspan-peer-probe target/debug/peerspan-helper bin/
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-binaries
@@ -141,7 +140,7 @@ jobs:
       - name: Build and check the installed archive
         run: |
           set -euo pipefail
-          bundle_version="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["package"]["version"])')-ci"
+          bundle_version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')-ci"
           scripts/package-release.sh rust "$bundle_version" dist
           archive="dist/peerspan-${bundle_version}-linux-amd64-rust.tar.gz"
           (cd dist && sha256sum -c "$(basename "$archive").sha256")
@@ -207,8 +206,8 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: '0'
         run: |
           set -euo pipefail
-          cargo clean --manifest-path rust/Cargo.toml -p peerspan-host
-          cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-peer-probe
+          cargo clean -p peerspan-host
+          cargo build --locked --bin peerspan-peer-probe
           archive="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
           archive_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
           python conformance/installed_participants.py --archive "$archive" --sha256 "$archive_sha" \

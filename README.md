@@ -31,12 +31,11 @@ Isolated remote execution is future work.
 
 | Path | Purpose |
 | --- | --- |
-| [rust/](rust/) | Host daemon and CLI. |
+| [src/](src/), [tests/](tests/) | Host daemon and CLI (the `peerspan-host` crate). |
 | [integrations/](integrations/) | Claude Code, Codex and OpenCode adapters. |
 | [docs/](docs/) | Quick start, spec, contracts, proposals and recorded results. The [decision log](docs/decision-log.md) lists every owner decision with the options proposed. |
 | [conformance/](conformance/) | Black-box checks written from the spec. |
 | [scripts/](scripts/) | Release packaging and installation. |
-| [legacy/](legacy/) | Earlier prototype, kept as history. |
 
 The [developer guide](docs/developer-guide.md) covers source builds and verification, and [AGENTS.md](AGENTS.md) maps changes to required checks.
 

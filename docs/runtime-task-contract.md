@@ -14,7 +14,7 @@ Membership, policies and their signing are those of the
 [coordinator-free spec](decentralized-spec.md) and its
 [wire appendix](decentralized-wire-formats.md). Runtime tasks work only in coordinator-free
 networks; legacy coordinator networks are read-only history (spec section 14) and authorize
-nothing. The Rust host in `rust/` is the only host (DEC-OWN5).
+nothing. The Rust host at the repository root is the only host (DEC-OWN5).
 
 Not in this contract: guest network access, choosing a guest image, stdin, grants for
 runtime tasks, delegating a runtime task onward, and agents in the VM.
@@ -389,7 +389,7 @@ Older binaries reject the new version. New activity kinds are `task.run_started`
 ## Verification
 
 `conformance/slim/runtime.py` and `conformance/slim/fake_runtime.py` are written from this
-contract by a separate author who does not read `rust/` or `integrations/` (DEC-OWN6,
+contract by a separate author who does not read `src/`, `tests/` or `integrations/` (DEC-OWN6,
 DEC-OWN9). The suite drives two or three real Rust hosts through the CLI, the owner API and
 the adapter socket with `conformance/slim/harness.py` and its test clock, without KVM and
 without model calls. It stays under 2 minutes and runs as its own `runtime` job in

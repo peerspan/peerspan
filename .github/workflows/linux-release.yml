@@ -32,7 +32,7 @@ jobs:
             echo 'Version must be a numeric release version, optionally with a suffix' >&2
             exit 1
           }
-          crate_version=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p;}' rust/Cargo.toml | head -n 1)
+          crate_version=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p;}' Cargo.toml | head -n 1)
           [[ $VERSION == "$crate_version" ]] || {
             echo "Release version $VERSION differs from Rust crate version $crate_version" >&2
             exit 1
