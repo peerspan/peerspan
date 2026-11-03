@@ -10352,3 +10352,19 @@ establishes #35 readiness; the final candidate needs its own checks and review.
 These are implementation choices under the accepted feature scope, not new
 options attributed to the owner. Later slices extend this contract through
 small PRs against the feature branch.
+
+
+### CI original-host witness failure diagnostics
+
+The existing owner-signing prerequisite may additionally report closed failure
+counters for its read-only snapshot: SQLite BUSY, SQLite LOCKED, other SQLite,
+ValueError, TypeError and KeyError. It may identify only a fixed helper function
+and a bounded public source-line/guard category, never an exception message,
+raw traceback/path, record, request ID, key, signature, code or content.
+
+This is diagnostic-only. Preserve every witness predicate and original action,
+one snapshot per observation, the original5second bound/interval, and existing
+fatal handling. No exception is converted into readiness or a retry by this
+addition. The first main failure remains unattributed until a genuine failing
+observation or independently established cause identifies it. A later passing
+run does not classify or erase the first failure.
