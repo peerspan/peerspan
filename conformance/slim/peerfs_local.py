@@ -444,11 +444,12 @@ def _():
                 responses = []
                 parents = [b"\1" + bytes([n]) * 32 for n in (1, 2)]
                 for data in (message(h.id, agent="", session=""),
+                             message(h.id, text=""),
                              message(h.id, parents=parents, agent="agent α", session="session 東京", timestamp=2**64 - 1,
                                      text="Merge α\nPreserve parent order", predecessor=parents[0]),
                              message(h.id, parents=parents[::-1])):
                     responses.append(sign(h, registration, data)["signature"])
-                check(len(set([first["signature"], *responses])) == 4, "different canonical messages gained one signature")
+                check(len(set([first["signature"], *responses])) == 5, "different canonical messages gained one signature")
             pure(h, signatures)
         check(not calls, "local signing called the provider")
     finally:
@@ -513,11 +514,11 @@ def _():
     h, _ = fixture()
     _, registration = prepare()
     parents = [b"\1" + bytes([n]) * 32 for n in range(64)]
-    largest = message(h.id, parents=parents, agent="α" * 128, session="s" * 256,
-                      text="m" * 16384, timestamp=2**64 - 1, predecessor=parents[0])
+    largest = message(h.id, parents=parents, agent="α" * 128, session="é" * 128,
+                      text="α" * 8192, timestamp=2**64 - 1, predecessor=parents[0])
     pure(h, lambda: sign(h, registration, largest))
     for data in (message(h.id, parents=parents + [parents[0]]), message(h.id, agent="α" * 128 + "a"),
-                 message(h.id, session="s" * 257), message(h.id, text="m" * 16385)):
+                 message(h.id, session="é" * 128 + "x"), message(h.id, text="α" * 8192 + "x")):
         expect(h, "POST", route(registration, "sign-commit"), 400, signing(registration, data))
     #65536 cannot be a valid commit under the stricter individual-field limits.
     expect(h, "POST", route(registration, "sign-commit"), 400, signing(registration, b"\0" * 65536))
