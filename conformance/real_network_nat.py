@@ -204,8 +204,11 @@ def progress_snapshot(f):
     result = dict(hosts={},projects={},requests={})
     for host,parent,role in ((a,f['owner_parent'],'approver'),(b,f['parent'],'requester')):
         identity = g.get(host,'/v1/host')
-        check(type(identity) is dict and set(identity)=={'id','public_key','created_at'}
-              and identity['id']==host.id and identity['public_key']==host.public_key,'progress host identity changed')
+        check(type(identity) is dict and set(identity)=={'id','public_key','created_at','default_coordinator','network_protocols'}
+              and identity['id']==host.id and identity['public_key']==host.public_key
+              and type(identity['created_at']) is str and g.parse_time(identity['created_at']).utcoffset()==timedelta(0)
+              and identity['default_coordinator'] is None and type(identity['network_protocols']) is list
+              and identity['network_protocols']==['peerspan-decentralized-v1'],'progress host identity or public info changed')
         result['hosts'][host.name] = identity
         context = {key:parent['review'][key] for key in ('project_root','native_session_id','integration')}
         current = g.api(host,'POST',i.PROJECT+'/lookup',context)
