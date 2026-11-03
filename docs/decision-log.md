@@ -22,6 +22,7 @@ Contents:
   - [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
   - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
+  - [DEC-OWN14 to DEC-OWN17: a budget for the conformance suites](#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03) (2026-11-03)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
   - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
   - [DEC-OWN11: next feature after the coordinator-free work](#dec-own11-next-feature-after-the-coordinator-free-work-2026-10-30) (2026-10-30)
@@ -259,6 +260,17 @@ RUN-1 to RUN-4 were decided by accepting the proposal's recommendation; the opti
   - (b) Store the principals and bounds with the local switch on the serving host, with no policy change, which drops the person-key gate.
 - **Chosen:** (a).
 - **Reason given:** hosts on earlier software, v0.1.0 included, refuse a policy with an unknown field, but every such host is a test or staging host; Peerspan is not yet in broad use.
+
+### DEC-OWN14 to DEC-OWN17: a budget for the conformance suites (2026-11-03)
+
+- **Authority:** owner decision, 2026-11-03: "accept all four recommendations" of the [conformance budget proposal](conformance-budget-proposal.md).
+- **Question:** since [DEC-OWN10](#dec-own10-delete-the-old-conformance-suites-2026-10-28), `conformance/` grew from 7,250 to 52,127 lines, and the Conformance workflow from 9 to 36 to 42 job-minutes per push, mostly in the guided onboarding and machine-linking suites. What should bound it?
+- **DEC-OWN14, budget.** Options: (a) a per-push budget of 15 job-minutes and about 1,000 lines per suite; (b) different numbers; (c) no budget, only the 2-minute rule. **Chosen:** (a). A new suite states its lines and seconds in its PR, and one that would take the workflow over budget goes to the second tier or to the owner.
+- **DEC-OWN15, tiers.** Options: (a) a manual and nightly tier for the installed bundle, upgrade and participant checks, the clock-heavy cases and the per-section guided suites; (b) only the installed checks; (c) none. **Chosen:** (a). Every push runs one suite per area plus `onboarding` and `guided_machine`. The second tier also runs on a pull request labelled `full-conformance`.
+- **DEC-OWN16, shared fixtures.** Options: (a) the suite author moves the copied helpers and guided scaffolding into shared modules, with no case changes, once guided final acceptance is done; (b) no. **Chosen:** (a).
+- **DEC-OWN17, wrappers and evidence.** Options: (a) after guided final acceptance, fold each `*_prerequisite.py` and `*_diagnostic.py` wrapper into its suite or the harness, and keep one acceptance receipt per feature in `docs/results/`; (b) keep the wrappers; (c) keep every evidence file. **Chosen:** (a).
+- **Reason given:** none beyond accepting the recommendations. The proposal's reasons are in its "What this costs" section.
+- **Implementing PRs:** DEC-OWN14 and DEC-OWN15 in the PR that records this entry. DEC-OWN16 and DEC-OWN17 wait for guided final acceptance, whose suites are frozen until then.
 
 ### DEC-OWN13: v1 status returns the v2 object (2026-10-31)
 

@@ -55,7 +55,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [join, completion_rate_limit, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, project_onboarding, adapter_onboarding, invitation_onboarding, join_onboarding, owner_onboarding, owner_signing, admission_onboarding, admission_consent, admission_retained_prefix, incoming_progress, owner_finalization, owner_finalization_signing, requester_commit, requester_completion, access_onboarding, access_consent, access_signing, access_application, readiness, peer_reachability, machine_owner, machine_owner_consent, machine_return_prepare, machine_owner_signing, machine_requester_inspection, machine_requester_consent, machine_requester_completion, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming]
+        # The per-push tier (DEC-OWN15): one suite per spec area, plus the
+        # owner-local and combined guided onboarding suites. The other guided
+        # suites and the installed checks are in conformance-full.yml.
+        suite: [join, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,10 +66,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install resource-helper test dependencies
-        if: matrix.suite == 'machine_return_prepare'
-        run: |
-          python3 -m pip install --disable-pip-version-check --only-binary=:all: -r conformance/slim/resource_mailbox_gate.requirements.txt
       - uses: actions/download-artifact@v4
         with:
           name: conformance-binaries
@@ -75,26 +74,4 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x bin/*
-          if [ '${{ matrix.suite }}' = 'machine_requester_inspection' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/inspection_finalization_diagnostic.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'owner_onboarding' ] || [ '${{ matrix.suite }}' = 'owner_signing' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/owner_publication_prerequisite.py '${{ matrix.suite }}' --bin bin
-          elif [ '${{ matrix.suite }}' = 'join_onboarding' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/join_onboarding_prerequisite.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'requester_commit' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/requester_commit_prefix_diagnostic.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'requester_completion' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/requester_completion_barrier_prerequisite.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'machine_requester_consent' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/machine_requester_consent_prerequisite.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'access_onboarding' ]; then
-            python3 conformance/slim/bootstrap_response_diagnostic.py conformance/slim/access_onboarding.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'machine_owner' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/machine_owner_lifecycle_prerequisite.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'owner_finalization' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/owner_finalization_prerequisite.py --bin bin
-          elif [ '${{ matrix.suite }}' = 'machine_requester_completion' ]; then
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/machine_requester_completion_clock_prerequisite.py --bin bin
-          else
-            python3 conformance/slim/link_response_diagnostic.py conformance/slim/${{ matrix.suite }}.py --bin bin
-          fi
+          python3 conformance/slim/link_response_diagnostic.py conformance/slim/${{ matrix.suite }}.py --bin bin

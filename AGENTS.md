@@ -33,7 +33,7 @@ From the repository root, run the language checks (CI runs the same):
 
 - `cargo fmt --check --manifest-path rust/Cargo.toml`, `cargo test --locked --manifest-path rust/Cargo.toml`, and `cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings`.
 
-Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-log.md), DEC-OWN9, DEC-OWN10): one small black-box suite per area, written from the spec by a separate author who never reads the implementation, each under 2 minutes. CI builds `peerspan-host`, `peerspan-peer-probe` and `peerspan-helper` once and runs every suite in parallel (`.github/workflows/conformance.yml`). When external behavior changes, run the suite for that area locally with the debug binaries in one directory, for example `python3 conformance/slim/join.py --bin DIR`:
+Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-log.md), DEC-OWN9, DEC-OWN10): one small black-box suite per area, written from the spec by a separate author who never reads the implementation, each under 2 minutes and at most about 1,000 lines, split by area rather than by phase when it needs more. The per-push Conformance workflow stays within 15 job-minutes; a new suite states its lines and seconds in its PR, and one that would take the workflow over budget goes to the second tier or to the owner ([DEC-OWN14](docs/decision-log.md), [budget proposal](docs/conformance-budget-proposal.md)). CI builds `peerspan-host`, `peerspan-peer-probe` and `peerspan-helper` once and runs the suites in parallel, in two tiers (DEC-OWN15): every push runs one suite per area plus `onboarding` and `guided_machine` (`.github/workflows/conformance.yml`); the per-section guided suites and the installed bundle, upgrade and participant checks run nightly, by hand, and on a pull request labelled `full-conformance` (`.github/workflows/conformance-full.yml`). When external behavior changes, run the suite for that area locally with the debug binaries in one directory, for example `python3 conformance/slim/join.py --bin DIR`:
 
 - `join`: create, invite, join, link, stages and their time limits (spec 6, 8).
 - `policy`: allow, deny, block, bans, policy edits and capability claims (spec 5, 12).
@@ -73,7 +73,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
-Packaging changes require `conformance/installed_bundle.py` against a freshly packaged bundle (Python 3.12 or newer; the Draft Linux release workflow runs it) and `conformance/test_package_release.py`. Live runs with real models are separate manual checks.
+Packaging changes require `conformance/installed_bundle.py` against a freshly packaged bundle (Python 3.12 or newer; the Draft Linux release workflow runs it, and so does the second tier, so label such a pull request `full-conformance`) and `conformance/test_package_release.py`. Live runs with real models are separate manual checks.
 
 - `owner_finalization`: pure original finalization eligibility/administrator
   root/P/H snapshot, exact original consent and privacy (guided section24).
