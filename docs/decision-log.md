@@ -22,6 +22,7 @@ Contents:
   - [CONV-29: second comparison, quieter agents and a must-route lead](#conv-29-second-comparison-quieter-agents-and-a-must-route-lead-2026-11-02) (2026-11-02)
   - [CONV-28: comparison run for the lead proposal](#conv-28-comparison-run-for-the-lead-proposal-2026-11-02) (2026-11-02)
   - [RUN-1 to RUN-5: runtime tasks](#run-1-to-run-5-runtime-tasks-2026-10-27-and-2026-10-31) (2026-10-27 and 2026-10-31)
+  - [DEC-OWN18: installed acceptance runs locally](#dec-own18-installed-acceptance-runs-locally-2026-11-03) (2026-11-03)
   - [DEC-OWN14 to DEC-OWN17: a budget for the conformance suites](#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03) (2026-11-03)
   - [DEC-OWN13: v1 status returns the v2 object](#dec-own13-v1-status-returns-the-v2-object-2026-10-31)
   - [DEC-OWN12: no host name in default agent names](#dec-own12-no-host-name-in-default-agent-names-2026-10-31)
@@ -260,6 +261,15 @@ RUN-1 to RUN-4 were decided by accepting the proposal's recommendation; the opti
   - (b) Store the principals and bounds with the local switch on the serving host, with no policy change, which drops the person-key gate.
 - **Chosen:** (a).
 - **Reason given:** hosts on earlier software, v0.1.0 included, refuse a policy with an unknown field, but every such host is a test or staging host; Peerspan is not yet in broad use.
+
+### DEC-OWN18: installed acceptance runs locally (2026-11-03)
+
+- **Authority:** owner decision, 2026-11-03: "the installed onboarding pull request ci runs take >15 mins - my suggestion is to move this off of CI since we are charged per minute on gh actions".
+- **Question:** the **Installed onboarding bundle** job of the second tier ([DEC-OWN15](#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)) packages a bundle and runs the installed bundle, onboarding, terminal, upgrade and participant checks. It takes 15 to 16 minutes, nightly and on every push to a pull request labelled `full-conformance`. Where should it run?
+- **Options:** (a) off CI: a local script, run before a release and on packaging changes, with the result stated in the pull request; (b) keep it in the second tier; (c) run it only by hand on GitHub Actions.
+- **Chosen:** (a). `scripts/installed-acceptance.sh` runs the job's steps on a Linux machine. The Draft Linux release workflow keeps its own bundle and onboarding checks. The second tier keeps the per-section guided suites.
+- **Reason given:** GitHub Actions is billed per minute.
+- **Implementing PR:** the PR that records this entry.
 
 ### DEC-OWN14 to DEC-OWN17: a budget for the conformance suites (2026-11-03)
 

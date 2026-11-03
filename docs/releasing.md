@@ -34,12 +34,13 @@ No plugin installation runs during packaging or extraction. Users explicitly
 install from the archive through Claude's plugin CLI; see the bundled native
 frontend guide for that route.
 
-The **Installed onboarding bundle** job of the second conformance tier
-(`.github/workflows/conformance-full.yml`: nightly, by hand, and on a PR labelled
-`full-conformance`) builds a real Linux amd64 archive,
-runs the unchanged installed-bundle smoke test, and checks the relocated native
-plugin with Claude Code2.1.303. The draft-release architecture jobs run both
-installed checks too. To check an already built archive locally, with Python3.12+:
+`scripts/installed-acceptance.sh [WORK_DIR]` builds a real Linux archive from the
+checkout, runs the unchanged installed-bundle smoke test, checks the relocated
+native plugin with Claude Code 2.1.303, and runs the installed terminal, upgrade
+and participant checks, writing sanitized receipts to `WORK_DIR/receipts`. It runs
+locally, not in CI ([DEC-OWN18](decision-log.md)); run it before a release and on
+packaging changes. The draft-release architecture jobs run the two installed
+checks too. To check an already built archive locally, with Python 3.12+:
 
 ```sh
 python3 conformance/installed_bundle.py --archive ARCHIVE --node /absolute/path/to/node
