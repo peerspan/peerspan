@@ -1,7 +1,8 @@
 # Real-machine and NAT qualification
 
-Status: recorded cloud cases passed; managed NAT preparation in progress,
-2026-11-03. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
+Status: recorded cloud cases passed; managed NAT SSH, private-only interfaces,
+release staging and actual TCP/UDP egress are verified. N1 protocol execution
+is next. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
 is merged at `caea24b9eb41bb078749c5a1f739cd3d186d060e`. Its
 [final receipt](https://github.com/peerspan/peerspan/pull/35#issuecomment-6581460238)
 proves installed flows and an actual model reply using two fixtures on one
@@ -15,26 +16,41 @@ available in the current inventory. Direct protocol, normal routing, native repl
 and pending-message recovery now pass on the named cloud deployments.
 Real-router NAT and changed-network attachment remain unverified.
 
-On 2026-11-03 the owner selected managed-cloud NAT and created a test
+On 2026-11-03 UTC the owner selected managed-cloud NAT and reported a test
 Droplet in a new NYC1 VPC, peered with the existing public Droplet's NYC2 VPC.
-The owner supplied the private endpoint and confirmed that its NAT Gateway
-is not yet created. The jump host now has a narrowly scoped host route through
-its existing VPC gateway, without a networking restart. Private SSH times out
-before authentication; the first TCP preflight is retained and the owner is
-checking peering/firewall state. No protocol test has started on this VM. The
+The owner initially supplied the private endpoint and confirmed that its NAT
+Gateway was not yet created. The jump host now has a narrowly scoped host route through
+its existing VPC gateway, without a networking restart. The first private SSH target timed out
+before authentication; its first TCP preflight was retained for the owner
+to check peering/firewall state. No protocol test has started on this VM. The
 [preparation receipt](results/real-network-nat-preparation.json) records only
 these prerequisites and evidence hashes; no NAT result is claimed yet. Managed provider NAT is a valid real external
 gateway for N1; home/office routers and mobile networks remain distinct,
 unverified coverage. The owner then diagnosed the first target as belonging to an unpeered VPC
 and supplied a corrected endpoint. Root removed its old exact host route and
-added the corrected one without a network restart. The corrected VM completes
-the SSH handshake but refuses the current workspace key; its interfaces and
-NAT egress cannot yet be inspected. The existing jump host accepts that same
-workspace identity, and its public key was supplied privately to the owner.
+added the corrected one without a network restart. The corrected VM initially completed
+the SSH handshake but refused the workspace key. The existing jump host accepts
+that workspace identity, and its public key was supplied privately to the owner.
 The [corrected access receipt](results/real-network-nat-access.json) retains
-that diagnosis and new evidence without relabeling the first failure. The
-independent [manual N1 driver](../conformance/real_network_nat.py) is committed
-and statically reviewed; no protocol run has started.
+that diagnosis without relabeling the first failure.
+
+The owner then identified the private VM's actual authorized public key. Root
+found its matching existing SSH identity on the jump host, used it there without
+exporting private material, and added only the workspace public key on the VM,
+preserving its existing entries and a backup. Workspace login now succeeds.
+Metadata and interfaces establish a private-only VM in a different region from
+the owner's initial description; actual placement and coordinates stay private.
+Both TCP and UDP nonce exchanges with the external workspace succeed, and both
+observed sources match the owner's managed NAT egress address. The first
+pre-gateway timeouts remain retained. The frozen archive is verified and unpacked
+on the VM; the workspace reuses its already qualified identical installation.
+A local unpack controller first failed because its default Python lacks tarfile
+extraction filters; that output remains retained. No installer/native UX or
+product protocol pass is inferred from staging. The
+[infrastructure receipt](results/real-network-nat-preflight.json) binds this
+preflight and deployment evidence. The independent
+[manual N1 driver](../conformance/real_network_nat.py) is committed and statically
+reviewed; no protocol run has started.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
@@ -372,9 +388,9 @@ An unavailable real-router case remains open even when local fault checks pass.
 
 ### Managed-cloud N1 execution contract
 
-Use the owner's new private-only NYC1 Droplet and the independently deployed
-public workspace server. Before a protocol run, root records both actual
-deployment identities, the private VM's interface addresses and IPv4/IPv6
+Use the owner's private-only Droplet in its metadata-verified VPC/region and
+the independently deployed public workspace server. Before a protocol run, root
+records both actual deployment identities, the private VM's interface addresses and IPv4/IPv6
 routes, its NAT egress address, the managed gateway/default-route configuration,
 and the jump host's narrowly scoped management route. No public VM interface,
 inbound port forwarding, SSH peer-data tunnel, private peering route between

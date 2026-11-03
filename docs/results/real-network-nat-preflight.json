@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-02",
+  "date_timezone": "America/New_York",
+  "format": 1,
+  "nat_protocol_qualification_passed": false,
+  "prerequisites_passed": true,
+  "private_evidence_sha256": {
+    "n1-release-staging-v2.private.json": "cfeb04df068c867c1b1ff9d6f7dec9fc1e2dc1dbaff56bf6b2e292ad4802d704",
+    "private-vm-egress-active.private.json": "9b10b3504bf900583076cca787fef5c7c45899afb10c9fceeeb8ff558657c90f",
+    "private-vm-egress-preflight.private.json": "e6dff168d93ae8508aac51394a401edc62f1c8f3412a41ffa13305e6f4da96a9",
+    "private-vm-release-install.private.json": "28bfb2b18322c590b0023883210cf93e3fff7d3341512b28888e63f1db085cc4",
+    "workspace-key-install.private.json": "5db926bf85092e877f7d36c18d80d43b14f4b3c98e19022284645d70de9c914c",
+    "workspace-private-vm-preflight.private.json": "5f66c1ad1d083b0792acfa8473362143e7d167b0f5ce55ef13b2a49f0c8c1024",
+    "workspace-release-install.private.json": "4cb055eca9bb7195ba4c626becc81bbdba75b75add3962947ac60ef65025d35f"
+  },
+  "protocol_started": false,
+  "public_receipt_contains_participant_addresses_or_ssh_keys": false,
+  "qualification": "Managed-cloud N1 infrastructure prerequisites only",
+  "release": {
+    "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+    "archive_source_revision": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+    "helper_sha256": "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+    "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+    "installer_or_native_ux_executed": false,
+    "private_vm_archive_verified_and_unpacked": true,
+    "product_processes_started": false,
+    "workspace_identical_previously_qualified_installation_reused": true
+  },
+  "remaining": [
+    "Run committed independent N1 ceremonies and work phases",
+    "Confirm actual product traffic path and source translation from participant captures"
+  ],
+  "retained_first_failures": {
+    "before_gateway_egress_tcp_and_udp_timed_out": true,
+    "local_unpack_python_lacked_extraction_filter": true,
+    "local_unpack_resolution": "Reuse the already qualified identical frozen archive installation; first local staging output retained"
+  },
+  "ssh": {
+    "backup_created": true,
+    "control_only": true,
+    "existing_authorized_entries_preserved": true,
+    "jump_existing_identity_used_in_place": true,
+    "private_key_material_exposed_or_copied": false,
+    "workspace_login_verified": true,
+    "workspace_public_key_added": true
+  },
+  "topology": {
+    "actual_region_differs_from_initial_owner_description": true,
+    "actual_region_verified_from_metadata": true,
+    "class": "managed_cloud_one_nat",
+    "default_route_changed_by_root": false,
+    "distinct_machine_identities_verified": true,
+    "network_restart": false,
+    "owner_supplied_nat_egress_matches_tcp_observation": true,
+    "owner_supplied_nat_egress_matches_udp_observation": true,
+    "private_only_vm_interfaces_verified": true,
+    "public_ipv4_present": false,
+    "public_ipv6_present": false,
+    "tcp_and_udp_acknowledged": true,
+    "vpc_default_route_verified": true
+  }
+}
