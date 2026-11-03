@@ -250,8 +250,13 @@ async fn save_result(
             Ok(_) => return Ok(()),
             Err(e) if std::time::Instant::now() < until => {
                 let _ = local;
-                let _ = fs::remove_file(out);
-                if e.to_string().contains("exists") {
+                // download removes only what it wrote; a file already there
+                // is someone else's and stays.
+                let exists = e.chain().any(|c| {
+                    c.downcast_ref::<std::io::Error>()
+                        .is_some_and(|io| io.kind() == std::io::ErrorKind::AlreadyExists)
+                });
+                if exists {
                     return Err(e);
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;

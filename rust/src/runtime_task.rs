@@ -998,7 +998,12 @@ async fn follower(
         // A cancellation that arrives while waiting is noticed at once, or
         // at the latest after 5 seconds.
         let wait = if holding { 0 } else { 5 };
-        let events_path = format!("{path}/events?after={}&wait={wait}", t.internal.after);
+        // Paged like a peer's events, within the 1 MiB runtime response limit.
+        let events_path = format!(
+            "{path}/events?after={}&wait={wait}&limit={}",
+            t.internal.after,
+            crate::task_outbound::RUNTIME_EVENT_PAGE
+        );
         let answer = tokio::select! {
             a = call(&socket, Method::GET, &events_path, None) => a,
             _ = store.runtime_cancel.notified(), if !t.status.cancel_requested => {

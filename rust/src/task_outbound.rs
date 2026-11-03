@@ -310,18 +310,20 @@ fn notified_output(
     }
     Ok(text[start..].to_owned())
 }
-/// The highest event sequence of a task notified so far, or 0.
+/// The highest sequence of a task's `output` events notified so far, or 0.
+/// Other notifications carry no output, so they never move this cursor.
 fn last_notified(conn: &Connection, peer: &str, task_id: &str, before: i64) -> Result<i64, Error> {
     Ok(conn.query_row(
-        "SELECT COALESCE(MAX(sequence), 0) FROM task_update_notifications WHERE peer = ?1 AND task_id = ?2 AND sequence < ?3",
+        "SELECT COALESCE(MAX(n.sequence), 0) FROM task_update_notifications n JOIN outbound_task_events e ON e.peer = n.peer AND e.task_id = n.task_id AND e.sequence = n.sequence WHERE n.peer = ?1 AND n.task_id = ?2 AND n.sequence < ?3 AND json_extract(e.record, '$.kind') = 'output'",
         params![peer, task_id, before],
         |r| r.get(0),
     )?)
 }
 /// Whether an `output` event is notified now (runtime task contract,
 /// Output notifications): it is the task's latest output event, and either
-/// no notification of the task was created in the previous second or the
-/// next event is final. Earlier output events are carried by a later
+/// no notification of the task was created in the previous second or a
+/// final event follows it, perhaps after other events such as
+/// `cancel_requested`. Earlier output events are carried by a later
 /// notification's text.
 fn notify_output(
     conn: &Connection,
@@ -329,17 +331,17 @@ fn notify_output(
     task_id: &str,
     sequence: i64,
 ) -> Result<bool, Error> {
-    let next: Option<String> = conn
-        .query_row(
-            "SELECT json_extract(record, '$.kind') FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence = ?3",
-            params![peer, task_id, sequence + 1],
-            |r| r.get(0),
-        )
-        .optional()?;
-    match next.as_deref() {
-        Some("output") => return Ok(false),
-        Some(kind) if crate::task::FINAL_STATES.contains(&kind) => return Ok(true),
-        _ => {}
+    let mut later = conn.prepare(
+        "SELECT json_extract(record, '$.kind') FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence > ?3 ORDER BY sequence",
+    )?;
+    for kind in later.query_map(params![peer, task_id, sequence], |r| r.get::<_, String>(0))? {
+        let kind = kind?;
+        if kind == "output" {
+            return Ok(false);
+        }
+        if crate::task::FINAL_STATES.contains(&kind.as_str()) {
+            return Ok(true);
+        }
     }
     let recent: Option<String> = conn
         .query_row(
