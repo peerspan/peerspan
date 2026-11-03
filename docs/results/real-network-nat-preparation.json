@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-03",
+  "first_failure": {
+    "authentication_reached": false,
+    "outcome": "TimeoutError",
+    "seconds": 5.009,
+    "software_verdict": false,
+    "stage": "Private management TCP/22 preflight"
+  },
+  "format": 1,
+  "limitations": [
+    "No NAT protocol, direct traversal, relay, native/model or recovery result for this VM",
+    "Provider/operator IDs and participant addresses remain private"
+  ],
+  "nat_qualification_passed": false,
+  "prerequisites": {
+    "jump_output_policy": "ACCEPT",
+    "management_route": "Exact private-VM host route added through existing jump host VPC gateway; no network restart",
+    "nat_gateway": "Not created at owner update",
+    "private_ssh": "Timed out before authentication",
+    "vm_interface_route_inspection": "Unavailable until private SSH succeeds"
+  },
+  "private_evidence_sha256": {
+    "jump-local-egress-check.private.json": "f92cd2a3a9098a5c2a5a87fd8428b7d5d693bd269163be7cf688834d611d4978",
+    "jump-route.private.json": "3ea3ce702483fa37f39663a6dde015d3471cda50abab92d192e42ba5aa5793c6",
+    "jump-tcp22-preflight.private.json": "860c95695bef04cf32cac7e2983c36b0c83514a50a738efa7acfd00d7bea85b0",
+    "private-vm-preflight.private.json": "4509925c1495f5ccf7f4a629507d8eb428a95fc30e6c2dd8142351eed4bf47e9"
+  },
+  "protocol_started": false,
+  "qualification": "Managed DigitalOcean NAT preparation only",
+  "required_next_state": [
+    "Private SSH reachable through the jump host",
+    "NAT Gateway created and set as VPC default",
+    "Actual private-only addresses, routes and translated external source verified before protocol execution"
+  ],
+  "topology": {
+    "external_peer": "Independent public workspace server outside the peered VPCs",
+    "jump_host": "Existing public NYC2 VPC Droplet",
+    "peering": "Owner reports VPC peering created",
+    "test_vm": "Owner-created NYC1 VPC Droplet; private-only interfaces not yet inspected"
+  }
+}
