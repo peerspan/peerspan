@@ -1,0 +1,234 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "changed_attachment": false,
+  "cleanup_confirmed": true,
+  "cleanup_private_log_index_sha256": {},
+  "controller_failure_log_sha256": null,
+  "daemon_log_hashes_are_phase_snapshots": true,
+  "daemon_restart": false,
+  "diagnosis": {
+    "baseline_assertion_omitted_current_info_fields": true,
+    "correction_contract_sources": [
+      "decentralized-runtime-contract.md info",
+      "decentralized-spec.md info",
+      "decentralized-wire-formats.md GET /v2/info",
+      "launch-contract.md info.default_coordinator"
+    ],
+    "correction_independent_author_commit": "820ecd674929964e0c93f6e7b14fa43d6ebadaa8",
+    "incoming_progress_dispatched": false,
+    "observed_host_identity_unchanged": true,
+    "omitted_contract_fields": [
+      "default_coordinator",
+      "network_protocols"
+    ],
+    "production_change_required": false,
+    "type": "Independent fixture contract mismatch"
+  },
+  "direct_traversal_verified_by_driver": false,
+  "fleet_sha256": "040ac8e3168fc1dc3b5ae575e546a220561154bf033d03aa4284a0753a7e344b",
+  "format": 1,
+  "helper_count": 1,
+  "helper_public_key_sha256": "e7a23efbc84e9fd17e9651384ee78e33e7529db14aa720a996d793d262551ca2",
+  "helper_sha256": "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_peer_configuration_operations": 0,
+  "model_receipt": false,
+  "nat_translation_verified_by_driver": false,
+  "native_terminal_receipt": false,
+  "owner_worker_sha256": "adce7b8b05775b4dec3da2ba7d16bac17144a773d917c608b3413ea155c62ea2",
+  "passed": false,
+  "qualification": "n1_managed_cloud_protocol_observation",
+  "results": [
+    {
+      "cleanup_confirmed": false,
+      "daemon_log_sha256": {
+        "left": "a590f7ef4f5287472ac9438612e380434f815c652d51d48b781b207af66cb370",
+        "right": "41b4e6e3de3b7d5f04c7faf5574127291a431bc1f00dc7d8975f94c32d08b0af"
+      },
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_log_index_sha256": "98b3c5c9b59de87a570ddcb6f55ffa12e1ff2ed7a6826c91dc3378b0b476cb7a",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": true,
+      "scenario": "machine",
+      "seconds": 42.338,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "a590f7ef4f5287472ac9438612e380434f815c652d51d48b781b207af66cb370",
+        "right": "41b4e6e3de3b7d5f04c7faf5574127291a431bc1f00dc7d8975f94c32d08b0af"
+      },
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "addressed_appends": 2,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "original_key_custody_verified": true,
+        "paths": [
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "left",
+            "path": "relay",
+            "target": "right"
+          },
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "right",
+            "path": "relay",
+            "target": "left"
+          }
+        ],
+        "receiver_enforcement_checked": false,
+        "receiver_rejections": 0,
+        "requester_consent_unchanged": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "work",
+      "private_log_index_sha256": "d3a798ea9409f947859d79625a01a3809a4071950404c9f308a4e6c1b1f1d3aa",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": false,
+      "scenario": "machine",
+      "seconds": 25.314,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "161ecf6155878fd6ea5c1bcdaa495854799f3bfc6f8bad5437f7bbf73450f603",
+        "right": "b5784775c77fe30d0004d6286517f882e6badca37df0c6d6daed3e2b50a26d6e"
+      },
+      "passed": false,
+      "phase": "ceremony",
+      "private_log_index_sha256": "c88741e1870303b8026b5a9260e8d81e9d397bfd6a579a63accbb349859b9285",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "retained_for_work": false,
+      "scenario": "teammate",
+      "seconds": 14.12,
+      "stage": "incoming_selected_proof_and_administrator_consent",
+      "transport_unavailable": false
+    },
+    {
+      "passed": false,
+      "phase": "work",
+      "scenario": "teammate",
+      "stage": "ceremony_prerequisite_failed"
+    }
+  ],
+  "root_execution_git_head": "a231a1de2ab0ce6c478506024f2167c150d135f8",
+  "root_private_evidence_sha256": {
+    "n1-attempt-2-capture-stop.private.json": "5d6959750766c414055290f511770011b38a1d9c2cfbab993d922fa1879efc3c",
+    "n1-attempt-2-execution.private.json": "6d05e4e4db164d9a02cb8423b5f48731ec2ce1086336260c366ddf6120822793",
+    "n1-attempt-2-summary.private.json": "58e8086af0fcdd8ac81415c332ffacfdcc7aa1c03e81aa99f74baccfd4d62faf",
+    "n1-attempt-2/teammate-ceremony/failure.private.txt": "0a0859fe294185368eb66a6a97f8351cfe6fd3a5c54c12bd1b8e7278717bcb61",
+    "n1-attempt-2/teammate-ceremony/outcome.private.json": "baa7330673aeff06dd845d78cef36d8966d4db74d548f27d813c18e8def741d2"
+  },
+  "root_topology_capture_confirmation_required": true,
+  "root_traffic_observation": {
+    "capture_analysis": "TLS ClientHello offered ALPN and encrypted record hash identity across actual NAT",
+    "capture_sha256": {
+      "left": "c3f8b62f8ae6161b718cfc13ecf7435da0d4c996cdced0d14638dd7d1ee67da9",
+      "right": "eb06d8a6554f8d2c50433443d2e21e68f3ef8a701ee1bfd6e52cb9a4d564da78"
+    },
+    "exclusive_per_message_path_attribution": false,
+    "identical_encrypted_tls_application_records_across_nat": {
+      "peerspan-bootstrap/1_client": 114,
+      "peerspan-bootstrap/1_server": 152,
+      "peerspan-relay/4_client": 197,
+      "peerspan-relay/4_server": 185
+    },
+    "matched_nat_helper_connections_by_sole_offered_alpn": {
+      "peerspan-bootstrap/1": 38,
+      "peerspan-relay/4": 2
+    },
+    "offered_alpn_not_server_negotiation_decryption": true,
+    "packets_dropped_by_kernel": {
+      "left": 0,
+      "right": 0
+    },
+    "phase_windows": [
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 209441,
+          "peerspan-bootstrap/1_tcp_payload_packets": 411,
+          "peerspan-relay/4_tcp_payload_bytes": 267264,
+          "peerspan-relay/4_tcp_payload_packets": 348
+        },
+        "phase": "machine-ceremony",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 25188,
+          "peerspan-bootstrap/1_tcp_payload_packets": 96,
+          "peerspan-relay/4_tcp_payload_bytes": 307308,
+          "peerspan-relay/4_tcp_payload_packets": 403
+        },
+        "phase": "machine-work",
+        "public_participant_clock_window": true
+      },
+      {
+        "helper_connections_identified_from_captured_client_hello": {
+          "peerspan-bootstrap/1_tcp_payload_bytes": 54029,
+          "peerspan-bootstrap/1_tcp_payload_packets": 103,
+          "peerspan-relay/4_tcp_payload_bytes": 3050,
+          "peerspan-relay/4_tcp_payload_packets": 10
+        },
+        "phase": "teammate-ceremony",
+        "public_participant_clock_window": true
+      }
+    ]
+  },
+  "run_configuration_sha256": "ada99deaca6af7664c64750e9296fd6ab97fbe17cfa27e9af55dda210246e45c",
+  "separate_machine_metadata_verified": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_nat.py": "943be38fe0d22d27aeabcda799d0079738127d6043f16998e564f0df53c2e186",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true,
+  "task_artifact_qualification": false,
+  "topology_class": "managed_cloud_one_nat",
+  "two_independent_nats": false
+}
