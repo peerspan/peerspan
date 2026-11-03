@@ -56,7 +56,7 @@ Contents:
 - **Source:** the owner's answers to two questions, 2026-11-02, choosing the recommended option of each; the options and reasons below are quoted from those questions.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [runtime-task-contract.md](runtime-task-contract.md), Requests, Runtime rules and The run result.
-- **Implementing PRs:** none yet. The runtime's `serve` already takes `peerfs_workspace` (peerspan/runtime 01c3751), without `snapshot`, `peerfs` in its report, or the 422 and 429 answers.
+- **Implementing PRs:** [#114](https://github.com/peerspan/peerspan/pull/114) (host side) and [peerspan/runtime#8](https://github.com/peerspan/runtime/pull/8) (runtime side).
 
 #### RUN-6. Which peerfs workspaces may a peer's runtime task name on the receiving host?
 
