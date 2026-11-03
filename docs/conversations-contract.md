@@ -1456,7 +1456,7 @@ C6's [`addressed_to`](#addressed_to) opens with `Every joined participant still 
 ### Persistence
 
 - The parked mark lives in the notification's `record`, beside the C5 marks. No new column for it.
-- Agent descriptions live in a new table, `agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL)`, one row per agent that has one, added in the next schema version (29, after schema 28 on `main` when this was written). Clearing a description deletes its row. The upgrade only adds that table and changes no existing table's definition, as the [guided final acceptance contract](guided-final-acceptance-contract.md) requires of every upgrade (CONV-35).
+- Agent descriptions live in a new table, `agent_descriptions (agent_id TEXT PRIMARY KEY, description TEXT NOT NULL)`, one row per agent that has one, added in the next schema version (29, after schema 28 on `main` when this was written). Clearing a description deletes its row. The upgrade only adds that table and changes no existing table's definition, which the installed upgrade check (`conformance/installed_upgrade.py`) requires of every upgrade (CONV-35).
 
 ### Verification
 
