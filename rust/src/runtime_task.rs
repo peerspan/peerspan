@@ -314,11 +314,21 @@ fn authorize(
         if !crate::decentralized::product::is_decentralized(conn, &network)? {
             continue;
         }
-        let Some(sender_member) = store
+        // A sender whose membership lapsed matches only rules with
+        // `allow_disconnected`, as the member it last was.
+        let current = store
             .product_member(conn, &network, sender)?
-            .filter(|m| m.host_id != me)
-        else {
-            continue;
+            .filter(|m| m.host_id != me);
+        let is_current = current.is_some();
+        let sender_member = match current {
+            Some(m) => m,
+            None => match store
+                .product_lapsed_member(conn, &network, sender)?
+                .filter(|m| m.host_id != me)
+            {
+                Some(m) => m,
+                None => continue,
+            },
         };
         let Some(key) = store.product_person_key(conn, &network, &cited.person_id)? else {
             continue;
@@ -339,6 +349,7 @@ fn authorize(
         let groups = store.product_groups(conn, &network)?;
         let Some(rule) = policy.runtime_rules().iter().find(|rule| {
             rule.host == me
+                && (is_current || rule.allow_disconnected)
                 && rule.principals.iter().any(|p| {
                     crate::decentralized::product::principal_matches(
                         p,

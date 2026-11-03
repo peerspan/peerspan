@@ -4062,6 +4062,29 @@ impl Projection {
 }
 
 impl Projection {
+    /// A host whose membership lapsed, as it stood in the last second of its
+    /// host lease, for rules with `allow_disconnected` (runtime task
+    /// contract, Checks step 2). Only the time windows move: the admitted
+    /// statements and restrictions are those known now, so a ban or a
+    /// revocation still refuses it. None for a host whose lease has not
+    /// ended, or that was not a member then.
+    pub fn lapsed_member(&self, host: &str) -> Result<Option<CurrentMember>> {
+        let Ok(h) = self.head(&["host".into(), host.into()]) else {
+            return Ok(None);
+        };
+        let end = stamp(text(&h.payload, "not_after")?)?;
+        if end > stamp(&self.decision_time)? {
+            return Ok(None);
+        }
+        let mut then = self.clone();
+        then.decision_time = (end - chrono::TimeDelta::seconds(1))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        Ok(then
+            .members()?
+            .into_iter()
+            .find(|m| m.host_public_key == host))
+    }
     pub(crate) fn member_for(&self, host: &str, person: &str) -> Result<CurrentMember> {
         let h = self.head(&["host".into(), host.into()])?;
         let mut power = self.active_inner(&h.id, &mut BTreeSet::new(), true)?;

@@ -133,7 +133,17 @@ async fn follow(
     save: bool,
 ) -> anyhow::Result<i32> {
     let mut after = 0;
+    let record = format!("/v1/tasks/{}/{}", encoded(peer), encoded(id));
     loop {
+        // A refused submission has no event: only its record says so.
+        let task = local.get(record.clone()).await?;
+        if task["submit_state"] == "rejected" {
+            match task["error"].as_str() {
+                Some(error) => eprintln!("task rejected: {error}"),
+                None => eprintln!("task rejected"),
+            }
+            return Ok(OTHER);
+        }
         let events = local
             .get(format!(
                 "/v1/tasks/{}/{}/events?after={after}&limit={}",
