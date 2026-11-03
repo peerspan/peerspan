@@ -1,0 +1,96 @@
+{
+  "archive_source_revision": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+  "cleanup": {
+    "captures_stopped": true,
+    "hosts_stopped": true,
+    "initial_helper_cleanup_failed_due_wrong_private_manifest_filename": true,
+    "owned_helper_stopped_with_pid_start_and_argv_checks_in_followup": true,
+    "ssh_master_stopped": true
+  },
+  "diagnosis": {
+    "correction_independent_author_commit": "c9736d6360d31b1d99cb463532b72b93159d50de",
+    "fixture_used_whole_second_parser_for_foundation_fractional_time": true,
+    "incoming_progress_dispatched": false,
+    "production_change_required": false
+  },
+  "execution_git_head": "37fae537e044a9030f14353df4a7a5fed78504d6",
+  "format": 1,
+  "passed": false,
+  "private_evidence_sha256": {
+    "baseline-diagnostic-1/failure.private.txt": "4dcfa768ca2abc88a17401f754a34fac6e6f12866960845c62aef9694101d9ad",
+    "baseline-diagnostic-1/outcome.private.json": "403527fba94a515ba74fd973425e603256706b9965ab93ec3dc0ac416a1da865",
+    "n1-attempt-3-execution.private.json": "3c4b740c9d58f44c9d373245f1871422a8b0b4d8a70b698f80fffc76d2e73d74",
+    "n1-attempt-3-helper-cleanup-correction.private.json": "eab7c905298ce94bdac39a4cc50b39ecc85c39c3898ba9e8528652e96ee2323f",
+    "n1-attempt-3-helper-stop-controller.private.json": "c7469557eafa33867ca1e994e830cbfe7625d2798a166efd5d1946f3ba8b38e5",
+    "n1-attempt-3-summary.private.json": "00cd3f2cb1a99dbb18708e198d3cf58a09bbb3736059cd8d232879f4cc8383ba",
+    "n1-attempt-3/receipt.json": "e7b869ea111ce9aebed8870e2ee3fc0b08e1046f0756972e2cdfbe8b803cd7ec",
+    "n1-attempt-3/teammate-ceremony/failure.private.txt": "47ee3a1f7f45df67cd9aeb344d33e9217dcfc6c881403338f1bccd41f51d1ee8"
+  },
+  "public_receipt_contains_participant_addresses_or_ssh_keys": false,
+  "qualification": "Retained third N1 run and separate baseline diagnostic",
+  "results": [
+    {
+      "passed": true,
+      "phase": "ceremony",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "scenario": "machine",
+      "seconds": 42.918,
+      "stage": "complete"
+    },
+    {
+      "passed": true,
+      "phase": "work",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "scenario": "machine",
+      "seconds": 24.908,
+      "stage": "complete"
+    },
+    {
+      "passed": false,
+      "phase": "ceremony",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "scenario": "teammate",
+      "seconds": 14.149,
+      "stage": "incoming_selected_proof_and_administrator_consent"
+    },
+    {
+      "passed": false,
+      "phase": "work",
+      "progress": null,
+      "scenario": "teammate",
+      "seconds": null,
+      "stage": "ceremony_prerequisite_failed"
+    }
+  ],
+  "retained_host_diagnostic": {
+    "diagnostic_daemons_stopped": true,
+    "fresh_participants_required_for_next_protocol_run": true,
+    "original_attachment_check_preserved": true,
+    "progress_or_signing_approval_completion_or_send": false,
+    "public_scope_refused_after_restart": true,
+    "qualification_result": false,
+    "reason": "Restart invalidates prior project attachments under guided section3; baseline correctly refuses them",
+    "source_sha256": "ac89cecaa0d271815863d202b86c30335509b76c99538524c3517eccfe50a3e0"
+  },
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_nat.py": "0d376ff262136a46ca887e374e7f4172fdafba0dda617f9998d80449ea911596",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  }
+}

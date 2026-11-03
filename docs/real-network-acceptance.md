@@ -67,6 +67,19 @@ coordinator/protocol fields. This is an independent fixture defect with unchange
 host identity, not a production failure. The author corrected that new assertion
 against the composed current contracts, audited the other new shapes, and kept
 all original proof checks and5s/120s bounds. This failed run remains failed.
+A third [retained attempt](results/real-network-nat-timestamp-failure.json)
+passes machine ceremony42.918s/work24.908s, then fails the new info validator
+before progress dispatch because foundation host timestamps may contain fractions,
+while the reused protocol parser accepts only whole seconds. The author corrected
+only that new validator; canonical protocol timestamps remain unchanged. A separate
+retained-host baseline diagnostic then correctly refuses project attachments
+invalidated by its daemon restart, as section3 requires. It creates no approval,
+signature, completion, progress call or send and does not qualify N1. The next
+run uses fresh participants and exercises the two-person case first; all four
+original ceremony/work phases remain required on the same committed source.
+The third run's helper cleanup first referenced a wrong private staging filename;
+a follow-up verified the owned PID/start token/argv and stopped it. First failure
+records remain retained, and all owned diagnostic/test processes are stopped.
 SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
@@ -433,8 +446,10 @@ diagnostic without converting a route observation into readiness. Root captures
 the owned test ports at both actual participants and the helper, establishing
 which path carried payload and the NAT source translation actually observed.
 
-After each ceremony, retain the same participant state for a separately bounded
-work phase. For the same person, ordinary directory lookup and addressed CLI
+Run the two-person ceremony/work first, then the same-person ceremony/work;
+all four phases remain required. This checks the new selected-prefix baseline
+before repeating the already observed machine case. After each ceremony, retain
+the same participant state for a separately bounded work phase. For the same person, ordinary directory lookup and addressed CLI
 sends must deliver exact fresh requests in both directions, with matching real
 receiver receipts/appends. For two people, membership alone must be denied by
 the receiver; one narrow guided access grant permits exact delivery, and its
