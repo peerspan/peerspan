@@ -1,0 +1,71 @@
+{
+  "first_failures": [
+    {
+      "cause": "Original helper collapses SQLite/Value/Type/Key exceptions; exact class not retained",
+      "failed": 1,
+      "passed": 5,
+      "primary_failed_case": "strict_private_cli_decision_bounds_binding_and_pre_key_eligibility",
+      "reported_error": "initial original-host signature witness unavailable",
+      "run": 41578142586,
+      "source_head": "3acf80a097d6bfa3f357cadc2a0216b918118509",
+      "suite": "owner_signing",
+      "url": "https://github.com/peerspan/peerspan/actions/runs/41578142586/job/125727385437"
+    },
+    {
+      "cause": "not established from retained closed diagnostic",
+      "dependent_failures": 4,
+      "inviter_application_wait_seconds": 60,
+      "inviter_locally_applied": false,
+      "primary_failed_case": "join_with_no_direct_path",
+      "requester_locally_applied": true,
+      "run": 41574031621,
+      "source_head": "4585c85edea1f1cbb9b3bf91e5b4f7a45e334705",
+      "suite": "delivery",
+      "url": "https://github.com/peerspan/peerspan/actions/runs/41574031621/job/125714386043"
+    }
+  ],
+  "format": 1,
+  "local_diagnostics": [
+    {
+      "elapsed_seconds": 61,
+      "failed": 0,
+      "original_cause_reproduced": false,
+      "passed": 16,
+      "runtime_source_head": "4585c85edea1f1cbb9b3bf91e5b4f7a45e334705",
+      "source_unchanged_from_original_failure": true,
+      "suite": "delivery"
+    },
+    {
+      "all_exception_counters_zero": true,
+      "conformance_head": "a3dded0",
+      "elapsed_seconds": 32,
+      "failed": 0,
+      "independent_diagnostics_author_commit": "fcbb8ea3f3ae8967c67c3ac52b9f2aaa85cc0011",
+      "original_cause_reproduced": false,
+      "original_fatal_behavior_preserved": true,
+      "passed": 6,
+      "runtime_source_head": "3acf80a097d6bfa3f357cadc2a0216b918118509",
+      "source_sha256": "dea135ddc07c48f9b953997067310eb3a03d13418a40872c2deec17fee2d805c",
+      "suite": "owner_signing"
+    }
+  ],
+  "local_python": "3.12.13",
+  "original_ci_python": "3.12.15",
+  "private_evidence_sha256": {
+    "delivery-local-1.log": "3f2a6a0e9617c38578fe40811a3fa70df81dd0c2a506e6fa7f4c63cf8746b65c",
+    "delivery-repro-1-execution.private.json": "31977e4243b6306607207d0d9c656d50d09a455fdbf336e7d0ab1b48cb13cc85",
+    "main-owner-failure.log": "5cca87ada6bf37399853c2a51000e425f1524d7b4bdf832bc617751e1cf90f9e",
+    "owner-local-1.log": "b8ef88c1de13c08637e4f3e2b638d18780b57ac00a512688e4e236703ac98554",
+    "owner-repro-1-execution.private.json": "fcbdf538fa9192c1a01aaa05ccb760345cf549d8427222fe7d096fb588203a4e",
+    "prior-main-delivery-failure.log": "6cad64e922d9645933caaebfdc8c00bbbf302ef088c0d7788ac51132bc57396d",
+    "retained-main-evidence.private.json": "a5f181e5f0202bdb1f27eaa42c4c5718f3649d628734d28d2dca8a77e7f6a9d8"
+  },
+  "production_changes": false,
+  "qualification": "Main CI first failures and bounded local diagnostic runs",
+  "scope_limits": [
+    "Local pass does not classify original failure",
+    "No request retry, timeout extension, weakened predicate or production correction",
+    "New diagnostic changes identify future failure class/location only"
+  ],
+  "status": "causes_unclassified"
+}
