@@ -246,7 +246,9 @@ def progress_snapshot(f):
     check(all(ar[key] in ('-',br[key]) for key in ('owner_offer_id','selection_id'))
           and (ar['selection_id']=='-' or ar['owner_offer_id']==br['owner_offer_id']),'administrator retained another selected prefix')
     network = g.get(a,'/v2/networks/'+f['network']['id'])
-    check(type(network) is dict and set(network)==set(f['network'])
+    check(type(network) is dict and set(network)=={'id','name','mode','context_id','genesis_root_public_key',
+          'root_state_id','root_public_key','root_epoch','member','host_public_key','person_public_key',
+          'provider','provider_state','authority','delivery','created_at'}
           and network['root_state_id']!='-' and network['root_public_key']!='-'
           and all(network[key]==f['network'][key] for key in NETWORK_PINS),'original network descriptor/root/provider changed')
     result['network'] = {key:network[key] for key in NETWORK_PINS}
@@ -338,11 +340,12 @@ def install_progress_observation(f):
         r.private_json(g.suite.work/'incoming-progress-baseline.private.json',baseline)
         counts['attempts'] = 1
         status,value = original('POST',PROGRESS,incoming,timeout=5)
+        if status!=200:
+            counts['refusals'] += 1
         g.public(value,*g.shared.get('secrets',[]))
         if status==200:
             exact_success(value,baseline,incoming)
             return status,value
-        counts['refusals'] = 1
         if not (status==409 and type(value) is dict and value.get('code')=='review_changed'
                 and type(value.get('error')) is str and 0<len(value['error'])<=4096
                 and not any(unicodedata.category(char).startswith('C') for char in value['error'])
@@ -354,10 +357,10 @@ def install_progress_observation(f):
         same_progress_scope(baseline,current)
         counts['attempts'] = 2
         status,value = original('POST',PROGRESS,incoming,timeout=5)
-        g.public(value,*g.shared.get('secrets',[]))
         if status!=200:
-            counts['refusals'] = 2
-        else:
+            counts['refusals'] += 1
+        g.public(value,*g.shared.get('secrets',[]))
+        if status==200:
             exact_success(value,baseline,incoming)
         return status,value
     f['a'].api = observed
