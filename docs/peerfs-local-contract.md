@@ -58,6 +58,8 @@ no promised one-command installation or guided sharing pane.
   It must belong to the daemon's effective UID and have mode 0700. Ancestors
   must be owned by that UID or root and not writable by other accounts; a
   root-owned sticky directory such as `/tmp` is allowed above the private root.
+  The complete UTF-8 pathname after appending `/peerfs.sock` must fit 107 bytes,
+  the supported Linux pathname-socket limit; reject longer paths at preparation.
 
 Preparation opens/pins the directory without following symlinks and retains its
 device/inode and account. It must be empty at first preparation. Exact replay
@@ -138,7 +140,8 @@ first commit. The manifest is exactly:
 ```
 
 `host_socket` is the explicitly selected absolute owner-local socket path,
-not an environment default or network endpoint. It is local configuration and
+not an environment default or network endpoint. It must fit the same 107-byte
+Linux pathname bound, with no NUL or abstract address. This local configuration
 is excluded from provider identity responses. Opening a host-backed space must
 validate the manifest and exact host public identity over that socket before
 using its signer. No hostname, `--host` alias, local key file, caller-selected
