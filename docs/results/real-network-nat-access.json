@@ -1,0 +1,43 @@
+{
+  "corrected_target": {
+    "interfaces_and_machine_id_verified": false,
+    "network_restart": false,
+    "new_exact_management_route_added": true,
+    "old_owned_management_route_removed": true,
+    "placement": "Owner reports intended NYC1 VPC peered with existing NYC2 VPC",
+    "private_key_read_or_copied": false,
+    "public_key_provided_privately_to_owner": true,
+    "ssh_authentication": "Current workspace public key refused",
+    "tcp_ssh_handshake_reachable": true,
+    "workspace_identity_configuration_matches_existing_jump_host": true
+  },
+  "date": "2026-11-03",
+  "diagnosed_first_failure": "Owner reported the first target was created in an unpeered VPC; first timeout and evidence retained unchanged",
+  "format": 1,
+  "manual_driver": {
+    "commit": "25c1f21",
+    "help_entrypoint_checked": true,
+    "independent_author": true,
+    "product_execution": false,
+    "root_source_review_completed": true,
+    "source_sha256": "44a050c62d79dc405ba1d47b18183199c6d5f080a3bb5c34cebfe5a71eb6e7bd",
+    "static_and_pure_author_audit_passed": true
+  },
+  "nat_qualification_passed": false,
+  "private_evidence_sha256": {
+    "corrected-jump-route.private.json": "662c825232445ffc3d0965c678cb7d22b67e605af140047ac2c8d04cace079e1",
+    "corrected-private-vm-preflight.private.json": "504741720024904bc974f41f62a49211843e3ebaa936ccefb998bd8a593b95c5",
+    "jump-accepted-key.private.json": "89e63b89da8cac31a6cbb5dc3a8263a5e90e2a8f5bbf5d483953636f7c3c72bb",
+    "jump-accepted-key.private.log": "080e626c0e8ebc0aa13d0b65a9763e1e807fd50fe46d19a3ab81234e266f3e40",
+    "nat-known-hosts": "cd8d51c7c2c7045fc774a1d1c8dbc57dcbcb67feee7d3bb588be57796aa23933",
+    "ssh-identity-configuration.private.json": "c11d3f528e1d0992523acbb2480048365c1d5b80181676bd2425d44a30cc59e4"
+  },
+  "protocol_started": false,
+  "public_receipt_contains_participant_addresses_or_ssh_keys": false,
+  "qualification": "Corrected managed NAT target access preparation only",
+  "remaining_prerequisites": [
+    "Authorize workspace public SSH key or provide intended SSH username",
+    "Create NAT Gateway and set it as VPC default",
+    "Verify private-only VM interfaces, routes and actual translated source before protocol execution"
+  ]
+}

@@ -25,8 +25,17 @@ checking peering/firewall state. No protocol test has started on this VM. The
 [preparation receipt](results/real-network-nat-preparation.json) records only
 these prerequisites and evidence hashes; no NAT result is claimed yet. Managed provider NAT is a valid real external
 gateway for N1; home/office routers and mobile networks remain distinct,
-unverified coverage. SSH may use the VPC peering through the existing jump
-host. Tested Peerspan traffic must instead reach the workspace server and
+unverified coverage. The owner then diagnosed the first target as belonging to an unpeered VPC
+and supplied a corrected endpoint. Root removed its old exact host route and
+added the corrected one without a network restart. The corrected VM completes
+the SSH handshake but refuses the current workspace key; its interfaces and
+NAT egress cannot yet be inspected. The existing jump host accepts that same
+workspace identity, and its public key was supplied privately to the owner.
+The [corrected access receipt](results/real-network-nat-access.json) retains
+that diagnosis and new evidence without relabeling the first failure. The
+independent [manual N1 driver](../conformance/real_network_nat.py) is committed
+and statically reviewed; no protocol run has started.
+SSH may use the VPC peering through the existing jump host. Tested Peerspan traffic must instead reach the workspace server and
 explicitly configured helper outside those VPCs through the NAT gateway.
 
 The rebuilt candidate is clean release source
