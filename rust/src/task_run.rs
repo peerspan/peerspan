@@ -361,6 +361,17 @@ pub(crate) fn pack(dir: &Path, out: &mut impl Write) -> anyhow::Result<()> {
         {
             continue;
         }
+        // git still lists the tracked files under a directory replaced by a
+        // symbolic link: only paths whose every ancestor is a directory are
+        // packed, so the link is archived and never followed.
+        let real_parents = relative
+            .ancestors()
+            .skip(1)
+            .filter(|p| !p.as_os_str().is_empty())
+            .all(|p| fs::symlink_metadata(dir.join(p)).is_ok_and(|m| m.is_dir()));
+        if !real_parents {
+            continue;
+        }
         let full = dir.join(&relative);
         let Ok(meta) = fs::symlink_metadata(&full) else {
             continue;

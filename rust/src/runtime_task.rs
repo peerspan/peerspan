@@ -658,22 +658,20 @@ fn finish(
     tx.commit()?;
     Ok(())
 }
-fn set_dispatched(
-    store: &Store,
-    sender: &str,
-    task_id: &str,
-    socket: Option<PathBuf>,
-) -> Result<(), Error> {
+
+/// Clears a refused start's dispatch, returning whether cancellation is
+/// requested now. One transaction: a cancellation committed after it sees
+/// an undispatched task and ends it at once; one committed before is
+/// returned here.
+fn undispatch(store: &Store, sender: &str, task_id: &str) -> Result<bool, Error> {
     let mut conn = store.connection()?;
     let tx = conn.transaction()?;
     let mut i = internal(&tx, sender, task_id)?;
-    i.dispatched = socket.is_some();
-    if socket.is_some() {
-        i.socket = socket;
-    }
+    i.dispatched = false;
     save_internal(&tx, sender, task_id, &i)?;
+    let cancel = load(&tx, sender, task_id)?.is_some_and(|t| t.status.cancel_requested);
     tx.commit()?;
-    Ok(())
+    Ok(cancel)
 }
 
 /// The start request for a task (`POST /v1/runs`).
@@ -745,23 +743,21 @@ async fn start(store: &Arc<Store>, sender: &str, task_id: &str) -> Result<Starte
     let (sender, task_id) = (sender.to_owned(), task_id.to_owned());
     crate::api::blocking(store.clone(), move |s| {
         let conn = s.connection()?;
-        let Some(t) = load(&conn, &sender, &task_id)? else {
+        if load(&conn, &sender, &task_id)?.is_none() {
             return Ok(Started::Ended);
-        };
+        }
         drop(conn);
         match answer.status {
             200 | 201 => Ok(Started::Accepted),
             429 => {
-                set_dispatched(s, &sender, &task_id, None)?;
-                if t.status.cancel_requested {
+                if undispatch(s, &sender, &task_id)? {
                     finish(s, &sender, &task_id, "cancelled", None, None, None)?;
                     return Ok(Started::Ended);
                 }
                 Ok(Started::Busy)
             }
             400..=499 => {
-                set_dispatched(s, &sender, &task_id, None)?;
-                if t.status.cancel_requested {
+                if undispatch(s, &sender, &task_id)? {
                     finish(s, &sender, &task_id, "cancelled", None, None, None)?;
                 } else {
                     let message = format!("the runtime refused the run: {}", refusal(&answer));

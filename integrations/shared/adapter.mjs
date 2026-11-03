@@ -656,7 +656,20 @@ export async function packWorkspace(directory) {
   try {
     const write = (buffer) => out.write(buffer);
     for (const path of paths) {
-      if (path.split('/').some((part) => part === '' || part === '.' || part === '..')) continue;
+      const parts = path.split('/');
+      if (parts.some((part) => part === '' || part === '.' || part === '..')) continue;
+      // git still lists the tracked files under a directory replaced by a
+      // symbolic link: only paths whose every ancestor is a directory are
+      // packed, so the link is archived and never followed.
+      let realParents = true;
+      for (let i = 1; i < parts.length && realParents; i++) {
+        try {
+          realParents = (await lstat(join(directory, ...parts.slice(0, i)))).isDirectory();
+        } catch {
+          realParents = false;
+        }
+      }
+      if (!realParents) continue;
       let info;
       try {
         info = await lstat(join(directory, path));
