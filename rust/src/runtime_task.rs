@@ -609,6 +609,24 @@ fn finish(
     if is_final(&status.state) {
         return Ok(());
     }
+    // A cancellation is always honoured: one that arrived after the caller
+    // chose the outcome, while it copied results, ends the task `cancelled`
+    // with the run result and no result artifacts (State machine).
+    let (kind, output, artifacts) =
+        if status.cancel_requested && matches!(kind, "succeeded" | "failed") {
+            let output = match output {
+                Some(o) => {
+                    let mut result: Value = serde_json::from_str(&o)?;
+                    result["results_dropped"] = json!([]);
+                    result["results_same"] = json!({});
+                    Some(serde_json::to_string(&result)?)
+                }
+                None => None,
+            };
+            ("cancelled", output, None)
+        } else {
+            (kind, output, artifacts)
+        };
     if kind != "rejected" && kind != "cancelled" && status.state == "running" {
         append_event(
             &tx,
