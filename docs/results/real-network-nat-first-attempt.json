@@ -1,0 +1,146 @@
+{
+  "archive_sha256": "7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c",
+  "changed_attachment": false,
+  "cleanup_confirmed": true,
+  "cleanup_private_log_index_sha256": {},
+  "controller_failure_log_sha256": null,
+  "daemon_log_hashes_are_phase_snapshots": true,
+  "daemon_restart": false,
+  "direct_traversal_verified_by_driver": false,
+  "fleet_sha256": "db50227c1bc0d5075fbe9d50a42c579759ca8b5fd79d1c6b9772c62e124f7b1a",
+  "format": 1,
+  "helper_count": 1,
+  "helper_public_key_sha256": "e7a23efbc84e9fd17e9651384ee78e33e7529db14aa720a996d793d262551ca2",
+  "helper_sha256": "8d08540e9dd7910d6a356f8d266e9da09c6eb1e68a3d46ba70a9b9f1af89e44b",
+  "host_sha256": "1104cf850b55f2f6a751a0d718bd4fd9301ea6ed272c7c63eabafe829951c6f0",
+  "manual_peer_configuration_operations": 0,
+  "model_receipt": false,
+  "nat_translation_verified_by_driver": false,
+  "native_terminal_receipt": false,
+  "owner_worker_sha256": "adce7b8b05775b4dec3da2ba7d16bac17144a773d917c608b3413ea155c62ea2",
+  "passed": false,
+  "qualification": "n1_managed_cloud_protocol_observation",
+  "results": [
+    {
+      "cleanup_confirmed": false,
+      "daemon_log_sha256": {
+        "left": "eaf997d2245c9e8922bc75d245a838db99056aa41c617f607740f33e31c4ecdc",
+        "right": "743940da87e83fb536c9a03d86a7e976ee30dc85fb27ebc98922d688d1dcbf6d"
+      },
+      "evidence": {
+        "actual_host_applications": 2,
+        "adapter_connection": false,
+        "agent_access": false,
+        "binding_scopes": 2,
+        "finite_device_scopes": 7,
+        "immutable_requester_approval": true,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "original_key_transfers": 0,
+        "signed_public_proof_verified": true
+      },
+      "passed": true,
+      "phase": "ceremony",
+      "private_log_index_sha256": "fd6e227e8259ee3bdf0ba18737e15d612f3249534cf4003dcc78650012be6283",
+      "retained_for_work": true,
+      "scenario": "machine",
+      "seconds": 42.352,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "eaf997d2245c9e8922bc75d245a838db99056aa41c617f607740f33e31c4ecdc",
+        "right": "743940da87e83fb536c9a03d86a7e976ee30dc85fb27ebc98922d688d1dcbf6d"
+      },
+      "evidence": {
+        "actual_receiver_append_verified": true,
+        "addressed_appends": 2,
+        "exact_peer_rejection_status_verified": false,
+        "guided_grants": 0,
+        "manual_transport_pins": 0,
+        "model_receipt": false,
+        "native_terminal_receipt": false,
+        "normal_directory_routing": true,
+        "original_key_custody_verified": true,
+        "paths": [
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "left",
+            "path": "relay",
+            "target": "right"
+          },
+          {
+            "diagnostic_only": true,
+            "endpoint_present": false,
+            "http_status": 200,
+            "observer": "right",
+            "path": "relay",
+            "target": "left"
+          }
+        ],
+        "receiver_enforcement_checked": false,
+        "receiver_rejections": 0,
+        "requester_consent_unchanged": true,
+        "withdrawals": 0
+      },
+      "passed": true,
+      "phase": "work",
+      "private_log_index_sha256": "0dd5b291915bf3424d4a8c2c1bee1e44b2eaa8f8b437eb77141f1062f9fa999a",
+      "retained_for_work": false,
+      "scenario": "machine",
+      "seconds": 24.768,
+      "stage": "complete",
+      "transport_unavailable": false
+    },
+    {
+      "cleanup_confirmed": true,
+      "daemon_log_sha256": {
+        "left": "62129ddc6ecdd9a7c2fdc38474775ee8bdbed414299fc82b30d5728af59779b9",
+        "right": "1540f60b7df74f6598ca9350e7a0f69ad70bff9eb11fc53c7bca60278360940d"
+      },
+      "passed": false,
+      "phase": "ceremony",
+      "private_log_index_sha256": "d30f061ea5338e36cf6956be77a64d281827af015eeab21d502cb2a58787f227",
+      "retained_for_work": false,
+      "scenario": "teammate",
+      "seconds": 19.508,
+      "stage": "incoming_selected_proof_and_administrator_consent",
+      "transport_unavailable": false
+    },
+    {
+      "passed": false,
+      "phase": "work",
+      "scenario": "teammate",
+      "stage": "ceremony_prerequisite_failed"
+    }
+  ],
+  "root_execution_git_head": "80a34df576e8dd7eb5544f94bdd0c7b615559b9f",
+  "root_observed_refusal": {
+    "cause_not_established": true,
+    "code": "review_changed",
+    "first_refusal_retained": true,
+    "http_status": 409,
+    "operation": "incoming-progress"
+  },
+  "root_topology_capture_confirmation_required": true,
+  "run_configuration_sha256": "405f33ec78c6ec4aedb9e53bb45e6b0313ca39ec4e1673d9e0831053341ae466",
+  "separate_machine_metadata_verified": true,
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_nat.py": "44a050c62d79dc405ba1d47b18183199c6d5f080a3bb5c34cebfe5a71eb6e7bd",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  },
+  "ssh_control_only": true,
+  "task_artifact_qualification": false,
+  "topology_class": "managed_cloud_one_nat",
+  "two_independent_nats": false
+}
