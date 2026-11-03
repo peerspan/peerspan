@@ -507,11 +507,21 @@ fn candidates(
     if !policy.in_window(crate::clock::now()) {
         return Err(Error::Forbidden);
     }
-    let Some(sender_member) = store
+    // A sender whose membership lapsed matches only rules with
+    // `allow_disconnected`, as the member it last was.
+    let current = store
         .product_member(conn, &cited.network_id, sender)?
-        .filter(|m| m.host_id != me)
-    else {
-        return Err(Error::Forbidden);
+        .filter(|m| m.host_id != me);
+    let is_current = current.is_some();
+    let sender_member = match current {
+        Some(m) => m,
+        None => match store
+            .product_lapsed_member(conn, &cited.network_id, sender)?
+            .filter(|m| m.host_id != me)
+        {
+            Some(m) => m,
+            None => return Err(Error::Forbidden),
+        },
     };
     let groups = store.product_groups(conn, &cited.network_id)?;
     let caller = sender_member
@@ -524,6 +534,7 @@ fn candidates(
         .filter(|rule| {
             rule.host == me
                 && rule.capability == r.capability
+                && (is_current || rule.allow_disconnected)
                 && rule
                     .principals
                     .iter()
@@ -885,7 +896,10 @@ impl Store {
             (_, Some(s)) => (s.network_id.as_str(), "self"),
             _ => return Ok(None),
         };
-        let member = self.product_member(conn, network, sender)?;
+        let member = match self.product_member(conn, network, sender)? {
+            Some(m) => Some(m),
+            None => self.product_lapsed_member(conn, network, sender)?,
+        };
         let person_id = member.as_ref().and_then(|m| m.person_id.clone());
         let person_label = member
             .as_ref()
@@ -1092,14 +1106,24 @@ impl Store {
                 if !policy.in_window(at) {
                     continue;
                 }
-                let Some(sender_member) = self
+                // A lapsed sender is listed what rules with
+                // `allow_disconnected` grant it, as the member it last was.
+                let current = self
                     .product_member(&conn, &net, sender)?
-                    .filter(|m| m.host_id != me)
-                else {
-                    continue;
+                    .filter(|m| m.host_id != me);
+                let is_current = current.is_some();
+                let sender_member = match current {
+                    Some(m) => m,
+                    None => match self
+                        .product_lapsed_member(&conn, &net, sender)?
+                        .filter(|m| m.host_id != me)
+                    {
+                        Some(m) => m,
+                        None => continue,
+                    },
                 };
                 let groups = self.product_groups(&conn, &net)?;
-                policies.push((net, person, policy, sender_member, groups));
+                policies.push((net, person, policy, sender_member, is_current, groups));
             }
         }
         let self_via: Vec<Value> = selfs
@@ -1109,14 +1133,17 @@ impl Store {
         let mut out = Vec::new();
         for record in capability_records(&conn)? {
             let mut via = self_via.clone();
-            for (net, person, policy, member, groups) in &policies {
+            for (net, person, policy, member, is_current, groups) in &policies {
                 // A rule matching the sender only through `agent:`
                 // principals for its host is listed once per such agent;
                 // any other matching principal lists it once for no agent.
                 let mut anyone = false;
                 let mut agents: Vec<&str> = Vec::new();
                 for rule in policy.capability_rules() {
-                    if rule.host != me || rule.capability != record.name {
+                    if rule.host != me
+                        || rule.capability != record.name
+                        || !(*is_current || rule.allow_disconnected)
+                    {
                         continue;
                     }
                     for p in &rule.principals {
