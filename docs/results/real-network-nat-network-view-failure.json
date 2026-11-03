@@ -1,0 +1,78 @@
+{
+  "archive_source_revision": "7da06b7a2fd5604b76029aa833bb7e35c63d133a",
+  "cleanup": {
+    "hosts_stopped": true,
+    "operator_return_codes": {
+      "capture-start": 0,
+      "capture-stop": 0,
+      "helper-start": 0,
+      "helper-stop": 0,
+      "master-close": 0
+    }
+  },
+  "diagnosis": {
+    "cli_only_trusted_metadata_is_not_in_api_network_view": true,
+    "fixture_compared_api_network_view_to_cli_creation_keyset": true,
+    "incoming_progress_dispatched": false,
+    "original_NETWORK_PINS_unchanged": true,
+    "production_change_required": false
+  },
+  "execution_git_head": "d75bd49d321cfebd08e691f76d47bcc18c4e536f",
+  "format": 1,
+  "passed": false,
+  "private_evidence_sha256": {
+    "n1-attempt-4-execution.private.json": "24170762d8d2fb2897ecec86feab60cc875a1a04ec59b418f6b3defefcf4c638",
+    "n1-attempt-4-summary.private.json": "76c292795f495cbc763258a7dde39c6c3c8f8efaf19186ee48ff1ce27761e047",
+    "n1-attempt-4/receipt.json": "2b8f77d4f60628cc79b263f82934bdd5dc2b3ad6601892af416bc390b2ba7664",
+    "n1-attempt-4/teammate-ceremony/failure.private.txt": "e89b74c1ee792968fbfcf28e6e83b0552268737fd81ad86164203108386f8f41"
+  },
+  "public_receipt_contains_participant_addresses_or_ssh_keys": false,
+  "qualification": "Retained fourth N1 run: CLI versus API network envelope",
+  "results": [
+    {
+      "passed": false,
+      "phase": "ceremony",
+      "progress": {
+        "attempts": 0,
+        "refusals": 0,
+        "revalidations": 0
+      },
+      "scenario": "teammate",
+      "seconds": 18.005,
+      "stage": "incoming_selected_proof_and_administrator_consent"
+    },
+    {
+      "passed": false,
+      "phase": "work",
+      "progress": null,
+      "scenario": "teammate",
+      "seconds": null,
+      "stage": "ceremony_prerequisite_failed"
+    },
+    {
+      "passed": false,
+      "phase": "ceremony",
+      "progress": null,
+      "scenario": "machine",
+      "seconds": null,
+      "stage": "not_run_after_first_failure"
+    },
+    {
+      "passed": false,
+      "phase": "work",
+      "progress": null,
+      "scenario": "machine",
+      "seconds": null,
+      "stage": "not_run_after_first_failure"
+    }
+  ],
+  "source_sha256": {
+    "installed_participant_support.py": "32c1b2f9da574b5ae40da75d8066207ae783efa5a7d69ffe691427b8391f2bb4",
+    "installed_participants.py": "8e1e5e1fe4648b2fe29d4a7deac8e119bb96185a6321a7bab2785364aa8a50d9",
+    "real_network_nat.py": "5367be723477b1d1527cd9654acd6500759777d8cd57c99511378a4fc6a9374a",
+    "real_network_participants.py": "b4386eec1dfd2182d59bb7ae58320d58a4b91d119cc6154d5bbb456db16db908",
+    "real_network_relay.py": "7e5c88a5c52c4ecb0137efaf6ca9784f3daf742013d8d197ffe296f74bcaa076",
+    "slim/counted_peer.py": "ddca8acff3db27750c4f943bfe74b28cf33bd9b370866377905c6f25b092b863",
+    "slim/harness.py": "11b98a0c9c17562433c1eb2017f873f96648c4733e8b13133f1ba5c5af702281"
+  }
+}
