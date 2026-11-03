@@ -8,6 +8,11 @@ The product was called Capsule before 2026-10-15, and Peerspan does not carry an
 
 ## Local administration boundary
 
+The proposed [PeerFS host integration](peerfs-host-contract.md) defines the
+next local filesystem boundary and delivery gates after real-machine/NAT
+qualification. Its registration, signing and filesystem peer interfaces remain
+proposals; current project attachment and agent access do not share files.
+
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated
 signing. The first [signed-object reader slice](linking-reader-checks.md) checks
