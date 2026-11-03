@@ -607,12 +607,20 @@ fn finish(
 ) -> Result<(), Error> {
     let mut conn = store.connection()?;
     let tx = conn.transaction()?;
-    let Some((_, mut status)) = received(&tx, sender, task_id)? else {
+    let Some(mut t) = load(&tx, sender, task_id)? else {
         return Ok(());
     };
-    if is_final(&status.state) {
+    if is_final(&t.status.state) {
         return Ok(());
     }
+    // Output already received but still held is emitted before the end, on
+    // every path, a lost run's included.
+    if !t.internal.held.is_empty() {
+        let max_output = t.internal.bounds.as_ref().map_or(0, |b| b.max_output_bytes);
+        flush_held(&tx, sender, &mut t, max_output)?;
+        save_internal(&tx, sender, task_id, &t.internal)?;
+    }
+    let mut status = t.status;
     // A cancellation is always honoured: one that arrived after the caller
     // chose the outcome, while it copied results, ends the task `cancelled`
     // with the run result and no result artifacts (State machine).
