@@ -240,7 +240,7 @@ def _():
     check(got["request"]["content"] == "after the restart", f"bert got {got['request']}")
 
 
-@suite.case("schema_28_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; 20 item 59")
+@suite.case("schema_29_tables", "spec 17 (DEC-Q14); guided onboarding sections 3/5/9/12; 20 item 59")
 def _():
     path, db = database(a)
     try:
@@ -256,7 +256,7 @@ def _():
             "conversations", "conversation_messages", "conversation_targets", "conversation_invites",
             "conversation_roster_outbound", "conversation_notifications", "conversation_reads", "conversation_events"}
     check(want <= tables, f"missing tables {sorted(want - tables)}")
-    check(version == 28, f"{path.name}: schema version {version}, want 28")
+    check(version == 29, f"{path.name}: schema version {version}, want 29")
     check(migrations == 0, f"dec_migrations holds {migrations} rows")
 
 
@@ -273,7 +273,7 @@ def _():
     path, db = database(copy)
     db.close()
     db = sqlite3.connect(str(path))
-    db.execute("PRAGMA user_version = 29")
+    db.execute("PRAGMA user_version = 30")
     db.commit()
     db.close()
     log = (copy.root / "daemon.log").open("ab")
@@ -282,10 +282,10 @@ def _():
         code = p.wait(timeout=20)
     except subprocess.TimeoutExpired:
         code = None
-    check(code not in (None, 0), "a daemon opened a schema 29 database")
+    check(code not in (None, 0), "a daemon opened a schema 30 database")
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == 29, "the refused database was changed")
+        check(db.execute("PRAGMA user_version").fetchone()[0] == 30, "the refused database was changed")
     finally:
         db.close()
 
