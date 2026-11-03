@@ -4976,6 +4976,28 @@ and explicit model authorization/evidence-limit decision remain open.
 - **Discarded:** duplicate filesystem cores in Go/Rust hosts, export signing
   keys, generic signing, implicit same-owner sharing, unfiltered path-sharing
   promises and one combined mount/write/durability implementation.
-- **Status:** [boundary and delivery plan](peerfs-host-contract.md) proposed for
-  review. No runtime route, command, schema or policy encoding is added by this
+- **Status:** [boundary and delivery plan](peerfs-host-contract.md) merged in #116.
+  No runtime route, command, schema or policy encoding is added by this
   decision. Exact slice contracts precede implementation and independent cases.
+
+### PF-02: prepare local signing before activating a PeerFS provider
+
+- **Evidence:** PeerFS6d65976 creates and signs its initial commit inside
+  `Space::init`, before serving its socket. Its commit3 signing bytes carry no
+  space/network/branch identity, and existing `SpaceInfo` clients reject extra
+  fields. These facts constrain the bridge instead of being hidden by an API.
+- **Selected proposal:** an explicit durable local binding authorizes typed
+  commit signing before provider activation. Use a new immutable host-backed
+  space format so old binaries refuse it, and a separate provider-identity
+  endpoint. Keep the existing canonical
+  commit signature; make its lack of resource binding explicit. Historical key
+  identity is separate from current access. Registration creates no grant.
+- **Discarded:** circular live-provider prerequisites, temporary signing keys,
+  prefix-only generic signing, automatic legacy-history migration, extending
+  strict legacy response shapes, implicit provider relocation and treating a
+  hash-consistent public key or contact as historical admission.
+- **Next:** review the [PF-1 exact local contract](peerfs-local-contract.md) and
+  public vectors, then implement the host/PeerFS adapters with one compact
+  independently authored suite under the current conformance budget. Signed
+  whole-branch access and cross-host pull follow. No runtime/schema change is
+  claimed by this contract proposal.

@@ -1,6 +1,6 @@
 # PeerFS host integration
 
-Status: proposed boundary and delivery plan for milestone3b. No filesystem
+Status: boundary and delivery plan merged in #116 for milestone3b. No filesystem
 routes, signing adapter or sharing commands described here are available yet.
 Each implementation slice needs its exact wire/storage contract and independent
 conformance before it can claim completion.
@@ -157,7 +157,7 @@ consent or silently widening the original request.
 | Slice | Reviewable result | Required evidence |
 | --- | --- | --- |
 | PF-0 | Boundary and delivery plan in this document | Owner review; existing behavior distinguished from proposals |
-| PF-1 | Exact local registration, signer and key-lookup contract; corresponding host/PeerFS adapters | Canonical signing vectors, strict decoding and bounds, key isolation, unavailable/restart/replacement behavior |
+| PF-1 | [Exact local registration, signer and key-lookup contract](peerfs-local-contract.md); corresponding host/PeerFS adapters | Canonical signing vectors, strict decoding and bounds, key isolation, unavailable/restart/replacement behavior |
 | PF-2 | Exact signed whole-branch `fs.read` policy and selected-head/closure protocol | Shared signed-policy vectors, current authority and withdrawal, denied unrelated objects and unsupported narrowing |
 | PF-3 | One read-only pull through both daemons into B's local workspace | Real content/kind/hash/signature verification, complete tracking reference, interruption/resume and receiver denial |
 | PF-4 | Installed direct and managed-NAT/relay acceptance on named final revisions | Same-person and distinct-person explicit sharing, withdrawal, capture/path evidence and cleanup |
@@ -169,8 +169,9 @@ change gets its own small PR and affected independent checks, with the same
 host contract supplied to the Go repository. The tracking PR must not claim the
 whole milestone complete when only a local adapter exists.
 
-The conversations track already proposes schema29. This plan reserves no schema
-number and changes no signed policy or database format. Each storage change
+Current main uses schema29 for runtime tasks; the conversations track also has
+pending storage proposals. This plan reserves no schema number and changes no
+signed policy or database format. Each storage change
 allocates its additive schema against current main and tests upgrade/restore;
 it must not take a version reserved by another accepted track.
 
