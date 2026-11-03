@@ -39,6 +39,36 @@ allocate another space or overwrite a partially initialized directory. Exact
 human-facing CLI orchestration follows the local adapters; this contract adds
 no promised one-command installation or guided sharing pane.
 
+### Interrupted initialization
+
+The new initializer holds the existing exclusive space lock. Before requesting
+its initial signature it atomically writes/syncs mode 0600 `host-init.json`:
+
+```text
+{format:1,binding_id,message_base64}
+```
+
+`message_base64` is the exact bounded section 5 signing message for the initial
+commit. Its tree must be the stored, verified empty tree, parents empty,
+predecessor absent and message `Create the space`; host/key/binding must match
+the immutable manifest. It fixes the chosen change ID, timestamp and optional
+agent/session metadata across recovery. Write the signed object and initial
+`main` reference durably before removing this receipt and syncing the directory.
+
+An explicit initialization retry may resume that same well-formed receipt and
+matching binding under the lock. Recover/store the exact deterministic signature
+and compare-and-swap only an absent `main` or confirm that it already equals the
+result. A different reference, unexpected workspace/branch, damaged receipt,
+foreign binding or unsupported partial state is a conflict with no overwrite.
+A fully initialized matching space reports its retained result without changing
+any head, including one that moved since initialization. An old unreceipted
+partial directory is not treated as an empty space.
+
+Normal opening/serving refuses a pending initialization receipt; explicit
+initialization recovery finishes it first. A failed initializer never removes
+unrecognized files or replaces a directory to get a fresh inode. This receipt
+contains no signing key or filesystem grant and is not a second database.
+
 ## 2. Names, paths and immutable binding
 
 - `space_id`: `space_` followed by 32 lowercase hexadecimal digits, generated
@@ -108,7 +138,7 @@ unknown response is recovered by exact lookup, not inferred to be a rollback.
 | `GET /v1/fs/spaces/{space_id}` | No body/query | 200 exact retained view, including a tombstone |
 | `POST /v1/fs/spaces/{space_id}/activate` | `{binding_id}` | 200 `{registration:VIEW,provider:{state:"verified",observed_at}}` |
 | `POST /v1/fs/spaces/{space_id}/release` | `{binding_id}` | 200 retained view in `released`; exact replay 200 |
-| `POST /v1/fs/spaces/{space_id}/sign-commit` | `{binding_id,message_base64}` | 200 `{host_id,public_key,signature}`; section5 |
+| `POST /v1/fs/spaces/{space_id}/sign-commit` | `{binding_id,message_base64}` | 200 `{host_id,public_key,signature}`; section 5 |
 | `POST /v1/fs/spaces/{space_id}/host-keys/check` | `{binding_id,host_id,public_key}` | 200 `{host_id,public_key,recognized}`; section6 |
 
 Preparation requires a locally adopted, verified DEC context and the local
@@ -343,6 +373,11 @@ Required checks, with per-operation 5s bounds and unchanged existing guards:
   no unsigned initial reference appears, and restart uses the same identity.
   The old PeerFS binary must refuse its new space format without mutation;
   unchanged legacy format 2 spaces still work under old and new binaries.
+- Interrupt initialization before signing, after object storage and after the
+  initial reference write. Resume the same receipt/change/time/head; no second
+  initial identity or file key. Repeating init after ordinary work must not
+  reset a branch. Corrupt/foreign receipts or divergent references refuse
+  without deleting files or silently replacing a directory.
 - Independently check the public vectors; against a genuine fixture host use
   equivalent messages with its discovered host ID and verify its actual
   signatures with its public key. Negative format/domain/author/length/LEB128/tag/
