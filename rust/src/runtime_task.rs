@@ -826,10 +826,17 @@ async fn pass(
     // Free slots, from the runtime's own report; none while it is off or
     // unreachable, so a queued task is started only into a free slot.
     let mut free: Option<i64> = None;
+    // Runs that exist are followed first, so that a full runtime, which
+    // stops the dispatches below, never leaves one unfollowed.
+    for (t, _) in &tasks {
+        if t.internal.dispatched || t.status.state == "running" {
+            let key = (t.sender.clone(), t.status.task_id.clone());
+            follow(store, following, shutdown, key, false);
+        }
+    }
     for (t, ready) in tasks {
         let key = (t.sender.clone(), t.status.task_id.clone());
         if t.internal.dispatched || t.status.state == "running" {
-            follow(store, following, shutdown, key, false);
             continue;
         }
         let workspace = t
@@ -897,14 +904,18 @@ async fn pass(
                     return Ok(None);
                 }
             };
-            let socket = s.runtime_switch()?.map(|w| w.socket);
+            // Turned off since the check: the task stays queued, and the
+            // next pass rejects it.
+            let Some(socket) = s.runtime_switch()?.map(|w| w.socket) else {
+                return Ok(None);
+            };
             let mut i = internal(&tx, &sender, &id)?;
             i.bounds = Some(rule);
             i.dispatched = true;
-            i.socket = socket.clone();
+            i.socket = Some(socket.clone());
             save_internal(&tx, &sender, &id, &i)?;
             tx.commit()?;
-            Ok(socket)
+            Ok(Some(socket))
         })
         .await?;
         if socket.is_none() {
