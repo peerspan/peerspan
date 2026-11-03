@@ -44,6 +44,10 @@ const POLL_FIRST: Duration = Duration::from_secs(1);
 const POLL_MAX: Duration = Duration::from_secs(60);
 /// Events fetched per request while catching up.
 const EVENT_PAGE: i64 = 1000;
+/// A runtime task's events per request: 32 full output chunks (16,384
+/// bytes each, base64 in JSON) stay well within the 1 MiB response limits
+/// of the peer transport and the CLI, where 1,000 would not.
+pub const RUNTIME_EVENT_PAGE: i64 = 32;
 /// The longest a peer holds an events request (`wait`), within the peer
 /// transport's 15-second serve bound, as for calls.
 pub(crate) const EVENT_WAIT_MAX: u64 = 10;
@@ -1945,10 +1949,15 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bo
     // A running runtime task's events are waited for (runtime task
     // contract, Peer events).
     let held = out.request.is_runtime() && status.state == "running";
+    let page_size = if out.request.is_runtime() {
+        RUNTIME_EVENT_PAGE
+    } else {
+        EVENT_PAGE
+    };
     loop {
         let mut events = Vec::new();
         if status.last_event > after || held {
-            let mut path = format!("/peer/v1/tasks/{id}/events?after={after}&limit={EVENT_PAGE}");
+            let mut path = format!("/peer/v1/tasks/{id}/events?after={after}&limit={page_size}");
             let mut bound = REQUEST_BOUND;
             if held && status.last_event <= after {
                 path.push_str(&format!("&wait={EVENT_WAIT_MAX}"));
@@ -1966,7 +1975,7 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bo
                 }
             }
         }
-        let full = events.len() as i64 == EVENT_PAGE;
+        let full = events.len() as i64 == page_size;
         let (p, i, s) = (peer.clone(), id.clone(), status.clone());
         let (stored, changed) = blocking(store.clone(), move |st| {
             st.store_task_events(&p, &i, Some(s), events)

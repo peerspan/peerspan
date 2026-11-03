@@ -1149,6 +1149,9 @@ fn apply(
                 t.internal.exited = Some(event["result"].clone());
             }
             "results" => {
+                // Not acknowledged: until `results(...)` makes the task final,
+                // a restarted follower fetches this last event again.
+                t.internal.after = sequence - 1;
                 results = Some(event["artifacts"].as_array().cloned().unwrap_or_default());
             }
             _ => {}

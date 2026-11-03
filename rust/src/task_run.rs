@@ -21,6 +21,9 @@ const MAX_INPUT: usize = 65_536;
 /// The exit status when the task ended other than by the command's own exit.
 const OTHER: i32 = 125;
 
+/// The names a run's result artifacts may have (runtime task contract).
+const RESULT_NAMES: [&str; 4] = ["stdout.log", "stderr.log", "changes.tar", "deleted.txt"];
+
 pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     let Command::Task(TaskCommand::Run {
         peer,
@@ -133,9 +136,10 @@ async fn follow(
     loop {
         let events = local
             .get(format!(
-                "/v1/tasks/{}/{}/events?after={after}&limit=1000",
+                "/v1/tasks/{}/{}/events?after={after}&limit={}",
                 encoded(peer),
-                encoded(id)
+                encoded(id),
+                peerspan_host::task_outbound::RUNTIME_EVENT_PAGE
             ))
             .await?;
         let events = events.as_array().cloned().unwrap_or_default();
@@ -189,16 +193,25 @@ async fn finish(
     if save && let Some(artifacts) = event["artifacts"].as_array() {
         let dir = PathBuf::from("peerspan-results").join(id);
         fs::create_dir_all(&dir)?;
+        let mut saved = Vec::new();
         for a in artifacts {
-            let name = a["name"].as_str().context("invalid result artifact")?;
+            let name = a["name"]
+                .as_str()
+                .filter(|n| RESULT_NAMES.contains(n))
+                .context("invalid result artifact")?;
             let sha = a["sha256"].as_str().context("invalid result artifact")?;
             save_result(local, socket, peer, id, sha, &dir.join(name)).await?;
+            saved.push(name);
         }
         if let Some(same) = result["results_same"].as_object() {
             for (name, earlier) in same {
-                if let Some(earlier) = earlier.as_str() {
-                    fs::copy(dir.join(earlier), dir.join(name))?;
-                }
+                // Both names come from the peer: only a result name, copied
+                // from one saved above.
+                let earlier = earlier
+                    .as_str()
+                    .filter(|e| saved.contains(e) && RESULT_NAMES.contains(&name.as_str()))
+                    .context("invalid results_same")?;
+                fs::copy(dir.join(earlier), dir.join(name))?;
             }
         }
     }
