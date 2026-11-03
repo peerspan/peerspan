@@ -39,6 +39,10 @@ pub enum ConversationCommand {
         /// The first message's ID (cmsg_ and 32 hex digits)
         #[arg(long, value_name = "ID", requires = "message")]
         message_id: Option<String>,
+        /// Who the first message is mainly for, by participant ID or label;
+        /// only the agents named wake. Needs --message
+        #[arg(long = "to", value_name = "PARTICIPANT")]
+        to: Vec<String>,
         /// A note the new participants see with their invite
         #[arg(long, value_name = "TEXT")]
         note: Option<String>,
@@ -901,6 +905,15 @@ pub enum AgentCommand {
     List,
     /// Inspect a registered agent
     Inspect { id: String },
+    /// Set or clear an agent's one-line description, shown to conversation
+    /// leads as its area
+    Describe {
+        /// Agent ID or name on this host
+        agent: String,
+        text: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2110,7 +2123,8 @@ impl Command {
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }
                 | NetworkCommand::Unbind { .. },
-            ) => return None,
+            )
+            | Self::Agent(AgentCommand::Describe { .. }) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Runtime(RuntimeCommand::Show { .. }) => (Method::GET, "/v1/runtime".into(), None),
             Self::Onboarding(_) => (Method::GET, "/v1/onboarding".into(), None),

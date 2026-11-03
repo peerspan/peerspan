@@ -771,7 +771,9 @@ def _():
     conv = started["conversation"]["conversation_id"]
     outcomes = [(o["target"], o["participant"], o["state"]) for o in started["invites"]]
     check(outcomes == [("alice/ada", ada_p, "joined"), ("alice/abe", abe_p, "joined")], f"outcomes {outcomes}")
-    status, body = ada.post(f"/adapter/v1/conversations/{conv}/messages", {"content": "hi abe"})
+    # ada is the lead (C7), so abe wakes only when addressed.
+    status, body = ada.post(f"/adapter/v1/conversations/{conv}/messages",
+                            {"content": "hi abe", "addressed_to": ["alice/abe"]})
     check(status == 200, f"ada send: {status} {body}")
     targets = {t["participant"]: t for t in body["targets"]}
     check(set(targets) == {alice_p, abe_p}, f"ada's targets {body['targets']}")
@@ -803,8 +805,9 @@ def _():
     status, body = bert.post(f"/adapter/v1/conversations/{conv}/manage", {"action": "close"})
     api_error(status, body, 403, "not_creator", NOT_CREATOR)
     mid = message_id()
+    # ada is the lead (C7), so its first message wakes bert only when addressed.
     status, body = ada.post("/adapter/v1/conversations", {"participants": ["bob/bert"], "content": "from ada",
-                                                          "message_id": mid})
+                                                          "message_id": mid, "addressed_to": ["bob/bert"]})
     check(status == 201 and isinstance(body, dict) and body["invites"][0]["state"] == "joined"
           and body["message"]["message_id"] == mid, f"ada starts: {status} {body}")
     got = claim_until(bert, lambda x: x["notification"]["kind"] == "message"

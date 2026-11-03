@@ -420,6 +420,43 @@ struct Notification {
     /// The notifications a catch-up claimed together with this one.
     #[serde(default)]
     coalesced: Vec<String>,
+    /// Created without a wake and not yet gathered (contract C7).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    parked: bool,
+}
+
+/// The roster's lead (contract C7): the creator when it is a joined agent,
+/// else the first joined agent of the creator's person, else the first
+/// joined agent.
+pub(crate) fn lead_of(roster: &Roster) -> Option<&Participant> {
+    let agent = |p: &&Participant| p.kind == "agent" && p.state == "joined";
+    let creator = roster
+        .participants
+        .iter()
+        .find(|p| p.id.as_deref() == Some(roster.created_by.as_str()));
+    if let Some(c) = creator.filter(agent) {
+        return Some(c);
+    }
+    if let Some(person) = creator.and_then(|c| c.person_id.as_deref())
+        && let Some(p) = roster
+            .participants
+            .iter()
+            .filter(agent)
+            .find(|p| p.person_id.as_deref() == Some(person))
+    {
+        return Some(p);
+    }
+    roster.participants.iter().find(agent)
+}
+
+/// Whether a message notification for participant `me` wakes it (contract
+/// C7, Waking): an addressed message wakes those it names, an unaddressed
+/// one only the lead.
+fn wakes(roster: &Roster, addressed_to: Option<&Vec<String>>, me: &str) -> bool {
+    match addressed_to {
+        Some(names) if !names.is_empty() => names.iter().any(|n| n == me),
+        _ => lead_of(roster).and_then(|p| p.id.as_deref()) == Some(me),
+    }
 }
 
 /// Which local participants this host admitted itself (contract C2,
@@ -1103,6 +1140,7 @@ impl Store {
             "last_message_at": Self::last_message_at(&messages),
             "unsynced": self.unsynced(conn, &roster.conversation_id)?,
             "about": roster.about,
+            "lead": lead_of(roster).and_then(|p| p.id.clone()),
             "home_unavailable": self.home_unavailable(conn, roster)?,
         }))
     }
@@ -1153,6 +1191,7 @@ impl Store {
                     "created_at": roster.created_at,
                     "last_message_at": last,
                     "about": roster.about,
+                    "lead": lead_of(roster).and_then(|p| p.id.clone()),
                     "home_unavailable": self.home_unavailable(&conn, roster)?,
                     "unread": self.own_unread(&conn, &roster.conversation_id)?,
                 }),
@@ -1220,7 +1259,15 @@ impl Store {
         title: Option<String>,
         note: Option<String>,
         about: Option<About>,
-    ) -> Result<(String, Vec<(String, String, Option<&'static str>)>), Error> {
+        addressed_to: &[String],
+    ) -> Result<
+        (
+            String,
+            Vec<(String, String, Option<&'static str>)>,
+            Vec<String>,
+        ),
+        Error,
+    > {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         if self.open_count(&tx, creator)? >= MAX_OPEN {
@@ -1272,6 +1319,9 @@ impl Store {
         let mut outcomes = Vec::new();
         let mut added = Vec::new();
         let mut persons = Vec::new();
+        // Targets roster version 1 leaves out: `addressed_to` may still name
+        // them, and they are then dropped (C7, Starting with addressed_to).
+        let mut left_out = Vec::new();
         for (given, target) in targets {
             let target = match target {
                 Target::Agent(candidate) => candidate,
@@ -1285,6 +1335,17 @@ impl Store {
             let participant = format!("agent:{}/{}", target.host_id, target.agent_id);
             if target.local {
                 if self.open_count(&tx, &participant)? >= MAX_OPEN {
+                    left_out.push(Participant {
+                        id: Some(participant.clone()),
+                        kind: "agent".into(),
+                        host_id: Some(own.clone()),
+                        person_id: person.clone(),
+                        agent_id: Some(target.agent_id.clone()),
+                        name: Some(target.name.clone()),
+                        state: "joined".into(),
+                        added_by: Some(creator.into()),
+                        added_at: at.clone(),
+                    });
                     outcomes.push((given.clone(), participant, Some("limit")));
                     continue;
                 }
@@ -1337,6 +1398,29 @@ impl Store {
                 outcomes.push((given.clone(), participant, None));
             }
         }
+        // Resolved before anything is persisted: the transaction is dropped
+        // on a refusal.
+        let addressed = if addressed_to.is_empty() {
+            Vec::new()
+        } else {
+            let mut probe = held.clone();
+            for p in &left_out {
+                if let Some(pid) = &p.id {
+                    probe.admit(pid, &at);
+                }
+                probe.roster.participants.push(p.clone());
+            }
+            let kept: BTreeSet<String> = held
+                .roster
+                .participants
+                .iter()
+                .filter_map(|p| p.id.clone())
+                .collect();
+            self.resolve_addressed(&tx, &probe, addressed_to)?
+                .into_iter()
+                .filter(|p| kept.contains(p))
+                .collect()
+        };
         save_held(&tx, &held)?;
         for (given, person) in &persons {
             self.invite_person(&tx, &held, given, person, creator, note.clone(), &at)?;
@@ -1347,7 +1431,7 @@ impl Store {
             self.notify(&tx, &id, &agent, "roster", None, Some(change))?;
         }
         tx.commit()?;
-        Ok((id, outcomes))
+        Ok((id, outcomes, addressed))
     }
     fn save_invite(&self, conn: &Connection, id: &str, invite: &Invite) -> Result<(), Error> {
         let (_, host, agent) = participant_parts(&invite.participant).ok_or(Error::NotFound)?;
@@ -1417,6 +1501,38 @@ impl Store {
         message_id: Option<&str>,
         change: Option<Value>,
     ) -> Result<(), Error> {
+        self.notify_parked(conn, conversation, agent, kind, message_id, change, false)
+    }
+    /// A message notification that wakes `agent` or is parked (C7).
+    fn notify_message(
+        &self,
+        conn: &Connection,
+        conversation: &str,
+        agent: &str,
+        message_id: &str,
+        parked: bool,
+    ) -> Result<(), Error> {
+        self.notify_parked(
+            conn,
+            conversation,
+            agent,
+            "message",
+            Some(message_id),
+            None,
+            parked,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn notify_parked(
+        &self,
+        conn: &Connection,
+        conversation: &str,
+        agent: &str,
+        kind: &str,
+        message_id: Option<&str>,
+        change: Option<Value>,
+        parked: bool,
+    ) -> Result<(), Error> {
         let n = Notification {
             id: new_id("cnot")?,
             kind: kind.into(),
@@ -1432,6 +1548,7 @@ impl Store {
             blocked_at: None,
             exhausted_at: None,
             coalesced: Vec::new(),
+            parked,
         };
         conn.execute(
             "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
@@ -2317,7 +2434,8 @@ impl Store {
                 )?;
                 tools::log_event(&tx, "message_received", id, Some(&message_id), Some(target))?;
                 if let Some(("agent", _, agent)) = participant_parts(target) {
-                    self.notify(&tx, id, agent, "message", Some(&message_id), None)?;
+                    let parked = !wakes(&roster, stored.message.addressed_to.as_ref(), target);
+                    self.notify_message(&tx, id, agent, &message_id, parked)?;
                 }
                 continue;
             }
@@ -2956,7 +3074,8 @@ impl Store {
             Some(&r.target),
         )?;
         if target_kind == "agent" {
-            self.notify(&tx, id, target_local, "message", Some(&m.message_id), None)?;
+            let parked = !wakes(roster, m.addressed_to.as_ref(), &r.target);
+            self.notify_message(&tx, id, target_local, &m.message_id, parked)?;
         }
         tx.commit()?;
         Ok(receipt)
@@ -3629,6 +3748,8 @@ impl Store {
         let roster = &held.roster;
         let agent = participant_parts(me).map(|p| p.2).unwrap_or_default();
         let unseen = self.unseen(conn, &roster.conversation_id, agent)?;
+        let parked = self.parked(conn, &roster.conversation_id, agent)?;
+        let lead = lead_of(roster).and_then(|p| p.id.clone());
         let visible = self.visible(conn, &roster.conversation_id, me)?;
         let participants = self
             .shown(held)
@@ -3641,6 +3762,7 @@ impl Store {
                     "kind": p.kind,
                     "state": p.state,
                     "you": p.id.as_deref() == Some(me),
+                    "lead": p.id.is_some() && p.id == lead,
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -3651,6 +3773,8 @@ impl Store {
             "home_host_id": roster.home_host_id,
             "participants": participants,
             "unseen": unseen,
+            "parked": parked,
+            "lead": lead,
             "last_message_at": Self::last_message_at(&visible),
             "creator": roster.created_by == me,
             "about": roster.about,
@@ -5227,6 +5351,8 @@ struct StartRequest {
     network: Option<String>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     about: Option<About>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    addressed_to: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5242,6 +5368,8 @@ struct AdapterStartRequest {
     message_id: Option<String>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     about: Option<About>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    addressed_to: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5574,17 +5702,9 @@ async fn wait_invites(
     }
 }
 
-struct Started {
-    id: String,
-    outcomes: Vec<(String, String, Option<&'static str>)>,
-    message: Value,
-}
-
-/// Starts a conversation (contract C2, Starting).
-#[allow(clippy::too_many_arguments)]
-async fn start_conversation(
-    store: &Arc<Store>,
-    actor: &Actor,
+/// What a start's request asks for (contract C2, Starting; C7 adds
+/// `addressed_to`).
+struct StartAsk {
     participants: Vec<String>,
     title: Option<String>,
     content: Option<String>,
@@ -5592,7 +5712,35 @@ async fn start_conversation(
     note: Option<String>,
     network: Option<String>,
     about: Option<About>,
+    addressed_to: Vec<String>,
+}
+
+struct Started {
+    id: String,
+    outcomes: Vec<(String, String, Option<&'static str>)>,
+    message: Value,
+}
+
+/// Starts a conversation (contract C2, Starting).
+async fn start_conversation(
+    store: &Arc<Store>,
+    actor: &Actor,
+    ask: StartAsk,
 ) -> Result<Started, Error> {
+    let StartAsk {
+        participants,
+        title,
+        content,
+        message_id,
+        note,
+        network,
+        about,
+        addressed_to,
+    } = ask;
+    tools::check_addressed(&addressed_to)?;
+    if !addressed_to.is_empty() && content.is_none() {
+        return Err(coded_error(400, "invalid", "addressed_to needs content"));
+    }
     if participants.is_empty() || participants.len() > MAX_PARTICIPANTS - 1 {
         return Err(invalid("give 1 to 15 participants"));
     }
@@ -5653,8 +5801,8 @@ async fn start_conversation(
         }
     }
     let creator = actor.participant.clone();
-    let (id, outcomes) = blocking(store.clone(), move |s| {
-        s.create_conversation(&creator, &targets, title, note, about)
+    let (id, outcomes, addressed) = blocking(store.clone(), move |s| {
+        s.create_conversation(&creator, &targets, title, note, about, &addressed_to)
     })
     .await?;
     let remote: Vec<String> = outcomes
@@ -5667,7 +5815,21 @@ async fn start_conversation(
         Some(content) => {
             let (i, author, origin) = (id.clone(), actor.participant.clone(), actor.origin.clone());
             let (value, keys) = blocking(store.clone(), move |s| {
-                s.author_message(&i, &author, origin, message_id, content, None)
+                // C7: those still in the roster; with none left the first
+                // message is unaddressed.
+                let held = s.held(&*s.connection()?, &i)?;
+                let (shown, _) = s.shown(&held);
+                let addressed: Vec<String> = addressed
+                    .into_iter()
+                    .filter(|a| {
+                        shown.iter().any(|p| {
+                            p.id.as_deref() == Some(a.as_str())
+                                && matches!(&p.state[..], "joined" | "inviting")
+                        })
+                    })
+                    .collect();
+                let addressed = (!addressed.is_empty()).then_some(addressed);
+                s.author_message(&i, &author, origin, message_id, content, addressed)
             })
             .await?;
             dispatch(store, target_keys(keys));
@@ -5727,18 +5889,17 @@ async fn start(
         return Err(invalid("give 1 to 15 participants"));
     }
     let actor = owner_actor(&store, r.as_agent).await?;
-    let started = start_conversation(
-        &store,
-        &actor,
-        r.participants,
-        r.title,
-        r.content,
-        r.message_id,
-        r.note,
-        r.network,
-        r.about,
-    )
-    .await?;
+    let ask = StartAsk {
+        participants: r.participants,
+        title: r.title,
+        content: r.content,
+        message_id: r.message_id,
+        note: r.note,
+        network: r.network,
+        about: r.about,
+        addressed_to: r.addressed_to.unwrap_or_default(),
+    };
+    let started = start_conversation(&store, &actor, ask).await?;
     let answer = started_answer(&store, &actor, started, false).await?;
     Ok((StatusCode::CREATED, Json(answer)))
 }
@@ -6072,18 +6233,17 @@ async fn adapter_start(
 ) -> Result<(StatusCode, Json<Value>), Error> {
     let actor = adapter_actor(&store, &headers).await?;
     let r: AdapterStartRequest = decode(body)?;
-    let started = start_conversation(
-        &store,
-        &actor,
-        r.participants,
-        r.title,
-        r.content,
-        r.message_id,
-        r.note,
-        None,
-        r.about,
-    )
-    .await?;
+    let ask = StartAsk {
+        participants: r.participants,
+        title: r.title,
+        content: r.content,
+        message_id: r.message_id,
+        note: r.note,
+        network: None,
+        about: r.about,
+        addressed_to: r.addressed_to.unwrap_or_default(),
+    };
+    let started = start_conversation(&store, &actor, ask).await?;
     let answer = started_answer(&store, &actor, started, true).await?;
     Ok((StatusCode::CREATED, Json(answer)))
 }

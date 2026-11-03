@@ -31,7 +31,7 @@ from contextlib import closing
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+from schema28_compatibility import CONVERSATION_TABLES, NEWER_TABLES, drop_conversations
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
                      join_request, parse_time, ssh_key, ssh_public_base64, wait_for)
@@ -612,7 +612,7 @@ def refuse_start(h):
     check(records(h) == before, "refused migration changed logical records, version or schema")
 
 
-@suite.case("schema26_additive_migration_reserved_names_corruption_and_future30", "guided onboarding 9 verification 6")
+@suite.case("schema26_additive_migration_reserved_names_corruption_and_future31", "guided onboarding 9 verification 6")
 def _():
     source = host("migration")
     network = create_network(source, "preserved-network", "owner")
@@ -645,10 +645,10 @@ def _():
     check(get(legacy, "/v1/onboarding/adapter-flows/" + adapter_flow["flow_id"])["review"] == adapter_flow["review"], "migration changed retained adapter terms")
     legacy.stop()
     migrated = records(legacy)
-    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (29,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
-    check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
+    check(migrated["$version"] == (30,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),
                       ("view", f"CREATE VIEW {TABLE} AS SELECT 'reserved' AS marker"),
@@ -684,9 +684,9 @@ def _():
             db.execute(f"DROP TABLE {TABLE}")
             db.execute(f"CREATE TABLE {TABLE} (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future30")
+    future = clone_state(source, "future31")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 30")
+        db.execute("PRAGMA user_version = 31")
     refuse_start(future)
 
 

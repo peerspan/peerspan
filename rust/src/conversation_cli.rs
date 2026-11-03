@@ -3,7 +3,7 @@
 use crate::{
     admin::Local,
     capability_cli::escaped,
-    cli::{Command, ConversationCommand},
+    cli::{AgentCommand, Command, ConversationCommand},
 };
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
@@ -17,7 +17,9 @@ use std::{
 pub(crate) fn handles(command: &Command) -> bool {
     matches!(
         command,
-        Command::Conversations { .. } | Command::Conversation(_)
+        Command::Conversations { .. }
+            | Command::Conversation(_)
+            | Command::Agent(AgentCommand::Describe { .. })
     )
 }
 
@@ -62,6 +64,28 @@ use crate::cli::encoded;
 async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
     let local = Local(socket);
     match command {
+        Command::Agent(AgentCommand::Describe { agent, text, clear }) => {
+            let description = match (text, clear) {
+                (Some(t), false) => t,
+                (None, true) => String::new(),
+                _ => bail!("usage: agent describe AGENT TEXT, or agent describe AGENT --clear"),
+            };
+            let agents = local.get("/v1/agents".into()).await?;
+            let found = agents.as_array().into_iter().flatten().find(|a| {
+                a["id"].as_str() == Some(agent.as_str())
+                    || a["name"].as_str() == Some(agent.as_str())
+            });
+            let Some(id) = found.and_then(|a| a["id"].as_str()) else {
+                bail!("not_found: No such agent on this host.");
+            };
+            let value = local
+                .post(
+                    format!("/v1/agents/{}/description", encoded(id)),
+                    json!({"description": description}),
+                )
+                .await?;
+            print(&value)
+        }
         Command::Conversations {
             invites: true,
             json,
@@ -129,12 +153,19 @@ async fn execute(command: Command, socket: &Path) -> anyhow::Result<()> {
             title,
             message,
             message_id,
+            to,
             note,
             as_agent,
             network,
             about,
         }) => {
+            if !to.is_empty() && message.is_none() {
+                bail!("usage: conversation start --to needs --message");
+            }
             let mut body = json!({ "participants": targets });
+            if !to.is_empty() {
+                body["addressed_to"] = json!(to);
+            }
             if let Some(about) = about {
                 let (host, task) = about
                     .split_once('/')
@@ -792,8 +823,13 @@ fn readable(conversation: &Value, messages: &Value, reader: Option<&str>) {
     if let Some(title) = conversation["title"].as_str() {
         header.push_str(&format!(" \"{}\"", escaped(title)));
     }
+    let lead = conversation["lead"]
+        .as_str()
+        .and_then(|id| participants.iter().find(|p| text(&p["id"]) == id))
+        .map(|p| format!("   lead {}", safe(&p["label"])))
+        .unwrap_or_default();
     println!(
-        "{header}   {}   {} participants{}",
+        "{header}   {}   {} participants{lead}{}",
         safe(&conversation["state"]),
         participants.len(),
         if conversation["home_unavailable"] == true {

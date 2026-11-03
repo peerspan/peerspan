@@ -21,10 +21,16 @@ export function bytes(v) {
   return n;
 }
 const text = (v, n) => typeof v === 'string' && v.trim().length > 0 && bytes(v) <= n;
+// A registered agent (full) may carry the owner's description, null or one
+// line (conversations C7); review terms never do.
+const described = v => v === null || (typeof v === 'string' && bytes(v) >= 1 && bytes(v) <= 200 &&
+  !/[\u0000-\u001f\u007f-\u009f]/u.test(v) && !/^ +$/.test(v));
 function agent(v, full = false) {
-  return exact(v, 'id name owner capabilities' + (full ? ' created_at' : '')) && id(v.id, 'agent') &&
-    text(v.name, 128) && text(v.owner, 128) && Array.isArray(v.capabilities) && (full || v.capabilities.length <= 100) &&
-    v.capabilities.every(c => text(c, 256)) && (!full || time(v.created_at));
+  const description = full && object(v) && Object.hasOwn(v, 'description');
+  return exact(v, 'id name owner capabilities' + (full ? ' created_at' : '') + (description ? ' description' : '')) &&
+    id(v.id, 'agent') && text(v.name, 128) && text(v.owner, 128) && Array.isArray(v.capabilities) &&
+    (full || v.capabilities.length <= 100) && v.capabilities.every(c => text(c, 256)) && (!full || time(v.created_at)) &&
+    (!description || described(v.description));
 }
 export function validContext(v) {
   return exact(v, 'project_root native_session_id integration') && v.integration === 'claude-code' &&

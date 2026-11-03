@@ -183,6 +183,21 @@ pub struct PeerAgent {
     /// before live delivery omit it.
     #[serde(default)]
     pub channel: Option<String>,
+    /// The owner's description (conversations C7). Left out when none; a
+    /// value breaking C7's rules reads as absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "description"
+    )]
+    pub description: Option<String>,
+}
+
+fn description<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::String(s) if crate::model::valid_description(&s) => Some(s),
+        _ => None,
+    })
 }
 
 /// What a send or task by address cites.
@@ -388,6 +403,21 @@ impl Store {
             })
             .map(|a| (a.agent_id.clone(), a.name.clone()))
     }
+    /// The description of agent `agent` on `host` in this host's
+    /// directory cache, from the lowest network ID whose entry has one
+    /// (conversations C7, Areas).
+    pub(crate) fn cached_description(&self, host: &str, agent: &str) -> Option<String> {
+        let cache = self.directory_cache().ok()?;
+        cache.networks.values().find_map(|n| {
+            n.hosts
+                .get(host)?
+                .agents
+                .iter()
+                .find(|a| a.agent_id == agent)?
+                .description
+                .clone()
+        })
+    }
     pub(crate) fn directory_cache(&self) -> Result<std::sync::MutexGuard<'_, Cache>, Error> {
         self.agent_directory
             .lock()
@@ -482,14 +512,15 @@ impl Store {
             })
             .collect()
         };
-        let agents: Vec<(String, String)> = {
-            let mut statement = conn.prepare("SELECT id, name FROM agents ORDER BY name, id")?;
+        let agents: Vec<(String, String, Option<String>)> = {
+            let mut statement =
+                conn.prepare("SELECT a.id, a.name, d.description FROM agents a LEFT JOIN agent_descriptions d ON d.agent_id = a.id ORDER BY a.name, a.id")?;
             statement
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<Result<_, _>>()?
         };
         let mut result = Vec::new();
-        for (id, name) in agents {
+        for (id, name, description) in agents {
             let mut authorizations = Vec::new();
             if self_access {
                 let bounds = crate::policy::SELF_BOUNDS;
@@ -540,6 +571,7 @@ impl Store {
                 name,
                 agent_id: id,
                 authorizations,
+                description,
             });
         }
         Ok(result)
@@ -792,6 +824,7 @@ impl Store {
                         "connected": a.connected,
                         "authorizations": a.authorizations,
                         "channel": a.channel,
+                        "description": a.description,
                     }),
                 ));
             }
@@ -858,6 +891,7 @@ impl Store {
                     "actions": ordered(&actions),
                     "max_message_bytes": message,
                     "max_artifact_bytes": artifact,
+                    "description": agent.description,
                 }),
             ));
         }
@@ -1661,5 +1695,84 @@ pub(crate) fn endpoint(store: &Arc<Store>, host: &str, map: Option<String>) -> V
         }
         Ok(p) => json!({"address": map, "path": p.path}),
         Err(_) => json!({"address": map, "path": "none"}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(description: Value) -> Value {
+        json!({"name": "bert", "agent_id": format!("agent_{}", "1".repeat(32)), "connected": true,
+            "authorizations": [], "channel": "verified", "description": description})
+    }
+
+    #[test]
+    fn a_malformed_peer_description_reads_as_absent_and_keeps_the_entry() {
+        for bad in [
+            json!("x".repeat(201)),
+            json!("one\ntwo"),
+            json!(""),
+            json!("   "),
+            json!(7),
+            json!(null),
+            json!(["db"]),
+        ] {
+            let agent: PeerAgent = serde_json::from_value(entry(bad.clone())).unwrap();
+            assert_eq!(agent.description, None, "{bad}");
+            assert_eq!(agent.name, "bert");
+            assert_eq!(agent.channel.as_deref(), Some("verified"));
+        }
+        let agent: PeerAgent = serde_json::from_value(entry(json!("database"))).unwrap();
+        assert_eq!(agent.description.as_deref(), Some("database"));
+        let mut older = entry(Value::Null);
+        older.as_object_mut().unwrap().remove("description");
+        let agent: PeerAgent = serde_json::from_value(older).unwrap();
+        assert_eq!(agent.description, None);
+        // An entry without a description has exactly the keys it had before.
+        let served = serde_json::to_value(&agent).unwrap();
+        assert!(served.get("description").is_none());
+    }
+
+    #[test]
+    fn areas_use_the_lowest_network_whose_entry_has_a_description() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let agent_id = format!("agent_{}", "1".repeat(32));
+        let agent = |description: Option<&str>| PeerAgent {
+            name: "bert".into(),
+            agent_id: agent_id.clone(),
+            connected: true,
+            authorizations: Vec::new(),
+            channel: None,
+            description: description.map(str::to_owned),
+        };
+        let network = |a: PeerAgent| NetworkEntry {
+            refreshed_at: None,
+            hosts: BTreeMap::from([(
+                "host_b".to_owned(),
+                HostEntry {
+                    state: "ok",
+                    refreshed_at: None,
+                    error: None,
+                    agents: vec![a],
+                },
+            )]),
+        };
+        {
+            let mut cache = store.directory_cache().unwrap();
+            cache.networks.insert("net_a".into(), network(agent(None)));
+            cache
+                .networks
+                .insert("net_b".into(), network(agent(Some("database"))));
+            cache
+                .networks
+                .insert("net_c".into(), network(agent(Some("other"))));
+        }
+        assert_eq!(
+            store.cached_description("host_b", &agent_id).as_deref(),
+            Some("database")
+        );
+        assert_eq!(store.cached_description("host_c", &agent_id), None);
     }
 }

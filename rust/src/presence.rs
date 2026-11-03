@@ -51,16 +51,22 @@ impl Store {
     /// so the lease time also covers an authorization expiring.
     fn presence_view(&self) -> Result<(String, Option<i64>), Error> {
         let conn = self.connection()?;
-        let agents: Vec<(String, String)> = {
-            let mut statement = conn.prepare("SELECT id, name FROM agents ORDER BY name, id")?;
+        let agents: Vec<(String, String, Option<String>)> = {
+            let mut statement =
+                conn.prepare("SELECT a.id, a.name, d.description FROM agents a LEFT JOIN agent_descriptions d ON d.agent_id = a.id ORDER BY a.name, a.id")?;
             statement
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<Result<_, _>>()?
         };
         let mut hash = Sha256::new();
-        for (id, name) in agents {
+        for (id, name, description) in agents {
             let channel = self.agent_channel(&conn, &id)?;
-            hash.update(serde_json::to_vec(&(&id, &name, channel))?);
+            // A description change counts as a presence change (C7); an
+            // agent without one hashes as before.
+            match &description {
+                None => hash.update(serde_json::to_vec(&(&id, &name, channel))?),
+                Some(d) => hash.update(serde_json::to_vec(&(&id, &name, channel, d))?),
+            }
         }
         let lapse: Option<i64> = conn.query_row(
             "SELECT MIN(x.lease_until_ms) FROM sessions s JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.state = 'attached' AND x.lease_until_ms > ?1",

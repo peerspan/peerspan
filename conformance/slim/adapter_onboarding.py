@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from schema28_compatibility import CONVERSATION_TABLES, drop_conversations
+from schema28_compatibility import CONVERSATION_TABLES, NEWER_TABLES, drop_conversations
 
 from harness import Adapter, Suite, UnixHTTPConnection, check, create_network, parse_time, rfc3339
 
@@ -343,7 +343,7 @@ def _():
     check(status == 201, "existing-agent fixture failed")
     attached = project(host, "approved", agent=existing)
     flow = prepare(host, attached)
-    check(flow["review"]["agent"] == without(existing, "created_at"), "adapter review dropped existing-agent metadata")
+    check(flow["review"]["agent"] == without(existing, "created_at", "description"), "adapter review dropped existing-agent metadata")
     agents, sessions, activity = get(host, "/v1/agents"), get(host, "/v1/sessions"), events(host)
     session_records = records(host)["sessions"]
     results = parallel(lambda: decide(host, flow))
@@ -782,11 +782,11 @@ def _():
           and get(legacy, "/v1/sessions/" + attached["review"]["session_id"])["state"] == "detached", "migration resurrected historical attachment")
     legacy.stop()
     migrated = records(legacy)
-    check(all(migrated[table] == () for table in CONVERSATION_TABLES),
+    check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (29,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
+    check(migrated["$version"] == (30,) and migrated[TABLE] == () and migrated["onboarding_invitation_flows"] == () and migrated["onboarding_join_flows"] == (),
           "migration did not add empty schema25/26/27 tables")
-    check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES) == without(old, "$schema", "$version"),
+    check(without(migrated, "$schema", "$version", TABLE, "onboarding_invitation_flows", "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"),
           "schema24 migration changed project/DEC/registry/history records")
     check(migrated["$schema"] == baseline["$schema"], "schema24 migration changed old table definitions")
     for kind, ddl in (("table", "CREATE TABLE onboarding_adapter_flows (marker TEXT)"),
@@ -829,9 +829,9 @@ def _():
             db.execute("DROP TABLE onboarding_adapter_flows")
             db.execute("CREATE TABLE onboarding_adapter_flows (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future30")
+    future = clone_state(source, "future31")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 30")
+        db.execute("PRAGMA user_version = 31")
     refuse_start(future)
 
 

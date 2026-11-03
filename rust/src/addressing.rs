@@ -155,6 +155,7 @@ pub async fn agents(
                 "host_state": states.get(host).cloned().unwrap_or_else(|| "pending".into()),
                 "actions": union(&a["authorizations"]),
                 "endpoint": endpoint_of(&a["host_id"]),
+                "description": a["description"],
             })
         })
         .collect();
@@ -168,6 +169,12 @@ pub async fn agents(
         .flatten()
         .filter_map(|s| Some((s["id"].as_str()?.to_owned(), s.get("channel")?.clone())))
         .collect();
+    let own_agents = local
+        .get("/v1/agents".into())
+        .await?
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let mut mine = Vec::new();
     for agent in status["agents"].as_array().into_iter().flatten() {
         let name = agent["name"].as_str().unwrap_or_default();
@@ -189,12 +196,18 @@ pub async fn agents(
                     .and_then(|id| channels.get(id))
                     .is_none_or(|c| c == "verified")
         });
+        let description = own_agents
+            .iter()
+            .find(|a| a["id"] == agent["id"])
+            .map(|a| a["description"].clone())
+            .unwrap_or(Value::Null);
         mine.push(json!({
             "address": address,
             "host_id": host,
             "agent_id": agent["id"],
             "connected": connected,
             "endpoint": endpoint_of(&json!(host)),
+            "description": description,
         }));
     }
     if person.is_some() {
@@ -205,6 +218,7 @@ pub async fn agents(
                 "agent_id": a["agent_id"],
                 "connected": a["connected"],
                 "endpoint": endpoint_of(&a["host_id"]),
+                "description": a["description"],
             }));
         }
     }

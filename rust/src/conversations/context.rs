@@ -325,7 +325,7 @@ impl Store {
         agent: &str,
         ended: &mut Ended,
     ) -> Result<bool, Error> {
-        if row.kind != "message" || !row.open() {
+        if row.kind != "message" || !row.open() || row.n.parked {
             return Ok(false);
         }
         if held_live(conn, row, ended)? {
@@ -355,6 +355,79 @@ impl Store {
             }
         }
         Ok(count)
+    }
+    /// `parked` of the agent summary (contract C7): parked notifications
+    /// whose recheck passes now.
+    pub(super) fn parked(
+        &self,
+        conn: &Connection,
+        conversation: &str,
+        agent: &str,
+    ) -> Result<i64, Error> {
+        let mut count = 0;
+        for row in rows(
+            conn,
+            "conversation_id = ?1 AND agent_id = ?2 AND kind = 'message' AND session_id IS NULL AND seen_at IS NULL",
+            &[conversation, agent],
+        )? {
+            if row.n.parked && row.open() && self.recheck_row(conn, &row, agent)? == Recheck::Pass {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+    /// Gathers P's parked notifications in `conversation` whose messages
+    /// sort before `before` in display order (contract C7, claim step 6).
+    fn gather(
+        &self,
+        tx: &Transaction<'_>,
+        conversation: &str,
+        ss: &crate::model::Session,
+        adapter: &str,
+        before: &str,
+        at: &str,
+    ) -> Result<Vec<Row>, Error> {
+        let agent = ss.agent_id.as_str();
+        let Some(limit) = self.stored_message(tx, conversation, before)? else {
+            return Ok(Vec::new());
+        };
+        let key = |s: &Stored| {
+            (
+                s.message.clock,
+                s.message.author.clone().into_bytes(),
+                s.message.seq,
+            )
+        };
+        let limit = key(&limit);
+        let mut gathered = Vec::new();
+        for mut row in rows(
+            tx,
+            "agent_id = ?1 AND conversation_id = ?2 AND kind = 'message' AND session_id IS NULL AND seen_at IS NULL",
+            &[agent, conversation],
+        )? {
+            if !row.n.parked || !row.open() {
+                continue;
+            }
+            let Some(message) = &row.message_id else {
+                continue;
+            };
+            let Some(stored) = self.stored_message(tx, conversation, message)? else {
+                continue;
+            };
+            if key(&stored) >= limit {
+                continue;
+            }
+            match self.recheck(tx, &stored, agent)? {
+                Recheck::Pass => {
+                    row.n.parked = false;
+                    self.bind(tx, &mut row, &ss.id, adapter, at)?;
+                    gathered.push(row);
+                }
+                Recheck::Wait => {}
+                Recheck::Fail => self.block_notification(tx, &mut row)?,
+            }
+        }
+        Ok(gathered)
     }
     /// The session's notifications become seen, after a successful
     /// conversation tool call.
@@ -418,6 +491,9 @@ impl Store {
             "agent_id = ?1 AND seen_at IS NULL AND (session_id IS NULL OR returned_at IS NOT NULL) AND json_extract(record, '$.blocked_at') IS NULL AND json_extract(record, '$.exhausted_at') IS NULL",
             &[&ss.agent_id],
         )? {
+            if row.n.parked {
+                continue;
+            }
             if row.kind == "message" {
                 match self.recheck_row(&tx, &row, &ss.agent_id)? {
                     Recheck::Pass => {}
@@ -449,6 +525,35 @@ impl Store {
                         Recheck::Wait => {}
                         Recheck::Fail => self.block_notification(&tx, &mut other)?,
                     }
+                }
+            }
+            if row.kind == "message" {
+                // Step 6: the newest claimed message bounds what is gathered.
+                let mut newest: Option<(Stored, String)> = None;
+                for r in std::iter::once(&row).chain(bound.iter()) {
+                    let Some(m) = &r.message_id else { continue };
+                    let Some(stored) = self.stored_message(&tx, &r.conversation_id, m)? else {
+                        continue;
+                    };
+                    let key = (
+                        stored.message.clock,
+                        stored.message.author.clone().into_bytes(),
+                        stored.message.seq,
+                    );
+                    let later = newest.as_ref().is_none_or(|(n, _)| {
+                        key > (
+                            n.message.clock,
+                            n.message.author.clone().into_bytes(),
+                            n.message.seq,
+                        )
+                    });
+                    if later {
+                        newest = Some((stored, m.clone()));
+                    }
+                }
+                if let Some((_, before)) = newest {
+                    let more = self.gather(&tx, &row.conversation_id, &ss, &a.id, &before, &at)?;
+                    bound.extend(more);
                 }
             }
             claim = Some(self.claim_answer(&tx, &ss, row, bound, catch_up, redelivered)?);
@@ -497,7 +602,8 @@ impl Store {
             && let Some(position) = place(&newest)
         {
             messages.push(self.adapter_message(tx, &roster, &visible[position], &me, None)?);
-            if first || catch_up {
+            // Coalesced rows come only from a catch-up or a gather (C7).
+            if first || catch_up || !coalesced.is_empty() {
                 window_total = position;
                 let mut bytes = 0;
                 for s in visible[..position].iter().rev() {
@@ -512,6 +618,32 @@ impl Store {
             }
         }
         let summary = self.agent_summary(tx, &held, &me)?;
+        let lead = super::lead_of(&roster).and_then(|p| p.id.clone());
+        let (lead_view, areas) = match &lead {
+            Some(id) => {
+                let you = id == &me;
+                let mut areas = Vec::new();
+                if you {
+                    for p in roster
+                        .participants
+                        .iter()
+                        .filter(|p| p.kind == "agent" && p.state == "joined")
+                    {
+                        let Some(pid) = &p.id else { continue };
+                        areas.push(json!({
+                            "participant": pid,
+                            "label": self.label(tx, p)?,
+                            "description": self.area_description(tx, pid)?,
+                        }));
+                    }
+                }
+                (
+                    json!({"participant": id, "label": self.label_of(tx, &roster, id)?, "you": you}),
+                    areas,
+                )
+            }
+            None => (Value::Null, Vec::new()),
+        };
         Ok(json!({
             "notification": notification_view(tx, &newest.n)?,
             "conversation": summary,
@@ -521,7 +653,32 @@ impl Store {
             "catch_up": catch_up,
             "coalesced": coalesced,
             "redelivered": redelivered,
+            "lead": lead_view,
+            "areas": areas,
         }))
+    }
+    /// An agent participant's description for the lead's `areas` (contract
+    /// C7, Areas): this host's own record for its agents, else the
+    /// directory cache.
+    fn area_description(
+        &self,
+        conn: &Connection,
+        participant: &str,
+    ) -> Result<Option<String>, Error> {
+        let Some(("agent", host, agent)) = participant_parts(participant) else {
+            return Ok(None);
+        };
+        if host == self.identity().id {
+            return Ok(conn
+                .query_row(
+                    "SELECT description FROM agent_descriptions WHERE agent_id = ?1",
+                    [agent],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten());
+        }
+        Ok(self.cached_description(host, agent))
     }
     /// `POST .../forwarded` also marks what the catch-up coalesced.
     pub(super) fn forward_coalesced(
@@ -592,6 +749,7 @@ impl Store {
             blocked_at: None,
             exhausted_at: None,
             coalesced: Vec::new(),
+            parked: false,
         };
         conn.execute(
             "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
@@ -917,5 +1075,136 @@ mod tests {
             .unwrap();
         drop(conn);
         assert_eq!(undelivered(&store), 0);
+    }
+
+    // Conversations contract, C7: the lead.
+    fn entry(id: &str, kind: &str, person: &str, state: &str) -> super::super::Participant {
+        super::super::Participant {
+            id: Some(id.into()),
+            kind: kind.into(),
+            host_id: Some("host_a".into()),
+            person_id: Some(person.into()),
+            agent_id: (kind == "agent").then(|| id.into()),
+            name: None,
+            state: state.into(),
+            added_by: None,
+            added_at: String::new(),
+        }
+    }
+    fn lead_roster(created_by: &str, participants: Vec<super::super::Participant>) -> Roster {
+        Roster {
+            conversation_id: CONVERSATION.into(),
+            home_host_id: "host_a".into(),
+            version: 1,
+            title: None,
+            state: "open".into(),
+            created_by: created_by.into(),
+            created_at: now(),
+            participants,
+            departed: Vec::new(),
+            about: None,
+        }
+    }
+    fn lead(roster: &Roster) -> Option<String> {
+        super::super::lead_of(roster).and_then(|p| p.id.clone())
+    }
+
+    #[test]
+    fn the_lead_follows_the_three_rules() {
+        // 1. A creator that is a joined agent.
+        let r = lead_roster(
+            "ann",
+            vec![
+                entry("bea", "agent", "bob", "joined"),
+                entry("ann", "agent", "alice", "joined"),
+            ],
+        );
+        assert_eq!(lead(&r).as_deref(), Some("ann"));
+        // 2. Else the creator's person's first joined agent.
+        let r = lead_roster(
+            "alice",
+            vec![
+                entry("alice", "person", "alice", "joined"),
+                entry("bea", "agent", "bob", "joined"),
+                entry("ann", "agent", "alice", "joined"),
+                entry("abe", "agent", "alice", "joined"),
+            ],
+        );
+        assert_eq!(lead(&r).as_deref(), Some("ann"));
+        // 3. Else the first joined agent.
+        let r = lead_roster(
+            "alice",
+            vec![
+                entry("alice", "person", "alice", "joined"),
+                entry("bea", "agent", "bob", "joined"),
+                entry("bel", "agent", "bob", "joined"),
+            ],
+        );
+        assert_eq!(lead(&r).as_deref(), Some("bea"));
+    }
+
+    #[test]
+    fn a_departed_creator_skips_rule_two_and_inviting_agents_are_skipped() {
+        // The creator is not in participants: rule 2 does not apply, even
+        // though a later agent shares the person.
+        let r = lead_roster(
+            "alice",
+            vec![
+                entry("bea", "agent", "bob", "inviting"),
+                entry("bel", "agent", "bob", "joined"),
+                entry("ann", "agent", "alice", "joined"),
+            ],
+        );
+        assert_eq!(lead(&r).as_deref(), Some("bel"));
+        // A creator agent still inviting is not the lead either.
+        let r = lead_roster(
+            "ann",
+            vec![
+                entry("ann", "agent", "alice", "inviting"),
+                entry("bea", "agent", "bob", "joined"),
+            ],
+        );
+        assert_eq!(lead(&r).as_deref(), Some("bea"));
+    }
+
+    #[test]
+    fn no_joined_agent_means_no_lead() {
+        let r = lead_roster(
+            "alice",
+            vec![
+                entry("alice", "person", "alice", "joined"),
+                entry("bob", "person", "bob", "joined"),
+                entry("bea", "agent", "bob", "inviting"),
+            ],
+        );
+        assert_eq!(lead(&r), None);
+    }
+
+    #[test]
+    fn a_notification_from_before_c7_is_not_parked() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (store, agent, _) = setup(&temporary);
+        message(&store, "agent:host_x/agent_x");
+        // A record written before C7 has no parked mark.
+        let record = json!({
+            "id": "cnot_00000000000000000000000000000001",
+            "kind": "message",
+            "conversation_id": CONVERSATION,
+            "message_id": MESSAGE,
+            "session_id": null,
+            "created_at": now(),
+            "claimed_at": null,
+            "forwarded_at": null,
+        });
+        let n: Notification = serde_json::from_value(record).unwrap();
+        assert!(!n.parked);
+        store.connection().unwrap().execute(
+            "INSERT INTO conversation_notifications (id, conversation_id, kind, message_id, agent_id, session_id, record) VALUES (?1, ?2, 'message', ?3, ?4, NULL, ?5)",
+            params![n.id, CONVERSATION, MESSAGE, agent, serde_json::to_string(&n).unwrap()],
+        ).unwrap();
+        let conn = store.connection().unwrap();
+        assert_eq!(store.parked(&conn, CONVERSATION, &agent).unwrap(), 0);
+        let row = rows(&conn, "id = ?1", &[&n.id]).unwrap().pop().unwrap();
+        assert!(!row.n.parked);
     }
 }
