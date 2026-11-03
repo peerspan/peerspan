@@ -1,7 +1,7 @@
 # Real-machine and NAT qualification
 
-Status: external tests in progress, 2026-11-02. The owner prioritized this qualification before
-PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
+Status: recorded cloud cases passed; managed NAT preparation in progress,
+2026-11-03. The owner prioritized this qualification before PeerFS integration. [Guided onboarding #35](https://github.com/peerspan/peerspan/pull/35)
 is merged at `caea24b9eb41bb078749c5a1f739cd3d186d060e`. Its
 [final receipt](https://github.com/peerspan/peerspan/pull/35#issuecomment-6581460238)
 proves installed flows and an actual model reply using two fixtures on one
