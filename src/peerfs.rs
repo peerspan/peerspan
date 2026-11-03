@@ -372,7 +372,6 @@ fn prepare_in(store: &Store, op: &Operation, request: Prepare) -> Result<(bool, 
     // No database guard/transaction while traversing or reading a directory.
     let directory = directory::open(&request.directory, false, op)?;
     directory.empty(op)?;
-    let now = decentralized::local_decision_time().map_err(|_| unavailable())?;
     let identity = store.identity();
     let c = store.connection().map_err(|_| internal())?;
     op.check()?;
@@ -415,6 +414,9 @@ fn prepare_in(store: &Store, op: &Operation, request: Prepare) -> Result<(bool, 
     {
         return Err(forbidden());
     }
+    // Eligibility is current after waiting for the store and loading its
+    // retained public authority, not at admission to the blocking worker.
+    let now = decentralized::local_decision_time().map_err(|_| unavailable())?;
     let projection = snapshot.project(&now).map_err(|_| forbidden())?;
     projection
         .active(projection.root_state_id().map_err(|_| forbidden())?)
