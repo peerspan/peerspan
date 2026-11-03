@@ -15,10 +15,15 @@ available in the current inventory. Direct protocol, normal routing, native repl
 and pending-message recovery now pass on the named cloud deployments.
 Real-router NAT and changed-network attachment remain unverified.
 
-On 2026-11-03 the owner selected managed-cloud NAT and created a private test
+On 2026-11-03 the owner selected managed-cloud NAT and created a test
 Droplet in a new NYC1 VPC, peered with the existing public Droplet's NYC2 VPC.
-The private endpoint and NAT Gateway/default-route state are being obtained;
-no NAT result is claimed yet. Managed provider NAT is a valid real external
+The owner supplied the private endpoint and confirmed that its NAT Gateway
+is not yet created. The jump host now has a narrowly scoped host route through
+its existing VPC gateway, without a networking restart. Private SSH times out
+before authentication; the first TCP preflight is retained and the owner is
+checking peering/firewall state. No protocol test has started on this VM. The
+[preparation receipt](results/real-network-nat-preparation.json) records only
+these prerequisites and evidence hashes; no NAT result is claimed yet. Managed provider NAT is a valid real external
 gateway for N1; home/office routers and mobile networks remain distinct,
 unverified coverage. SSH may use the VPC peering through the existing jump
 host. Tested Peerspan traffic must instead reach the workspace server and
@@ -398,7 +403,7 @@ replace a receiver check with an address-resolution failure. Preserve existing
 authority, reviewed policy, requester consent and original-key custody; check
 that no manual peer/grant configuration was introduced.
 
-Use the existing120second bound for each ceremony/work phase and unchanged
+Use the existing 120 second bound for each ceremony/work phase and unchanged
 owner-operation bounds. An initially unknown send may observe only that exact
 durable request's ordinary automatic retries within its existing deadline;
 never submit another command or extend the deadline to obtain success. Retain
