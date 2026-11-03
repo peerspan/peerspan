@@ -15,6 +15,15 @@ available in the current inventory. Direct protocol, normal routing, native repl
 and pending-message recovery now pass on the named cloud deployments.
 Real-router NAT and changed-network attachment remain unverified.
 
+On 2026-11-03 the owner selected managed-cloud NAT and created a private test
+Droplet in a new NYC1 VPC, peered with the existing public Droplet's NYC2 VPC.
+The private endpoint and NAT Gateway/default-route state are being obtained;
+no NAT result is claimed yet. Managed provider NAT is a valid real external
+gateway for N1; home/office routers and mobile networks remain distinct,
+unverified coverage. SSH may use the VPC peering through the existing jump
+host. Tested Peerspan traffic must instead reach the workspace server and
+explicitly configured helper outside those VPCs through the NAT gateway.
+
 The rebuilt candidate is clean release source
 `7da06b7a2fd5604b76029aa833bb7e35c63d133a`, archive
 `7be42766f7fa8157512c92225fecb1a750a19ca1c931d1deaecf6ce5fc5afe8c`, executable
@@ -286,7 +295,7 @@ machines/gateways is a prerequisite, never an implicit pass.
 | Case | Setup | Required observation |
 | --- | --- | --- |
 | D1: independent hosts | Two separately deployed, reachable Linux machines; every optional helper disabled. | Installed onboarding and authorized work complete over the actual direct peer path. |
-| N1: one real NAT | One participant behind a home/office router or hotspot, the other reachable; no new port forwarding. | Record actual onboarding behavior and direct versus relay use. Verify authorized delivery in both directions. A direct success requires observed direct traffic. |
+| N1: one real NAT | One participant behind a real managed-provider NAT gateway, home/office router or hotspot, the other reachable; no new port forwarding. Record the actual gateway class. | Record actual onboarding behavior and direct versus relay use. Verify authorized delivery in both directions. A direct success requires observed direct traffic. |
 | N2: two real NATs | Participants behind two independent external gateways, with an explicitly configured replaceable rendezvous/relay helper where needed. | Complete onboarding and work; record which paths were actually established. A relay success does not count as hole-punching success. |
 | R1: forced relay | On independent hosts, disable only the test participants' direct peer path, retaining connectivity to the configured helper. | End-to-end encrypted work reaches the receiver through the observed relay. No helper grants membership or access. |
 | R2: helper replacement | Prepare a second separately configured helper endpoint; withdraw the first while direct traffic remains unavailable. | Recover through the second helper with the same participant identities and existing authority; no new membership or access grant. If both helpers are unavailable, report unavailable rather than ready. |
@@ -346,6 +355,70 @@ their outcomes, remaining topology limits, and the final tested candidate. Keep
 direct, real-NAT, controlled impairment, relay and model results separate.
 Qualify the named matrix; do not claim universal success through arbitrary NAT.
 An unavailable real-router case remains open even when local fault checks pass.
+
+### Managed-cloud N1 execution contract
+
+Use the owner's new private-only NYC1 Droplet and the independently deployed
+public workspace server. Before a protocol run, root records both actual
+deployment identities, the private VM's interface addresses and IPv4/IPv6
+routes, its NAT egress address, the managed gateway/default-route configuration,
+and the jump host's narrowly scoped management route. No public VM interface,
+inbound port forwarding, SSH peer-data tunnel, private peering route between
+the tested participants or local NAT emulation may substitute for this topology.
+SSH peering is management only. Keep provider identifiers and addresses private;
+publish only the topology class and sanitized evidence hashes.
+
+Install the same verified archive and separately identified tools in isolated
+prefixes. Run fresh same-person and distinct-person ceremonies with genuine
+ordinary guided reviews. Independently verify both actual signed applications,
+finite device7/binding2 authority, exact requester consent and local original
+key custody. No manual peer pins, fabricated authority, database mutation,
+clock extension or original-key transfer is permitted.
+
+Configure one explicit pinned resource helper outside the peered VPCs, with
+protected generated resource credentials stored locally and no network authority.
+Its bootstrap and relay pins must be included in the actual invitation review.
+The private VM advertises its actual non-wildcard local listener address as a
+hint; no invented public IP or static external port mapping is allowed. Keep
+normal peer traffic unblocked in this N1 phase. A valid direct or encrypted
+relay path may carry work; do not require one path or infer successful direct
+traversal from a diagnostic route label. Record each participant's actual path
+diagnostic without converting a route observation into readiness. Root captures
+the owned test ports at both actual participants and the helper, establishing
+which path carried payload and the NAT source translation actually observed.
+
+After each ceremony, retain the same participant state for a separately bounded
+work phase. For the same person, ordinary directory lookup and addressed CLI
+sends must deliver exact fresh requests in both directions, with matching real
+receiver receipts/appends. For two people, membership alone must be denied by
+the receiver; one narrow guided access grant permits exact delivery, and its
+withdrawal refuses fresh work with no receiver-history append. A durable rejected
+owner outcome with an actual attempt is not an exact peer HTTP403 claim. Do not
+replace a receiver check with an address-resolution failure. Preserve existing
+authority, reviewed policy, requester consent and original-key custody; check
+that no manual peer/grant configuration was introduced.
+
+Use the existing120second bound for each ceremony/work phase and unchanged
+owner-operation bounds. An initially unknown send may observe only that exact
+durable request's ordinary automatic retries within its existing deadline;
+never submit another command or extend the deadline to obtain success. Retain
+first failures and close owned processes on failure or completion. The driver
+must validate its private fleet configuration and bounded output categories,
+keep all codes/content/credentials/raw endpoint and path details private, and
+emit only fixed outcomes/counts, source/archive/log hashes and coverage limits.
+Private state retained between phases has public-proof checkpoints; it is not
+an authority shortcut. Root alone provisions hosts/helper/routes/captures and
+runs committed independent driver source. The independent author reads public
+contracts and independent harnesses only, never product source or product runtime.
+
+This observes one managed NAT against a reachable participant. It does not
+qualify two independent NATs, home/mobile gateways, changed attachment, native
+model behavior or transparent adapter restart. These require their own named
+observations. Selected: provider NAT plus peering only for SSH, with explicit
+replaceable helper and recorded actual data path. Discarded: blocking a public
+VM's inbound traffic and calling it NAT, public IPv6 bypass, passing peer traffic
+through the private peering/tunnel, requiring a fabricated direct result, or
+assuming the NYC1/NYC2 placement from earlier reversed region descriptions.
 
 ## Next: PeerFS host integration
 
