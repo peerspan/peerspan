@@ -5,7 +5,8 @@ Root provisions the actual NAT gateway, private right VM, SSH jump, one pinned
 external helper and captures. SSH carries private owner-local control only.
 Run fresh machine/teammate ceremonies, then separate 120s work phases on their
 proof-verified checkpoints. No manual peers, original-key transfer, database
-access, retries of commands, route/firewall changes or model/restart cases.
+access, repeated approvals/signing/work, route/firewall changes or model/restart cases.
+Only the documented incoming-progress refusal permits one scoped re-observation.
 Direct and relay delivery are valid. Path diagnostics establish no readiness or
 NAT traversal; root must qualify actual traffic and translation separately.
 
@@ -32,6 +33,7 @@ import subprocess
 import sys
 import time
 import traceback
+import unicodedata
 
 import real_network_relay as q
 from real_network_relay import r, g, i, check, rfc3339
@@ -61,6 +63,16 @@ STAGES = frozenset(('deployment','fresh_hosts_addressable_projects_and_reviewed_
 LOG_NAME = re.compile(r'[0-9]{4}-(?:left|right)-(?:prepare|start|stop|identity|api|cli|log_hashes)\.(?:request|response)\.json')
 SOURCES = ('real_network_nat.py','real_network_relay.py','real_network_participants.py',
            'installed_participants.py','installed_participant_support.py','slim/harness.py','slim/counted_peer.py')
+PROGRESS = '/v1/onboarding/incoming-progress'
+REQUEST_PINS = ('request_id','mode','network_id','context_id','migration_proposal_id','person_public_key',
+                'host_public_key','device_public_key','request_packet_id','created_at','expires_at')
+LATER_IDS = ('administrator_offer_id','owner_finalization_id','manifest_id','activation_id','outcome_id')
+NETWORK_PINS = ('id','name','mode','context_id','genesis_root_public_key','root_state_id','root_public_key','root_epoch','provider')
+
+
+def progress_counts():
+    # Dispatches, received non200 responses, and attempted public revalidations.
+    return dict(attempts=0,refusals=0,revalidations=0)
 
 
 def valid_hash(value):
@@ -131,6 +143,7 @@ class N1Controller(r.Controller):
         self.hosts = [q.RelayEndpoint(self,side,'n1-'+kind,port_base+offset) for side,offset in (('left',0),('right',2))]
         self.sequence,self.transport_unavailable = 0,False
         self.daemon_logs = {}
+        self.progress = progress_counts()
 
     def log_hashes(self):
         for host in self.hosts:
@@ -183,6 +196,166 @@ def verify(f,completed,review,kind):
     current = g.api(f['b'],'POST',i.JOINS+'/'+f['flow']['flow_id']+'/'+branch+'/lookup',
                     dict(context=g.context(f['parent']),join_review_id=f['flow']['review_id']))
     check(current[field]==completed[field],'retained exact requester consent changed')
+
+
+def progress_snapshot(f):
+    """Existing public reads only; no prepare, import, resume or private state."""
+    a,b = f['a'],f['b']
+    result = dict(hosts={},projects={},requests={})
+    for host,parent,role in ((a,f['owner_parent'],'approver'),(b,f['parent'],'requester')):
+        identity = g.get(host,'/v1/host')
+        check(type(identity) is dict and set(identity)=={'id','public_key','created_at'}
+              and identity['id']==host.id and identity['public_key']==host.public_key,'progress host identity changed')
+        result['hosts'][host.name] = identity
+        context = {key:parent['review'][key] for key in ('project_root','native_session_id','integration')}
+        current = g.api(host,'POST',i.PROJECT+'/lookup',context)
+        check(type(current) is dict and set(current)=={'version','host_id','context','flow','agents'}
+              and type(current['version']) is int and current['version']==1 and current['host_id']==host.id
+              and current['context']==context and type(current['agents']) is list,'invalid current project lookup')
+        flow = current['flow']
+        check(type(flow) is dict and set(flow)==set(parent) and flow['state']=='attached'
+              and flow==parent and flow['review_id']==g.digest('peerspan-project-review-v1',flow['review']),
+              'latest attached project changed')
+        matches = [value for value in current['agents'] if type(value) is dict and value.get('id')==parent['review']['agent']['id']]
+        check(len(matches)==1 and set(matches[0])=={'id','name','owner','capabilities','created_at'}
+              and {key:matches[0][key] for key in ('id','name','owner','capabilities')}==parent['review']['agent'],
+              'attached agent metadata changed')
+        result['projects'][host.name] = dict(flow=flow,agent=matches[0])
+        request = g.link_view(host,f['rid'])
+        check(request['role']==role and request['mode']=='new' and request['migration_proposal_id']=='-'
+              and request['request_id']==f['rid'] and request['network_id']==f['network']['id']
+              and request['context_id']==f['network']['context_id'] and request['person_public_key']==f['person']
+              and request['host_public_key']==b.public_key and request['commit_approved'] is False
+              and all(request[key]=='-' for key in LATER_IDS),'progress request is outside the original eligible scope')
+        check(request['state'] in (('pending','needs_selection','needs_administrator') if role=='approver' else ('needs_administrator',))
+              and request['selection_approved'] is (role=='requester'),'progress request stage or local consent changed')
+        for key in ('created_at','expires_at'):
+            check(type(request[key]) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ',request[key]) is not None,
+                  'noncanonical original request time')
+        check(g.parse_time(request['expires_at'])==g.parse_time(request['created_at'])+timedelta(seconds=3600)
+              and datetime.now(timezone.utc)<g.parse_time(request['expires_at']),'original request expired or changed lifetime')
+        result['requests'][host.name] = request
+    ar,br = result['requests']['left'],result['requests']['right']
+    check(all(ar[key]==br[key] for key in REQUEST_PINS) and br['owner_offer_id']!='-' and br['selection_id']!='-',
+          'participant request or selected proof pins disagree')
+    check(all(ar[key] in ('-',br[key]) for key in ('owner_offer_id','selection_id'))
+          and (ar['selection_id']=='-' or ar['owner_offer_id']==br['owner_offer_id']),'administrator retained another selected prefix')
+    network = g.get(a,'/v2/networks/'+f['network']['id'])
+    check(type(network) is dict and set(network)==set(f['network'])
+          and network['root_state_id']!='-' and network['root_public_key']!='-'
+          and all(network[key]==f['network'][key] for key in NETWORK_PINS),'original network descriptor/root/provider changed')
+    result['network'] = {key:network[key] for key in NETWORK_PINS}
+    people = g.get(a,'/v2/networks/'+f['network']['id']+'/persons')
+    check(type(people) is dict and set(people)=={'context_id','persons'} and people['context_id']==f['network']['context_id']
+          and type(people['persons']) is list and all(type(value) is dict and value.get('person_public_key')!=f['person']
+          for value in people['persons']),'target person already adopted or malformed person observation')
+    result['persons'] = people
+    context = g.context(f['parent'])
+    joined = g.api(b,'POST',i.JOINS+'/lookup',dict(context=context))
+    check(type(joined) is dict and set(joined)=={'version','host_id','context','flow'}
+          and type(joined['version']) is int and joined['version']==1 and joined['host_id']==b.id
+          and joined['context']==context and joined['flow']==f['flow'] and joined['flow']['state']=='requested',
+          'requester join flow or immutable outcome changed')
+    result['join'] = joined
+    owner = g.api(b,'POST',i.JOINS+'/'+f['flow']['flow_id']+'/owner/lookup',
+                  dict(context=context,join_review_id=f['flow']['review_id']))
+    check(type(owner) is dict and set(owner)=={'version','host_id','flow_id','join_review_id','context','observed_at','request','owner'}
+          and type(owner['version']) is int and owner['version']==1 and owner['host_id']==b.id and owner['flow_id']==f['flow']['flow_id']
+          and owner['join_review_id']==f['flow']['review_id'] and owner['context']==context
+          and type(owner['request']) is dict and set(owner['request'])==g.LINK
+          and all(owner['request'][key]==br[key] for key in
+                  (*REQUEST_PINS,'role','state','owner_offer_id','selection_id','selection_approved','commit_approved',*LATER_IDS)),
+          'requester owner lookup changed scope')
+    receipt = i.immutable(owner,'owner','peerspan-onboarding-original-owner-review-v1','approved')
+    review = receipt['review']
+    check(set(receipt)=={'review_id','review','state','next_action'}
+          and review['kind']=='approve_new_original_owner' and type(review['version']) is int and review['version']==1 and review['host_id']==b.id
+          and review['context']==context and review['flow_id']==f['flow']['flow_id']
+          and review['join_review_id']==f['flow']['review_id'] and review['request_id']==f['rid']
+          and review['network']=={key:f['network'][key] for key in ('id','name','context_id','genesis_root_public_key')}
+          and all(review[key]==br[key] for key in ('person_public_key','host_public_key','device_public_key'))
+          and review['member']==f['flow']['review']['invitation']['invitation']['member']
+          and review['proposed_owner_offer_id']==br['owner_offer_id'] and review['scopes']==7
+          and g.parse_time(review['not_after'])==g.parse_time(br['created_at'])+timedelta(days=7),
+          'approved original owner terms changed')
+    result['owner'] = receipt
+    consent = g.api(a,'POST','/v1/onboarding/admission-consent/lookup',
+                    dict(context=g.context(f['owner_parent']),request_id=f['rid']))
+    check(type(consent) is dict and set(consent)=={'version','host_id','context','observed_at','request','admission'}
+          and type(consent['version']) is int and consent['version']==1 and consent['host_id']==a.id
+          and consent['context']==g.context(f['owner_parent']) and type(consent['request']) is dict
+          and set(consent['request'])==g.LINK and consent['admission'] is None
+          and all(consent['request'][key]==ar[key] for key in REQUEST_PINS)
+          and all(consent['request'][key]=='-' for key in LATER_IDS)
+          and consent['request']['selection_approved'] is False and consent['request']['commit_approved'] is False,
+          'administrator consent appeared or changed request scope')
+    check(consent['request']['role']=='approver' and consent['request']['state'] in ('pending','needs_selection','needs_administrator')
+          and all(consent['request'][key] in ('-',br[key]) and (ar[key]=='-' or consent['request'][key]==ar[key])
+                  for key in ('owner_offer_id','selection_id')),'administrator prefix changed during observation')
+    result['requests']['left'] = consent['request']
+    return result
+
+
+def same_progress_scope(before,after):
+    for key in ('hosts','projects','network','persons','join','owner'):
+        check(after[key]==before[key],'public progress revalidation changed frozen scope')
+    for side in ('left','right'):
+        old,new = before['requests'][side],after['requests'][side]
+        check(all(old[key]==new[key] for key in REQUEST_PINS),'public progress revalidation changed immutable request')
+        for key in ('owner_offer_id','selection_id'):
+            expected = before['requests']['right'][key]
+            check(new[key]==expected if side=='right' or old[key]!='-' else new[key] in ('-',expected),
+                  'public progress revalidation replaced or regressed selected prefix')
+
+
+def install_progress_observation(f):
+    """Wrap exactly one original teammate call; its success assertions remain."""
+    original = f['a'].api
+    def exact_success(value,baseline,incoming):
+        check(type(value) is dict and set(value)=={'version','host_id','context','observed_at','request','next_action'}
+              and type(value['version']) is int and value['version']==1 and value['host_id']==f['a'].id
+              and value['context']==incoming['context'] and type(value['observed_at']) is str
+              and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ',value['observed_at']) is not None
+              and type(value['request']) is dict and set(value['request'])==g.LINK,'malformed progress success')
+        request,expected = value['request'],baseline['requests']['right']
+        check(value['next_action']=='review_administrator_consent' and request['role']=='approver'
+              and request['state']=='needs_administrator' and request['selection_approved'] is False
+              and request['commit_approved'] is False and all(request[key]=='-' for key in LATER_IDS)
+              and all(request[key]==expected[key] for key in (*REQUEST_PINS,'owner_offer_id','selection_id')),
+              'progress success changed frozen selected proof')
+    def observed(method,path,body=None,timeout=5):
+        if method!='POST' or path!=PROGRESS:
+            return original(method,path,body,timeout=timeout)
+        counts = g.suite.progress
+        incoming = dict(context=g.context(f['owner_parent']),request_id=f['rid'])
+        check(body==incoming and timeout==5 and counts==progress_counts(),'unexpected or repeated progress sequence')
+        baseline = progress_snapshot(f)
+        r.private_json(g.suite.work/'incoming-progress-baseline.private.json',baseline)
+        counts['attempts'] = 1
+        status,value = original('POST',PROGRESS,incoming,timeout=5)
+        g.public(value,*g.shared.get('secrets',[]))
+        if status==200:
+            exact_success(value,baseline,incoming)
+            return status,value
+        counts['refusals'] = 1
+        if not (status==409 and type(value) is dict and value.get('code')=='review_changed'
+                and type(value.get('error')) is str and 0<len(value['error'])<=4096
+                and not any(unicodedata.category(char).startswith('C') for char in value['error'])
+                and set(value)=={'code','error'}):
+            return status,value  # The unchanged caller rejects every other status.
+        counts['revalidations'] = 1
+        current = progress_snapshot(f)
+        r.private_json(g.suite.work/'incoming-progress-revalidation.private.json',current)
+        same_progress_scope(baseline,current)
+        counts['attempts'] = 2
+        status,value = original('POST',PROGRESS,incoming,timeout=5)
+        g.public(value,*g.shared.get('secrets',[]))
+        if status!=200:
+            counts['refusals'] = 2
+        else:
+            exact_success(value,baseline,incoming)
+        return status,value
+    f['a'].api = observed
 
 
 def paths(f):
@@ -298,6 +471,8 @@ def phase_worker(args,fleet):
             # Existing driver sources and all ceremony operations stay intact.
             q.invitation = invitation
             f = q.setup(args.scenario)
+            if args.scenario=='teammate':
+                install_progress_observation(f)
             completed,review = r.machine(f) if args.scenario=='machine' else r.teammate(f)
             verify(f,completed,review,args.scenario)
             q.save_checkpoint(checkpoint,f,completed,review)
@@ -334,7 +509,7 @@ def phase_worker(args,fleet):
                 with (args.phase_work/'log-hash-failure.private.txt').open('w') as output:
                     traceback.print_exc(file=output)
         outcome.update(seconds=round(time.monotonic()-started,3),daemon_log_sha256=controller.daemon_logs,
-                       retained_for_work=retain,cleanup_confirmed=closed)
+                       retained_for_work=retain,cleanup_confirmed=closed,progress=controller.progress)
         r.private_json(args.phase_work/'outcome.private.json',outcome)
     return 0 if outcome['passed'] else 1
 
@@ -350,7 +525,17 @@ def clean_outcome(value,kind,phase,code):
     result['seconds'] = seconds if type(seconds) in (int,float) and 0<=seconds<=120 else None
     logs = value.get('daemon_log_sha256',{})
     result['daemon_log_sha256'] = {side:logs[side] for side in ('left','right') if type(logs) is dict and valid_hash(logs.get(side))}
+    counts = value.get('progress',progress_counts())
+    check(type(counts) is dict and set(counts)==set(progress_counts())
+          and all(type(counts[key]) is int and 0<=counts[key]<=bound for key,bound in
+                  (('attempts',2),('refusals',2),('revalidations',1)))
+          and (counts['attempts'],counts['refusals'],counts['revalidations']) in
+              ((0,0,0),(1,0,0),(1,1,0),(1,1,1),(2,1,1),(2,2,1)),'invalid closed progress counts')
+    result['progress'] = counts
     if result['passed']:
+        check((kind=='teammate' and phase=='ceremony' and counts in
+               (dict(attempts=1,refusals=0,revalidations=0),dict(attempts=2,refusals=1,revalidations=1)))
+              or ((kind!='teammate' or phase!='ceremony') and counts==progress_counts()),'invalid successful progress counts')
         check(result['stage']=='complete' and result['seconds'] is not None
               and set(result['daemon_log_sha256'])=={'left','right'}
               and result['retained_for_work']==(phase=='ceremony')
@@ -390,7 +575,8 @@ def evidence_index(directory):
     """Hash fixed private control/log filenames only, never state or credentials."""
     logs = [file for file in directory.iterdir() if LOG_NAME.fullmatch(file.name)]
     logs += [file for name in ('controller.private.log','failure.private.txt','outcome.private.json',
-                              'left-cleanup.private.txt','right-cleanup.private.txt','log-hash-failure.private.txt')
+                              'left-cleanup.private.txt','right-cleanup.private.txt','log-hash-failure.private.txt',
+                              'incoming-progress-baseline.private.json','incoming-progress-revalidation.private.json')
              if (file:=directory/name).exists()]
     check(all(file.is_file() and not file.is_symlink() for file in logs),'private evidence log is not a regular file')
     index = directory/'evidence-index.private.json'
