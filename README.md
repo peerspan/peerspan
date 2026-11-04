@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/peerspan-logo.png" alt="Peerspan logo" width="128" />
+</p>
+
 <h1 align="center">peerspan</h1>
 
 <p align="center">
