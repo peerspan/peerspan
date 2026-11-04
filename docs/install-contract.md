@@ -38,6 +38,15 @@ A signature is valid when it verifies under any listed key. Verification uses No
 
 The private key is held offline by the owner ([INST-2](decision-log.md#inst-2-who-holds-the-key-and-when-signing-happens)). It is never stored in a repository, a CI secret or a shared machine.
 
+### Changing the release keys
+
+Anyone can generate an Ed25519 key, with `sign-release.sh --generate` or any other tool. Only the listed keys are trusted, so the list is what's protected ([INST-6](decision-log.md#inst-6-who-may-change-the-release-keys-2026-11-04)):
+
+- **Owner decision.** Adding or removing a key is an owner decision, with its own decision-log entry naming the public key. The change lands in a pull request that changes nothing else.
+- **Owner review.** `.github/CODEOWNERS` names the owner for `scripts/install.sh`, `scripts/install-release.sh`, `scripts/sign-release.sh` and itself. This is enforced when the `main` ruleset requires code-owner review.
+- **Matching lists.** `PEERSPAN_RELEASE_KEYS` is identical in `scripts/install.sh` and `scripts/install-release.sh`, at every commit.
+- **Qualification check.** Before publication, the key holder checks that the list in the tagged `scripts/install.sh`, in that release's `install-release.sh` asset, and in the served `https://peerspan.dev/install` equals the keys of the latest key decision in the log. A difference stops publication.
+
 ## `scripts/sign-release.sh`
 
 ```sh
@@ -156,6 +165,8 @@ Release qualification ([roadmap](production-roadmap.md#release-qualification)) a
   - with both manifest files it verifies them;
   - with only one it refuses;
   - with neither it installs from the checksum as before.
+
+**Key list:** `PEERSPAN_RELEASE_KEYS` in `scripts/install.sh` and `scripts/install-release.sh` holds the same 1 to 4 well-formed keys (each 43 base64url characters, decoding to 32 bytes).
 
 **`sign-release.sh`** is checked by the same author:
 - `--generate` writes an encrypted `0600` key and prints a public key that the bootstrap accepts;
