@@ -140,6 +140,40 @@ jobs:
           done
           cp scripts/install-release.sh assets/install-release.sh
           (cd assets && sha256sum install-release.sh > install-release.sh.sha256)
+      - name: Write the release manifest
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # release.json lists the two host archives, the two helper archives and
+          # install-release.sh with the digests checked above. The owner signs it
+          # offline before publication (docs/install-contract.md).
+          python3 - "$VERSION" "$GITHUB_SHA" <<'PY'
+          import json, re, sys
+          version, revision = sys.argv[1:]
+          assert re.fullmatch(r'[0-9a-f]{40}', revision), revision
+          names = []
+          for arch in ('amd64', 'arm64'):
+              names.append(f'peerspan-{version}-linux-{arch}-rust.tar.gz')
+              names.append(f'peerspan-helper-{version}-linux-{arch}.tar.gz')
+          names.append('install-release.sh')
+          assets = {}
+          for name in names:
+              with open(f'assets/{name}.sha256', encoding='utf-8') as checksum:
+                  match = re.fullmatch(r'([0-9a-f]{64})  (\S+)\n', checksum.read())
+              assert match and match.group(2) == name, name
+              assets[name] = match.group(1)
+          manifest = {
+              'format': 1,
+              'name': 'peerspan',
+              'version': version,
+              'source_revision': revision,
+              'assets': assets,
+          }
+          with open('assets/release.json', 'x', encoding='utf-8') as out:
+              out.write(json.dumps(manifest, indent=2) + '\n')
+          PY
+          cat assets/release.json
       - name: Create private draft release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -77,7 +77,7 @@ Contents:
 - **Source:** the owner's question on PR [#126](https://github.com/peerspan/peerspan/pull/126): "if we push sign-release --generate, isn't that key generation now part of the repo? anyone can run it". The answer: generating a key gives no trust; only the keys listed in `PEERSPAN_RELEASE_KEYS` are trusted, so the list is what needs protecting. The owner answered "yes please" to the options below.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [install-contract.md](install-contract.md#changing-the-release-keys).
-- **Implementing PRs:** #126 (`.github/CODEOWNERS`).
+- **Implementing PRs:** #126 (`.github/CODEOWNERS`); the implementation PR (the `PEERSPAN_RELEASE_KEYS` lists, holding a placeholder key until the owner's first key decision).
 - **Options:**
   - (a) Keep `--generate`, and protect the key list: a CODEOWNERS rule for the install and signing scripts, key changes only by owner decision in a PR of their own, and a qualification check that the published and served key lists equal the decided one.
   - (b) Drop `--generate` and document an `openssl` command in `releasing.md`. The security is the same either way.
@@ -92,7 +92,7 @@ Contents:
 - **Source:** the owner's answers on the five "Owner decisions needed" of the [install proposal](install-proposal.md#owner-decisions-needed), PR [#125](https://github.com/peerspan/peerspan/pull/125). For INST-1, "ok go with ed25519"; for INST-2 to INST-5, "accept your recommendations". The options below are quoted from the proposal.
 - **Recorded in:** this log, the proposal and the contract.
 - **Contract section:** [install-contract.md](install-contract.md).
-- **Implementing PRs:** none yet.
+- **Implementing PRs:** the implementation PR (`scripts/install.sh`, `scripts/sign-release.sh`, `scripts/install-release.sh`, the draft workflow's `release.json`, and the release procedure).
 
 #### INST-1. Signing scheme
 
