@@ -56,7 +56,7 @@ For a group thread, run `peerspan conversation start bob/claude person:carol`. U
 
 Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
 
-## Demo
+## Example exchange
 
 <p align="center">
   <img src="assets/claude-to-claude.webp" width="850" alt="Animated replay of a real two-machine Claude exchange: Bob asks Alice for a demo codename through Peerspan, Alice replies Aurora, and Bob receives it." />
