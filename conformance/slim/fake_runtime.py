@@ -23,6 +23,15 @@ files; the daemon, not the runtime, drops empty files, attaches identical ones o
 `max_artifact_bytes`. So every result file of the run's `results` mode is reported, empty ones included, and
 `changes.tar` is always a valid tar archive (possibly with no members).
 
+Workspace names given with `--peerfs-workspace NAME` (repeatable) are its peerfs workspaces (RUN-6): each is a
+directory under `--dir` kept across runs and across restarts of the fake, and `GET /v1/runtime` reports `peerfs`
+true only when some were given. A run on one works on that directory in place. Its `snapshot` (RUN-7) is `01` and
+the lowercase hex SHA-256 of the workspace's sorted paths and contents after the command, or null when they are
+those it had before the command (or the command never started); every other run has `snapshot` null. The fake
+answers 429 `busy` for a workspace one of its runs holds, 422 `unavailable` for a peerfs workspace when it has
+none, and fails a run on a name it was not given before `started`. `GET /v1/runs/{id}/events` takes `limit`
+(1 to 1,000; without it, all).
+
 Standalone, standard library only. Every request and run step is appended to `--log` as one JSON line, which the
 suite reads as its oracle (what was started, resent, cancelled, and whether a command ran).
 """
@@ -49,7 +58,8 @@ CHUNK = 16384
 LOG_CUT = 104_857_600
 RUN_ID = re.compile(r"^run_[0-9a-f]{64}$")
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
-RUN_FIELDS = ("run_id", "argv", "cwd", "env", "resources", "workspace_archive", "results")
+RUN_FIELDS = ("run_id", "argv", "cwd", "env", "resources", "workspace_archive", "peerfs_workspace", "results")
+PEERFS_NAME_BYTES = 255
 RESOURCE_FIELDS = ("cpus", "memory_mib", "timeout_seconds")
 
 
@@ -90,8 +100,12 @@ class Run:
         self.cancel = threading.Event()
         self.dir = tempfile.mkdtemp(prefix=self.run_id[:16] + "-", dir=runtime.root)
         os.chmod(self.dir, 0o700)
-        self.workspace = os.path.join(self.dir, "workspace")
-        os.mkdir(self.workspace, 0o700)
+        self.peerfs = request["peerfs_workspace"]
+        if self.peerfs is None:
+            self.workspace = os.path.join(self.dir, "workspace")
+            os.mkdir(self.workspace, 0o700)
+        else:
+            self.workspace = runtime.peerfs.get(self.peerfs)  # None: a name it was not given
         self.stdout = open(os.path.join(self.dir, "stdout.log"), "wb")
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
@@ -132,14 +146,18 @@ class Run:
         exit_code = sig = None
         timed_out = False
         started = False
+        snapshot = None
         try:
             delay = self.runtime.start_delay
             if delay > 0 and self.cancel.wait(delay):
                 raise Stop(sig=9)
             if self.cancel.is_set():
                 raise Stop(sig=9)
+            if self.peerfs is not None and self.workspace is None:
+                raise RefusedEntry(f"no peerfs workspace named {self.peerfs!r}")
             self.unpack()
             self.before = self.snapshot()
+            self.before_digest = self.peerfs_digest() if self.peerfs is not None else None
             if self.cancel.is_set():
                 raise Stop(sig=9)
             self.started_at = time.monotonic()
@@ -159,20 +177,25 @@ class Run:
         except Exception as failure:  # noqa: BLE001 - a run fails outside the command
             error = f"the run failed: {failure}"
         duration = int((time.monotonic() - self.started_at) * 1000) if started else 0
+        if started and self.peerfs is not None:
+            after = self.peerfs_digest()
+            snapshot = None if after == self.before_digest else "01" + after
         result = {"exit_code": exit_code if started else None, "signal": sig, "timed_out": timed_out,
                   "duration_ms": duration, "stdout_bytes": self.stdout_bytes, "stderr_bytes": self.stderr_bytes,
-                  "error": error}
+                  "snapshot": snapshot, "error": error}
         if not started and sig is None and error is None:
             result["error"] = "the run did not start"
         self.stdout.close()
         self.stderr.close()
         artifacts = self.results(started)
+        # Logged before the run frees its slot or workspace and before the daemon can see `exited`, so the log's
+        # order is the order the daemon could observe.
+        self.runtime.log(event="exited", run_id=self.run_id, started=started, result=result,
+                         artifacts=[a["name"] for a in artifacts])
         with self.runtime.lock:
             self.state = "exited"
         self.emit("exited", result=result)
         self.emit("results", artifacts=artifacts)
-        self.runtime.log(event="exited", run_id=self.run_id, started=started, result=result,
-                         artifacts=[a["name"] for a in artifacts])
 
     def unpack(self):
         archive = self.request["workspace_archive"]
@@ -239,6 +262,23 @@ class Run:
                     with open(full, "rb") as f:
                         files[rel] = hashlib.sha256(f.read()).hexdigest()
         return files, links
+
+    def peerfs_digest(self):
+        """SHA-256 of the workspace's sorted paths and contents (a symbolic link's content is its target)."""
+        entries = []
+        for base, dirs, names in os.walk(self.workspace):
+            for name in names + [d for d in dirs if os.path.islink(os.path.join(base, d))]:
+                full = os.path.join(base, name)
+                rel = os.path.relpath(full, self.workspace)
+                if os.path.islink(full):
+                    entries.append((rel, b"link:" + os.readlink(full).encode()))
+                elif os.path.isfile(full):
+                    with open(full, "rb") as f:
+                        entries.append((rel, b"file:" + f.read()))
+        digest = hashlib.sha256()
+        for rel, data in sorted(entries):
+            digest.update(rel.encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
+        return digest.hexdigest()
 
     def steps(self):
         argv = self.request["argv"]
@@ -357,6 +397,11 @@ class Runtime:
         self.args = args
         self.root = tempfile.mkdtemp(prefix="fake-runtime-", dir=args.dir)
         self.start_delay = args.start_delay
+        self.peerfs = {}
+        for name in args.peerfs_workspace:
+            path = os.path.join(args.dir or tempfile.gettempdir(), "peerfs", name)
+            os.makedirs(path, mode=0o700, exist_ok=True)
+            self.peerfs[name] = path
         self.runs = {}
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
@@ -374,7 +419,8 @@ class Runtime:
             running = sum(1 for r in self.runs.values() if r.state != "exited")
         return {"version": "fake-runtime-1", "image": "fake", "max_cpus": self.args.max_cpus,
                 "max_memory_mib": self.args.max_memory_mib, "max_seconds": self.args.max_seconds,
-                "max_concurrent_runs": self.args.max_concurrent_runs, "running": running}
+                "max_concurrent_runs": self.args.max_concurrent_runs, "running": running,
+                "peerfs": bool(self.peerfs)}
 
     def validate(self, body):
         if not isinstance(body, dict):
@@ -409,8 +455,16 @@ class Runtime:
             raise ApiError(400, "invalid", "workspace_archive")
         if archive is not None and not os.access(archive, os.R_OK):
             raise ApiError(400, "invalid", "workspace_archive is not readable")
+        name = body["peerfs_workspace"]
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name.encode()) <= PEERFS_NAME_BYTES
+                                 or name in (".", "..") or "/" in name or "\0" in name):
+            raise ApiError(400, "invalid", "peerfs_workspace")
+        if name is not None and archive is not None:
+            raise ApiError(400, "invalid", "workspace_archive and peerfs_workspace are both set")
         if body["results"] not in ("none", "output", "changes"):
             raise ApiError(400, "invalid", "results")
+        if name is not None and body["results"] == "changes":
+            raise ApiError(400, "invalid", "results changes on a peerfs workspace")
 
     def start(self, body):
         self.validate(body)
@@ -425,8 +479,13 @@ class Runtime:
             if (resources["cpus"] > self.args.max_cpus or resources["memory_mib"] > self.args.max_memory_mib
                     or resources["timeout_seconds"] > self.args.max_seconds):
                 raise ApiError(422, "too_large", "resources exceed the runtime's maximums")
+            if body["peerfs_workspace"] is not None and not self.peerfs:
+                raise ApiError(422, "unavailable", "this runtime serves no peerfs space")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
                 raise ApiError(429, "busy", "every run slot is busy")
+            if body["peerfs_workspace"] is not None and any(
+                    r.state != "exited" and r.peerfs == body["peerfs_workspace"] for r in self.runs.values()):
+                raise ApiError(429, "busy", "another run holds the peerfs workspace")
             run = Run(self, body)
             self.runs[run_id] = run
         run.thread.start()
@@ -439,7 +498,7 @@ class Runtime:
             raise ApiError(404, "not_found", "no such run")
         return run
 
-    def events(self, run_id, after, wait):
+    def events(self, run_id, after, wait, limit=None):
         run = self.get(run_id)
         end = time.monotonic() + wait
         with self.lock:
@@ -447,7 +506,7 @@ class Runtime:
                 found = [e for e in run.events if e["sequence"] > after]
                 left = end - time.monotonic()
                 if found or left <= 0 or self.runs.get(run_id) is not run:
-                    return found
+                    return found if limit is None else found[:limit]
                 self.changed.wait(left)
 
     def cancel(self, run_id):
@@ -530,14 +589,18 @@ class Handler(BaseHTTPRequestHandler):
                                 status=refused.status, request=body)
                     raise
             elif len(parts) == 4 and parts[:2] == ["v1", "runs"] and parts[3] == "events" and method == "GET":
+                unknown = sorted(set(params) - {"after", "wait", "limit"})
+                if unknown:
+                    raise ApiError(400, "invalid", f"unknown parameter {unknown[0]}")
                 try:
                     after = int(params.get("after", "0"))
                     wait = int(params.get("wait", "0"))
+                    limit = int(params["limit"]) if "limit" in params else None
                 except ValueError:
-                    raise ApiError(400, "invalid", "after or wait")
-                if after < 0 or not 0 <= wait <= 25:
-                    raise ApiError(400, "invalid", "after or wait")
-                status, value = 200, runtime.events(parts[2], after, wait)
+                    raise ApiError(400, "invalid", "after, wait or limit")
+                if after < 0 or not 0 <= wait <= 25 or (limit is not None and not 1 <= limit <= 1000):
+                    raise ApiError(400, "invalid", "after, wait or limit")
+                status, value = 200, runtime.events(parts[2], after, wait, limit)
             elif len(parts) == 4 and parts[:2] == ["v1", "runs"] and parts[3] == "cancel" and method == "POST":
                 if body not in (None, {}):
                     raise ApiError(400, "invalid", "unknown field")
@@ -587,6 +650,8 @@ def main():
     parser.add_argument("--max-seconds", type=int, default=86400)
     parser.add_argument("--max-concurrent-runs", type=int, default=1)
     parser.add_argument("--start-delay", type=float, default=0.0, help="seconds each run is held before started")
+    parser.add_argument("--peerfs-workspace", action="append", default=[],
+                        help="a peerfs workspace name (repeatable); with none, peerfs is false")
     args = parser.parse_args()
     runtime = Runtime(args)
     if os.path.exists(args.socket):
@@ -598,7 +663,8 @@ def main():
         os.umask(old)
     os.chmod(args.socket, 0o600)
     server.runtime = runtime
-    runtime.log(event="serving", socket=args.socket, start_delay=args.start_delay, max_cpus=args.max_cpus)
+    runtime.log(event="serving", socket=args.socket, start_delay=args.start_delay, max_cpus=args.max_cpus,
+                peerfs=sorted(runtime.peerfs))
 
     def stop(*_):
         threading.Thread(target=server.shutdown, daemon=True).start()
