@@ -115,20 +115,29 @@ peerspan_bootstrap() {
   chmod 0700 -- "$dir"
 
   # fetch NAME URL LIMIT: download URL to DIR/NAME, refusing more than LIMIT
-  # bytes (0 for no limit).
+  # bytes (0 for no limit). The tool's own error is folded into one line.
   fetch() {
-    local name=$1 url=$2 limit=$3 detail size
+    local name=$1 url=$2 limit=$3 status=0 detail size
+    local -a limit_flag=()
     if [[ $downloader == curl ]]; then
-      curl --proto '=https' --tlsv1.2 -fsSL -o "$dir/$name" "$url" 2>"$dir/.download-error" || {
-        detail=$(tail -n 1 -- "$dir/.download-error" 2>/dev/null || true)
-        echo "peerspan install: $name: download failed${detail:+ ($detail)}" >&2
-        exit 1
-      }
+      [[ $limit -gt 0 ]] && limit_flag=(--max-filesize "$limit")
+      curl --proto '=https' --proto-redir '=https' --tlsv1.2 --max-redirs 5 \
+        ${limit_flag[@]+"${limit_flag[@]}"} -fsSL -o "$dir/$name" "$url" 2>"$dir/.download-error" || status=$?
+      detail=$(tr '\n' ' ' < "$dir/.download-error" 2>/dev/null || true)
     else
-      wget --https-only -q -O "$dir/$name" "$url" 2>"$dir/.download-error" || {
-        echo "peerspan install: $name: download failed (wget exit status $?)" >&2
-        exit 1
-      }
+      wget --https-only --max-redirect=5 --tries=1 --timeout=60 -q \
+        -O "$dir/$name" "$url" 2>"$dir/.download-error" || status=$?
+      case $status in
+        4) detail="wget: network failure or connection closed early (exit 4)" ;;
+        5) detail="wget: TLS verification failure (exit 5)" ;;
+        8) detail="wget: the server returned an error status (exit 8)" ;;
+        *) detail="wget: exit $status" ;;
+      esac
+    fi
+    if [[ $status -ne 0 ]]; then
+      detail=${detail%"${detail##*[! ]}"}
+      echo "peerspan install: $name: download failed${detail:+ ($detail)}" >&2
+      exit 1
     fi
     if [[ $limit -gt 0 ]]; then
       size=$(wc -c < "$dir/$name")
@@ -160,18 +169,39 @@ const fail = (file, reason) => {
   process.exit(1);
 };
 
-const keys = keyList.split(/\s+/).filter(Boolean);
-if (keys.length < 1 || keys.length > 4) fail('PEERSPAN_RELEASE_KEYS', 'must list 1 to 4 keys');
-const publicKeys = keys.map((x) => {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(x) || Buffer.from(x, 'base64url').toString('base64url') !== x) {
-    fail('PEERSPAN_RELEASE_KEYS', `malformed key ${x}`);
-  }
+// A listed value that isn't a usable key is ignored, never trusted: it must be
+// 43 base64url characters decoding to 32 bytes, its y-coordinate (little-endian,
+// top bit cleared) must be below p = 2^255 - 19, and it must not be a point of
+// order 1, 2, 4 or 8 (y = 0, 1, p - 1, or the y of an order-8 point). Node
+// accepts such small-order keys, and signatures can be forged for them.
+const p = (1n << 255n) - 19n;
+const smallOrderY = new Set([
+  0n,
+  1n,
+  p - 1n,
+  0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n,
+  0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n,
+]);
+const usable = (x) => {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(x)) return false;
+  const bytes = Buffer.from(x, 'base64url');
+  if (bytes.length !== 32 || bytes.toString('base64url') !== x) return false;
+  const encoded = Buffer.from(bytes).reverse();
+  encoded[0] &= 0x7f;
+  const y = BigInt(`0x${encoded.toString('hex')}`);
+  return y < p && !smallOrderY.has(y);
+};
+// The list holds 1 to 4 values; any other length, or no usable key, accepts nothing.
+const listed = keyList.split(/\s+/).filter(Boolean);
+const publicKeys = [];
+for (const x of listed.length >= 1 && listed.length <= 4 ? listed : []) {
+  if (!usable(x)) continue;
   try {
-    return crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' });
+    publicKeys.push(crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' }));
   } catch {
-    return fail('PEERSPAN_RELEASE_KEYS', `unusable key ${x}`);
+    // ignored like any other unusable value
   }
-});
+}
 
 let data, signatureText;
 try {
@@ -194,6 +224,7 @@ const signature = Buffer.from(text.slice(0, 88), 'base64');
 if (signature.length !== 64 || signature.toString('base64') !== text.slice(0, 88)) {
   fail('release.json.sig', 'bad signature (not one base64 line of 64 bytes)');
 }
+if (publicKeys.length === 0) fail('release.json.sig', 'bad signature (PEERSPAN_RELEASE_KEYS lists no usable release key)');
 const verified = publicKeys.some((key) => {
   try {
     return crypto.verify(null, data, key, signature);
