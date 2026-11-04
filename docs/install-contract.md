@@ -45,7 +45,7 @@ Anyone can generate an Ed25519 key, with `sign-release.sh --generate` or any oth
 - **Owner decision.** Adding or removing a key is an owner decision, with its own decision-log entry naming the public key. The change lands in a pull request that changes nothing else.
 - **Owner review.** `.github/CODEOWNERS` names the owner for `scripts/install.sh`, `scripts/install-release.sh`, `scripts/sign-release.sh` and itself. This is enforced when the `main` ruleset requires code-owner review.
 - **Matching lists.** `PEERSPAN_RELEASE_KEYS` is identical in `scripts/install.sh` and `scripts/install-release.sh`, at every commit.
-- **Qualification check.** Before publication, the key holder checks that the list in the tagged `scripts/install.sh`, in that release's `install-release.sh` asset, and in the served `https://peerspan.dev/install` equals the keys of the latest key decision in the log. A difference stops publication.
+- **Release checks.** Before publication, the key holder checks that the list in the tagged `scripts/install.sh` and in the release's `install-release.sh` asset equals the keys of the latest key decision in the log; a difference stops publication. After publication, the served `https://peerspan.dev/install` is checked the same way ([Release procedure](#after-publication)).
 
 ## `scripts/sign-release.sh`
 
@@ -102,15 +102,30 @@ The archive installer keeps its interface, layout and service behavior. Two thin
 
 ## Release procedure
 
-[releasing.md](releasing.md) gains these steps, after qualification and before publication:
+Publication splits into checks that qualify the draft and checks that need the published release. A draft's assets can't be downloaded without authentication, and the website's `/install` changes only after publication, so the real one-liner can only be checked afterwards. [releasing.md](releasing.md) and the [roadmap's qualification sequence](production-roadmap.md#release-qualification) gain these steps.
+
+### Before publication
+
+After the existing draft qualification:
 1. download the draft's assets into an empty directory;
-2. run `scripts/sign-release.sh DIRECTORY KEYFILE`;
-3. upload `release.json.sig` to the draft;
-4. publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)).
+2. check that `PEERSPAN_RELEASE_KEYS` in the tagged `scripts/install.sh` and in the draft's `install-release.sh` asset equals the keys of the latest key decision in the log ([Changing the release keys](#changing-the-release-keys));
+3. run `scripts/sign-release.sh DIRECTORY KEYFILE`;
+4. on clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, with no `gh` installed, copy that directory (now including `release.json.sig`) and install with its `install-release.sh VERSION --from DIRECTORY`. This exercises the signed-manifest check on the exact candidate. Then follow the quick start. The bootstrap itself is covered by the `install` suite;
+5. upload `release.json.sig` to the draft.
 
-When a release changes `scripts/install.sh`, the website's `/install` copy is updated from that release's tag in the same publication. Qualification checks that the served `/install` is byte-identical to `scripts/install.sh` at the tag.
+Any failure stops publication.
 
-Release qualification ([roadmap](production-roadmap.md#release-qualification)) adds this live check: the real one-liner from `https://peerspan.dev/install`, with no `gh` installed, on clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, followed by the quick start.
+### Publication
+
+6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)).
+7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6. A new bootstrap served before its release is published would find only the previous release.
+
+### After publication
+
+8. Check that the served `https://peerspan.dev/install` is byte-identical to `scripts/install.sh` at the tag, and that its `PEERSPAN_RELEASE_KEYS` equals the keys of the latest key decision.
+9. On a clean Debian 12, Ubuntu 22.04 or Ubuntu 24.04 machine for each architecture, with no `gh` installed, run the real one-liner from `https://peerspan.dev/install`. It must install this release, as `latest` and as `--version VERSION`.
+
+If step 8 or 9 fails, mark the release as a prerelease straight away. `releases/latest` then names the previous full release, or none, so the one-liner installs the previous release or fails closed. Then restore the website copy, fix the problem, and publish a new version. Assets of a published version are never replaced.
 
 ## Verification
 
