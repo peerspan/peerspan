@@ -1,6 +1,6 @@
 # One-line install from peerspan.dev
 
-Status: **proposed**, 2026-11-03. Awaiting the [owner decisions](#owner-decisions-needed). Nothing here is implemented.
+Status: **Accepted on 2026-11-04.** The owner accepted all five recommendations ([INST-1 to INST-5](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04)). The [install contract](install-contract.md) specifies the behavior. Nothing is implemented yet.
 
 ## The problem
 
@@ -86,8 +86,8 @@ The bootstrap pins a list of public keys, normally one. Rotating the key means a
 1. checks Linux, the architecture (amd64 or arm64), Bash, `tar`, `flock`, Node.js 22 or later, and `curl` or `wget`. When something is missing it names it, says how to get it, and stops before downloading anything;
 2. downloads `release.json` and `release.json.sig` from `https://github.com/peerspan/peerspan/releases/latest/download/`, or from `.../releases/download/vVERSION/` with `--version`;
 3. verifies the signature against the pinned keys, then checks the manifest's `format`, its `name`, its `version` (which must equal `--version` when given), and that it lists this architecture's host archive and `install-release.sh`;
-4. downloads those two files and the archive's `.sha256` into a new private temporary directory, and checks all three against the signed digests;
-5. runs the downloaded `install-release.sh VERSION --from DIR`, passing through `--no-service`, and prints its output. The archive installer re-checks the `.sha256` file and `RELEASE.json` as it does today;
+4. downloads those two files into a new private temporary directory and checks both against the signed digests. It doesn't download the archive's `.sha256`. Instead it writes that file itself from the signed digest, for the unchanged archive installer (the manifest lists no `.sha256` files);
+5. runs the downloaded `install-release.sh VERSION --from DIR`, passing through `--no-service`, and prints its output. The archive installer checks the `.sha256` file and `RELEASE.json` as it does today;
 6. removes the temporary directory on every exit path.
 
 Before the first download it prints one line saying what it is about to do (version, architecture, destination). It never uses `sudo`, never edits shell profiles, and doesn't write outside the temporary directory until step 5. If `~/.local/bin` isn't on `PATH`, the archive installer's existing message covers it.
@@ -136,6 +136,8 @@ A separate author writes these cases from this proposal's contract section, once
 Live checks for release qualification, added to the [roadmap](production-roadmap.md#release-qualification): the real one-liner from `peerspan.dev` on clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines with no `gh` installed, on amd64 and arm64, followed by the quick start.
 
 ## Owner decisions needed
+
+All five were accepted as recommended on 2026-11-04 and are recorded as INST-1 to INST-5 in the [decision log](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04).
 
 1. **Signing scheme.** (a) An Ed25519 signature over `release.json`, verified with Node's built-in crypto against a pinned key. (b) Sigstore keyless signing from the release workflow. Users would need `cosign` or a downloaded verifier, which brings back the extra tool this proposal removes. (c) Checksums only, as today. **Recommended:** (a).
 2. **Who holds the key, and when signing happens.** (a) The owner holds it offline and signs at publication, after qualification. (b) A GitHub Actions secret in a protected environment that requires the owner's approval. A GitHub compromise could then sign as well as replace assets. **Recommended:** (a).

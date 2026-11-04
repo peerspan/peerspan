@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [INST-1 to INST-5: one-line install](#inst-1-to-inst-5-one-line-install-2026-11-04) (2026-11-04)
   - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
 
@@ -50,6 +51,56 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### INST-1 to INST-5: one-line install (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install: the one-line install from peerspan.dev for the promoted launch, without GitHub CLI.
+- **Source:** the owner's answers on the five "Owner decisions needed" of the [install proposal](install-proposal.md#owner-decisions-needed), PR [#125](https://github.com/peerspan/peerspan/pull/125). For INST-1, "ok go with ed25519"; for INST-2 to INST-5, "accept your recommendations". The options below are quoted from the proposal.
+- **Recorded in:** this log, the proposal and the contract.
+- **Contract section:** [install-contract.md](install-contract.md).
+- **Implementing PRs:** none yet.
+
+#### INST-1. Signing scheme
+
+- **Options:**
+  - (a) "An Ed25519 signature over `release.json`, verified with Node's built-in crypto against a pinned key."
+  - (b) "Sigstore keyless signing from the release workflow. Users would need `cosign` or a downloaded verifier, which brings back the extra tool this proposal removes."
+  - (c) "Checksums only, as today."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it, after the question of why a signing scheme is needed: a checksum downloaded beside its archive doesn't stop someone who can replace files in a GitHub release.
+
+#### INST-2. Who holds the key, and when signing happens
+
+- **Options:**
+  - (a) "The owner holds it offline and signs at publication, after qualification."
+  - (b) "A GitHub Actions secret in a protected environment that requires the owner's approval. A GitHub compromise could then sign as well as replace assets."
+- **Chosen:** (a): a passphrase-encrypted key file on the owner's own machine, backed up in a password manager and a second device; a hardware key is a possible later change through key rotation.
+- **Reason given:** accepted as recommended, after asking whether the reason is the risk of a GitHub compromise (it is) and where the key would live.
+
+#### INST-3. Where `/install` comes from
+
+- **Options:**
+  - (a) "A copy committed to the website repository, updated when the bootstrap changes."
+  - (b) "A Vercel rewrite to the script on GitHub. This makes the website depend on GitHub, and a change to `main` would reach users without a release."
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+
+#### INST-4. How "latest" is found
+
+- **Options:**
+  - (a) "GitHub's `releases/latest`, so the launch release is a full release and not a prerelease."
+  - (b) "A `latest` pointer file on the website, updated at each publication."
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+
+#### INST-5. `gh` in `install-release.sh`
+
+- **Options:**
+  - (a) "Replace it with HTTPS downloads."
+  - (b) "Keep `gh` as a fallback for private forks."
+- **Chosen:** (a). Private forks can still use `--from`.
+- **Reason given:** accepted as recommended.
 
 ### RUN-6 and RUN-7: peerfs workspaces (2026-11-02)
 
