@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [INST-6: who may change the release keys](#inst-6-who-may-change-the-release-keys-2026-11-04) (2026-11-04)
   - [INST-1 to INST-5: one-line install](#inst-1-to-inst-5-one-line-install-2026-11-04) (2026-11-04)
   - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
   - [GU-OWN1 and GU-OWN2: guided onboarding and isolated delivery](#gu-own1-and-gu-own2-guided-onboarding-and-isolated-delivery-2026-10-28) (2026-10-28)
@@ -51,6 +52,21 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### INST-6: who may change the release keys (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install.
+- **Source:** the owner's question on PR [#126](https://github.com/peerspan/peerspan/pull/126): "if we push sign-release --generate, isn't that key generation now part of the repo? anyone can run it". The answer: generating a key gives no trust; only the keys listed in `PEERSPAN_RELEASE_KEYS` are trusted, so the list is what needs protecting. The owner answered "yes please" to the options below.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md#changing-the-release-keys).
+- **Implementing PRs:** #126 (`.github/CODEOWNERS`).
+- **Options:**
+  - (a) Keep `--generate`, and protect the key list: a CODEOWNERS rule for the install and signing scripts, key changes only by owner decision in a PR of their own, and a qualification check that the published and served key lists equal the decided one.
+  - (b) Drop `--generate` and document an `openssl` command in `releasing.md`. The security is the same either way.
+- **Chosen:** (a).
+- **Reason given:** accepted as recommended.
+- **Not yet in effect:** the `main` ruleset requires 0 approvals, doesn't require code-owner review, and lets organization administrators bypass it. Enforcing the CODEOWNERS rule needs the owner to change that ruleset.
 
 ### INST-1 to INST-5: one-line install (2026-11-04)
 
