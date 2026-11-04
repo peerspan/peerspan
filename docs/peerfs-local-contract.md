@@ -1,7 +1,10 @@
 # PeerFS local registration and host signing (PF-1)
 
-Status: proposed implementation contract, following merged [#116](https://github.com/peerspan/peerspan/pull/116).
-These endpoints and adapters are not implemented by this document. Remote read
+Status: accepted local contract, merged in [#121](https://github.com/peerspan/peerspan/pull/121),
+following the boundary plan in [#116](https://github.com/peerspan/peerspan/pull/116).
+The first implementation slice is PF-1(a): preparation, lookup/list, release and
+typed commit signing. Provider activation, fresh PeerFS host-backed initialization
+and historical HostKeys remain subsequent PF-1 pieces. Remote read
 authorization, object serving and cross-host pull remain PF-2/PF-3 in the
 [delivery plan](peerfs-host-contract.md). No filesystem grant is created here.
 
@@ -321,9 +324,42 @@ and live pinned directory. Persist the immutable view, device/inode/account and
 state atomically in its private SQLite database. Tombstones survive restart.
 Do not add a second database, signing-key file, background provider monitor,
 per-signature audit table or signature-byte log. This document allocates no
-schema number: baseline main already uses 29 for runtime tasks. Allocate the
-additive migration against actual main in the implementation PR and check
-existing identity/authority/history, old-binary refusal and full-state restore.
+schema number on its own: the original baseline used29 for runtime tasks.
+The implementation allocation below follows actual main, including its later
+conversations schema30. Check existing identity/authority/history, old-binary
+refusal and full-state restore.
+
+PF-1(a) is additive **schema31 over prior-main30** (which includes agent
+descriptions). Its private storage is exactly:
+
+```sql
+CREATE TABLE peerfs_bindings (
+ space_id TEXT PRIMARY KEY NOT NULL,
+ binding_id TEXT NOT NULL UNIQUE,
+ network_id TEXT NOT NULL,
+ context_id TEXT NOT NULL,
+ host_id TEXT NOT NULL,
+ public_key TEXT NOT NULL,
+ directory TEXT NOT NULL,
+ state TEXT NOT NULL CHECK (state IN ('prepared','registered','released')),
+ created_at TEXT NOT NULL,
+ device BLOB NOT NULL CHECK (length(device) = 8),
+ inode BLOB NOT NULL CHECK (length(inode) = 8),
+ uid INTEGER NOT NULL CHECK (uid BETWEEN 0 AND 4294967295)
+);
+CREATE UNIQUE INDEX peerfs_live_directory ON peerfs_bindings(directory) WHERE state != 'released';
+CREATE UNIQUE INDEX peerfs_live_inode ON peerfs_bindings(device,inode) WHERE state != 'released';
+```
+
+Device/inode blobs are unsigned64-bit big-endian values. `format:1` is implicit
+in the schema; it is emitted in every registration view. Validate the exact
+schema, indexes and stored row shapes on startup; a missing/malformed object at
+schema31 is corruption, not a request to recreate it. A pre31 state containing
+this reserved namespace is refused atomically. Identity/key fields must match
+the actual host; no filesystem/provider probe occurs during startup validation.
+Older schema30 binaries refuse31. Existing synthetic old-version fixtures omit
+this newer table; real upgrade/restore evidence uses genuine old binaries and
+complete private backups, without version rewriting.
 
 Failures use the host's ordinary `{code,error}` envelope, with fixed messages
 that do not echo paths, bytes, provider errors or object content:
@@ -346,6 +382,11 @@ Parent-count and individual string limits are400; the complete body and decoded
 message limits are413. Required-key lookup before an unknown record returns 404;
 an existing record with a mismatched `binding_id` returns 409. No lower-level
 exception is logged by these operations.
+For filesystem refusals, a newly proposed root owned by another UID is403;
+a retained root whose ownership/privacy/inode changes is409. A bad new root's
+mode, symlinked path or unsafe ancestor is409; a malformed pathname is400.
+A later activation's socket-account mismatch is403. Requests with valid shapes
+to an unknown space are404; malformed bodies on existing spaces are400.
 
 Implement in reviewable pieces: (a) registration storage and typed host signing,
 (b) fresh host-backed PeerFS initialization and immutable provider identity,

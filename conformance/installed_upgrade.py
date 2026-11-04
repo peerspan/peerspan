@@ -179,8 +179,8 @@ class Host:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=1)
-                raise CheckFailure('old binary did not refuse schema30 within 5 seconds') from None
-            require(code != 0, 'old binary opened the upgraded schema30')
+                raise CheckFailure('old binary did not refuse schema31 within 5 seconds') from None
+            require(code != 0, 'old binary opened the upgraded schema31')
         finally:
             self.process = None
             PROCESSES.discard(process)
@@ -360,8 +360,8 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(not pending or fresh['flow_id'] != pending['flow_id'], 'fresh review reused the retained pending flow')
         host.stop()
         upgraded = logical(database(host.state))
-        require(upgraded['version'] == 30 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
-                'installed upgrade did not create schema30 with both complete table histories')
+        require(upgraded['version'] == 31 and (CONVERSATIONS | GUIDED) <= upgraded['tables'].keys(),
+                'installed upgrade did not create schema31 with both complete table histories')
         preserve_history(original, upgraded, fresh_flow=fresh)
         require(tree(host.config) == manifests['config'], 'upgrade changed original person-key configuration')
         host.binary = old_binary
@@ -387,7 +387,7 @@ def one_history(work, label, old_binary, expected_version, installed, budget):
         require(restored_records['version'] == expected_version, 'old binary changed restored schema version')
         preserve_history(original, restored_records)
         require(tree(restored.config) == manifests['config'], 'old binary changed restored original key/config')
-        return {'original_schema': expected_version, 'upgraded_schema': 30,
+        return {'original_schema': expected_version, 'upgraded_schema': 31,
                 'backup_mode_hash_match': True, 'public_history_retained': True,
                 'pending_review_retained': pending is not None, 'new_review': True,
                 'old_binary_refused_without_db_mutation': True, 'complete_restore_reopened': True,

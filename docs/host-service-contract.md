@@ -10,11 +10,12 @@ The product was called Capsule before 2026-10-15, and Peerspan does not carry an
 
 The [PeerFS host integration plan](peerfs-host-contract.md), merged in #116, defines the
 next local filesystem boundary and delivery gates after real-machine/NAT
-qualification. Its registration, signing and filesystem peer interfaces remain
-proposals; current project attachment and agent access do not share files.
-The [PF-1 local contract](peerfs-local-contract.md) specifies preparation before
-provider activation, exact typed signing and historical key recognition for
-review before either adapter is implemented.
+qualification. PF-1(a) implements owner-local preparation, lookup/list, release
+and typed canonical commit signing under the accepted
+[PF-1 local contract](peerfs-local-contract.md), using additive schema31.
+Provider activation, the fresh host-backed PeerFS initializer and historical
+key recognition follow in subsequent PF-1 pieces. Filesystem peer access and
+pull remain PF-2/PF-3; project attachment and agent access do not share files.
 
 The accepted [machine-linking signing](machine-linking-contract.md) and
 [transaction](machine-linking-transactions.md) contracts describe delegated

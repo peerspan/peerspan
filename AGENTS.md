@@ -43,6 +43,11 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).
 - `capabilities`: sources, sharing, calls, approval, bounds, remote MCP servers and the built-in `gh` source.
 - `basics`: info, status, errors, storage and restart (spec 14 to 17).
+- `peerfs_local`: PF-1(a) private preparation, release, typed commit signing,
+  replay, filesystem fences and restart. Runs in the full tier under DEC-OWN14/15
+  (708 lines, 61 seconds measured). Run `conformance/peerfs_local_upgrade.py`
+  locally with genuine old/new binaries under DEC-OWN18; it checks prior-main30
+  upgrade/refusal/full restore (189 lines, 7.52 seconds measured).
 - `onboarding`: the owner-local guided-onboarding observation, request privacy,
   adapter readiness and read-only behavior (guided session contract section 1).
 - `project_onboarding`: exact local project reviews, atomic metadata attachment,

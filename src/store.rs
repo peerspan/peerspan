@@ -183,10 +183,13 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=30).contains(&version) {
+        if !(0..=31).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
+        if version < 31 {
+            crate::peerfs::check_namespace(&tx)?;
+        }
         // Main and the guided feature each used schema24 before integration.
         // Only the two actual histories are accepted; missing required tables
         // at a later version remain corruption, not a reason to recreate them.
@@ -308,6 +311,10 @@ impl Store {
         if !described {
             tx.execute_batch(DESCRIPTIONS)?;
         }
+        if version < 31 {
+            tx.execute_batch(crate::peerfs::SCHEMA)?;
+        }
+        crate::peerfs::check_schema(&tx)?;
         crate::conversations::check_schema(&tx)?;
         crate::onboarding_join::check_schema(&tx)?;
         crate::onboarding::check_schema(&tx)?;
@@ -316,7 +323,8 @@ impl Store {
         crate::decentralized::storage::check_schema(&tx)?;
         // 29 is runtime tasks (runtime task contract): new record fields only.
         // 30 is conversations C7: the agent_descriptions table.
-        tx.execute_batch("PRAGMA user_version = 30;")?;
+        // 31 is PF-1(a): explicit local PeerFS bindings and typed host signing.
+        tx.execute_batch("PRAGMA user_version = 31;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")
@@ -357,6 +365,7 @@ impl Store {
             public_key: STANDARD.encode(public),
             created_at,
         };
+        crate::peerfs::check_identity(&tx, &identity)?;
         let stale = {
             let mut statement = tx.prepare("SELECT id FROM sessions WHERE state = 'attached'")?;
             statement
