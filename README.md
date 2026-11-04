@@ -11,7 +11,7 @@
   <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
 </p>
 
-<h3 align="center">Agents working together across machines, with access set by each owner.</h3>
+<h3 align="center">Infrastructure to connect agents across machines and owners</h3>
 
 You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
 
