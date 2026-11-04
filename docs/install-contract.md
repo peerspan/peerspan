@@ -1,6 +1,6 @@
 # Install contract
 
-The one-line install from peerspan.dev. The design, its reasons and the options considered are in the [install proposal](install-proposal.md); the decisions are [INST-1 to INST-5](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04). This contract is the specification for the implementation and for the independent `install` suite.
+The one-line install from peerspan.dev. The design, its reasons and the options considered are in the [install proposal](install-proposal.md); the decisions are [INST-1 to INST-5](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04), [INST-6](decision-log.md#inst-6-who-may-change-the-release-keys-2026-11-04) and [INST-7](decision-log.md#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04). This contract is the specification for the implementation. There is no conformance suite for the install scripts (INST-7): they are checked by the release procedure's live installs.
 
 ## Release assets
 
@@ -17,6 +17,8 @@ A UTF-8 JSON object, at most 64 KiB, with exactly these members:
 | `version` | the release version without `v`, matching `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$` |
 | `source_revision` | the workflow commit, 40 lowercase hexadecimal characters |
 | `assets` | an object mapping each asset file name to its SHA-256 as 64 lowercase hexadecimal characters |
+
+Each archive's `RELEASE.json`, written by the packaging scripts, has at least `version`, `os` (`"linux"`), `architecture` (`amd64` or `arm64`), `source_revision` and `source_dirty`; host archives also have `implementation` (`"rust"`). An archive's single root directory is its file name without `.tar.gz`. The checks below that name these fields compare them exactly.
 
 `assets` names exactly the two host archives, the two helper archives and `install-release.sh` of that release. It does not list the `.sha256` files, `release.json` or `release.json.sig`. The workflow writes it only after the checks it already makes on each archive's `RELEASE.json`, and from the same digests.
 
@@ -36,6 +38,15 @@ PEERSPAN_RELEASE_KEYS="KEY1 KEY2"
 
 A signature is valid when it verifies under any listed key. Verification uses Node's `crypto.verify(null, data, key, signature)` with the key built from its JWK.
 
+A listed value that isn't a usable key is ignored, never trusted. That's one that:
+- isn't 43 base64url characters decoding to 32 bytes;
+- is a non-canonical encoding, with its y-coordinate (the 32 bytes little-endian with the top bit cleared) at least p = 2^255 − 19;
+- or has the y-coordinate of a point of order 1, 2, 4 or 8: y = 0, 1, p − 1, or either y-coordinate of the four order-8 points. All-zero bytes are one of these.
+
+Node accepts such small-order keys, and signatures can be forged for them without a private key, so each script rejects them itself before verifying. A list with no usable key accepts nothing.
+
+The scripts ship with one placeholder value that is not a point on the curve, `AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`, until the owner's first key decision replaces it. Until then, nothing installs through the bootstrap or `--from-github`.
+
 The private key is held offline by the owner ([INST-2](decision-log.md#inst-2-who-holds-the-key-and-when-signing-happens)). It is never stored in a repository, a CI secret or a shared machine.
 
 ### Changing the release keys
@@ -54,8 +65,8 @@ scripts/sign-release.sh --generate KEYFILE
 scripts/sign-release.sh DIRECTORY KEYFILE
 ```
 
-- **`--generate`** creates a new Ed25519 key, asks twice for a passphrase, writes it to `KEYFILE` as passphrase-encrypted PKCS#8 PEM with mode `0600`, and prints the public key in the form above. It refuses to overwrite an existing file, and refuses an empty passphrase.
-- **Signing** reads `DIRECTORY/release.json` and checks it as a reader does. It then checks that every asset it lists is in `DIRECTORY` with the listed digest, and that each archive's `RELEASE.json` names the manifest's version, `source_revision`, `source_dirty: false`, the architecture in its file name, and, for host archives, `implementation: "rust"`. Only then does it ask for the passphrase (on the terminal, or as one line of standard input when there is none), sign, and write `DIRECTORY/release.json.sig`. It prints the public key it signed with. Any failed check writes nothing and exits 1.
+- **`--generate`** creates a new Ed25519 key, asks twice for a passphrase (on the terminal, or as two lines of standard input when there is none; the two must match), writes it to `KEYFILE` as passphrase-encrypted PKCS#8 PEM with mode `0600`, and prints the public key in the form above. It refuses to overwrite an existing file, and refuses an empty passphrase.
+- **Signing** reads `DIRECTORY/release.json` and checks it as a reader does. It then checks that every asset it lists is in `DIRECTORY` with the listed digest, and that each archive's `RELEASE.json` names the manifest's version, `source_revision`, `source_dirty: false`, the architecture in its file name, and, for host archives, `implementation: "rust"`. Only then does it ask for the passphrase (on the terminal, or as one line of standard input when there is none), sign, and write `DIRECTORY/release.json.sig`. It prints the public key it signed with. It refuses to replace an existing `release.json.sig`. Any failed check writes nothing and exits 1.
 
 ## `scripts/install.sh`
 
@@ -67,13 +78,13 @@ install.sh [--version VERSION] [--no-service]
 
 Read from standard input (`curl … | bash`, `curl … | bash -s -- ARGS`) or run as a file, it behaves the same. An unknown argument, a repeated argument, or a `--version` that doesn't match the version pattern prints a usage line to standard error and exits 2 before any check below.
 
-Near the top of the file, as single assignments a test can rewrite, are `PEERSPAN_RELEASE_KEYS` and:
+Near the top of the file, as single assignments, are `PEERSPAN_RELEASE_KEYS` and:
 
 ```sh
 PEERSPAN_RELEASES_URL="https://github.com/peerspan/peerspan/releases"
 ```
 
-The rest of the script is a function definition, and its last line calls that function. A copy cut off at any byte executes nothing.
+The rest of the script is a function definition, and its last line calls that function inside braces (`{ peerspan_bootstrap "$@"; }`). A copy cut off before its last line is complete executes nothing: every such copy either only defines the function or is a syntax error.
 
 ### Steps
 
@@ -84,20 +95,20 @@ The rest of the script is a function definition, and its last line calls that fu
 5. **Handoff.** It runs `bash DIR/install-release.sh V --from DIR`, adding `--no-service` when given, with the caller's environment. It exits with that command's status.
 6. **Cleanup.** It removes the temporary directory on every exit after step 3 began, including failures and signals.
 
-Every failure in steps 3 and 4 prints one line to standard error naming the file and the reason (download failed, bad signature, invalid manifest, version mismatch, missing architecture, digest mismatch), and exits 1. Before step 5, the bootstrap writes nothing outside its temporary directory.
+Every failure in steps 3 and 4 prints one line to standard error naming the file and the reason, with the download tool's own error message folded into that line rather than printed separately (download failed, bad signature, invalid manifest, version mismatch, missing architecture, digest mismatch), and exits 1. Before step 5, the bootstrap writes nothing outside its temporary directory.
 
 ### Downloads
 
-- With `curl`: `curl --proto '=https' --tlsv1.2 -fsSL -o FILE URL`.
-- With `wget`: `wget --https-only -q -O FILE URL`.
+- With `curl`: `curl --proto '=https' --proto-redir '=https' --tlsv1.2 --max-redirs 5 --max-filesize LIMIT -fsSL -o FILE URL`.
+- With `wget`: `wget --https-only --max-redirect=5 --tries=1 --timeout=60 -q -O FILE URL`. Outside recursive mode, wget's `--https-only` doesn't stop a redirect to plain HTTP. That only matters for privacy, not integrity: every file is accepted only by its signature or signed digest. This is one reason `curl` is preferred.
 
-Redirects are followed, any HTTP error status is a failure, and every URL is HTTPS. `release.json`, `release.json.sig` and `install-release.sh` are refused above 64 KiB, 1 KiB and 1 MiB respectively. The bootstrap never runs `gh` or `sudo`, and never edits shell profiles.
+Redirects are followed up to 5 times (and with `curl` only to HTTPS), any HTTP error status is a failure, and a download is tried once. `release.json`, `release.json.sig`, `install-release.sh` and a `.sha256` file are refused above 64 KiB, 1 KiB, 1 MiB and 1 KiB respectively; with `curl` the limit is also passed as `--max-filesize`, and every file's size is checked after download. The host archive has no size limit: its signed digest bounds what's accepted. The bootstrap never runs `gh` or `sudo`, and never edits shell profiles.
 
 ## `scripts/install-release.sh`
 
-The archive installer keeps its interface, layout and service behavior. Two things change:
+The archive installer keeps its interface, layout and service behavior: it installs each release under `${PEERSPAN_INSTALL_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}}/peerspan/releases/`, links the launcher `${PEERSPAN_INSTALL_BIN_DIR:-$HOME/.local/bin}/peerspan` to the release's `bin/peerspan`, and runs `peerspan install` unless given `--no-service`. Two things change:
 
-- **`--from-github OWNER/REPO`** no longer uses `gh` ([INST-5](decision-log.md#inst-5-gh-in-install-releasesh)). It downloads `release.json`, `release.json.sig`, the host archive and its `.sha256` from `https://github.com/OWNER/REPO/releases/download/vVERSION/` as the bootstrap does. It requires the signature to verify under its `PEERSPAN_RELEASE_KEYS`, the manifest to be valid with `version` equal to `VERSION`, and the archive to match both its signed digest and its `.sha256`. A missing manifest or signature is a failure. A missing `curl` and `wget` is reported instead of a missing `gh`.
+- **`--from-github OWNER/REPO`** no longer uses `gh` ([INST-5](decision-log.md#inst-5-gh-in-install-releasesh)). It downloads `release.json`, `release.json.sig`, the host archive and its `.sha256` from `https://github.com/OWNER/REPO/releases/download/vVERSION/` with the bootstrap's download rules. It requires the signature to verify under its `PEERSPAN_RELEASE_KEYS`, the manifest to be valid with `version` equal to `VERSION`, and the archive to match both its signed digest and its `.sha256`. A missing manifest or signature is a failure. A missing `curl` and `wget` is reported instead of a missing `gh`.
 - **`--from DIRECTORY`:** when `DIRECTORY` contains both `release.json` and `release.json.sig`, it verifies them the same way before installing. When it contains exactly one of the two, it refuses. When it contains neither, it behaves as before: checksum only.
 
 ## Release procedure
@@ -110,14 +121,14 @@ After the existing draft qualification:
 1. download the draft's assets into an empty directory;
 2. check that `PEERSPAN_RELEASE_KEYS` in the tagged `scripts/install.sh` and in the draft's `install-release.sh` asset equals the keys of the latest key decision in the log ([Changing the release keys](#changing-the-release-keys));
 3. run `scripts/sign-release.sh DIRECTORY KEYFILE`;
-4. on clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, with no `gh` installed, copy that directory (now including `release.json.sig`) and install with its `install-release.sh VERSION --from DIRECTORY`. This exercises the signed-manifest check on the exact candidate. Then follow the quick start. The bootstrap itself is covered by the `install` suite;
+4. on clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, with no `gh` installed, copy that directory (now including `release.json.sig`) and install with its `install-release.sh VERSION --from DIRECTORY`. This exercises the signed-manifest check on the exact candidate. Then follow the quick start. The bootstrap itself can't run against a draft, so it is first exercised for real by step 9;
 5. upload `release.json.sig` to the draft.
 
 Any failure stops publication.
 
 ### Publication
 
-6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)).
+6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)). The Draft Linux release workflow creates drafts without the prerelease flag, so publishing only clears the draft flag.
 7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6. A new bootstrap served before its release is published would find only the previous release.
 
 ### After publication
@@ -126,67 +137,3 @@ Any failure stops publication.
 9. On a clean Debian 12, Ubuntu 22.04 or Ubuntu 24.04 machine for each architecture, with no `gh` installed, run the real one-liner from `https://peerspan.dev/install`. It must install this release, as `latest` and as `--version VERSION`.
 
 If step 8 or 9 fails, mark the release as a prerelease straight away. `releases/latest` then names the previous full release, or none, so the one-liner installs the previous release or fails closed. Then restore the website copy, fix the problem, and publish a new version. Assets of a published version are never replaced.
-
-## Verification
-
-`conformance/slim/install.py` is written from this contract by an author who doesn't read the implementation. It is a per-push suite, budgeted at under 60 seconds and about 400 lines ([DEC-OWN14](decision-log.md#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)).
-
-**Fixtures:**
-- A local HTTPS server with a test certificate authority, trusted through `CURL_CA_BUNDLE` and `SSL_CERT_FILE`. The server records every request, and serves `latest/download/` by redirecting to a chosen version.
-- Test keys generated per run. Each case uses a copy of `scripts/install.sh` (or `install-release.sh`) with `PEERSPAN_RELEASES_URL` and `PEERSPAN_RELEASE_KEYS` rewritten.
-- Fixture host archives with the real bundle layout (`RELEASE.json`, an executable `bin/peerspan-host`, and the `bin/peerspan` link), installed with `--no-service`.
-- `HOME`, `TMPDIR`, `PEERSPAN_INSTALL_DATA_DIR` and `PEERSPAN_INSTALL_BIN_DIR` redirected per case.
-- `PATH` built per case from links to real tools, so that `gh`, `curl`, `wget` or `node` can be absent, or replaced by a stub reporting a given version or architecture.
-
-**Cases:**
-- **Install:**
-  - latest installs;
-  - `--version` installs that version;
-  - the launcher points at the release directory;
-  - the installed archive's digest equals the signed one;
-  - the bootstrap works read from standard input and run as a file.
-- **Without `gh`:**
-  - installs succeed with only `curl`, and with only `wget`;
-  - `gh` is never run (a stub `gh` that records calls stays uncalled).
-- **Refusals**, each exiting 1, leaving the data and bin directories unchanged and the temporary directory removed:
-  - signature missing, not base64, the wrong length, or made with an unlisted key;
-  - `release.json` changed by one byte after signing;
-  - manifest with a missing member, wrong `format`, wrong `name`, a malformed digest, or over 64 KiB;
-  - manifest version different from `--version`;
-  - this architecture's archive not listed;
-  - archive or `install-release.sh` not matching its digest;
-  - an HTTP error on any download;
-  - a response cut short;
-  - a file over its size limit.
-- **A second listed key:** a manifest signed with the second of two listed keys installs.
-- **Preflight**, each exiting 1 with the missing piece named on standard error and the server recording no request:
-  - no `node`;
-  - Node 21;
-  - no `tar`;
-  - no `flock`;
-  - neither `curl` nor `wget`;
-  - an unsupported `uname -m`;
-  - a non-Linux `uname -s`.
-- **Usage:** an unknown argument, a repeated `--version`, or a malformed version exits 2 with no request.
-- **Truncation:** the bootstrap cut at several byte offsets, piped to `bash`, makes no request and writes nothing.
-- **Rerun:**
-  - a newer release upgrades the launcher;
-  - the same release again leaves the release directory and launcher unchanged.
-- **`install-release.sh --from-github`:**
-  - succeeds without `gh`;
-  - refuses a missing or bad `release.json.sig`;
-  - refuses a manifest whose version differs.
-- **`install-release.sh --from`:**
-  - with both manifest files it verifies them;
-  - with only one it refuses;
-  - with neither it installs from the checksum as before.
-
-**Key list:** `PEERSPAN_RELEASE_KEYS` in `scripts/install.sh` and `scripts/install-release.sh` holds the same 1 to 4 well-formed keys (each 43 base64url characters, decoding to 32 bytes).
-
-**`sign-release.sh`** is checked by the same author:
-- `--generate` writes an encrypted `0600` key and prints a public key that the bootstrap accepts;
-- it refuses to overwrite a key file;
-- signing writes nothing when an asset's digest is wrong or a `RELEASE.json` disagrees;
-- a produced signature verifies.
-
-The suite supplies the passphrase on standard input, with no terminal.

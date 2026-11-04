@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
   - [INST-6: who may change the release keys](#inst-6-who-may-change-the-release-keys-2026-11-04) (2026-11-04)
   - [INST-1 to INST-5: one-line install](#inst-1-to-inst-5-one-line-install-2026-11-04) (2026-11-04)
   - [RUN-6 and RUN-7: peerfs workspaces](#run-6-and-run-7-peerfs-workspaces-2026-11-02) (2026-11-02)
@@ -52,6 +53,22 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### INST-7: no conformance suite for the install scripts (2026-11-04)
+
+- **Date:** 2026-11-04.
+- **Area:** install.
+- **Source:** the owner's answer, 2026-11-04, after the independent `install` suite (62 cases, 689 lines, about 29 s) was written and run against the implementation: "get rid of the conformance tests, we don't need conformance for the install scripts". The question was whether to keep the over-budget suite per-push, trim it, or move it to the second tier.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md); its Verification section is removed.
+- **Options:**
+  - (a) Keep the suite per-push as written, recording the line-budget exception ([DEC-OWN14](#dec-own14-to-dec-own17-a-budget-for-the-conformance-suites-2026-11-03)).
+  - (b) Trim it toward about 400 lines by merging similar refusal cases.
+  - (c) Move it to the second tier.
+  - (d) No conformance suite for the install scripts. This was the owner's own option.
+- **Chosen:** (d). The install scripts are checked by the release procedure's live installs: before publication, `install-release.sh --from` with the signed manifest on clean machines; after publication, the real one-liner. The written suite is not merged.
+- **Consequence:** the bootstrap's refusal paths have no automated check, and the bootstrap first runs for real after publication. The prerelease rollback in the release procedure covers a failure there.
+- **Reason given:** "we don't need conformance for the install scripts".
 
 ### INST-6: who may change the release keys (2026-11-04)
 
