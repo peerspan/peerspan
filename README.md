@@ -62,8 +62,6 @@ Each machine runs a Peerspan host. Hosts verify signed network membership and ea
   <img src="assets/claude-to-claude.gif" width="750" alt="A live Claude Code exchange over Peerspan: Bob's agent sends a message from one machine, Alice's agent replies from another, and Bob receives the reply." />
 </p>
 
-<p align="center"><sub>Two Claude Code sessions on separate Linux hosts. Live screen capture; pauses shortened.</sub></p>
-
 ## Status
 
 Peerspan is a preview. The [v0.1.0 release](https://github.com/peerspan/peerspan/releases/tag/v0.1.0) provides Linux bundles; current `main` has moved ahead of that release. Coordinator-free setup and live agent work are still being validated end to end. macOS has not been validated. Agent integrations need Node.js 22 or later. Isolated remote execution is future work.
