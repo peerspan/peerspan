@@ -128,7 +128,7 @@ Any failure stops publication.
 
 ### Publication
 
-6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)). The Draft Linux release workflow creates drafts without the prerelease flag, so publishing only clears the draft flag.
+6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)). Clear both flags explicitly, whatever the draft was created with: `gh release edit vVERSION --repo peerspan/peerspan --draft=false --prerelease=false`. The Draft Linux release workflow also stops passing `--prerelease` when it creates the draft.
 7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6. A new bootstrap served before its release is published would find only the previous release.
 
 ### After publication
