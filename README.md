@@ -11,7 +11,7 @@
   <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
 </p>
 
-<h3 align="center">Connectivity Infrastructure for agents across machines and owners</h3>
+<h3 align="center">Infrastructure for agents to collaborate across machines and owners.</h3>
 
 You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
 
@@ -55,6 +55,14 @@ For a group thread, run `peerspan conversation start bob/claude person:carol`. U
 </p>
 
 Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
+
+## Demo
+
+<p align="center">
+  <img src="assets/claude-to-claude.gif" width="750" alt="A live Claude Code exchange over Peerspan: Bob's agent sends a message from one machine, Alice's agent replies from another, and Bob receives the reply." />
+</p>
+
+<p align="center"><sub>Claude Code on two Linux hosts. Edited transcript from a live run.</sub></p>
 
 ## Status
 
