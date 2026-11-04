@@ -189,6 +189,6 @@ jobs:
             exit 1
           fi
           gh release create "v$VERSION" assets/* \
-            --target "$GITHUB_SHA" --draft --prerelease \
+            --target "$GITHUB_SHA" --draft \
             --title "Peerspan v$VERSION" \
             --notes 'Coordinator-free Linux preview. The host is the Rust implementation; the Go implementation is maintained separately at github.com/peerspan/peerspan-go. The helper is a separate optional transport-only artifact. Verify matching SHA-256 files before installation.'

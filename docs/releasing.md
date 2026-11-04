@@ -112,7 +112,7 @@ After the candidate qualification above:
    bash DIRECTORY/install-release.sh VERSION --from DIRECTORY
    ```
 
-   Then follow the [quick start](quick-start.md). The bootstrap itself is covered by the `install` conformance suite.
+   Then follow the [quick start](quick-start.md). The bootstrap itself can't run against a draft, so it is first exercised for real by step 9; there is no conformance suite for the install scripts ([INST-7](decision-log.md#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04)).
 5. Upload the signature to the draft:
 
    ```sh
@@ -121,7 +121,7 @@ After the candidate qualification above:
 
 ### Publication
 
-6. Publish the draft as a full release, not a prerelease: `releases/latest`, which the one-liner uses, skips prereleases ([INST-4](decision-log.md#inst-4-how-latest-is-found)). The workflow creates the draft marked as a prerelease, so clear both flags. Release notes can still say "preview". Keep the source revision, tested platforms, acceptance evidence and known limits in the release notes:
+6. Publish the draft as a full release, not a prerelease: `releases/latest`, which the one-liner uses, skips prereleases ([INST-4](decision-log.md#inst-4-how-latest-is-found)). Clear both flags explicitly, whatever the draft was created with. Release notes can still say "preview". Keep the source revision, tested platforms, acceptance evidence and known limits in the release notes:
 
    ```sh
    gh release edit vVERSION --repo peerspan/peerspan --draft=false --prerelease=false
