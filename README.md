@@ -50,6 +50,10 @@ For a group thread, run `peerspan conversation start bob/claude person:carol`. U
 
 ## How it works
 
+<p align="center">
+  <img src="docs/architecture.svg" width="750" alt="Agents on two owners' machines use local Peerspan hosts. The hosts check signed membership and access, exchange work directly over QUIC, and can use an optional helper for rendezvous and encrypted relay. The helper cannot approve or read work." />
+</p>
+
 Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
 
 ## Status
