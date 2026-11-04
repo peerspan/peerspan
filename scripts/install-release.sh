@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Accepted release public keys: base64url Ed25519 keys, separated by spaces.
+# This list must equal the one in scripts/install.sh. Adding or removing a key
+# is an owner decision with its own decision-log entry, in a pull request that
+# changes nothing else (INST-6).
+# PLACEHOLDER: the key below is not a real release key. It is not a point on the
+# Ed25519 curve, so no signature verifies under it and no one holds its private
+# key. The owner replaces it with the real release key by an owner decision.
+PEERSPAN_RELEASE_KEYS="AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
 usage() {
   echo "usage: $0 VERSION [--implementation rust] [--from DIRECTORY | --from-github OWNER/REPO] [--no-service]" >&2
   exit 2
@@ -83,7 +92,14 @@ if [[ $source_kind == github ]]; then
     echo "--from-github requires OWNER/REPO" >&2
     exit 2
   }
-  command -v gh >/dev/null || { echo "GitHub CLI is required for --from-github" >&2; exit 1; }
+  if command -v curl >/dev/null; then
+    downloader=curl
+  elif command -v wget >/dev/null; then
+    downloader=wget
+  else
+    echo "curl or wget is required for --from-github" >&2
+    exit 1
+  fi
   download_dir=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-download.XXXXXX")
   source_dir=$download_dir
 else
@@ -92,10 +108,153 @@ fi
 name="peerspan-${version}-linux-${arch}-${implementation}"
 archive="$source_dir/$name.tar.gz"
 checksum="$archive.sha256"
+# A signed manifest pair (release.json and release.json.sig) is verified
+# against PEERSPAN_RELEASE_KEYS: the signature, the manifest's form, its version
+# and this archive's signed digest. It is required for --from-github; with
+# --from it is verified when both files are present and refused when only one is.
+signed_digest=
+verify_manifest() {
+  local signed
+  signed=$(node - '' "$PEERSPAN_RELEASE_KEYS" "$source_dir/release.json" "$source_dir/release.json.sig" "$version" "$arch" archive <<'JS'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const [prefix, keyList, manifestPath, signaturePath, wantVersion, arch, mode] = process.argv.slice(2);
+const fail = (file, reason) => {
+  process.stderr.write(`${prefix}${file}: ${reason}\n`);
+  process.exit(1);
+};
+
+const keys = keyList.split(/\s+/).filter(Boolean);
+if (keys.length < 1 || keys.length > 4) fail('PEERSPAN_RELEASE_KEYS', 'must list 1 to 4 keys');
+const publicKeys = keys.map((x) => {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(x) || Buffer.from(x, 'base64url').toString('base64url') !== x) {
+    fail('PEERSPAN_RELEASE_KEYS', `malformed key ${x}`);
+  }
+  try {
+    return crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' });
+  } catch {
+    return fail('PEERSPAN_RELEASE_KEYS', `unusable key ${x}`);
+  }
+});
+
+let data, signatureText;
+try {
+  data = fs.readFileSync(manifestPath);
+} catch {
+  fail('release.json', 'missing or unreadable');
+}
+try {
+  signatureText = fs.readFileSync(signaturePath);
+} catch {
+  fail('release.json.sig', 'missing or unreadable');
+}
+if (data.length > 65536) fail('release.json', 'invalid manifest (larger than 64 KiB)');
+if (signatureText.length > 1024) fail('release.json.sig', 'bad signature (larger than 1 KiB)');
+
+// One line: standard base64 with padding of 64 bytes, then a newline.
+const text = signatureText.toString('latin1');
+if (!/^[A-Za-z0-9+/]{86}==\n$/.test(text)) fail('release.json.sig', 'bad signature (not one base64 line of 64 bytes)');
+const signature = Buffer.from(text.slice(0, 88), 'base64');
+if (signature.length !== 64 || signature.toString('base64') !== text.slice(0, 88)) {
+  fail('release.json.sig', 'bad signature (not one base64 line of 64 bytes)');
+}
+const verified = publicKeys.some((key) => {
+  try {
+    return crypto.verify(null, data, key, signature);
+  } catch {
+    return false;
+  }
+});
+if (!verified) fail('release.json.sig', 'bad signature (not made by a listed release key)');
+
+let manifest;
+try {
+  manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data));
+} catch {
+  fail('release.json', 'invalid manifest (not UTF-8 JSON)');
+}
+const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+if (!isObject(manifest)) fail('release.json', 'invalid manifest (not a JSON object)');
+for (const member of ['format', 'name', 'version', 'source_revision', 'assets']) {
+  if (!Object.hasOwn(manifest, member)) fail('release.json', `invalid manifest (no ${member})`);
+}
+if (manifest.format !== 1) fail('release.json', 'invalid manifest (format is not 1)');
+if (manifest.name !== 'peerspan') fail('release.json', 'invalid manifest (name is not "peerspan")');
+if (typeof manifest.version !== 'string' ||
+    !/^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$/.test(manifest.version)) {
+  fail('release.json', 'invalid manifest (malformed version)');
+}
+if (typeof manifest.source_revision !== 'string' || !/^[0-9a-f]{40}$/.test(manifest.source_revision)) {
+  fail('release.json', 'invalid manifest (malformed source_revision)');
+}
+if (!isObject(manifest.assets)) fail('release.json', 'invalid manifest (assets is not an object)');
+for (const [name, digest] of Object.entries(manifest.assets)) {
+  if (!/^[A-Za-z0-9._+-]+$/.test(name) || name === '.' || name === '..') {
+    fail('release.json', 'invalid manifest (malformed asset name)');
+  }
+  if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
+    fail('release.json', `invalid manifest (malformed digest for ${name})`);
+  }
+}
+
+if (wantVersion !== '' && manifest.version !== wantVersion) {
+  fail('release.json', `version mismatch (manifest names ${manifest.version}, wanted ${wantVersion})`);
+}
+const archive = `peerspan-${manifest.version}-linux-${arch}-rust.tar.gz`;
+if (!Object.hasOwn(manifest.assets, archive)) fail('release.json', `missing architecture (does not list ${archive})`);
+const lines = [manifest.version, manifest.assets[archive]];
+if (mode === 'installer') {
+  if (!Object.hasOwn(manifest.assets, 'install-release.sh')) {
+    fail('release.json', 'invalid manifest (does not list install-release.sh)');
+  }
+  lines.push(manifest.assets['install-release.sh']);
+}
+process.stdout.write(lines.join('\n') + '\n');
+JS
+  ) || exit 1
+  signed_digest=${signed#*$'\n'}
+}
+
 if [[ $source_kind == github ]]; then
-  gh release download "v$version" --repo "$source_repo" \
-    --pattern "$name.tar.gz" --pattern "$name.tar.gz.sha256" \
-    --dir "$download_dir"
+  release_url="https://github.com/$source_repo/releases/download/v$version"
+  # fetch NAME LIMIT: download release_url/NAME into the download directory,
+  # refusing more than LIMIT bytes (0 for no limit).
+  fetch() {
+    local size
+    if [[ $downloader == curl ]]; then
+      curl --proto '=https' --tlsv1.2 -fsSL -o "$download_dir/$1" "$release_url/$1" || {
+        echo "$1: download failed" >&2
+        exit 1
+      }
+    else
+      wget --https-only -q -O "$download_dir/$1" "$release_url/$1" || {
+        echo "$1: download failed" >&2
+        exit 1
+      }
+    fi
+    if [[ $2 -gt 0 ]]; then
+      size=$(wc -c < "$download_dir/$1")
+      if [[ $size -gt $2 ]]; then
+        echo "$1: refused, larger than $2 bytes" >&2
+        exit 1
+      fi
+    fi
+  }
+  fetch release.json 65536
+  fetch release.json.sig 1024
+  verify_manifest
+  fetch "$name.tar.gz" 0
+  fetch "$name.tar.gz.sha256" 0
+elif [[ -e $source_dir/release.json || -L $source_dir/release.json ]]; then
+  if [[ -e $source_dir/release.json.sig || -L $source_dir/release.json.sig ]]; then
+    verify_manifest
+  else
+    echo "$source_dir has release.json but no release.json.sig; refusing to install" >&2
+    exit 1
+  fi
+elif [[ -e $source_dir/release.json.sig || -L $source_dir/release.json.sig ]]; then
+  echo "$source_dir has release.json.sig but no release.json; refusing to install" >&2
+  exit 1
 fi
 [[ -f $archive && -f $checksum ]] || {
   echo "missing $archive or its .sha256 file" >&2
@@ -122,6 +281,10 @@ if (actual !== match[1]) {
 process.stdout.write(actual);
 JS
 )
+if [[ -n $signed_digest && $digest != "$signed_digest" ]]; then
+  echo "$(basename "$archive"): digest mismatch with release.json (signed $signed_digest, got $digest)" >&2
+  exit 1
+fi
 
 data_home=${PEERSPAN_INSTALL_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}}
 [[ $data_home == /* ]] || { echo "install data directory must be an absolute path" >&2; exit 1; }

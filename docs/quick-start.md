@@ -4,29 +4,42 @@ Peerspan lets Claude Code sessions on different machines message each other and 
 
 **Preview status:** coordinator-free networks are new and still being validated end to end, including installed setup and live agent work. Expect rough edges and breaking changes. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release, not this design.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm or Rust. The installer also needs Bash, tar, and `flock`. Release downloads use GitHub CLI (`gh`). Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the installer need Node.js 22 or later, but not npm or Rust. Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
 
 ## Install
 
-From a source checkout, put a matching release archive and its `.sha256` file in `dist/` on each machine (maintainer build instructions are below). Then run:
+On Linux (amd64 or arm64), run:
+
+```sh
+curl -fsSL https://peerspan.dev/install | bash
+```
+
+The first release published with a signed manifest is the first one it can install; v0.1.0 has none.
+
+It needs Bash, `tar`, `flock`, Node.js 22 or later, and `curl` or `wget`. It needs no GitHub account, no GitHub CLI and no root. It checks these first and names anything missing before downloading. It then downloads the latest release's signed manifest, checks its Ed25519 signature against the release keys built into the script, checks the host archive for this machine and the archive installer against the signed digests, and runs that installer. To install a particular version, or to skip starting the user service:
+
+```sh
+curl -fsSL https://peerspan.dev/install | bash -s -- --version VERSION
+curl -fsSL https://peerspan.dev/install | bash -s -- --no-service
+```
+
+The installer stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing Go host installation to Rust in place. Running the command again upgrades to the latest release. The one-line install trusts what `peerspan.dev` serves; to read the script first, download it with `curl -fsSLO https://peerspan.dev/install`, compare its `PEERSPAN_RELEASE_KEYS` with [the repository's](../scripts/install.sh), and run `bash install`.
+
+To install without the website, download the archive installer from a release and let it fetch and verify the signed release over HTTPS:
+
+```sh
+version=VERSION
+curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/peerspan/peerspan/releases/download/v$version/install-release.sh"
+bash install-release.sh "$version" --from-github peerspan/peerspan
+```
+
+For an offline install, or from a source checkout, put a matching release archive and its `.sha256` file in a directory (maintainer build instructions are below), optionally with the release's `release.json` and `release.json.sig`, and run:
 
 ```sh
 scripts/install-release.sh VERSION --from dist
 ```
 
-The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing Go host installation to Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
-
-Once a release is published, you can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
-
-```sh
-version=VERSION
-gh release download "v$version" --repo peerspan/peerspan \
-  --pattern install-release.sh --pattern install-release.sh.sha256
-sha256sum -c install-release.sh.sha256
-bash install-release.sh "$version" --from-github peerspan/peerspan
-```
-
-The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available for offline installs.
+With both manifest files present it verifies the signature as above; with neither it checks only the `.sha256`, which detects corruption but does not authenticate its publisher, so obtain the files from a trusted source.
 
 If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 
@@ -34,7 +47,7 @@ If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
+The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the one-line install (or the archive installer) again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of bundles; macOS installer validation remains pending.
 
 ## Connect an existing Claude conversation (feature preview)
 

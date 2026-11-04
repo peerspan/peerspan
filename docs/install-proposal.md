@@ -1,6 +1,6 @@
 # One-line install from peerspan.dev
 
-Status: **Accepted on 2026-11-04.** The owner accepted all five recommendations ([INST-1 to INST-5](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04)). [INST-6](decision-log.md#inst-6-who-may-change-the-release-keys-2026-11-04) later added protection for the release key list, and [INST-7](decision-log.md#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) dropped the conformance suite in the verification sketch below. The [install contract](install-contract.md) specifies the behavior. Nothing is implemented yet.
+Status: **Accepted on 2026-11-04.** The owner accepted all five recommendations ([INST-1 to INST-5](decision-log.md#inst-1-to-inst-5-one-line-install-2026-11-04)). [INST-6](decision-log.md#inst-6-who-may-change-the-release-keys-2026-11-04) later added protection for the release key list, and [INST-7](decision-log.md#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) dropped the conformance suite in the verification sketch below. The [install contract](install-contract.md) specifies the behavior. It is implemented in the implementation PR; the release key list holds a placeholder until the owner's first key decision.
 
 ## The problem
 
