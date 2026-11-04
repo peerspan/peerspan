@@ -89,9 +89,7 @@ def _():
     a, a2 = need("a", "a2")
     need("version_rule")
     if not policy_statement(a, state["alice_public"])[3]["rules"]:
-        # Fixture: an agent rule to amend with runtime.run below.
-        out = a.ok("allow", "bob")
-        learn(state["b"], state["alice_public"], out["policy"]["version"])
+        a.ok("allow", "bob")  # fixture: an agent rule to amend with runtime.run below
     good = policy_statement(a, state["alice_public"])[3]["runtime_rules"][0]
     before = policy_version(a, state["alice_public"])
     cases = {
