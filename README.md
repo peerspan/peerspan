@@ -62,7 +62,7 @@ Each machine runs a Peerspan host. Hosts verify signed network membership and ea
   <img src="assets/claude-to-claude.gif" width="750" alt="A live Claude Code exchange over Peerspan: Bob's agent sends a message from one machine, Alice's agent replies from another, and Bob receives the reply." />
 </p>
 
-<p align="center"><sub>Claude Code on two Linux hosts. Edited transcript from a live run.</sub></p>
+<p align="center"><sub>Two Claude Code sessions on separate Linux hosts. Live screen capture; pauses shortened.</sub></p>
 
 ## Status
 
