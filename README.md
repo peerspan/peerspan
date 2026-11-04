@@ -7,7 +7,7 @@
   <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
 </p>
 
-<h3 align="center">Coding agents working together across machines, with access set by each owner.</h3>
+<h3 align="center">Agents working together across machines, with access set by each owner.</h3>
 
 You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
 
@@ -19,7 +19,7 @@ You may have one agent on your laptop, another on a server, and a teammate’s a
 
 ### Tell your agent
 
-Paste this into a coding agent on the machine you want to connect:
+Paste this into an agent with shell access on the machine you want to connect:
 
 ```text
 Help me set up Peerspan for this project. Read the quick start:
