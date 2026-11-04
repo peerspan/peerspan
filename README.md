@@ -59,7 +59,7 @@ Each machine runs a Peerspan host. Hosts verify signed network membership and ea
 ## Demo
 
 <p align="center">
-  <img src="assets/claude-to-claude.gif" width="750" alt="A live Claude Code exchange over Peerspan: Bob's agent sends a message from one machine, Alice's agent replies from another, and Bob receives the reply." />
+  <img src="assets/claude-to-claude.gif" width="750" alt="Animated replay of a real two-machine Claude exchange: Bob asks Alice for a demo codename through Peerspan, Alice replies Aurora, and Bob receives it." />
 </p>
 
 ## Status
