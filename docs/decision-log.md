@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
   - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
   - [INST-6: who may change the release keys](#inst-6-who-may-change-the-release-keys-2026-11-04) (2026-11-04)
   - [INST-1 to INST-5: one-line install](#inst-1-to-inst-5-one-line-install-2026-11-04) (2026-11-04)
@@ -53,6 +54,18 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### INST-8: the first release key (2026-11-05)
+
+- **Date:** 2026-11-05.
+- **Area:** install.
+- **Source:** the owner generated an Ed25519 key pair on their own machine and sent the public key, 2026-11-05: "KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc - this is the 43 char public key".
+- **Recorded in:** this log.
+- **Contract section:** [install-contract.md](install-contract.md#changing-the-release-keys).
+- **Options:** options not recorded.
+- **Chosen:** `PEERSPAN_RELEASE_KEYS` is exactly one key, `KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc`, in both `scripts/install.sh` and `scripts/install-release.sh`. It replaces the off-curve placeholder `AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`. The private key is held offline by the owner ([INST-2](#inst-2-who-holds-the-key-and-when-signing-happens)).
+- **Checked before recording:** the value is 43 base64url characters that decode to 32 bytes, Node imports it as an Ed25519 public key, its y coordinate is canonical, and it is not one of the small-order values the contract rejects.
+- **Reason given:** the owner's release key, which replaces the placeholder (INST-6).
 
 ### INST-7: no conformance suite for the install scripts (2026-11-04)
 

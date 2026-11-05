@@ -15,10 +15,8 @@ PEERSPAN_RELEASES_URL="https://github.com/peerspan/peerspan/releases"
 # This list must equal the one in scripts/install-release.sh. Adding or removing
 # a key is an owner decision with its own decision-log entry, in a pull request
 # that changes nothing else (INST-6).
-# PLACEHOLDER: the key below is not a real release key. It is not a point on the
-# Ed25519 curve, so no signature verifies under it and no one holds its private
-# key. The owner replaces it with the real release key by an owner decision.
-PEERSPAN_RELEASE_KEYS="AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+# The owner's release key, decided in INST-8 (docs/decision-log.md).
+PEERSPAN_RELEASE_KEYS="KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc"
 
 # The rest of the file is one function, called on the last line, so a copy cut
 # off at any byte executes nothing.
