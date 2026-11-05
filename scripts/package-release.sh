@@ -123,7 +123,8 @@ command -v cargo >/dev/null 2>&1 || {
   exit 1
 }
 cargo_target="$repo/target/peerspan-package-$rust_target"
-CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+# The binary reports VERSION in --version and status (peerspan_host::VERSION).
+PEERSPAN_RELEASE_VERSION="$version" CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
   --target "$rust_target" --manifest-path "$repo/Cargo.toml" --bin peerspan-host
 cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
 

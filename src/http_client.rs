@@ -254,10 +254,7 @@ pub async fn send(
         .method(method)
         .uri(url.target())
         .header("Host", url.host_header())
-        .header(
-            "User-Agent",
-            concat!("peerspan/", env!("CARGO_PKG_VERSION")),
-        );
+        .header("User-Agent", format!("peerspan/{}", crate::VERSION));
     for (name, value) in headers {
         builder = builder.header(name.as_str(), value.as_str());
     }

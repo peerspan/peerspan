@@ -406,7 +406,7 @@ impl Store {
         });
         Ok(json!({
             "host_id": own,
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::VERSION,
             "networks": networks,
             "blocks": blocks,
             "agents": agent_views,

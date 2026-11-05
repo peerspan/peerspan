@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(
     name = "peerspan-host",
+    version = peerspan_host::VERSION,
     about = "Run and control a local Peerspan host daemon",
     after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session.",
     disable_help_subcommand = true
