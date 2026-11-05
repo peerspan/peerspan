@@ -8,7 +8,7 @@ Thanks for trying Peerspan. During the preview we welcome **issues, not pull req
 
 - what you ran and what happened, including the exact output;
 - what you expected instead;
-- the output of `readlink -f ~/.local/bin/peerspan`, which names the installed release, and your Linux distribution and architecture, and the agent you use (Claude Code, Codex or OpenCode) with its version;
+- `peerspan --version`, your Linux distribution and architecture, and the agent you use (Claude Code, Codex or OpenCode) with its version;
 - the output of `peerspan status`, and `peerspan session doctor` if the problem is with a project's agent.
 
 Check the output for anything private before posting: network and person names, agent addresses, file paths and message contents. Never post private keys, invitation codes or tokens.
