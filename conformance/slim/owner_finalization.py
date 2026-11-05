@@ -73,7 +73,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -81,7 +81,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -128,7 +128,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -760,7 +760,7 @@ def make_pair(name, *, live=True, prepared=True, approved=True, signed=True, adm
         for local in (a, h):
             advance_to(local, target)
         def retired():
-            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
                 row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
             return row is None or row[0] is None
         wait_for(retired, timeout=5, interval=.1, message='ordinary invitation-return retirement')

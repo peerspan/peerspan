@@ -71,7 +71,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -79,7 +79,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -126,7 +126,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -437,7 +437,7 @@ def make_pair(name, *, live=True, prepared=True, approved=True, signed=True, adm
         for local in (a, h):
             advance_to(local, target)
         def retired():
-            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
                 row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
             return row is None or row[0] is None
         wait_for(retired, timeout=5, interval=.1, message='ordinary invitation-return retirement')
@@ -744,14 +744,14 @@ def body(f, prepared=None):
 
 
 def intents(h, rid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return [(iid, json.loads(raw), secret) for iid, raw, secret in db.execute(
             "SELECT intent_id,record,secret FROM dec_intents WHERE kind='requester_commit'")
             if json.loads(raw)['operation_id'] == rid]
 
 
 def intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'guided review references no ordinary intent')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
@@ -885,7 +885,7 @@ def completion_body(f, prepared):
 
 
 def operation(h, rid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         rows = db.execute('SELECT network_id,context_id,activation_id,manifest_id,record,locally_applied '
                           'FROM dec_operations WHERE request_id=?', (rid,)).fetchall()
     check(len(rows) <= 1, 'multiple local applications for one genuine request')
@@ -897,7 +897,7 @@ def operation(h, rid):
 
 
 def commit_frames(h, rid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return {(writer, frame_id): record for writer, frame_id, record in db.execute(
             "SELECT writer_key,frame_id,record FROM dec_frames WHERE request_id=? AND role='commit'", (rid,))}
 
@@ -1052,7 +1052,7 @@ def application_proof(f, value):
     check(current['terminal'] == 'applied' and secret is None and current['outcome_packet_base64'] == record['outcome_packet_base64'],
           'application did not atomically retain outcome and retire pairing secret')
     check(len(get(h, '/v2/networks')) == 1, 'local application missing or adopted an extra network')
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         rows = db.execute('SELECT provider_kind,person_key,device_key,lease_id FROM dec_signers '
                           'WHERE network_id=? AND context_id=?', (f['network']['id'], f['network']['context_id'])).fetchall()
     check(rows == [('device', f['person'], f['view']['device_public_key'], review['device_lease_id'])],
@@ -1273,7 +1273,7 @@ def make_terminal_retries_eligible(h, issuer, sync_results, live_bounds, diagnos
     """One genuine clock advance before the purity baseline (GU.impl28g)."""
     retry_times = []
     for local in (h, issuer):
-        with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=30)) as db:
             rows = db.execute("SELECT json_extract(record,'$.next_attempt_at'),delivery_id,"
                               "json_extract(record,'$.kind'),json_extract(record,'$.attempts'),"
                               "json_extract(record,'$.last_error_code'),json_extract(record,'$.last_error_detail') "
@@ -1313,7 +1313,7 @@ def terminal_delivery_baseline(h, issuer, network_id, live_bounds):
     make_terminal_retries_eligible(h, issuer, sync_results, live_bounds, terminal_diagnostics)
     def retired():
         for local in (h, issuer):
-            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=30)) as db:
                 if db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0] != 0:
                     return False
             if list(local.state.glob('*-journal')):
@@ -1511,7 +1511,7 @@ def _():
     check(operation(h, f['rid']) is None and get(h, '/v2/networks') == [], 'application fault started after an independent application')
     before = records(h); state_files, home_files = private_files(h.state), private_files(h.home)
     before_pending, secret = pending(h, f['rid']); iid = prepared['commit']['review']['intent_id']; before_intent = intent(h, iid)['record']
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         before_cap = db.execute('SELECT terminal_read_cap FROM dec_pending WHERE request_id=?', (f['rid'],)).fetchone()[0]
     check(re.fullmatch('link_[0-9a-f]{64}', f['rid']), 'unsafe genuine application-trigger selector')
     with closing(sqlite3.connect(db_path(h))) as db, db:
@@ -1536,7 +1536,7 @@ def _():
     check(operation(h, f['rid']) is None and get(h, '/v2/networks') == [] and after_secret == secret and secret is not None and
           after_pending['terminal'] == before_pending['terminal'] == '-' and
           after_pending['outcome_packet_base64'] == '-', 'failed application left partial outcome/adoption/secret retirement')
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         check(db.execute('SELECT terminal_read_cap FROM dec_pending WHERE request_id=?', (f['rid'],)).fetchone()[0] == before_cap,
               'failed application left a partial terminal read capability')
         check(db.execute("SELECT count(*) FROM dec_frames WHERE request_id=? AND role='outcome'", (f['rid'],)).fetchone()[0] == 0,

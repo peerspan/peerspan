@@ -70,7 +70,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for path in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one actual host database")
@@ -78,7 +78,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                  "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -93,7 +93,7 @@ def without(value, *keys):
 
 
 def rows(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute(f"SELECT * FROM {TABLE} ORDER BY flow_id")]
 
@@ -626,7 +626,7 @@ def _():
     identity, activity = get(source, "/v1/host"), get(source, "/v1/activity?limit=1000")
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute(f"PRAGMA table_info({TABLE})"))
         foreign = list(db.execute(f"PRAGMA foreign_key_list({TABLE})"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema26 ordered TEXT columns")

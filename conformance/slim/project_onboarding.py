@@ -124,7 +124,7 @@ def db_path(host):
     # ancillary stores may also use .db files in the same private directory.
     matches = []
     for path in sorted(host.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one host database containing the networks table")
@@ -132,7 +132,7 @@ def db_path(host):
 
 
 def records(host, *, omit_flow=False):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -145,7 +145,7 @@ def records(host, *, omit_flow=False):
 
 
 def flow_rows(host):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM onboarding_project_flows ORDER BY flow_id")]
 
@@ -634,7 +634,7 @@ def _():
     identity, activity = get(source, "/v1/host"), events(source)
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute("PRAGMA table_info(onboarding_project_flows)"))
         foreign = list(db.execute("PRAGMA foreign_key_list(onboarding_project_flows)"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema-24 flow columns/types")

@@ -74,7 +74,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -82,7 +82,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -142,7 +142,7 @@ def progress_transport_host(name):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]

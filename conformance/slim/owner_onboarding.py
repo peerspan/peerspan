@@ -74,7 +74,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -82,7 +82,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -202,14 +202,14 @@ def payload(flow, owner=None):
 
 
 def intent(h, intent_id):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?", (intent_id,)).fetchone()
     check(row is not None, "review references no ordinary durable intent")
     return {"network_id": row[0], "context_id": row[1], "kind": row[2], "record": json.loads(row[3]), "secret": row[4]}
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -441,7 +441,7 @@ def _():
     approved = owner(h, flow, "approve", prepared)
     check(approved["owner"]["state"] == "approved" and approved["owner"]["review"]["intent_id"] == iid,
           "exact retry after rollback did not approve original intention")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         count = db.execute("SELECT count(*) FROM dec_intents WHERE kind='owner'").fetchone()[0]
     check(count == 1, "rollback/retry created duplicate ordinary owner intentions")
 

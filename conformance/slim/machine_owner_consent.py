@@ -254,7 +254,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -264,7 +264,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -321,7 +321,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -489,7 +489,7 @@ def world(name='main'):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             rows = [db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (item['invitation_id'],)).fetchone()
                     for item in invitations]
         return all(row is None or row[0] is None for row in rows)
@@ -511,7 +511,7 @@ def select_provider(f, provider):
 
 
 def intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'exact receipt/ordinary intent missing')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
@@ -519,7 +519,7 @@ def intent(h, iid):
 
 def dual_records(h, receipt):
     ids = (receipt['consent_id'], receipt['review']['intent_id'])
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db, db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db, db:
         db.execute('BEGIN')
         rows = [db.execute('SELECT record FROM dec_intents WHERE intent_id=?', (iid,)).fetchone() for iid in ids]
     check(all(row is not None for row in rows), 'coherent approval snapshot lost one intent')
@@ -833,7 +833,7 @@ def held_transport(f):
 
 
 def kind_ids(h, kind):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return {row[0] for row in db.execute('SELECT intent_id FROM dec_intents WHERE kind=?', (kind,))}
 
 

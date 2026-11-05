@@ -259,7 +259,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -269,7 +269,7 @@ def db_path(h):
 def records(h):
     result = {}
     for path in sorted(h.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as db, db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db, db:
             db.execute("BEGIN")
             value = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                      "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -317,7 +317,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -427,7 +427,7 @@ def no_original(f):
     b = f['b']
     check(not (b.root / 'absent-person-key').exists() and not (b.root / 'absent-agent.sock').exists()
           and not (b.home / '.config/peerspan/person_ed25519').exists(), 'requester acquired an original source')
-    with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(b)}?mode=ro', uri=True, timeout=30)) as db:
         check(not db.execute("SELECT 1 FROM dec_intents WHERE kind='owner' AND json_extract(record,'$.operation_id')=?", (f['rid'],)).fetchone(),
               'requester acquired a local original owner intent')
 
@@ -571,7 +571,7 @@ def base_world(name='device'):
     for h in (a, b):
         advance_to(h, target)
     def retired():
-        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
             row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
         return row is None or row[0] is None
     wait_for(retired, timeout=5, interval=.1, message='actual automatic-return secret retirement')
@@ -827,7 +827,7 @@ def _():
         **{key: view[key] for key in ('network_id', 'context_id', 'person_public_key', 'host_public_key', 'device_public_key',
                                     'owner_offer_id', 'selection_id', 'administrator_offer_id', 'owner_finalization_id')}, 'approve': False})
     check(status == 200, f'ordinary unapproved requester commit preparation HTTP {status}')
-    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(f["b"])}?mode=ro', uri=True, timeout=30)) as db:
         rows = db.execute("SELECT record FROM dec_intents WHERE kind='requester_commit' AND json_extract(record,'$.operation_id')=?", (f['rid'],)).fetchall()
     check(len(rows) == 1 and json.loads(rows[0][0])['approved'] is False, 'genuine unapproved ordinary commit intent prerequisite absent')
     check(link_view(f['b'], f['rid'])['commit_approved'] is False, 'negative setup accidentally approved commit')

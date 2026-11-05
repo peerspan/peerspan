@@ -60,7 +60,7 @@ def events(host):
 def db_path(host):
     matches = []
     for path in sorted(host.state.glob("*.db")):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(path)
     check(len(matches) == 1, "expected one real host database")
@@ -68,7 +68,7 @@ def db_path(host):
 
 
 def records(host):
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -370,7 +370,7 @@ def _():
     check(records(host) == before, "private retrieval wrote records or activity")
     check(host.api("POST", "/v1/adapters/" + record["id"] + "/verify-credential", {"token": secret["token"]}) == (200, {"matches": True}),
           "recovered token does not match the normal credential")
-    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(host)}?mode=ro", uri=True, timeout=30)) as db:
         digest = db.execute("SELECT token_hash FROM adapter_credentials WHERE id=?", (record["id"],)).fetchone()[0]
     check(digest == hashlib.sha256(secret["token"].encode()).hexdigest() and secret["token"] not in repr(records(host)),
           "credential persistence is not SHA256-only")
@@ -760,7 +760,7 @@ def _():
     identity, activity = get(source, "/v1/host"), events(source)
     source.stop()
     baseline = records(source)
-    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(source)}?mode=ro", uri=True, timeout=30)) as db:
         columns = list(db.execute("PRAGMA table_info(onboarding_adapter_flows)"))
         foreign = list(db.execute("PRAGMA foreign_key_list(onboarding_adapter_flows)"))
     check([row[1] for row in columns] == COLUMNS and all(row[2].upper() == "TEXT" for row in columns), "schema25 adapter table columns/types")
