@@ -283,7 +283,7 @@ def _():
     except subprocess.TimeoutExpired:
         code = None
     check(code not in (None, 0), "a daemon opened a schema 31 database")
-    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
     try:
         check(db.execute("PRAGMA user_version").fetchone()[0] == 31, "the refused database was changed")
     finally:

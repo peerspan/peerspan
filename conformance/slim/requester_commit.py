@@ -62,7 +62,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -70,7 +70,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -117,7 +117,7 @@ def advance_to(h, moment):
 
 
 def pending(h, rid):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT record,secret FROM dec_pending WHERE request_id=?", (rid,)).fetchone()
     check(row is not None, "ordinary request vanished")
     return json.loads(row[0]), row[1]
@@ -417,7 +417,7 @@ def make_pair(name, *, live=True, prepared=True, approved=True, signed=True, adm
         for local in (a, h):
             advance_to(local, target)
         def retired():
-            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(a)}?mode=ro', uri=True, timeout=30)) as db:
                 row = db.execute('SELECT secret FROM dec_pending WHERE request_id=?', (issued['invitation_id'],)).fetchone()
             return row is None or row[0] is None
         wait_for(retired, timeout=5, interval=.1, message='ordinary invitation-return retirement')
@@ -548,14 +548,14 @@ def body(f, prepared=None):
 
 
 def intents(h, rid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         return [(iid, json.loads(raw), secret) for iid, raw, secret in db.execute(
             "SELECT intent_id,record,secret FROM dec_intents WHERE kind='requester_commit'")
             if json.loads(raw)['operation_id'] == rid]
 
 
 def intent(h, iid):
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         row = db.execute('SELECT network_id,context_id,kind,record,secret FROM dec_intents WHERE intent_id=?', (iid,)).fetchone()
     check(row is not None, 'guided review references no ordinary intent')
     return {'network_id': row[0], 'context_id': row[1], 'kind': row[2], 'record': json.loads(row[3]), 'secret': row[4]}
@@ -911,7 +911,7 @@ def _():
     coherent = records(h)
     intent_rows = coherent['dec_intents']; pending_rows = coherent['dec_pending']
     # Decode exact documented table layouts from one coherent read transaction.
-    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect(f'file:{db_path(h)}?mode=ro', uri=True, timeout=30)) as db:
         intent_columns = [row[1] for row in db.execute('PRAGMA table_info(dec_intents)')]
         pending_columns = [row[1] for row in db.execute('PRAGMA table_info(dec_pending)')]
     ir = [dict(zip(intent_columns, row)) for row in intent_rows if dict(zip(intent_columns, row))['intent_id'] == iid]
@@ -951,7 +951,7 @@ def terminal_delivery_baseline(h, issuer, network_id):
               f'{local.name}: genuine terminal sync setup HTTP {status}')
     def retired():
         for local in (h, issuer):
-            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True)) as db:
+            with closing(sqlite3.connect(f'file:{db_path(local)}?mode=ro', uri=True, timeout=30)) as db:
                 if db.execute('SELECT count(*) FROM dec_outbox').fetchone()[0] != 0:
                     return False
             if list(local.state.glob('*-journal')):

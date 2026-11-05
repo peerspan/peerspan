@@ -74,7 +74,7 @@ def get(h, path):
 def db_path(h):
     matches = []
     for p in h.state.glob("*.db"):
-        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True)) as db:
+        with closing(sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='networks'").fetchone():
                 matches.append(p)
     check(len(matches) == 1, "expected one host database")
@@ -82,7 +82,7 @@ def db_path(h):
 
 
 def records(h):
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=5)) as db, db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db, db:
         db.execute("BEGIN")
         result = {"$schema": tuple(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name")),
                   "$version": db.execute("PRAGMA user_version").fetchone()}
@@ -231,7 +231,7 @@ def observe(h, parent, expected):
 def request_fingerprint(h, request_id):
     # Public storage19.4: scheduling acknowledgments may evolve independently;
     # immutable request/device/nonce/packet plus every encrypted frame must not.
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         row = db.execute("SELECT deadline,record,secret,terminal_read_cap FROM dec_pending WHERE request_id=?", (request_id,)).fetchone()
         check(row is not None, "ordinary request disappeared")
         record = json.loads(row[1])
@@ -303,7 +303,7 @@ def _():
     check(prepare(h, parent, code, person, status=200) == flow, "identical prepare extended or regenerated review")
     observe(h, parent, flow)
     check(records(h) == before, "prepare retry mutated persisted state")
-    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(f"file:{db_path(h)}?mode=ro", uri=True, timeout=30)) as db:
         values = [value for row in db.execute(f"SELECT * FROM {TABLE}") for value in row]
     public(values, code)
     check(hashlib.sha256(code.encode()).hexdigest() in str(values), "only a digest binds the code in the public flow table")
