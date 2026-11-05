@@ -462,7 +462,7 @@ impl Client {
         let params = json!({
             "protocolVersion": PROTOCOL,
             "capabilities": {},
-            "clientInfo": {"name": "peerspan", "version": env!("CARGO_PKG_VERSION")},
+            "clientInfo": {"name": "peerspan", "version": crate::VERSION},
         });
         let result = match self.request("initialize", params).await? {
             Reply::Result(result, _) => result,

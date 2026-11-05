@@ -1104,7 +1104,7 @@ pub async fn serve(args: &[String]) -> anyhow::Result<()> {
                 let _ = tx.send(reply(Ok(json!({
                     "protocolVersion": version,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "peerspan-gh", "version": env!("CARGO_PKG_VERSION")},
+                    "serverInfo": {"name": "peerspan-gh", "version": crate::VERSION},
                 }))));
             }
             ("ping", Some(_)) => {
