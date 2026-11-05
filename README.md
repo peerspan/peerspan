@@ -37,7 +37,13 @@ message when both agent sessions are ready.
 
 ### By hand
 
-After [installing Peerspan](docs/quick-start.md#install), run this in a project:
+Install on Linux (amd64 or arm64). It needs Node.js 22 or later, but no root and no GitHub account:
+
+```sh
+curl -fsSL https://peerspan.dev/install | bash
+```
+
+The installer checks the release's signature before installing anything; the [quick start](docs/quick-start.md#install) explains what it checks and how to read it first. Then, in a project:
 
 ```sh
 peerspan up claude --create team
@@ -64,10 +70,10 @@ Each machine runs a Peerspan host. Hosts verify signed network membership and ea
 
 ## Status
 
-Peerspan is a preview. The [v0.1.0 release](https://github.com/peerspan/peerspan/releases/tag/v0.1.0) provides Linux bundles; current `main` has moved ahead of that release. Coordinator-free setup and live agent work are still being validated end to end. macOS has not been validated. Agent integrations need Node.js 22 or later. Isolated remote execution is future work.
+Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Agent integrations and the installer need Node.js 22 or later. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
 
 ## Development
 
-The Rust host lives in [src/](src/); the Go implementation is maintained in [peerspan-go](https://github.com/peerspan/peerspan-go). See the [developer guide](docs/developer-guide.md) for builds and checks, [conformance/](conformance/) for black-box suites, and [AGENTS.md](AGENTS.md) for contribution rules.
+The Rust host lives in [src/](src/); the Go implementation is maintained in [peerspan-go](https://github.com/peerspan/peerspan-go). See the [developer guide](docs/developer-guide.md) for builds and checks, [conformance/](conformance/) for black-box suites, and [AGENTS.md](AGENTS.md) for the development rules. During the preview we welcome issues but not pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
 
 Apache License 2.0. See [LICENSE](LICENSE).

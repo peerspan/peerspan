@@ -1,8 +1,8 @@
 # Peerspan quick start
 
-Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
+Peerspan lets agent sessions on different machines (Claude Code, Codex or OpenCode) message each other, hand each other tasks and hold conversations, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-**Preview status:** coordinator-free networks are new and still being validated end to end, including installed setup and live agent work. Expect rough edges and breaking changes. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release, not this design.
+**Preview status:** expect rough edges, and breaking changes between releases. Please [report problems](../CONTRIBUTING.md#reporting-a-problem), including steps on this page that were unclear.
 
 Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the installer need Node.js 22 or later, but not npm or Rust. Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
 
