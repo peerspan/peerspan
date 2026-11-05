@@ -45,7 +45,7 @@ A listed value that isn't a usable key is ignored, never trusted. That's one tha
 
 Node accepts such small-order keys, and signatures can be forged for them without a private key, so each script rejects them itself before verifying. A list with no usable key accepts nothing.
 
-The scripts ship with one placeholder value that is not a point on the curve, `AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`, until the owner's first key decision replaces it. Until then, nothing installs through the bootstrap or `--from-github`.
+The list holds the keys of the latest key decision in the [decision log](decision-log.md). Since [INST-8](decision-log.md#inst-8-the-first-release-key-2026-11-05) that is one key, `KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc`. Before INST-8 the scripts shipped with an off-curve placeholder, `AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`, under which nothing installed.
 
 The private key is held offline by the owner ([INST-2](decision-log.md#inst-2-who-holds-the-key-and-when-signing-happens)). It is never stored in a repository, a CI secret or a shared machine.
 
