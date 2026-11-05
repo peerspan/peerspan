@@ -659,14 +659,22 @@ pub(crate) async fn completion_request(
                 continue;
             };
             transport.relays.route(&host, &helper);
-            let connected =
-                transport
-                    .endpoint
-                    .connect_with(config.clone(), address.into(), SERVER_NAME)?;
-            if let Ok(Ok(connection)) = tokio::time::timeout(HANDSHAKE, connected).await {
+            for attempt in 0..RELAY_REFUSED_ATTEMPTS {
+                if attempt > 0 {
+                    tokio::time::sleep(refused_pause(attempt)).await;
+                }
+                let connected =
+                    transport
+                        .endpoint
+                        .connect_with(config.clone(), address.into(), SERVER_NAME)?;
+                let connection = match tokio::time::timeout(HANDSHAKE, connected).await {
+                    Ok(Ok(connection)) => connection,
+                    Ok(Err(error)) if refused(&error) => continue,
+                    _ => break,
+                };
                 if negotiated(&connection).as_deref() != Some(COMPLETION_ALPN) {
                     connection.close(1u32.into(), b"alpn");
-                    continue;
+                    break;
                 }
                 let Some(_route) =
                     transport
@@ -674,11 +682,12 @@ pub(crate) async fn completion_request(
                         .outgoing_completion(&store, address.into(), &key)
                 else {
                     connection.close(1u32.into(), b"identity");
-                    continue;
+                    break;
                 };
                 if let Ok(response) = exchange(connection, body.clone()).await {
                     return Ok(response);
                 }
+                break;
             }
             transport.relays.retire_completion(&store, &host);
         }
@@ -790,6 +799,24 @@ impl std::fmt::Display for Unauthenticated {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("peer refused this host's authentication")
     }
+}
+/// A relayed participant that has not admitted this host yet holds one
+/// provisional route for it, and another connection from this host (such as
+/// ordinary sync) can claim it first. That connection is rejected within
+/// milliseconds and the route is freed, so a refused completion handshake is
+/// retried a few times, still inside the 30-second completion bound.
+const RELAY_REFUSED_ATTEMPTS: u32 = 4;
+/// About 100 ms times the attempt number, with up to 100 ms of jitter so a
+/// retry does not land on the same tick as this host's other relayed traffic.
+fn refused_pause(attempt: u32) -> Duration {
+    let mut jitter = [0u8; 1];
+    let _ = getrandom::fill(&mut jitter);
+    Duration::from_millis(100 * u64::from(attempt) + u64::from(jitter[0]) * 100 / 255)
+}
+/// Whether the server refused the connection before its handshake began.
+fn refused(error: &quinn::ConnectionError) -> bool {
+    matches!(error, quinn::ConnectionError::ConnectionClosed(close)
+        if close.error_code == quinn::TransportErrorCode::CONNECTION_REFUSED)
 }
 /// Whether a QUIC connection closed with a TLS (crypto) error, either side.
 fn crypto_close(error: &quinn::ConnectionError) -> bool {
