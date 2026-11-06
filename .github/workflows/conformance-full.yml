@@ -78,6 +78,15 @@ jobs:
         if: matrix.suite == 'machine_return_prepare'
         run: |
           python3 -m pip install --disable-pip-version-check --only-binary=:all: -r conformance/slim/resource_mailbox_gate.requirements.txt
+      # The MCP run_task cases drive the claude-channel adapter; without its SDK
+      # they skip, and a skip passes.
+      - uses: actions/setup-node@v4
+        if: matrix.suite == 'runtime_results' || matrix.suite == 'runtime_peerfs'
+        with:
+          node-version: '22'
+      - name: Install claude-channel adapter dependencies
+        if: matrix.suite == 'runtime_results' || matrix.suite == 'runtime_peerfs'
+        run: npm ci --prefix integrations/claude-channel --no-audit --no-fund
       - uses: actions/download-artifact@v4
         with:
           name: conformance-binaries
