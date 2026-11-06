@@ -388,12 +388,16 @@ Older binaries reject the new version. New activity kinds are `task.run_started`
 
 ## Verification
 
-`conformance/slim/runtime.py` and `conformance/slim/fake_runtime.py` are written from this
-contract by a separate author who does not read `src/`, `tests/` or `integrations/` (DEC-OWN6,
-DEC-OWN9). The suite drives two or three real Rust hosts through the CLI, the owner API and
-the adapter socket with `conformance/slim/harness.py` and its test clock, without KVM and
-without model calls. It stays under 2 minutes and runs as its own `runtime` job in
-`.github/workflows/conformance.yml`. Cases that do not fit in that time go to Rust tests
+The runtime suites and `conformance/slim/fake_runtime.py` are written from this contract by a
+separate author who does not read `src/`, `tests/` or `integrations/` (DEC-OWN6, DEC-OWN9).
+They are split by area, with shared helpers in `conformance/slim/runtime_common.py`:
+`runtime` (requests, the switch, checks), `runtime_policy` (rules, routes and administration),
+`runtime_renewal` (lapsed senders and renewal), `runtime_runs` (running, output, cancel and
+restarts), `runtime_results` (workspaces, result artifacts, the CLI, the adapter and MCP) and
+`runtime_peerfs` (RUN-6 and RUN-7). They drive two or three real Rust hosts through the CLI,
+the owner API and the adapter socket with `conformance/slim/harness.py` and its test clock,
+without KVM and without model calls. Each stays under 2 minutes and runs as its own job in
+the second tier, `.github/workflows/conformance-full.yml` (DEC-OWN15). Cases that do not fit in that time go to Rust tests
 that drive the binaries.
 
 **The fake runtime** implements the local API with no VM. It reads `argv` as steps separated
