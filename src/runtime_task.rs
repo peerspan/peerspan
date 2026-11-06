@@ -178,6 +178,17 @@ pub(crate) fn check_fields(body: &Value) -> Result<(), Error> {
     {
         return Err(invalid(&format!("resources.{key}")));
     }
+    // Exactly one of the two forms, with a string value, or null.
+    if let Some(workspace) = run.get("workspace")
+        && !workspace.is_null()
+        && !workspace.as_object().is_some_and(|w| {
+            w.len() == 1
+                && w.iter()
+                    .all(|(k, v)| matches!(k.as_str(), "archive" | "peerfs") && v.is_string())
+        })
+    {
+        return Err(invalid("workspace"));
+    }
     Ok(())
 }
 
@@ -1430,6 +1441,45 @@ fn copy_result(
                 "result {name} did not match its report: {:?}",
                 other.map(|(n, _)| n)
             )))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn run(workspace: Value) -> Value {
+        json!({"task_id": "task_x", "executor": EXECUTOR, "run": {"argv": ["echo"], "workspace": workspace}})
+    }
+
+    #[test]
+    fn a_workspace_of_neither_form_names_the_field() {
+        for workspace in [
+            json!({"peerfs": 7}),
+            json!({"peerfs": "agent", "archive": "00"}),
+            json!({}),
+            json!({"git": "agent"}),
+            json!("agent"),
+            json!([]),
+        ] {
+            let error = check_fields(&run(workspace.clone())).unwrap_err();
+            assert!(
+                matches!(&error, Error::Invalid(field) if field == "workspace"),
+                "{workspace}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_forms_and_null_pass_the_shape_check() {
+        for workspace in [
+            json!({"peerfs": "agent"}),
+            json!({"archive": "00"}),
+            Value::Null,
+        ] {
+            assert!(check_fields(&run(workspace.clone())).is_ok(), "{workspace}");
         }
     }
 }
