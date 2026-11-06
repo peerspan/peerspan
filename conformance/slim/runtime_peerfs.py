@@ -173,9 +173,7 @@ def _():
 
 
 @suite.case("peerfs_workspace_shape_named", "runtime Requests: workspace is {archive}, {peerfs} or null; failures are "
-                                            "400 invalid with the field named",
-            known="the host answers 400 invalid for a workspace of neither form but names no field "
-                  "(\"invalid request: invalid request\")")
+                                            "400 invalid with the field named")
 def _():
     need("ready")
     sha = hashlib.sha256(b"x").hexdigest()
