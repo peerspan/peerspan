@@ -68,6 +68,9 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `incoming_progress`: explicit bounded pinned GET/atomic incoming original and
   selection evidence retention, before/after IO guards and no consent (section22).
 - `naming`: the default agent names from `attach` (launch contract, DEC-OWN12).
+- `runtime`, `runtime_policy`, `runtime_renewal`, `runtime_runs`, `runtime_results`, `runtime_peerfs`:
+  runtime tasks against `conformance/slim/fake_runtime.py` (runtime task contract, RUN-1 to RUN-7);
+  second tier only.
 
 A product gap is a strict expected failure (`XFAIL`) with its reason; a fix makes the case pass, CI reports `XPASS` and fails, and the fix removes that marker. Never weaken a case to make it pass.
 
