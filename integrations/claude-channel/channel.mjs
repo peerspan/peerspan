@@ -28,7 +28,7 @@ export function channelParams(params) {
 // revision it agreed with Claude Code, which the adapter reports on connect.
 function channelServer(adapter, negotiated) {
   const server = new Server(
-    { name: 'peerspan', version: '0.1.0' },
+    { name: 'peerspan', version: '0.2.0' },
     {
       capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
       instructions
