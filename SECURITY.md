@@ -4,10 +4,7 @@ Peerspan is a preview. Please report security problems privately, not in a publi
 
 ## Reporting a vulnerability
 
-Use either channel:
-
-- **GitHub:** [report a vulnerability](https://github.com/peerspan/peerspan/security/advisories/new) privately on this repository.
-- **Email:** security@peerspan.dev, if you can't use GitHub.
+[Report a vulnerability](https://github.com/peerspan/peerspan/security/advisories/new) privately on this repository through GitHub.
 
 Please include what you found, the version or commit, how to reproduce it, and what an attacker could do with it. A proof of concept helps but isn't required. Don't send live secrets such as private keys; if reproducing the problem needs one, say so and we'll arrange a way to share it.
 
@@ -21,7 +18,7 @@ During the preview, only the latest release gets security fixes. Fixes are not b
 
 In scope: this repository, which covers the Rust host and CLI, the helper, the agent integrations shipped in the release bundles, and the install and signing scripts.
 
-Also report problems in [peerspan/runtime](https://github.com/peerspan/runtime) and [peerspan/peerfs](https://github.com/peerspan/peerfs) through the channels above. The Go implementation in [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) is maintained separately and is not packaged in these releases.
+Also report problems in [peerspan/runtime](https://github.com/peerspan/runtime) and [peerspan/peerfs](https://github.com/peerspan/peerfs) the same way, on the repository concerned. The Go implementation in [peerspan/peerspan-go](https://github.com/peerspan/peerspan-go) is maintained separately and is not packaged in these releases.
 
 Especially relevant:
 
