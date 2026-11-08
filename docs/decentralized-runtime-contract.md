@@ -1518,7 +1518,9 @@ order carries no preference. A host dialing a coordinator-free member dials
 every currently signed QUIC address of that member (at most eight) together,
 each within the one direct-handshake bound, and uses the first pinned
 handshake that completes; one unreachable address never hides another, and
-the relay fallback follows only after all of them fail.
+the relay fallback follows only after all of them fail. A manual peer hint
+keeps its precedence: a host with one dials only the hint, never the member's
+signed addresses, and a wrong key at the hint is still refused.
 Do not silently rewrite an existing service unit to add listeners: preserve it
 and return the exact bootstrap-listener configuration/restart repair step.
 No public unauthenticated roster/address enumeration is started. Existing peer
