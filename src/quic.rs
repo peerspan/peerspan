@@ -71,6 +71,9 @@ const SERVER_NAME: &str = "peerspan-peer";
 const CID_LENGTH: usize = 4;
 /// A direct attempt is bounded so a relay fallback still fits the request bound.
 const DIRECT_HANDSHAKE: Duration = Duration::from_secs(2);
+/// A peer's direct addresses dialed together: its chosen address and at most
+/// seven more of its signed ones.
+const MAX_DIRECT_ADDRESSES: usize = 8;
 const RELAY_READY: Duration = Duration::from_secs(2);
 const RELAY_REFRESH: Duration = Duration::from_secs(5);
 /// Connection setup (direct attempt, relay readiness, and handshake) fits in
@@ -385,13 +388,16 @@ impl Transport {
                 .ok_or_else(|| anyhow::anyhow!("peer request bound exhausted"))
         };
         let mut failure = None;
-        if let Some(direct) = paths.direct {
+        if !paths.direct.is_empty() {
             let bound = if !paths.relays.is_empty() {
                 DIRECT_HANDSHAKE
             } else {
                 HANDSHAKE
             };
-            match self.dial(store, peer, key, direct, remaining(bound)?).await {
+            match self
+                .dial(store, peer, key, &paths.direct, remaining(bound)?)
+                .await
+            {
                 Ok(connection) => return Ok(connection),
                 Err(error) => failure = Some(error),
             }
@@ -412,7 +418,13 @@ impl Transport {
                 continue;
             }
             match self
-                .dial(store, peer, key, *synthetic, remaining(HANDSHAKE)?)
+                .dial(
+                    store,
+                    peer,
+                    key,
+                    std::slice::from_ref(synthetic),
+                    remaining(HANDSHAKE)?,
+                )
                 .await
             {
                 Ok(connection) => return Ok(connection),
@@ -421,26 +433,57 @@ impl Transport {
         }
         Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")))
     }
+    /// Dials every address at once and keeps the first pinned handshake that
+    /// completes; the others are abandoned. Each attempt has the same bound.
     async fn dial(
         &self,
         store: &Arc<Store>,
         peer: &Peer,
         key: &[u8],
-        address: SocketAddr,
+        addresses: &[SocketAddr],
         bound: Duration,
     ) -> anyhow::Result<Connection> {
         let mut config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(
             client_config(store.clone(), peer)?,
         )?));
         config.transport_config(transport_config());
-        let connecting = self.endpoint.connect_with(config, address, SERVER_NAME)?;
-        let connection = tokio::time::timeout(bound, connecting)
-            .await
-            .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
-        if negotiated(&connection).as_deref() != Some(ALPN) {
-            connection.close(VarInt::from_u32(1), b"alpn");
-            anyhow::bail!("peer did not negotiate {}", String::from_utf8_lossy(ALPN));
+        let mut attempts = JoinSet::new();
+        let mut failure = None;
+        for &address in addresses {
+            let connecting = match self
+                .endpoint
+                .connect_with(config.clone(), address, SERVER_NAME)
+            {
+                Ok(connecting) => connecting,
+                Err(error) => {
+                    failure = Some(anyhow::Error::from(error));
+                    continue;
+                }
+            };
+            attempts.spawn(async move {
+                let connection = tokio::time::timeout(bound, connecting)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
+                if negotiated(&connection).as_deref() != Some(ALPN) {
+                    connection.close(VarInt::from_u32(1), b"alpn");
+                    anyhow::bail!("peer did not negotiate {}", String::from_utf8_lossy(ALPN));
+                }
+                Ok((address, connection))
+            });
         }
+        let (address, connection) = loop {
+            match attempts.join_next().await {
+                Some(Ok(Ok(connected))) => break connected,
+                Some(Ok(Err(error))) => failure = Some(error),
+                Some(Err(error)) => failure = Some(error.into()),
+                None => {
+                    return Err(
+                        failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address"))
+                    );
+                }
+            }
+        };
+        attempts.abort_all();
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(
                 peer.id.clone(),
@@ -749,7 +792,7 @@ async fn request_on(
     let peer = learned.as_ref().unwrap_or(peer);
     if direct_only {
         paths.relays.clear();
-        if paths.direct.is_none() {
+        if paths.direct.is_empty() {
             anyhow::bail!("peer has no direct address");
         }
     }
@@ -962,16 +1005,17 @@ async fn open_download(connection: &Connection, path: &str) -> Result<Download, 
         recv,
     })
 }
-/// Where a peer can be reached: its direct UDP address, and the relay of the
-/// lowest-ID network both hosts belong to with the peer's synthetic address.
+/// Where a peer can be reached: its direct UDP addresses, dialed together, and
+/// the relays with the peer's synthetic address.
 struct Paths {
-    direct: Option<SocketAddr>,
+    direct: Vec<SocketAddr>,
     relays: Vec<(Coordinator, SocketAddr)>,
 }
 impl Paths {
     fn all(&self) -> Vec<SocketAddr> {
         self.direct
-            .into_iter()
+            .iter()
+            .copied()
             .chain(self.relays.iter().map(|(_, a)| *a))
             .collect()
     }
@@ -1078,11 +1122,24 @@ fn learn_contact(
     })
 }
 async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow::Result<Paths> {
-    let direct = if peer.address.is_empty() {
-        None
-    } else {
-        Some(peer.address.parse()?)
-    };
+    let mut direct: Vec<SocketAddr> = Vec::new();
+    if !peer.address.is_empty() {
+        direct.push(crate::disco::normalize(peer.address.parse()?));
+        // The member's other signed addresses; the chosen one may be a private
+        // or bridge address this host cannot reach.
+        let id = peer.id.clone();
+        let others = blocking(store.clone(), move |s| s.product_dial_addresses(&id))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        for address in others {
+            if direct.len() >= MAX_DIRECT_ADDRESSES {
+                break;
+            }
+            if !direct.contains(&address) {
+                direct.push(address);
+            }
+        }
+    }
     let id = peer.id.clone();
     let coordinator = if cfg!(test) {
         blocking(store.clone(), move |s| s.relay_coordinator(&id))
@@ -1114,7 +1171,7 @@ async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow
                 .map(|endpoint| (endpoint, SocketAddr::V4(synthetic))),
         );
     }
-    if direct.is_none() && relays.is_empty() {
+    if direct.is_empty() && relays.is_empty() {
         anyhow::bail!("peer has no dial address or shared relay");
     }
     Ok(Paths { direct, relays })
