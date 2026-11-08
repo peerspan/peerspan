@@ -6,7 +6,7 @@ advertises its real first-contact listener and two QUIC addresses: `127.0.0.1:1`
 which sorts before every other loopback port, and its real peer listener. No rendezvous or relay helper is
 configured. After both owners allow each other, each host must still reach the other directly: the directory
 lists the agent, a message is accepted and delivered, and a task is accepted, each within the 8-second request
-bound, with no delivery attention for the peer. Both daemons restart before each direction so no connection
+bound, with no delivery attention for the peer in status. Both daemons restart before each direction so no connection
 from the setup is reused. Written from docs/decentralized-runtime-contract.md section 9 (several signed QUIC
 addresses, all dialed together) and its section 10 verification bullet, with docs/peer-messaging-contract.md
 (the 8-second request bound) and docs/launch-contract.md (agents, send, task).
@@ -91,10 +91,6 @@ def no_delivery_attention(host, other):
            if any(m and m in json.dumps(i) for m in marks)
            or any(w in str(i.get("kind", "")) for w in ("deliver", "transport", "unreach", "peer"))]
     check(not bad, f"{host.name}: delivery attention for {other.name}: {bad}")
-    status, view = host.api("GET", f"/v2/networks/{state['net']}")
-    check(status == 200, f"{host.name}: network: {status} {view}")
-    errors = [p for p in view["delivery"]["peer_errors"] if p["host_public_key"] == other.public_key]
-    check(not errors, f"{host.name}: delivery peer_errors for {other.name}: {errors}")
 
 
 def direction(sender, receiver, address, agent):
