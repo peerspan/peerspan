@@ -606,7 +606,9 @@ impl Store {
     /// Every signed QUIC address a coordinator-free member advertised, across
     /// the networks this host shares with it. A member's dial `address` is only
     /// the first of these in string order, so a private or bridge address can
-    /// shadow the one this host can reach; the transport dials them all.
+    /// shadow the one this host can reach; the transport dials them all. A
+    /// manual peer hint takes precedence as in `dial_target`, so a host with
+    /// one gets no other addresses: the hint alone is dialed.
     pub(crate) fn product_dial_addresses(
         &self,
         host: &str,
@@ -615,6 +617,12 @@ impl Store {
             return Ok(Vec::new());
         }
         let c = self.connection()?;
+        if c.query_row("SELECT 1 FROM peers WHERE id = ?1", [host], |_| Ok(()))
+            .optional()?
+            .is_some()
+        {
+            return Ok(Vec::new());
+        }
         let mut addresses = Vec::new();
         for (_, member) in self.product_members_of(&c, host)? {
             for address in member.candidates.iter().filter_map(|a| a.parse().ok()) {
