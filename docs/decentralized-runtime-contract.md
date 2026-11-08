@@ -1512,6 +1512,13 @@ the bound port only inside private signed contact handoffs. This makes the
 normal reachable LAN pair work without manual serve flags; addresses are hints,
 not public roster publication or a promise of NAT traversal. Explicit advertise
 and optional independently operated helper configuration handle other paths.
+A member's signed contacts can name several QUIC addresses, for example a
+private network, container bridge or VPN address beside a public one; their
+order carries no preference. A host dialing a coordinator-free member dials
+every currently signed QUIC address of that member (at most eight) together,
+each within the one direct-handshake bound, and uses the first pinned
+handshake that completes; one unreachable address never hides another, and
+the relay fallback follows only after all of them fail.
 Do not silently rewrite an existing service unit to add listeners: preserve it
 and return the exact bootstrap-listener configuration/restart repair step.
 No public unauthenticated roster/address enumeration is started. Existing peer
@@ -1570,6 +1577,11 @@ The independent author derives runtime cases after this contract is pinned:
 - Truthful info/status/provider and inactive-policy device warnings; guided
   pending resumes/default-no, no code redisplay, exact original attachment and
   real adapter readiness; installed normal packages with no mandatory helpers.
+- A member whose signed contact advertises an unreachable QUIC address that
+  sorts before its reachable one (for example `127.0.0.1:1` beside the real
+  listener) is still reached directly, with no helper configured: messages,
+  task submission and the agent directory work in both directions within the
+  request bound, and status shows no delivery attention for that peer.
 - Replace all helpers with independent operators, restrictive NAT/relay failure,
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately
