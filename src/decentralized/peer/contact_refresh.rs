@@ -84,20 +84,21 @@ pub(super) async fn exchange(
     store: Arc<Store>,
     network: &str,
     target: &crate::peer_store::Peer,
+    addresses: &[std::net::SocketAddr],
     own: Option<&[u8]>,
 ) {
     if let Some(body) = own {
         let path = format!("/peer/v2/networks/{network}/contact");
         let _ = tokio::time::timeout(
             Duration::from_secs(5),
-            crate::quic::request(store.clone(), target, "POST", &path, body),
+            crate::quic::request_any(store.clone(), target, addresses, "POST", &path, body),
         )
         .await;
     }
     let path = format!("/peer/v2/networks/{network}/contacts");
     if let Ok(Ok((200, body))) = tokio::time::timeout(
         Duration::from_secs(5),
-        crate::quic::request(store.clone(), target, "GET", &path, b""),
+        crate::quic::request_any(store.clone(), target, addresses, "GET", &path, b""),
     )
     .await
     {
