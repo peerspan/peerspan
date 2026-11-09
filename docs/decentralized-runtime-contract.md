@@ -1518,7 +1518,10 @@ order carries no preference. A host dialing a coordinator-free member dials
 every currently signed QUIC address of that member (at most eight) together,
 each within the one direct-handshake bound, and uses the first pinned
 handshake that completes; one unreachable address never hides another, and
-the relay fallback follows only after all of them fail. A manual peer hint
+the relay fallback follows only after all of them fail. This holds for every
+request to the member, including catalog sync and outgoing record delivery,
+contact exchange and state repair: an address that silently drops packets
+costs no request more time than a member without it. A manual peer hint
 keeps its precedence: a host with one dials only the hint, never the member's
 signed addresses, and a wrong key at the hint is still refused.
 Do not silently rewrite an existing service unit to add listeners: preserve it
@@ -1583,7 +1586,11 @@ The independent author derives runtime cases after this contract is pinned:
   sorts before its reachable one (for example `127.0.0.1:1` beside the real
   listener) is still reached directly, with no helper configured: messages,
   task submission and the agent directory work in both directions within the
-  request bound, and status shows no delivery attention for that peer.
+  request bound, and status shows no delivery attention for that peer. The
+  same holds when that address silently drops packets instead of refusing
+  them, and for policy changes: when one owner allows or denies the other,
+  the other's directory lists or drops the agent within 10 seconds, as with
+  no unreachable address.
 - Replace all helpers with independent operators, restrictive NAT/relay failure,
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately

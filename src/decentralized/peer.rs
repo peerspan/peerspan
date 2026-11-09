@@ -369,6 +369,34 @@ fn sync_plan(store: &Store, network: &str) -> Result<SyncPlan> {
     })
 }
 
+/// The socket addresses of a target's signed QUIC endpoints, resolved
+/// together, in signed order and without duplicates, at most eight.
+pub(super) async fn resolve_quic(endpoints: &[String]) -> Vec<std::net::SocketAddr> {
+    let mut lookups = tokio::task::JoinSet::new();
+    for (index, endpoint) in endpoints.iter().cloned().enumerate() {
+        lookups.spawn(async move {
+            let found = match tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::net::lookup_host(endpoint),
+            )
+            .await
+            {
+                Ok(Ok(found)) => found.take(8).collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            (index, found)
+        });
+    }
+    let mut resolved = lookups.join_all().await;
+    resolved.sort_by_key(|(index, _)| *index);
+    let mut addresses = Vec::new();
+    for address in resolved.into_iter().flat_map(|(_, found)| found) {
+        if addresses.len() < 8 && !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+    addresses
+}
 async fn fetch_target(
     store: Arc<Store>,
     network: String,
@@ -379,49 +407,53 @@ async fn fetch_target(
 ) -> Result<Vec<u8>> {
     let normal = format!("/peer/v2/networks/{network}/catalog");
     let repair = format!("/repair/v1/networks/{network}/catalog");
-    for endpoint in &target.quic {
-        let Ok(Ok(addresses)) =
-            tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(endpoint)).await
-        else {
-            continue;
+    // Every signed QUIC address of the target is dialed together: one that
+    // drops packets (a private or bridge address) never delays another.
+    let addresses = resolve_quic(&target.quic).await;
+    if let Some(first) = addresses.first() {
+        let peer = crate::peer_store::Peer {
+            id: key_id(&b64(&target.host, 32)?),
+            public_key: target.host.clone(),
+            address: first.to_string(),
         };
-        for address in addresses.take(8) {
-            let peer = crate::peer_store::Peer {
-                id: key_id(&b64(&target.host, 32)?),
-                public_key: target.host.clone(),
-                address: address.to_string(),
-            };
-            if current
-                && let Ok(Ok((200, body))) = tokio::time::timeout(
-                    Duration::from_secs(5),
-                    crate::quic::request(store.clone(), &peer, "GET", &normal, b""),
-                )
-                .await
-            {
-                // Exact original local evidence is the only outbound batch;
-                // incoming grants cannot authorize a fresh send in this pass.
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(5),
-                    crate::quic::request(store.clone(), &peer, "POST", &normal, catalog.as_slice()),
-                )
-                .await;
-                contact_refresh::exchange(
-                    store.clone(),
-                    &network,
-                    &peer,
-                    own_contact.as_deref().map(Vec::as_slice),
-                )
-                .await;
-                return Ok(body);
-            }
-            if let Ok(Ok((200, body))) = tokio::time::timeout(
+        if current
+            && let Ok(Ok((200, body))) = tokio::time::timeout(
                 Duration::from_secs(5),
-                crate::quic::request_repair(store.clone(), &peer, &repair),
+                crate::quic::request_any(store.clone(), &peer, &addresses, "GET", &normal, b""),
             )
             .await
-            {
-                return Ok(body);
-            }
+        {
+            // Exact original local evidence is the only outbound batch;
+            // incoming grants cannot authorize a fresh send in this pass.
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                crate::quic::request_any(
+                    store.clone(),
+                    &peer,
+                    &addresses,
+                    "POST",
+                    &normal,
+                    catalog.as_slice(),
+                ),
+            )
+            .await;
+            contact_refresh::exchange(
+                store.clone(),
+                &network,
+                &peer,
+                &addresses,
+                own_contact.as_deref().map(Vec::as_slice),
+            )
+            .await;
+            return Ok(body);
+        }
+        if let Ok(Ok((200, body))) = tokio::time::timeout(
+            Duration::from_secs(5),
+            crate::quic::request_repair(store.clone(), &peer, &addresses, &repair),
+        )
+        .await
+        {
+            return Ok(body);
         }
     }
     for endpoint in &target.bootstrap {

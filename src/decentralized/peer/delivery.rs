@@ -98,47 +98,49 @@ fn prepare(store: &Store, delivery: &Delivery) -> Result<DialTarget> {
 }
 async fn send(store: Arc<Store>, delivery: &Delivery, target: DialTarget) -> Result<Vec<u8>> {
     let path = format!("/peer/v2/networks/{}/catalog", delivery.network);
-    for endpoint in target.quic {
-        let Ok(Ok(addresses)) =
-            tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(endpoint)).await
-        else {
-            continue;
+    // Every signed QUIC address of the target is dialed together.
+    let addresses = super::resolve_quic(&target.quic).await;
+    if let Some(first) = addresses.first() {
+        let peer = crate::peer_store::Peer {
+            id: key_id(&b64(&target.host, 32)?),
+            public_key: target.host.clone(),
+            address: first.to_string(),
         };
-        for address in addresses.take(8) {
-            let peer = crate::peer_store::Peer {
-                id: key_id(&b64(&target.host, 32)?),
-                public_key: target.host.clone(),
-                address: address.to_string(),
-            };
-            match tokio::time::timeout(
-                Duration::from_secs(5),
-                crate::quic::request(store.clone(), &peer, "POST", &path, &delivery.body),
-            )
-            .await
-            {
-                Ok(Ok((200, body))) => return Ok(body),
-                Ok(Ok((status, body))) => {
-                    // Preserve only a known public code, never remote text or
-                    // credentials. The exact delivery remains pending.
-                    if let Ok(value) = parse(&body, 1 << 20)
-                        && let Some(code) = value.get("code").and_then(Value::as_str)
-                    {
-                        let code = match code {
-                            "forbidden" => "forbidden",
-                            "authority_expired" => "authority_expired",
-                            "proof_required" => "proof_required",
-                            "state_conflict" => "state_conflict",
-                            "quota_exceeded" => "quota_exceeded",
-                            "rate_limited" => "rate_limited",
-                            _ => "transport_unavailable",
-                        };
-                        if status != 200 {
-                            return Err(Error::new(code));
-                        }
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            crate::quic::request_any(
+                store.clone(),
+                &peer,
+                &addresses,
+                "POST",
+                &path,
+                &delivery.body,
+            ),
+        )
+        .await
+        {
+            Ok(Ok((200, body))) => return Ok(body),
+            Ok(Ok((status, body))) => {
+                // Preserve only a known public code, never remote text or
+                // credentials. The exact delivery remains pending.
+                if let Ok(value) = parse(&body, 1 << 20)
+                    && let Some(code) = value.get("code").and_then(Value::as_str)
+                {
+                    let code = match code {
+                        "forbidden" => "forbidden",
+                        "authority_expired" => "authority_expired",
+                        "proof_required" => "proof_required",
+                        "state_conflict" => "state_conflict",
+                        "quota_exceeded" => "quota_exceeded",
+                        "rate_limited" => "rate_limited",
+                        _ => "transport_unavailable",
+                    };
+                    if status != 200 {
+                        return Err(Error::new(code));
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
     }
     Err(Error::new("transport_unavailable"))

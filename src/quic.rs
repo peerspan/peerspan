@@ -527,6 +527,7 @@ pub(crate) async fn request(
     let out = request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
@@ -550,10 +551,35 @@ pub(crate) async fn request_direct(
     request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
         true,
+        ContactLearning::Allow,
+    )
+    .await
+}
+/// `request` to a member at all of `addresses` (the endpoints of one signed
+/// target) dialed together with its other signed addresses, so one address
+/// that drops packets never holds the request while another answers
+/// (runtime contract: a member's signed QUIC addresses are dialed together).
+pub(crate) async fn request_any(
+    store: Arc<Store>,
+    peer: &Peer,
+    addresses: &[SocketAddr],
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    request_on(
+        store,
+        peer,
+        addresses,
+        method,
+        path,
+        body,
+        false,
         ContactLearning::Allow,
     )
     .await
@@ -569,6 +595,7 @@ pub(crate) async fn request_current_routes(
     request_on(
         store,
         peer,
+        &[],
         method,
         path,
         body,
@@ -749,9 +776,12 @@ pub(crate) async fn completion_request(
 }
 /// One fresh proof-repair connection, never reused for ordinary peer work.
 /// The caller checks the remembered context pin before requesting public bytes.
+/// Every address in `addresses` (at most eight) is dialed together and the
+/// first pinned repair handshake that completes is used.
 pub(crate) async fn request_repair(
     store: Arc<Store>,
     peer: &Peer,
+    addresses: &[SocketAddr],
     path: &str,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -760,23 +790,52 @@ pub(crate) async fn request_repair(
         crate::peer::pinned_client_config(store, key, crate::decentralized::peer::REPAIR_ALPN)?,
     )?));
     config.transport_config(transport_config());
-    let connecting = transport
-        .endpoint
-        .connect_with(config, peer.address.parse()?, SERVER_NAME)?;
-    let connection = tokio::time::timeout(Duration::from_secs(5), connecting).await??;
-    if negotiated(&connection).as_deref() != Some(crate::decentralized::peer::REPAIR_ALPN) {
-        connection.close(VarInt::from_u32(1), b"alpn");
-        anyhow::bail!("peer did not negotiate proof repair");
+    let mut attempts = JoinSet::new();
+    let mut failure = None;
+    for &address in addresses.iter().take(MAX_DIRECT_ADDRESSES) {
+        let connecting = match transport
+            .endpoint
+            .connect_with(config.clone(), address, SERVER_NAME)
+        {
+            Ok(connecting) => connecting,
+            Err(error) => {
+                failure = Some(anyhow::Error::from(error));
+                continue;
+            }
+        };
+        attempts.spawn(async move {
+            let connection = tokio::time::timeout(Duration::from_secs(5), connecting)
+                .await
+                .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
+            if negotiated(&connection).as_deref() != Some(crate::decentralized::peer::REPAIR_ALPN) {
+                connection.close(VarInt::from_u32(1), b"alpn");
+                anyhow::bail!("peer did not negotiate proof repair");
+            }
+            Ok(connection)
+        });
     }
+    let connection = loop {
+        match attempts.join_next().await {
+            Some(Ok(Ok(connection))) => break connection,
+            Some(Ok(Err(error))) => failure = Some(error),
+            Some(Err(error)) => failure = Some(error.into()),
+            None => {
+                return Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")));
+            }
+        }
+    };
+    attempts.abort_all();
     let result = exchange(&connection, "GET", path, b"")
         .await
         .map_err(|e| e.error);
     connection.close(VarInt::from_u32(0), b"repair complete");
     result
 }
+#[allow(clippy::too_many_arguments)]
 async fn request_on(
     store: Arc<Store>,
     peer: &Peer,
+    extra: &[SocketAddr],
     method: &str,
     path: &str,
     body: &[u8],
@@ -790,6 +849,14 @@ async fn request_on(
         ContactLearning::Disabled => (None, paths(&store, &transport, peer).await?),
     };
     let peer = learned.as_ref().unwrap_or(peer);
+    for address in extra.iter().map(|a| crate::disco::normalize(*a)) {
+        if paths.direct.len() >= MAX_DIRECT_ADDRESSES {
+            break;
+        }
+        if !paths.direct.contains(&address) {
+            paths.direct.push(address);
+        }
+    }
     if direct_only {
         paths.relays.clear();
         if paths.direct.is_empty() {
