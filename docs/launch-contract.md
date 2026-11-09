@@ -485,7 +485,7 @@ Older receivers return 404 for this route. The caller records the host as `unsup
 
 Each daemon keeps a directory per network, in memory:
 - **Hosts queried:** every current, unrevoked member other than itself.
-- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand.
+- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand. A stored policy includes another person's policy this host received by sync on a network without a coordinator: when bob allows alice, alice's directory lists bob's agents within 10 seconds of her host storing bob's new policy, with no refresh; when bob denies her, they leave it within the same bound.
 - **How:** at most 8 queries at once, each with a 5-second timeout, over the usual peer transport, relay included.
 - **Failures:** a host that fails keeps its previous agents, marked with the time of the last success and the error.
 

@@ -968,6 +968,28 @@ impl Store {
             hash.update(record.as_bytes());
             hash.update(b"\n");
         }
+        // Coordinator-free networks keep each person's selected policy (and
+        // their other signed streams) in these high-water tables, not in the
+        // statements; a policy received by sync changes the directory as a
+        // local one does.
+        for query in [
+            "SELECT 'link', kind, subject, '', quote(version), record_hash FROM link_highwater WHERE network_id = ?1 ORDER BY kind, subject",
+            "SELECT context_id, stream_kind, subject, subject2, quote(version), record FROM dec_highwater WHERE network_id = ?1 ORDER BY context_id, stream_kind, subject, subject2",
+        ] {
+            let mut statement = conn.prepare(query)?;
+            let rows = statement.query_map([network], |r| {
+                (0..6)
+                    .map(|i| r.get::<_, String>(i))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })?;
+            for row in rows {
+                for part in row? {
+                    hash.update(part.as_bytes());
+                    hash.update(b"\0");
+                }
+                hash.update(b"\n");
+            }
+        }
         Ok(hex::encode(hash.finalize()))
     }
 }
