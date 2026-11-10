@@ -146,7 +146,13 @@ pub(crate) async fn create_join(
             json!({
                 "mode":"new", "network_id":intro.descriptor.network_id,
                 "person_public_key":person, "migration_proposal_id":"-",
-                "contact_invitation":token, "helpers":intro.helpers
+                "contact_invitation":token, "helpers":intro.helpers,
+                // An explicit key file is not discoverable later, so the
+                // local `next` approval names it (ML-3).
+                "person_key_path":match (choice.source, &choice.path) {
+                    ("option", Some(path)) => path.to_str().context("the --person-key path is not UTF-8")?,
+                    _ => "-",
+                }
             }),
         )
         .await?;

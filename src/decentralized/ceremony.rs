@@ -106,6 +106,7 @@ pub(super) fn from_code(code: &PairingToken, d: &Descriptor) -> Result<Pending> 
             carrier_endpoints: endpoint_list(code)?,
             outbound_frames: Vec::new(),
             stage_at: "-".into(),
+            person_key_path: "-".into(),
         },
     })
 }
