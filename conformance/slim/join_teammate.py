@@ -563,6 +563,9 @@ def _():
           f"link status {rid}: exit {one.code} (with --json {one_json.code}): {redact(one.stdout[-400:])!r}")
     for fact in (rid, net["id"], view["state"]):
         check(fact in one.stdout, f"link status {rid} lacks {fact!r}: {redact(one.stdout[-400:])!r}")
+    # hal's request reaches alice by the invite's return path, asynchronously (spec 8.1 step 4).
+    wait_for(lambda: any(v["request_id"] == rid for v in a.api("GET", "/v2/link/requests")[1]), timeout=30,
+             interval=0.5, message="hal's request on alice's host")
     listed, listed_json = a.cli("link", "status"), a.cli("--json", "link", "status")
     check(listed.code == listed_json.code and not parses_as_json(listed.stdout),
           f"link status (list): exit {listed.code} (with --json {listed_json.code}): {redact(listed.stdout[-400:])!r}")
