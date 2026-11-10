@@ -21,7 +21,7 @@ Owners configure peers through the private socket, providing an independently ve
 | `message refresh --peer HOST ID` | `POST /v1/outbound/{peer}/{id}/refresh` | Query its remote receipt without resubmitting work. |
 | `message list [--after N] [--limit N]` | `GET /v1/messages?after=N&limit=N` | Read a page in local insertion order. |
 
-All local reads/actions return 200 unless noted. CLI outcomes are JSON. A successfully submitted send can return `unknown` or `rejected`; inspect its `state`, rather than treating CLI exit zero as remote acceptance. Invalid local input/storage errors return the usual HTTP error and nonzero CLI exit. Peer/grant inputs are flat strict JSON objects; their fields are shown below. The CLI supplies the documented defaults.
+All local reads/actions return 200 unless noted. CLI outcomes are JSON. A submitted send returns its outbound record, whose `state` is `accepted`, `unknown` or `rejected`. With `accepted` or `unknown` the CLI exits 0: an `unknown` send is stored and retried by the host (MSG-2), so exit 0 does not mean remote acceptance; check `state`, or `message inspect` later. With `rejected` (the receiver answered 400, 403, 404 or 409) the CLI still prints the record on stdout, writes `error: rejected: ERROR` on stderr, where ERROR is the record's `error` string, and exits 1 (MSG-1). `message retry` follows the same rule. Invalid local input/storage errors return the usual HTTP error and nonzero CLI exit. Peer/grant inputs are flat strict JSON objects; their fields are shown below. The CLI supplies the documented defaults.
 
 ## Transport identity
 
@@ -122,8 +122,10 @@ policy under the coordination contract. `policy` and `self` are peer-wire and
 stored-request fields, not caller-selected owner-send fields. Unknown owner-send
 fields are400. Direct host/agent owner sends do not apply addressed-directory
 permission filtering; the authenticated receiver enforces the selected citation.
-This permits an actual receiver refusal check before an access grant and after
-withdrawal, without inventing a policy argument or a temporary unrelated grant.
+This permits an actual receiver refusal check when the owner's policy has no
+rule for the sender and after withdrawal (with no policy at all, the send is
+refused locally with 400 before anything is persisted, as the coordination
+contract specifies), without inventing a policy argument or a temporary unrelated grant.
 Persist the immutable request and `message.queued` event before attempting any
 network send. Reusing its `(peer_host_id, request_id)` with different fields is
 a local409 conflict.

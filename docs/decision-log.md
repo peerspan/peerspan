@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
   - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
   - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
   - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
@@ -56,6 +57,31 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### MSG-1 and MSG-2: exit status of a refused send (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** peer messaging (MSG): `send` and `message send`.
+- **Source:** the owner's answers, 2026-11-10, on issue [#160](https://github.com/peerspan/peerspan/issues/160). In 0.2.0 qualification step 4 (evidence F17), `message send` to a receiver that had withdrawn access returned `state` `rejected` after HTTP 403 and exited 0, so a script checking the exit status treated it as delivered. The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [peer-messaging-contract.md](peer-messaging-contract.md#start-and-configure) (CLI outcomes) and [launch-contract.md](launch-contract.md) (`send`).
+- **Supersedes:** "A successfully submitted send can return `unknown` or `rejected`; inspect its `state`, rather than treating CLI exit zero as remote acceptance" in the peer-messaging contract.
+
+#### MSG-1. A send the receiver refuses (state `rejected`)
+
+- **Options:**
+  - (a) "Exit 1 (recommended). Print the JSON as now, plus `error: rejected: <receiver's reason>` on stderr, and exit 1, the same as other CLI failures."
+  - (b) "Distinct exit code. Use a separate code such as 125 (what `task run` uses for a rejected task), so scripts can tell 'receiver refused' apart from a local error."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### MSG-2. A send with no answer yet (state `unknown`)
+
+- **Options:**
+  - (a) "Keep exit 0 (recommended). The send is stored and the host retries it, so the command did its part. Scripts check `state` or run `message inspect` later."
+  - (b) "Nonzero exit. Treat 'not yet accepted' as a failure, so a script never takes exit 0 to mean the message was delivered."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
 
 ### ML-3 to ML-5: joining a teammate, step by step (2026-11-10)
 
