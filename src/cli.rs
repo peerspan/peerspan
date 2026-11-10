@@ -1671,6 +1671,9 @@ pub struct TaskTo {
     /// RFC3339 deadline for an agent to accept it; default one hour
     #[arg(long, value_name = "TIME")]
     pub deadline: Option<String>,
+    /// Print the full JSON object instead of a readable summary
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Subcommand)]

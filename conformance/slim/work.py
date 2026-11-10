@@ -341,4 +341,18 @@ def _():
           "the readable submit did not submit the task")
 
 
+@suite.case("task_shorthand_json_positions", "CLI output contract 4 (`--json` everywhere: `task TARGET TEXT`)")
+def _():
+    runs = {"before the subcommand": a.cli("--json", "task", "bob/bert", "short before"),
+            "after the subcommand": a.cli("task", "--json", "bob/bert", "short middle"),
+            "after TEXT": a.cli("task", "bob/bert", "short after", "--json")}
+    keys = set()
+    for (where, one), text in zip(runs.items(), ("short before", "short middle", "short after")):
+        check(one.ok and isinstance(one.json, dict) and one.json.get("submit_state") == "accepted"
+              and one.json["request"]["input"] == text and {"request", "submit_state", "status"} <= set(one.json),
+              f"`task bob/bert TEXT` with --json {where}: exit {one.code}, {one.stdout[:300]!r}")
+        keys = keys or set(one.json)
+        check(set(one.json) == keys, f"--json {where} gives fields {sorted(one.json)}, want {sorted(keys)}")
+
+
 suite.finish()
