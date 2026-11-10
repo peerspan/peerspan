@@ -312,8 +312,25 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let code = task_run::run(&command, &directory).await?;
         std::process::exit(code);
     }
+    // A send the receiver refused fails after printing its record (MSG-1);
+    // `unknown` is stored and retried, so it still exits 0 (MSG-2).
+    let sends = matches!(
+        command,
+        cli::Command::Send { .. }
+            | cli::Command::Message(
+                cli::MessageCommand::Send { .. } | cli::MessageCommand::Retry { .. }
+            )
+    );
     let value = dispatch(command, &directory).await?;
     println!("{}", serde_json::to_string_pretty(&value)?);
+    if sends && value["state"] == "rejected" {
+        bail!(
+            "rejected: {}",
+            value["error"]
+                .as_str()
+                .unwrap_or("the receiving host refused this message")
+        );
+    }
     if value.get("creation_id").is_some() && value["committed"] == false {
         bail!("network creation requires review or signing repair");
     }
