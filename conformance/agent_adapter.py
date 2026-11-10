@@ -346,8 +346,8 @@ def check(sender_binary, receiver_binary, node, script, label):
             # Concurrent polling must claim a message only once.
             channel.close(); channel = None
             author = sender.cli('agent', 'register', '--name', 'author', '--owner', 'bob')
-            second = sender.cli('message', 'send', '--peer', b['id'], '--agent', agent['id'], '--grant', grant['id'],
-                                '--deadline', timestamp(), '--content', 'from an agent', '--from-agent', author['id'])
+            second = sender.outbound('message', 'send', '--peer', b['id'], '--agent', agent['id'], '--grant', grant['id'],
+                                          '--deadline', timestamp(), '--content', 'from an agent', '--from-agent', author['id'])
             with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
                 claims = list(executor.map(lambda _: adapter_call(receiver, token, 'POST', '/adapter/v1/next', {}), range(6)))
             assert all(status == 200 for status, _ in claims)

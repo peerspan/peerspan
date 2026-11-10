@@ -60,6 +60,43 @@ def task_to_bert(want="accepted"):
     return outcome("task", want, "work")
 
 
+def send_to_bert(text):
+    (bert,) = need("bert")
+    return a.cli("message", "send", "--peer", b.id, "--agent", bert.id, "--content", text)
+
+
+def check_rejected(result, what):
+    """A send or retry bob refused (peer-messaging-contract CLI outcomes, MSG-1): the outbound record on stdout,
+    `error: rejected: ERROR` with the record's `error` on stderr, exit 1. Returns the record."""
+    record = result.json if isinstance(result.json, dict) else {}
+    first = (result.stderr.splitlines() or [""])[0]
+    problems = []
+    if result.code != 1:
+        problems.append(f"exit {result.code}, want 1")
+    if record.get("state") != "rejected":
+        problems.append(f"stdout is not a rejected outbound record: {result.stdout.strip()[-300:]!r}")
+    if not result.stderr.startswith("error: rejected: "):
+        problems.append(f"stderr does not start with 'error: rejected: ': {result.stderr.strip()[-300:]!r}")
+    elif isinstance(record.get("error"), str) and first != f"error: rejected: {record['error']}":
+        problems.append(f"stderr {first!r} does not carry the record's error {record['error']!r}")
+    check(not problems, f"{what}: " + "; ".join(problems))
+    return record
+
+
+def check_exit_0(result, want, what):
+    """A send whose state is accepted or unknown exits 0 with the record and no error (MSG-1, MSG-2)."""
+    record = result.json if isinstance(result.json, dict) else {}
+    problems = []
+    if result.code != 0:
+        problems.append(f"exit {result.code}, want 0")
+    if record.get("state") != want:
+        problems.append(f"state {record.get('state')!r}, want {want!r}: {result.stdout.strip()[-300:]!r}")
+    if any(line.startswith("error:") for line in result.stderr.splitlines()):
+        problems.append(f"stderr has an error: {result.stderr.strip()[-300:]!r}")
+    check(not problems, f"{what}: " + "; ".join(problems))
+    return record
+
+
 def bob_policy_version():
     versions = b.api("GET", f"/v2/networks/{state['net']}/access-versions")[1]["policies"]
     mine = [p["version"] for p in versions if p["person_public_key"] == state["bob_public"]]
@@ -100,6 +137,13 @@ def _():
     check(signed <= 86400 and payload["operation_id"] == "-", f"policy statement lifetime {signed:.0f}s")
 
 
+@suite.case("accepted_send_exits_0", "peer-messaging-contract CLI outcomes; launch-contract send; MSG-1")
+def _():
+    check_exit_0(send_to_bert("accepted"), "accepted", "message send under an allow rule")
+    a.ok("agents", "--refresh", "--json")
+    check_exit_0(a.cli("send", f"{b.id}/bert", "accepted by address"), "accepted", "send HOST_ID/AGENT TEXT")
+
+
 @suite.case("allow_no_tasks", "launch-contract 3 allow --no-tasks; task-contract authorization")
 def _():
     out = bob("allow", "alice", "--no-tasks")
@@ -119,6 +163,21 @@ def _():
     again = bob("deny", "alice")
     check(again["removed"] == 0 and again.get("note"), f"second deny {again}")
     check(bob_policy_version() == before, "a deny that removed nothing signed a new version")
+
+
+@suite.case("withdrawn_send_exits_1", "peer-messaging-contract CLI outcomes; launch-contract 3 deny; MSG-1")
+def _():
+    # Not before any rule: with no policy at all the sender refuses locally and persists nothing (coordination
+    # contract, Sending without a grant ID), so bob refuses only once he has a policy without alice in it.
+    record = check_rejected(send_to_bert("after deny"), "message send after bob withdrew alice's access")
+    state["rejected_id"] = record["request"]["request_id"]
+
+
+@suite.case("rejected_retry_exits_1", "peer-messaging-contract CLI outcomes (message retry); MSG-1")
+def _():
+    (request_id,) = need("rejected_id")
+    record = check_rejected(a.cli("message", "retry", "--peer", b.id, request_id), "message retry of a rejected send")
+    check(record["request"]["request_id"] == request_id, f"retry returned request {record['request']['request_id']}")
 
 
 @suite.case("block_overrides_allow", "launch-contract 3 block/unblock")
@@ -201,6 +260,15 @@ def _():
     check(claim["committed"] is False and claim["statement_base64"] not in (None, "-"),
           f"a signed claim: committed {claim.get('committed')}")
     check(bob_policy_version() == before, "a prepared capability claim changed the current policy")
+
+
+@suite.case("unknown_send_exits_0", "peer-messaging-contract CLI outcomes; MSG-2")
+def _():
+    b.stop()
+    try:
+        check_exit_0(send_to_bert("bob is down"), "unknown", "message send to a stopped receiver")
+    finally:
+        b.start()
 
 
 @suite.case("ban_revoked_host_loses_access", "spec 5.1 host_revoke; 20 item 61 (ban)")
