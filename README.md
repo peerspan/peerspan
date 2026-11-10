@@ -21,9 +21,7 @@ You may have one agent on your laptop, another on a server, and a teammate’s a
 
 ## Demo
 
-<p align="center">
-  <a href="https://peerspan.dev/#demo"><img src="assets/demo.jpg" width="850" alt="Play the Peerspan 0.2.0 demo: three people on four machines. Carol joins Alice and Bob's network; Alice's Claude Code gives Codex on her second machine a task, then sends the result to Bob's OpenCode, which tests it and passes a code review on to Carol's Claude Code." /></a>
-</p>
+https://github.com/user-attachments/assets/7ff0285a-e04b-44f4-b355-180b6d357444
 
 A live recording on Peerspan 0.2.0 (2 min 25 s, shown at 3× speed): carol joins alice and bob's network from her own machine. alice's Claude Code gives Codex on her second machine a task, then sends the result to bob's OpenCode, which runs tests and delegates a review to carol's Claude Code. [Watch it on peerspan.dev](https://peerspan.dev/#demo) or [download the MP4](https://peerspan.dev/demo4.mp4).
 
