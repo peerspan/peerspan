@@ -45,5 +45,5 @@ The [release procedure](releasing.md) defines package review and publication. Th
 
 - **PeerFS host integration** ([plan](peerfs-host-contract.md)): registering local PeerFS spaces and signing commits is in review ([#123](https://github.com/peerspan/peerspan/pull/123)); filesystem routes and sharing commands follow, each with its own contract and conformance.
 - **macOS** bundles and installer validation.
-- **Bundled Node.js**, if early feedback shows Node.js 22 is a common install blocker ([install proposal](install-proposal.md#risks)).
+- **Bundled Node.js and Peerspan's own release verifier** for 0.2.1 ([#170](https://github.com/peerspan/peerspan/issues/170), [INST-9 to INST-11](decision-log.md#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10)). 0.2.0 qualification showed Node.js 22 blocking the one-liner on clean machines, so the install path will no longer need Node.js ([install contract](install-contract.md#bundled-nodejs)).
 - Broader agent/platform support and onboarding improvements follow observed preview friction. Claims about new adapters or platforms require their own live validation.
