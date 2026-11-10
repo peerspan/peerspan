@@ -370,7 +370,9 @@ fn sync_plan(store: &Store, network: &str) -> Result<SyncPlan> {
 }
 
 /// The socket addresses of a target's signed QUIC endpoints, resolved
-/// together, in signed order and without duplicates, at most eight.
+/// together, without duplicates, at most eight. They are taken one per
+/// endpoint per round, in signed order, so a hostname that resolves to many
+/// addresses never crowds out a later signed endpoint.
 pub(super) async fn resolve_quic(endpoints: &[String]) -> Vec<std::net::SocketAddr> {
     let mut lookups = tokio::task::JoinSet::new();
     for (index, endpoint) in endpoints.iter().cloned().enumerate() {
@@ -389,10 +391,28 @@ pub(super) async fn resolve_quic(endpoints: &[String]) -> Vec<std::net::SocketAd
     }
     let mut resolved = lookups.join_all().await;
     resolved.sort_by_key(|(index, _)| *index);
+    let mut queues: Vec<_> = resolved
+        .into_iter()
+        .map(|(_, found)| found.into_iter())
+        .collect();
     let mut addresses = Vec::new();
-    for address in resolved.into_iter().flat_map(|(_, found)| found) {
-        if addresses.len() < 8 && !addresses.contains(&address) {
-            addresses.push(address);
+    while addresses.len() < 8 {
+        let mut any = false;
+        for queue in &mut queues {
+            // Skip duplicates so a repeated address does not use up an
+            // endpoint's turn.
+            for address in queue.by_ref() {
+                if !addresses.contains(&address) {
+                    any = true;
+                    if addresses.len() < 8 {
+                        addresses.push(address);
+                    }
+                    break;
+                }
+            }
+        }
+        if !any {
+            break;
         }
     }
     addresses
