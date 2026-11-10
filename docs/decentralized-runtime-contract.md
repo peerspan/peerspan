@@ -990,8 +990,11 @@ and `Commit this exact machine link?` with y/N in brackets or parentheses.
 Blank declines; only trimmed case-insensitive y/yes approves. JSON stdout is
 always the flat LINK_VIEW, with display_code only for the explicit allowed
 requester display action. Auxiliary approval wrappers are internal, never the
-final CLI output. Incomplete work and every refusal exit nonzero with exact
-public next action; human prompts/guidance use stderr. No prompt may approve a
+final CLI output. A failure, a refusal, a declined prompt, or a step still due
+on this machine exits nonzero with the exact public next action. A command
+whose own step completed exits 0 even when the request still waits on another
+participant or machine, naming whose step comes next and where
+([ML-3](decision-log.md#ml-3-exit-status-when-your-part-is-done-but-someone-elses-step-remains)); human prompts/guidance use stderr. No prompt may approve a
 mutable subsequent packet or regenerate an escaped final commit.
 
 `up` preserves existing setup/profile/service behavior but uses these new-mode
