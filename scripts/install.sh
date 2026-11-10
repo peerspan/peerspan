@@ -23,10 +23,9 @@ PEERSPAN_RELEASE_KEYS="KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc"
 # INST-10): the verifier-vN release to download it from, and the SHA-256 of
 # its binary per architecture. Both must equal the ones in
 # scripts/install-release.sh, and change only in a pull request that changes
-# nothing else. The all-zero digests below are placeholders: no verifier
-# matches them, so nothing installs until verifier-v1 is published and pinned.
+# nothing else.
 PEERSPAN_VERIFIER_RELEASE="verifier-v1"
-PEERSPAN_VERIFIER_SHA256="amd64:0000000000000000000000000000000000000000000000000000000000000000 arm64:0000000000000000000000000000000000000000000000000000000000000000"
+PEERSPAN_VERIFIER_SHA256="amd64:bd875a35dc2a66253126701a94b40dacf83acfdee4ec9e8c1789d9443df7c8e0 arm64:91c486c383d58d8fd9b0c15cd18ce540aab6e4b6cb65aad245a873a70b8bfba6"
 
 # The rest of the file is one function, called on the last line, so a copy cut
 # off at any byte executes nothing.
