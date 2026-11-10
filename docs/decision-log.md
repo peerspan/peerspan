@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
   - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
   - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
@@ -57,6 +58,31 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### STAT-1 and STAT-2: peer delivery failures in status (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** status (STAT): what `peerspan status` reports under "Needs attention".
+- **Source:** the owner's answers, 2026-11-10, on issue [#159](https://github.com/peerspan/peerspan/issues/159). In 0.2.0 qualification step 5 (evidence F22), bob's daemon was stopped while alice had a task queued for him. alice's `status --json` showed `delivery.peer_errors` with `transport_unavailable` for bob's host and a pending proof, and `agents` showed bob/claude as "connected, host error". Human `status` said "Nothing needs attention". The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [launch-contract.md](launch-contract.md), attention item 19, `peer_delivery_failing`.
+- **Fix that needs no decision,** recorded with these entries: a new item, `peer_delivery_failing`, with one entry per peer host, naming the peer, what is waiting and the errors it last failed with. Like every attention item, it makes `status` exit 1.
+
+#### STAT-1. What counts as waiting
+
+- **Options:**
+  - (a) "All waiting work (recommended). Messages, task submissions and calls still `unknown` for that peer, plus network updates (proofs) not yet delivered to it. One entry per peer, with counts by kind."
+  - (b) "Messages and tasks only. Only what users sent: messages and tasks still `unknown` for that peer. Network updates and calls are left out."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### STAT-2. When the item appears
+
+- **Options:**
+  - (a) "After 2 minutes (recommended). Only when the oldest waiting delivery to that peer has been failing for at least 2 minutes. A short blip or a quick restart, like the relay switch in F21 (~35 s), doesn't make `status` exit 1."
+  - (b) "After first failure. As soon as one attempt to that peer has failed, like the old `policy_delivery_failing` item 4. Quicker to notice, but noisier."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
 
 ### MSG-1 and MSG-2: exit status of a refused send (2026-11-10)
 
