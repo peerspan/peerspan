@@ -511,7 +511,7 @@ def inspect_machine(f, *, status=200, code=None, cli=False, override=None, path=
         before, counters = whole(f), traffic(f)
     data = inspection_body(f) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester CLI success/refusal mismatch')
         public(result.stdout + result.stderr, *f['secrets'], str(f['b'].root))
@@ -643,7 +643,7 @@ def progress(f):
     wait_for(lambda: link_view(a, rid)['selection_id'] == view['selection_id'], timeout=10, interval=.1,
              message='existing computer retained exact requester selection')
     if link_view(b, rid)['owner_finalization_id'] == '-':
-        args = ['link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
+        args = ['--json', 'link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
             '--expect-person', view['person_public_key'], '--expect-host-key', view['host_public_key'],
             '--expect-device-key', view['device_public_key'], '--owner-offer', view['owner_offer_id'],
             '--selection', view['selection_id'], '--administrator-offer', '-', '--approve']
@@ -958,7 +958,7 @@ def op(f, action, prepared=None, *, pure=False, cli=False, status=200, code=None
         quiet(f); before, counters = whole(f), traffic(f)
     data = input_for(f, action, prepared) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', action, '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester consent CLI success/refusal mismatch')
         public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
@@ -1053,7 +1053,7 @@ def clock_rollback_regression(f, approved=None):
             before, counters = whole(f), traffic(f)
             data = input_for(f, action, f['prepared'])
             if cli:
-                result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+                result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', action, '--stdin',
                     input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
                 check(result.ok, 'approved CLI history failed under genuine clock rollback')
                 public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
@@ -1228,7 +1228,7 @@ def _():
     check(status == 200, f'exact64KiB API Lookup HTTP {status}'); validate_consent(f, value); strict(f, before, counters, 'maximum')
     cli_data = compact({'flow_id': f['flow']['flow_id'], **data})
     quiet(f); before, counters = whole(f), traffic(f)
-    result = b.cli('onboarding', 'join', 'machine-commit', 'lookup', '--stdin', input=(cli_data + b' ' * (65536 - len(cli_data))).decode(), timeout=8)
+    result = b.cli('--json', 'onboarding', 'join', 'machine-commit', 'lookup', '--stdin', input=(cli_data + b' ' * (65536 - len(cli_data))).decode(), timeout=8)
     check(result.ok, 'exact64KiB CLI Lookup refused'); validate_consent(f, result.json); strict(f, before, counters, 'maximum-CLI')
     malformed = [b'null', b'[]', b'{', encoded + b'{}', maximum + b' ',
         b'{"context":' + ctx + b',"context":' + ctx + b',"join_review_id":' + compact(data['join_review_id']) + b'}',

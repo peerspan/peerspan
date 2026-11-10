@@ -241,7 +241,7 @@ def _():
     follower.join(timeout=60)
     check("result" in cancelled and cancelled["result"].code == 125,
           f"a cancelled task run: exit {cancelled.get('result') and cancelled['result'].code}, want 125")
-    result = b.cli("task", "run", "--peer", a.id, "--detach", "--", "echo", "detached", timeout=30)
+    result = b.cli("--json", "task", "run", "--peer", a.id, "--detach", "--", "echo", "detached", timeout=30)
     check(result.ok and isinstance(result.json, dict) and result.json["request"]["executor"] == "runtime"
           and result.json["request"]["input"] == "echo detached", f"--detach: exit {result.code} {result.stdout[-300:]}")
     final(result.json["request"]["task_id"])

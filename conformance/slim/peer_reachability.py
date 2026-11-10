@@ -876,7 +876,7 @@ def world():
     before, counts = whole(state), traffic(state)
     observe(state, outcome="not_verified")
     began = b.now()
-    result = b.cli("onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
+    result = b.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(state)).decode(), timeout=16)
     check(result.ok, "bootstrap-only no-route private CLI failed")
     verify(state, state["pb"], request(state), result.json, (began, b.now()))
     check(result.json["reachability"]["result"] == "not_verified", "bootstrap-only request invented a usable peer route")
@@ -933,7 +933,7 @@ def _():
     check(first["reachability"]["http_status"] == 200, "genuine authenticated receiver did not return200")
     selected_io(f, before)
     h = f["b"]; began = h.now()
-    result = h.cli("onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
+    result = h.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
     check(result.ok, "exact private reachability CLI failed")
     verify(f, f["pb"], request(f), result.json, (began, h.now()))
     check(result.json["reachability"]["result"] == "authenticated_response" and result.json["reachability"]["http_status"] == 200,
@@ -1051,7 +1051,7 @@ def _():
     for _ in range(2):
         observe(f, outcome="authenticated_response")
     began = h.now()
-    result = h.cli("onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
+    result = h.cli("--json", "onboarding", "reachability", "--stdin", input=compact(request(f)).decode(), timeout=16)
     check(result.ok, "repeated private reachability read failed")
     verify(f, f["pb"], request(f), result.json, (began, h.now()))
     check(result.json["reachability"]["result"] == "authenticated_response", "repeat lost current pinned transport")

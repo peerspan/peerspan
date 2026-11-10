@@ -42,7 +42,7 @@ def snapshot(host):
 
 
 def invoke(client, host, *args, success=True):
-    result = subprocess.run([str(client), "--state", str(host.state), "session", *args],
+    result = subprocess.run([str(client), "--state", str(host.state), "--json", "session", *args],
                             capture_output=True, text=True, timeout=30)
     assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)
     assert "token_" not in result.stdout + result.stderr

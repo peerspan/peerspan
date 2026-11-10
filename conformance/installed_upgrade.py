@@ -121,7 +121,7 @@ class Host:
 
     def cli(self, *args):
         self.counter += 1
-        result = subprocess.run([str(self.binary), '--state', str(self.state), *args],
+        result = subprocess.run([str(self.binary), '--state', str(self.state), '--json', *args],
                                 env=self.env, cwd=self.root, stdin=subprocess.DEVNULL,
                                 capture_output=True, timeout=self.budget.remaining())
         private_json(self.root / f'cli-{self.counter:03d}.json',

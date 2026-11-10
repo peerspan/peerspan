@@ -505,7 +505,7 @@ def _():
     before = snapshot(a); network = counts(f)
     actual, value = raw_post(a, maximum)
     check(actual == 200, f"exact64KiB API HTTP {actual}"); validate(f, value)
-    result = a.cli("onboarding", "admission", "progress", "--stdin", input=maximum.decode(), timeout=8)
+    result = a.cli("--json", "onboarding", "admission", "progress", "--stdin", input=maximum.decode(), timeout=8)
     check(result.ok, "exact64KiB private progress CLI failed"); validate(f, result.json)
     ctx = compact(data["context"])
     malformed = [b"null", b"[]", b"{", raw + b"{}", maximum + b" ",

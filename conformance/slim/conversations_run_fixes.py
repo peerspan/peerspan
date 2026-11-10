@@ -312,7 +312,9 @@ def project():
 
 
 def attach_args(integration, directory, *extra):
-    return ["attach", integration, "--integrations", suite.work / "integrations", "--directory", directory, *extra]
+    # --json: the attach object these cases parse (from stderr when it launches); CLI output contract OUT-2.
+    return ["--json", "attach", integration, "--integrations", suite.work / "integrations", "--directory", directory,
+            *extra]
 
 
 def ran(record):
@@ -393,7 +395,7 @@ def _():
 
     path = f"/v1/conversations/{conv}/messages"
     for form, want in wanted:
-        said = a.cli("conversation", "say", conv, f"cli {form}", "--to", form)
+        said = a.cli("--json", "conversation", "say", conv, f"cli {form}", "--to", form)
         expect("say", form, want, 200 if said.ok else said.code, said.json if said.ok else said.stderr[-200:])
         expect("owner", form, want, *a.api("POST", path, {"content": f"owner {form}", "addressed_to": [form]}))
         expect("adapter", form, want, *bert.post(f"/adapter{path}", {
@@ -908,7 +910,7 @@ def _():
     b.stop()
     conv = None
     try:
-        blocked = Blocked(a, "conversation", "start", "person:bob")
+        blocked = Blocked(a, "--json", "conversation", "start", "person:bob")
         signal_stop(a, signal.SIGINT)
         code, out, err = blocked.finish("`conversation start`")
         check(code == 0, f"`conversation start`: exit {code}: {err[-300:]!r}; it answers as it does at 15 seconds")
@@ -930,7 +932,7 @@ def _():
     conv = start("bob/bert")
     b.stop()
     try:
-        blocked = Blocked(a, "conversation", "add", conv, "bob/bea")
+        blocked = Blocked(a, "--json", "conversation", "add", conv, "bob/bea")
         signal_stop(a, signal.SIGINT)
         code, out, err = blocked.finish("`conversation add`")
         check(code == 0 and "inviting" in out, f"`conversation add`: exit {code}: {out[-300:]!r} {err[-300:]!r}")

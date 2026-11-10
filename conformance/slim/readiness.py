@@ -620,7 +620,7 @@ def _():
     check(auths(f, first) == [], "new project membership alone invented access authorization")
     status, inspected = f["b"].api("POST", INSPECT, payload(f["pb"], f["net"], f["alice"]), timeout=8)
     check(status == 200 and first["inspection"] == {k: inspected[k] for k in ("review_id", "review")}, "readiness changed complete current section30 inspection/digest")
-    result = f["b"].cli("onboarding", "readiness", "--stdin", input=compact(payload(f["pb"], f["net"], f["alice"])).decode(), timeout=8)
+    result = f["b"].cli("--json", "onboarding", "readiness", "--stdin", input=compact(payload(f["pb"], f["net"], f["alice"])).decode(), timeout=8)
     check(result.ok and type(result.json) is dict, "private readiness CLI failed")
     second = verify(f, f["pb"], result.json)
     check({k: v for k, v in second.items() if k != "observed_at"} == {k: v for k, v in first.items() if k != "observed_at"},
@@ -744,7 +744,7 @@ def _():
         check(observe(f)["inspection"] == first["inspection"], "unchanged current terms changed inspection digest")
     encoded = compact(payload(f["pb"], f["net"], f["alice"])).decode()
     for _ in range(2):
-        result = f["b"].cli("onboarding", "readiness", "--stdin", input=encoded, timeout=8)
+        result = f["b"].cli("--json", "onboarding", "readiness", "--stdin", input=encoded, timeout=8)
         check(result.ok, "quiescent readiness CLI read failed"); verify(f, f["pb"], result.json)
     observe(f, body={**payload(f["pb"], f["net"], f["alice"]), "context": {
         **context(f["pb"]), "native_session_id": "different-conversation"}}, status=409, code="review_changed")

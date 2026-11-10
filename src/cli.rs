@@ -21,6 +21,9 @@ pub struct Cli {
     /// Print help listing every command
     #[arg(long, hide = true)]
     pub help_advanced: bool,
+    /// Print the full JSON object instead of a readable summary
+    #[arg(long, global = true)]
+    pub json: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -603,9 +606,6 @@ pub struct ApprovalsArgs {
     /// Also the approvals decided in the last 7 days
     #[arg(long)]
     pub all: bool,
-    /// Print JSON
-    #[arg(long)]
-    pub json: bool,
 }
 #[derive(Debug, Subcommand)]
 pub enum ApprovalsCommand {
@@ -640,9 +640,6 @@ pub struct SourcesArgs {
     /// Only this agent
     #[arg(long, value_name = "NAME")]
     pub agent: Option<String>,
-    /// Print JSON
-    #[arg(long)]
-    pub json: bool,
 }
 #[derive(Debug, Subcommand)]
 pub enum SourcesCommand {
@@ -2072,6 +2069,28 @@ impl Command {
     }
 
     /// Run starts the daemon; every other command uses its local control socket.
+    /// Makes the global `--json` and a command's own `--json` the same
+    /// setting (docs/cli-output-contract.md, OUT-2), and returns it.
+    pub fn sync_json(&mut self, global: bool) -> bool {
+        let local = match self {
+            Self::Conversation(ConversationCommand::Show { json, .. })
+            | Self::Status { json }
+            | Self::Conversations { json, .. }
+            | Self::Agents { json, .. }
+            | Self::Shares { json, .. }
+            | Self::Discover { json, .. }
+            | Self::Approvals(ApprovalsArgs {
+                command: Some(ApprovalsCommand::Show { json, .. }),
+                ..
+            })
+            | Self::Runtime(RuntimeCommand::Show { json })
+            | Self::Capability(CapabilityCommand::List { json })
+            | Self::Session(SessionCommand::Pending { json, .. }) => json,
+            _ => return global,
+        };
+        *local |= global;
+        *local
+    }
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)

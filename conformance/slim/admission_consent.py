@@ -517,7 +517,7 @@ def _():
             actual, value = raw_post(a, action, maximum)
             check(actual == 200 and value["admission"] == prepared["admission"], f"{action} exact64KiB API")
             validate(f, value, requests=(link_view(a, f["rid"]),))
-            result = a.cli("onboarding", "admission", action, "--stdin", input=maximum.decode(), timeout=10)
+            result = a.cli("--json", "onboarding", "admission", action, "--stdin", input=maximum.decode(), timeout=10)
             check(result.ok and result.json["admission"] == prepared["admission"], f"{action} exact64KiB CLI parity")
             validate(f, result.json, requests=(link_view(a, f["rid"]),))
             public(result.stdout, f["code"], f["reply"])
@@ -590,7 +590,7 @@ def _():
     # is allowed and is excluded from malformed/read-only purity comparisons.
     maximum = compact(payload(f, prepared)); maximum += b" " * (65536 - len(maximum))
     before_request = link_view(a, f["rid"])
-    result = a.cli("onboarding", "admission", "approve", "--stdin", input=maximum.decode(), timeout=10)
+    result = a.cli("--json", "onboarding", "admission", "approve", "--stdin", input=maximum.decode(), timeout=10)
     check(result.ok and result.json["admission"]["state"] == "approved", "private CLI exact64KiB approval parity")
     validate(f, result.json, requests=(before_request, link_view(a, f["rid"])))
     public(result.stdout, f["code"], f["reply"], adapter.token)

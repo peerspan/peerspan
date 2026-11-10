@@ -531,6 +531,15 @@ fn required_options(harness: &str) -> &'static [(&'static str, &'static str)] {
     }
 }
 
+/// The setup report: a summary, or the object with `--json`.
+fn setup_report(result: &Value) -> anyhow::Result<String> {
+    Ok(if crate::output::json() {
+        serde_json::to_string_pretty(result)?
+    } else {
+        crate::output::setup(result)
+    })
+}
+
 pub(crate) async fn run(mut args: UpArgs, state: Option<PathBuf>) -> anyhow::Result<()> {
     let mut setup = Setup::new();
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
@@ -539,7 +548,7 @@ pub(crate) async fn run(mut args: UpArgs, state: Option<PathBuf>) -> anyhow::Res
     if let Err(error) = &prepared {
         setup.fail(&format!("{error:#}"));
     }
-    let output = redact(&serde_json::to_string_pretty(&setup.result)?);
+    let output = redact(&setup_report(&setup.result)?);
     if args.no_start {
         println!("{output}")
     } else {
@@ -576,7 +585,7 @@ pub(crate) async fn run(mut args: UpArgs, state: Option<PathBuf>) -> anyhow::Res
             .as_array_mut()
             .unwrap()
             .push(json!({"stage":"launch","detail":redact(&format!("{error:#}"))}));
-        eprintln!("{}", redact(&serde_json::to_string_pretty(&setup.result)?));
+        eprintln!("{}", redact(&setup_report(&setup.result)?));
     }
     launch.map_err(|e| anyhow::anyhow!(redact(&format!("{e:#}"))))
 }

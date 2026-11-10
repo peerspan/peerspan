@@ -341,7 +341,11 @@ async fn invite(
     eprintln!(
         "This private invite grants no membership. The joining machine returns a private reply code for explicit owner and administrator approval."
     );
-    println!("{}", serde_json::to_string_pretty(&v)?);
+    if crate::output::json() {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{}", crate::output::invite(&v, member));
+    }
     Ok(())
 }
 
@@ -654,6 +658,6 @@ async fn reinvite(
             "invitation_id":v["invitation_id"],"invitation":v["invitation"],"expires_at":v["expires_at"]}));
     }
     let _ = old_id;
-    println!("{}", serde_json::to_string_pretty(&Value::Array(out))?);
+    crate::output::emit(&Value::Array(out))?;
     Ok(())
 }

@@ -28,7 +28,7 @@ import socket
 import threading
 import time
 
-from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for
+from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for, with_json
 
 suite = Suite("direct_dial", __doc__)
 clock = suite.use_clock()  # both hosts read one debug test clock (developer guide); it stays at +0 until moved
@@ -90,7 +90,7 @@ def need(*names):
 
 def timed(host, *args):
     began = time.monotonic()
-    result = host.cli(*args, timeout=60)
+    result = host.cli(*with_json(args), timeout=60)  # each caller reads the object (OUT-2)
     return result, time.monotonic() - began
 
 

@@ -439,7 +439,7 @@ def _():
         check(type(value["version"]) is int and value["version"] == 1 and value["host_id"] == a.id
               and value["context"] == context, "lookup did not preserve the exact private host/context")
         check(value["flow"] == expected and value["agents"] == get(a, "/v1/agents"), "lookup picked the wrong flow/agent list")
-        cli = a.cli("onboarding", "project", "lookup", "--stdin", input=json.dumps(context))
+        cli = a.cli("--json", "onboarding", "project", "lookup", "--stdin", input=json.dumps(context))
         check(cli.ok and cli.json == value, "lookup CLI differs from its owner API")
         check(records(a) == before, "context lookup changed consent, expiry, activity or logical records")
         return value
@@ -509,14 +509,14 @@ def _():
 @suite.case("cli_stdin_validation_and_unavailable_daemon", "guided onboarding 3 verification 7; 4 verification 7")
 def _():
     body = proposal("cli-private", native="native-cli-private-marker")
-    made = a.cli("onboarding", "project", "prepare", "--stdin", input=json.dumps(body))
+    made = a.cli("--json", "onboarding", "project", "prepare", "--stdin", input=json.dumps(body))
     check(made.ok and made.json, "CLI prepare from explicit bounded stdin failed")
     flow = made.json
     validate(a, body, flow)
     check(get(a, BASE + "/" + flow["flow_id"]) == flow, "CLI prepare differs from owner API")
     check(a.ok("onboarding", "project", "inspect", flow["flow_id"]) == flow, "CLI inspect differs from owner API")
     payload = {"flow_id": flow["flow_id"], **decision(flow, "decline")}
-    decided = a.cli("onboarding", "project", "decide", "--stdin", input=json.dumps(payload))
+    decided = a.cli("--json", "onboarding", "project", "decide", "--stdin", input=json.dumps(payload))
     check(decided.ok and decided.json == get(a, BASE + "/" + flow["flow_id"]), "CLI decision differs from owner API")
     before = records(a)
     for command in ("prepare", "decide"):

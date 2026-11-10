@@ -84,6 +84,34 @@ class UnixHTTPConnection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
+def with_json(args):
+    """ARGS with the global `--json` flag in front (OUT-2: accepted before the subcommand), unless already given."""
+    args = tuple(args)
+    return args if "--json" in map(str, args) else ("--json", *args)
+
+
+def parses_as_json(text):
+    """Whether TEXT is one JSON value (readable output must not be: CLI output contract, OUT-1)."""
+    try:
+        json.loads(text)
+        return True
+    except ValueError:
+        return False
+
+
+def terminal_escaped(text):
+    """TEXT as readable output prints peer-supplied text: U+0000-U+001F, U+007F, U+0080-U+009F as \\u00XX (1.1)."""
+    return "".join(f"\\u{ord(c):04x}" if ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f else c for c in text)
+
+
+def ssh_fingerprint(public_base64):
+    """The OpenSSH `SHA256:` fingerprint of a raw 32-byte Ed25519 public key given in standard Base64."""
+    import hashlib
+    raw = base64.b64decode(public_base64)
+    blob = b"".join(len(part).to_bytes(4, "big") + part for part in (b"ssh-ed25519", raw))
+    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+
+
 class Result:
     """One CLI run: exit code, decoded JSON stdout (or None) and raw text."""
 
@@ -240,14 +268,15 @@ class Host:
         return Result(list(map(str, args)), p.returncode, out.decode(errors="replace"), err.decode(errors="replace"))
 
     def ok(self, *args, **kw):
-        result = self.cli(*args, **kw)
+        """Run a command that must succeed and return its `--json` object (CLI output contract, OUT-2)."""
+        result = self.cli(*with_json(args), **kw)
         check(result.ok, f"{self.name}: `{' '.join(map(str, args[:4]))}` failed: exit {result.code}: "
                          f"{result.stderr.strip()[-400:]}")
         return result.json
 
     def ok_incomplete(self, *args, **kw):
-        """A link step: exit 0, or exit 1 with "linking is incomplete" (more stages follow)."""
-        result = self.cli(*args, **kw)
+        """A link step: exit 0, or exit 1 with "linking is incomplete" (more stages follow); returns its `--json` object."""
+        result = self.cli(*with_json(args), **kw)
         check(result.ok or (result.code == 1 and "linking is incomplete" in result.stderr),
               f"{self.name}: `{' '.join(map(str, args[:3]))}` failed: exit {result.code}: "
               f"{result.stderr.strip()[-400:]}")
@@ -620,7 +649,7 @@ def invite(host, member, network_id=None):
 
 def join_request(joiner, invitation, key):
     """`join --invite-stdin --person-key KEY`; returns the pending LINK_VIEW with display_code."""
-    result = joiner.cli("join", "--invite-stdin", "--person-key", key, input=invitation + "\n", timeout=90)
+    result = joiner.cli("--json", "join", "--invite-stdin", "--person-key", key, input=invitation + "\n", timeout=90)
     check(result.json and result.json.get("request_id"), f"{joiner.name}: join gave no request: {result}")
     return result.json
 
@@ -668,7 +697,8 @@ def link_machine(owner, machine, network_id, person_public_key, key=None, scopes
     """`link` on a second machine of the owner's person, approved on the owner's host (spec 8.1, 8.2).
 
     ADMIN signs the administrator stage when the owner's person is not an administrator (default: the owner)."""
-    request = machine.cli("link", "--network", network_id, "--expect-person", person_public_key, timeout=90).json
+    request = machine.cli("--json", "link", "--network", network_id, "--expect-person", person_public_key,
+                          timeout=90).json
     check(request and request.get("display_code"), f"{machine.name}: link printed no request code")
     rid, code = request["request_id"], request["display_code"]
     signer = ["--person-key", key] if key else []

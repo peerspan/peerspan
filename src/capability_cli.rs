@@ -786,7 +786,7 @@ async fn sources(
                 None => "/v1/sources".to_owned(),
             };
             let view = local.get(path).await?;
-            if args.json {
+            if crate::output::json() {
                 return Ok(Some(view));
             }
             print!("{}", readable_sources(&view));
@@ -2497,7 +2497,7 @@ async fn call(
             tokio::time::sleep(pause.saturating_sub(sent.elapsed())).await;
         }
     }
-    println!("{}", serde_json::to_string_pretty(&record)?);
+    crate::output::emit(&record)?;
     let code = if record["status"]["state"] == "succeeded" {
         0
     } else if finished(&record) {
@@ -3045,7 +3045,7 @@ async fn approvals(local: &Local<'_>, args: &ApprovalsArgs) -> anyhow::Result<Op
     }
     let state = if args.all { "all" } else { "pending" };
     let value = local.get(format!("/v1/approvals?state={state}")).await?;
-    if args.json {
+    if crate::output::json() {
         return Ok(Some(value));
     }
     let list = value["approvals"].as_array().cloned().unwrap_or_default();

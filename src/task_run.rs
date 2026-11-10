@@ -107,7 +107,7 @@ pub async fn run(command: &Command, directory: &Path) -> anyhow::Result<i32> {
     body["run"] = Value::Object(run);
     let record = local.post("/v1/tasks".into(), body).await?;
     if *detach {
-        println!("{}", serde_json::to_string_pretty(&record)?);
+        crate::output::emit(&record)?;
         return Ok(0);
     }
     let id = record["request"]["task_id"]

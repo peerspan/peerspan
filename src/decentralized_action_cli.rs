@@ -455,7 +455,7 @@ pub(crate) async fn run(
             !answer.trim().eq_ignore_ascii_case("y") && !answer.trim().eq_ignore_ascii_case("yes")
         }
     {
-        println!("{}", serde_json::to_string_pretty(&value)?);
+        crate::output::emit(&value)?;
         anyhow::bail!("action not approved; retain its exact action ID");
     }
     let original_review = value["review"].clone();
@@ -487,7 +487,7 @@ pub(crate) async fn run(
         Ok::<(),anyhow::Error>(())
     }.await;
     if let Err(e) = outcome {
-        println!("{}", serde_json::to_string_pretty(&value)?);
+        crate::output::emit(&value)?;
         return Err(e);
     }
     Ok(value)

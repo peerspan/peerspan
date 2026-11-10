@@ -607,7 +607,7 @@ def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, o
     h = f['a']; parent = parent or f['parent']
     data = override if override is not None else input_for(f, action, prepared, parent=parent, inspected=inspected, replace=replace)
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
         check(result.ok == (status == 200), 'private consent CLI outcome mismatch')
         public(result.stderr, str(h.state), *f['secrets'])
         if not result.ok:
@@ -1062,7 +1062,7 @@ def _():
         quiet(f); before, counters = whole(f), traffic(f)
         status, view = raw_post(h, action, maximum)
         check(status == 200 and view['consent'] == f['approved']['consent'], f'exact64KiB {action} refused/changed history')
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=8)
         check(result.ok and result.json['consent'] == view['consent'], 'exact64KiB private CLI parity')
         malformed = [b'null', b'[]', b'{', raw + b'{}', maximum + b' ',
             raw.replace(b'"request_id":', b'"request_id":"link_' + b'0' * 64 + b'","request_id":'),

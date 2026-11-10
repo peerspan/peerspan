@@ -724,7 +724,7 @@ def _():
         if command == "prepare":
             data["inspection_review_id"] = inspected["review_id"]
         before, counters = whole(f), traffic(f)
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
         check(result.ok and result.json["access"] == access, "exact private stdin API/CLI parity or idempotence")
         validate(h, parent, result.json, expected=prepared)
         check(purity_whole_diagnostic(whole(f), before, "prepare_cli") == before and purity_traffic_diagnostic(traffic(f), counters, "prepare_cli") == counters, "lookup/repeated prepare CLI changed state/files/carriers")
@@ -870,7 +870,7 @@ def _():
     before, remote, counters = snapshot(a), snapshot(h), traffic(f)
     request = {**key_body(external_parent, net, f["bob"]), "access_id": external["access"]["access_id"],
                "access_review_id": external["access"]["review_id"]}
-    result = a.cli("onboarding", "access", "approve", "--stdin", input=compact(request).decode(), timeout=8)
+    result = a.cli("--json", "onboarding", "access", "approve", "--stdin", input=compact(request).decode(), timeout=8)
     check(result.ok and result.json["access"]["state"] == "approved", "private CLI consent probed absent original signer")
     validate(a, external_parent, result.json, expected=external)
     assert_approved_pair(a, external, before, snapshot(a))
@@ -958,7 +958,7 @@ def _():
             data["inspection_review_id"] = prepared["access"]["review"]["inspection_review_id"]
         elif command == "approve":
             data.update(access_id=prepared["access"]["access_id"], access_review_id=prepared["access"]["review_id"])
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(data).decode(), timeout=8)
         check(result.ok and result.json["access"] == approved["access"], "restarted exact private CLI history parity")
         validate(h, f["pb"], result.json, expected=prepared)
         public(result.stderr)
@@ -1067,7 +1067,7 @@ def _():
         maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["access"] == approved["access"], "exact64KiB valid historical API body")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=8)
         check(result.ok and result.json["access"] == approved["access"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),

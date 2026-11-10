@@ -2,6 +2,8 @@
 
 Roadmap milestone 7. The design and its settled decisions are in the [launch proposal](launch-proposal.md). This contract grows one section per slice.
 
+Output objects this and other contracts describe ("prints `{…}`") are each command's `--json` output. By default every command prints a readable summary instead ([CLI output contract](cli-output-contract.md), OUT-1 and OUT-2).
+
 ## Slice 1: CLI shape
 
 ### Name

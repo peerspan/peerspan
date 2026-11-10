@@ -247,7 +247,9 @@ class Endpoint:
         return value['status'], value['body']
 
     def cli(self, *args, input=None, timeout=5):
-        value = self.suite.control(self,'cli',args=list(map(str,args)),input=input or '',timeout=timeout)
+        words = list(map(str,args))
+        words = words if '--json' in words else ['--json',*words]  # OUT-2: the object behind --json
+        value = self.suite.control(self,'cli',args=words,input=input or '',timeout=timeout)
         return Result(args,value['code'],value['stdout'],value['stderr'])
 
     def peer_message(self, target, body):

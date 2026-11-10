@@ -51,7 +51,7 @@ def start_with(home, guest, label):
     check(person.startswith("person_"), f"{home.name}: outcome participant {started['invites'][0]}")
 
     def joined():
-        result = guest.cli("conversation", "join", conv, timeout=60)
+        result = guest.cli("--json", "conversation", "join", conv, timeout=60)
         return result.json if result.ok else None
     wait_for(joined, timeout=30, interval=1, message=f"{guest.name} to join {conv}")
     guest_p = f"person:{guest.id}/{person}"
@@ -208,7 +208,7 @@ def _():
     unknown = "conv_" + os.urandom(16).hex()
     status, body = a.api("POST", f"/v1/conversations/{unknown}/sync", {})
     api_error(status, body, 404, "not_found")
-    result = a.cli("conversation", "sync", g[:11])
+    result = a.cli("--json", "conversation", "sync", g[:11])
     check(result.ok and result.json and result.json.get("conversation_id") == g, f"sync by prefix: {result}")
     # Known only from a pending invite: not a conversation bob holds.
     started = a.ok("conversation", "start", "person:bob", timeout=60)
