@@ -28,6 +28,7 @@ from harness import (Failure, Result, Suite, attention, b64url_json, check, crea
 suite = Suite("join_teammate", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
 inviter, dave = suite.host("erin"), suite.host("dave")  # the two-prompt join's own inviter and joiner
+fay, gus = suite.host("fay"), suite.host("gus")  # the declined owner review's own inviter and joiner
 state = {}
 
 
@@ -240,6 +241,90 @@ if not suite.args.only or set(ML_CASES) & set(suite.args.only):
     flow_thread.start()
 
 
+def declined_owner_review():
+    """Spec 8.4 on a network of its own: fay invites, gus joins as a new person at a terminal and answers `n` to
+    the owner review. Returns the problems seen, each one line."""
+    net = create_network(fay, "join-teammate-no", "fay")
+    key = ssh_key(gus.root, "gus")
+    invitation = gus.root / "invite"
+    invitation.write_text(invite(fay, "gus", net["id"])["invitation"] + "\n")
+    invitation.chmod(0o600)
+    run = Terminal(gus, "join", "--invite-file", invitation, "--person-key", key, "--untrusted")
+    if not run.wait_prompts(1, timeout=60):
+        run.finish(timeout=5)
+        return [f"join never asked {APPROVE_PROMPT!r} (exit {run.p.returncode}): {run.tail()}"]
+    first = run.prompts()[0]
+    if APPROVE_PROMPT not in first:
+        run.finish(timeout=5)
+        return [f"join's first question {first!r}, want {APPROVE_PROMPT!r}"]
+    run.answer("n")
+    try:
+        run.p.wait(timeout=30)
+        waited = False
+    except subprocess.TimeoutExpired:
+        waited = True
+    result = run.finish(timeout=5)
+    bad = []
+    if waited:
+        bad.append(f"join, answered n: still running 30 s later instead of exiting: {run.tail()}")
+    elif result.ok:
+        bad.append(f"join, answered n: exited 0, want nonzero: {run.tail()}")
+    if COMMIT_PROMPT in run.text:
+        bad.append(f"join, answered n: went on to {COMMIT_PROMPT!r}")
+    requests = [v for v in gus.api("GET", "/v2/link/requests")[1] if v["role"] == "requester"]
+    if len(requests) != 1:
+        return bad + [f"after the no, the joining machine holds {len(requests)} requester requests, want the one pending"]
+    rid = requests[0]["request_id"]
+    view = link_view(gus, rid)
+    if view["state"] in TERMINAL or view.get("owner_offer_id", "-") != "-":
+        bad.append(f"after the no, the request is {view['state']} with owner offer {view.get('owner_offer_id')}, "
+                   f"want it pending without an owner offer")
+    status = gus.cli("link", "status", rid)
+    shown = status.json or {}
+    if shown.get("request_id", rid) != rid or shown.get("state") != view["state"]:
+        bad.append(f"after the no, link status {rid} shows {shown.get('state', f'exit {status.code}, no JSON view')}, "
+                   f"the API {view['state']}")
+    approve = None
+    for where, entries in (("API view", view.get("next")), ("link status", shown.get("next"))):
+        found = [e for e in entries or [] if f"peerspan link approve {rid}" in e]
+        if not found:
+            bad.append(f"after the no, the {where}'s next {entries!r} has no `peerspan link approve {rid}` entry")
+        elif not all(re.search(r"\bowner\b", e, re.I) and re.search(r"\bthis (machine|one)\b", e, re.I) for e in found):
+            bad.append(f"after the no, the {where}'s next entry {found[0]!r} does not name the owner on this machine")
+        else:
+            approve = approve or found[0]
+    if gus.api("GET", "/v2/networks")[1] != []:
+        bad.append("after the no, the joining machine lists a network")
+    if gus.public_key in {m["host_public_key"] for m in fay.api("GET", f"/v2/networks/{net['id']}/members")[1]["members"]}:
+        bad.append("after the no, the inviter lists the joining machine as a member")
+    if bad or approve is None:
+        return bad
+    # The printed step still works afterwards: run as given (from `peerspan`) and answered yes, it signs the owner
+    # offer on this machine, and the request moves on to the administrator.
+    argv = shlex.split(approve[approve.index("peerspan link approve"):].strip().rstrip(".`'\""))
+    approved = gus.cli(*argv[1:], tty=True, input="y\n", timeout=60)
+    view = link_view(gus, rid)
+    if not approved.ok or view.get("owner_offer_id", "-") == "-":
+        bad.append(f"after the no, next's {shlex.join(argv)!r}, run as given and answered y: exit {approved.code}, "
+                   f"owner offer {view.get('owner_offer_id')}: {redact(approved.stderr.strip()[-300:])}")
+    return bad
+
+
+def run_declined():
+    try:
+        seen["declined_review"] = declined_owner_review()
+    except BaseException as error:  # noqa: BLE001 - reported by the case below
+        seen["declined_review"] = [f"{type(error).__name__}: {error}"]
+        if not isinstance(error, Failure):
+            traceback.print_exc(file=sys.stderr)
+
+
+# It shares nothing with the other hosts either, so it too runs alongside join_new_person.
+decline_thread = threading.Thread(target=run_declined, daemon=True)
+if not suite.args.only or "join_owner_review_declined" in suite.args.only:
+    decline_thread.start()
+
+
 @suite.case("create_network", "spec 6 (setup; the join suite checks creation itself)")
 def _():
     net = create_network(a, "join-teammate", "alice")
@@ -323,6 +408,15 @@ def _():
     (seen,) = need("bob_single_offer_state")
     check(seen != "needs_selection", "with exactly one owner offer the request still waited in needs_selection "
                                       "(link resume asks 'Select this exact owner offer?')")
+
+
+@suite.case("join_owner_review_declined", "spec 8.1 step 5, 8.4 (a no leaves the request pending, exits nonzero), "
+                                          "16; ML-3, ML-4; transactions contract `next`")
+def _():
+    if decline_thread.ident is not None:
+        decline_thread.join(timeout=180)
+    bad = seen.get("declined_review", ["the declined owner review did not finish within 180 s"])
+    check(not bad, "; ".join(bad))
 
 
 def wait_flow():
