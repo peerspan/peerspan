@@ -101,6 +101,7 @@ class Host:
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(root / 'xdg state'),
                         XDG_RUNTIME_DIR=str(root / 'xdg runtime'))
         self.process, self.counter = None, 0
+        self.json_binary = None  # only this tree's installed binary takes --json (OUT-2); old ones print JSON
 
     def api(self, method, path, body=None, expected=200):
         self.counter += 1
@@ -121,7 +122,8 @@ class Host:
 
     def cli(self, *args):
         self.counter += 1
-        result = subprocess.run([str(self.binary), '--state', str(self.state), '--json', *args],
+        flag = ['--json'] if self.json_binary is not None and self.binary == self.json_binary else []
+        result = subprocess.run([str(self.binary), '--state', str(self.state), *flag, *args],
                                 env=self.env, cwd=self.root, stdin=subprocess.DEVNULL,
                                 capture_output=True, timeout=self.budget.remaining())
         private_json(self.root / f'cli-{self.counter:03d}.json',
@@ -308,6 +310,7 @@ def preserve_history(before, after, *, fresh_flow=None):
 
 def one_history(work, label, old_binary, expected_version, installed, budget):
     host = Host(work / label, old_binary, budget)
+    host.json_binary = installed
     restored = None
     try:
         host.start()
