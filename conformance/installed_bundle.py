@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import posixpath
+import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -48,6 +50,35 @@ def safe_members(archive):
     return members, roots.pop()
 
 
+# Install contract, "Bundled Node.js": the archive holds these files from the
+# Node.js tarball "and nothing else from it (no npm, npx, corepack or headers)".
+BUNDLED_NODE_ENTRIES = {"bin", "bin/node", "LICENSE", "README.md"}
+
+
+def check_bundled_node(prefix, metadata):
+    """Layout, RELEASE.json and version of the bundled Node.js (INST-9, INST-11)."""
+    assert "node_requirement" not in metadata, metadata
+    version = metadata.get("node")
+    # Node.js 24 LTS, "the bundled version without v".
+    assert isinstance(version, str) and re.fullmatch(r"24\.\d+\.\d+", version), version
+    home = prefix / "share/peerspan/node"
+    bundled = home / "bin/node"
+    assert bundled.is_file() and not bundled.is_symlink(), bundled
+    assert os.access(bundled, os.X_OK), bundled
+    for name in ["LICENSE", "README.md"]:
+        assert (home / name).is_file() and (home / name).stat().st_size > 0, home / name
+    present = {str(path.relative_to(home)) for path in home.rglob("*")}
+    assert present == BUNDLED_NODE_ENTRIES, sorted(present - BUNDLED_NODE_ENTRIES)
+    for name in ["npm", "npx", "corepack"]:
+        assert not (home / "bin" / name).exists(), name
+    assert not (home / "include").exists() and not (home / "lib/node_modules").exists()
+    # Run with an empty environment so nothing from the suite's PATH is involved.
+    printed = subprocess.run([str(bundled), "--version"], capture_output=True, text=True,
+                             timeout=20, env={}, check=True).stdout.strip()
+    assert printed == "v" + version, (printed, version)
+    return bundled
+
+
 def check(archive_path, node):
     with tempfile.TemporaryDirectory(prefix="peerspan installed bundle ") as td:
         root = Path(td)
@@ -62,19 +93,24 @@ def check(archive_path, node):
         short = prefix / "bin/peerspan"
         metadata = json.loads((prefix / "RELEASE.json").read_text())
         assert metadata["implementation"] in {"go", "rust"}
-        assert metadata["os"] == "linux" and metadata["node_requirement"] == ">=22"
+        assert metadata["os"] == "linux"
+        bundled_node = check_bundled_node(prefix, metadata)
         assert os.access(binary, os.X_OK)
         # bin/peerspan is the same binary under its short name, linked relatively.
         assert short.is_symlink() and os.readlink(short) == "peerspan-host", short
         assert os.access(short, os.X_OK)
 
+        # The installed host and its integrations get no node on PATH at all:
+        # with no --runner, an integration whose command starts with node must
+        # run on the release's own share/peerspan/node/bin/node (Bundled
+        # Node.js, "Use"). python3 is only for the fake Claude fixture.
         runtime = root / "runtime bin"
         runtime.mkdir()
-        (runtime / "node").symlink_to(node)
         (runtime / "python3").symlink_to(Path(os.sys.executable).resolve())
         old_path = os.environ.get("PATH")
         old_override = os.environ.pop("PEERSPAN_INTEGRATIONS_DIR", None)
         os.environ["PATH"] = os.pathsep.join([str(prefix / "bin"), str(runtime)])
+        assert shutil.which("node") is None, shutil.which("node")
 
         integrations = prefix / "share/peerspan/integrations"
         for path in [
@@ -137,7 +173,12 @@ def check(archive_path, node):
             assert 840 <= remaining <= 900, remaining
             saved = json.loads((profile / "profile.json").read_text())
             assert Path(saved["harness"]["command"][1]).is_relative_to(prefix)
+            # The profile records the resolved command, executable saved as an
+            # absolute path: with no --runner and no node on PATH, the bundled one.
+            assert Path(saved["harness"]["command"][0]).resolve() == bundled_node.resolve(), saved
 
+            # --runner PATH still overrides the bundled Node: a missing runner
+            # fails even though the bundled Node is there.
             missing_path = root / "empty path"
             missing_path.mkdir()
             missing_env = dict(os.environ, PATH=str(missing_path))
@@ -151,6 +192,8 @@ def check(archive_path, node):
                 str(root / "missing node profile"),
                 "--harness",
                 "claude-code",
+                "--runner",
+                str(root / "no such runner/node"),
                 "--option",
                 "executable=" + str(claude),
                 "--agent",
@@ -161,6 +204,29 @@ def check(archive_path, node):
                 env=missing_env,
             )
             assert "executable is missing" in error
+            # ...and an existing runner is the one recorded.
+            overridden = host.cli("agent", "register", "--name", "runner-override", "--owner", "tester")
+            run(
+                "peerspan-host",
+                host.state,
+                root,
+                "session",
+                "setup",
+                "--directory",
+                str(root / "runner override profile"),
+                "--harness",
+                "claude-code",
+                "--runner",
+                str(node),
+                "--option",
+                "executable=" + str(claude),
+                "--agent",
+                overridden["id"],
+                "--expires-in",
+                "15m",
+            )
+            saved = json.loads((root / "runner override profile/profile.json").read_text())
+            assert Path(saved["harness"]["command"][0]).resolve() == Path(node).resolve(), saved
             report = run(
                 "peerspan-host",
                 host.state,
@@ -188,8 +254,11 @@ def check(archive_path, node):
                 assert (profile / name).stat().st_mode & 0o077 == 0
 
             secret = json.loads((profile / "credential.json").read_text())
+            # The integration's channel runs on the bundled Node, as it does
+            # for a real installed host ("That Node then runs the integration's
+            # channel, sidecar and MCP processes").
             channel = Channel(
-                node,
+                bundled_node,
                 integrations / "claude-channel/channel.mjs",
                 host,
                 secret,
@@ -235,6 +304,7 @@ def check(archive_path, node):
             assert 86000 <= remaining <= 86400, remaining
             saved = json.loads((root / "short name profile/profile.json").read_text())
             assert Path(saved["harness"]["command"][1]).is_relative_to(prefix)
+            assert Path(saved["harness"]["command"][0]).resolve() == bundled_node.resolve(), saved
             status = subprocess.run(["peerspan", "--state", str(host.state), "status", "--json"],
                                     capture_output=True, text=True, timeout=10)
             assert status.returncode in (0, 1), status
@@ -254,6 +324,7 @@ def check(archive_path, node):
 
         print(
             f"PASS {metadata['implementation']} installed bundle: relocated layout, "
+            f"bundled Node.js {metadata['node']} with no node on PATH, --runner override, "
             "packaged MCP runtime, setup, doctor, launch, private files, and bin/peerspan"
         )
 
@@ -261,6 +332,8 @@ def check(archive_path, node):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, required=True)
+    # A Node.js 22+ outside the bundle. It is never put on the installed host's
+    # PATH; it is only the explicit --runner of the override case.
     parser.add_argument("--node", type=Path, required=True)
     args = parser.parse_args()
     if not hasattr(tarfile, "data_filter"):
