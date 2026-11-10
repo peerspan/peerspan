@@ -82,7 +82,7 @@ Anyone can generate an Ed25519 key, with `sign-release.sh --generate` or any oth
 
 ```sh
 peerspan-verify --keys "KEY1 KEY2" --manifest release.json --signature release.json.sig \
-  [--version VERSION] --file NAME=PATH [--file NAME=PATH ...]
+  [--version VERSION] [--file NAME[=PATH] ...]
 ```
 
 It succeeds, prints the manifest's `version` on one line and exits 0 only when all of these hold:
@@ -90,7 +90,7 @@ It succeeds, prints the manifest's `version` on one line and exits 0 only when a
 1. at least one key in `--keys` is usable, by the rules of [Release keys](#release-keys);
 2. `--signature` is exactly one line in the [`release.json.sig`](#releasejsonsig) form, and is a valid signature over the exact bytes of `--manifest` under one usable key;
 3. `--manifest` is a valid `release.json` as a reader checks it, and with `--version` its `version` equals `VERSION`;
-4. for every `--file NAME=PATH`, `NAME` is listed in the manifest's `assets`, and the SHA-256 of the file at `PATH` equals the listed digest.
+4. for every `--file NAME[=PATH]`, `NAME` is listed in the manifest's `assets`, and, when `PATH` is given, the SHA-256 of the file at `PATH` equals the listed digest. `--file NAME` alone lets the bootstrap check that a file is listed before downloading it.
 
 It reads nothing else, writes nothing, and makes no network requests. Any other result prints one line to standard error naming the file and the reason (`bad signature`, `no usable release key`, `invalid manifest`, `version mismatch`, `not listed`, `digest mismatch`), and exits 1. A usage error exits 2. Files are limited as in [Downloads](#downloads), and an archive passed with `--file` is hashed as a stream.
 

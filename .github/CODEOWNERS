@@ -3,4 +3,7 @@
 /scripts/install.sh         @0xprames
 /scripts/install-release.sh @0xprames
 /scripts/sign-release.sh    @0xprames
+# The release verifier and the workflow that builds it (INST-10).
+/verifier/                  @0xprames
+/.github/workflows/verifier-release.yml @0xprames
 /.github/CODEOWNERS         @0xprames

@@ -1,0 +1,24 @@
+[package]
+name = "peerspan-verify"
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Checks a signed Peerspan release before anything from it runs (docs/install-contract.md#release-verifier)"
+publish = false
+
+# Its own workspace: the host's builds and tests never include it, and it is
+# built as a static binary by its own workflow.
+[workspace]
+
+[dependencies]
+base64 = "=0.22.1"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

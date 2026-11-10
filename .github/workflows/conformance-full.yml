@@ -83,7 +83,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: matrix.suite == 'runtime_results' || matrix.suite == 'runtime_peerfs'
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install claude-channel adapter dependencies
         if: matrix.suite == 'runtime_results' || matrix.suite == 'runtime_peerfs'
         run: npm ci --prefix integrations/claude-channel --no-audit --no-fund

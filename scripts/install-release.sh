@@ -7,6 +7,11 @@ set -euo pipefail
 # changes nothing else (INST-6).
 # The owner's release key, decided in INST-8 (docs/decision-log.md).
 PEERSPAN_RELEASE_KEYS="KEVbydgOxsDcbjKkau07nJT5lKQUChqJYGhGqNg0pRc"
+# Peerspan's release verifier (docs/install-contract.md#release-verifier,
+# INST-10). Both must equal the ones in scripts/install.sh. The all-zero digests
+# are placeholders until verifier-v1 is published and pinned.
+PEERSPAN_VERIFIER_RELEASE="verifier-v1"
+PEERSPAN_VERIFIER_SHA256="amd64:0000000000000000000000000000000000000000000000000000000000000000 arm64:0000000000000000000000000000000000000000000000000000000000000000"
 
 usage() {
   echo "usage: $0 VERSION [--implementation rust] [--from DIRECTORY | --from-github OWNER/REPO] [--no-service]" >&2
@@ -69,18 +74,20 @@ case $(uname -m) in
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-command -v node >/dev/null || { echo "Node.js 22 or later is required" >&2; exit 1; }
-node_major=$(node -p "process.versions.node.split('.')[0]")
-[[ $node_major -ge 22 ]] || { echo "Node.js 22 or later is required" >&2; exit 1; }
+# No Node.js is needed: the checks before extraction use the release verifier
+# and sha256sum, and later checks use the bundle's own Node.js.
+command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 command -v tar >/dev/null || { echo "tar is required" >&2; exit 1; }
 command -v flock >/dev/null || { echo "flock is required" >&2; exit 1; }
 
 download_dir=
 stage=
 temporary_link=
+verifier_dir=
 cleanup() {
   if [[ -n $stage ]]; then rm -rf -- "$stage"; fi
   if [[ -n $download_dir ]]; then rm -rf -- "$download_dir"; fi
+  if [[ -n $verifier_dir ]]; then rm -rf -- "$verifier_dir"; fi
   if [[ -n $temporary_link ]]; then rm -f -- "$temporary_link"; fi
 }
 trap cleanup EXIT
@@ -110,129 +117,36 @@ checksum="$archive.sha256"
 # against PEERSPAN_RELEASE_KEYS: the signature, the manifest's form, its version
 # and this archive's signed digest. It is required for --from-github; with
 # --from it is verified when both files are present and refused when only one is.
-signed_digest=
+verifier_name="peerspan-verify-linux-$arch"
+pinned_verifier_digest=
+for entry in $PEERSPAN_VERIFIER_SHA256; do
+  [[ $entry == "$arch:"* ]] && pinned_verifier_digest=${entry#"$arch:"}
+done
+verifier=
+# use_verifier FILE: accept FILE as the release verifier only with the pinned
+# digest, and run it from a private copy.
+use_verifier() {
+  local actual
+  [[ -f $1 && ! -L $1 ]] || {
+    echo "$verifier_name: missing; download it from the $PEERSPAN_VERIFIER_RELEASE release of peerspan/peerspan" >&2
+    exit 1
+  }
+  actual=$(sha256sum -- "$1" | cut -d ' ' -f 1)
+  if [[ -z $pinned_verifier_digest || $actual != "$pinned_verifier_digest" ]]; then
+    echo "$verifier_name: verifier digest mismatch (pinned ${pinned_verifier_digest:-none for $arch}, got $actual)" >&2
+    exit 1
+  fi
+  verifier_dir=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-verify.XXXXXX")
+  cp -- "$1" "$verifier_dir/$verifier_name"
+  chmod 0700 -- "$verifier_dir/$verifier_name"
+  verifier="$verifier_dir/$verifier_name"
+}
+# verify_manifest ARGS...: the verifier checks release.json and its signature
+# against PEERSPAN_RELEASE_KEYS, the manifest's form and version, and ARGS
+# (--file NAME[=PATH]).
 verify_manifest() {
-  local signed
-  signed=$(node - '' "$PEERSPAN_RELEASE_KEYS" "$source_dir/release.json" "$source_dir/release.json.sig" "$version" "$arch" archive <<'JS'
-const fs = require('node:fs');
-const crypto = require('node:crypto');
-const [prefix, keyList, manifestPath, signaturePath, wantVersion, arch, mode] = process.argv.slice(2);
-const fail = (file, reason) => {
-  process.stderr.write(`${prefix}${file}: ${reason}\n`);
-  process.exit(1);
-};
-
-// A listed value that isn't a usable key is ignored, never trusted: it must be
-// 43 base64url characters decoding to 32 bytes, its y-coordinate (little-endian,
-// top bit cleared) must be below p = 2^255 - 19, and it must not be a point of
-// order 1, 2, 4 or 8 (y = 0, 1, p - 1, or the y of an order-8 point). Node
-// accepts such small-order keys, and signatures can be forged for them.
-const p = (1n << 255n) - 19n;
-const smallOrderY = new Set([
-  0n,
-  1n,
-  p - 1n,
-  0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n,
-  0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n,
-]);
-const usable = (x) => {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(x)) return false;
-  const bytes = Buffer.from(x, 'base64url');
-  if (bytes.length !== 32 || bytes.toString('base64url') !== x) return false;
-  const encoded = Buffer.from(bytes).reverse();
-  encoded[0] &= 0x7f;
-  const y = BigInt(`0x${encoded.toString('hex')}`);
-  return y < p && !smallOrderY.has(y);
-};
-// The list holds 1 to 4 values; any other length, or no usable key, accepts nothing.
-const listed = keyList.split(/\s+/).filter(Boolean);
-const publicKeys = [];
-for (const x of listed.length >= 1 && listed.length <= 4 ? listed : []) {
-  if (!usable(x)) continue;
-  try {
-    publicKeys.push(crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' }));
-  } catch {
-    // ignored like any other unusable value
-  }
-}
-
-let data, signatureText;
-try {
-  data = fs.readFileSync(manifestPath);
-} catch {
-  fail('release.json', 'missing or unreadable');
-}
-try {
-  signatureText = fs.readFileSync(signaturePath);
-} catch {
-  fail('release.json.sig', 'missing or unreadable');
-}
-if (data.length > 65536) fail('release.json', 'invalid manifest (larger than 64 KiB)');
-if (signatureText.length > 1024) fail('release.json.sig', 'bad signature (larger than 1 KiB)');
-
-// One line: standard base64 with padding of 64 bytes, then a newline.
-const text = signatureText.toString('latin1');
-if (!/^[A-Za-z0-9+/]{86}==\n$/.test(text)) fail('release.json.sig', 'bad signature (not one base64 line of 64 bytes)');
-const signature = Buffer.from(text.slice(0, 88), 'base64');
-if (signature.length !== 64 || signature.toString('base64') !== text.slice(0, 88)) {
-  fail('release.json.sig', 'bad signature (not one base64 line of 64 bytes)');
-}
-if (publicKeys.length === 0) fail('release.json.sig', 'bad signature (PEERSPAN_RELEASE_KEYS lists no usable release key)');
-const verified = publicKeys.some((key) => {
-  try {
-    return crypto.verify(null, data, key, signature);
-  } catch {
-    return false;
-  }
-});
-if (!verified) fail('release.json.sig', 'bad signature (not made by a listed release key)');
-
-let manifest;
-try {
-  manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data));
-} catch {
-  fail('release.json', 'invalid manifest (not UTF-8 JSON)');
-}
-const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
-if (!isObject(manifest)) fail('release.json', 'invalid manifest (not a JSON object)');
-for (const member of ['format', 'name', 'version', 'source_revision', 'assets']) {
-  if (!Object.hasOwn(manifest, member)) fail('release.json', `invalid manifest (no ${member})`);
-}
-if (manifest.format !== 1) fail('release.json', 'invalid manifest (format is not 1)');
-if (manifest.name !== 'peerspan') fail('release.json', 'invalid manifest (name is not "peerspan")');
-if (typeof manifest.version !== 'string' ||
-    !/^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$/.test(manifest.version)) {
-  fail('release.json', 'invalid manifest (malformed version)');
-}
-if (typeof manifest.source_revision !== 'string' || !/^[0-9a-f]{40}$/.test(manifest.source_revision)) {
-  fail('release.json', 'invalid manifest (malformed source_revision)');
-}
-if (!isObject(manifest.assets)) fail('release.json', 'invalid manifest (assets is not an object)');
-for (const [name, digest] of Object.entries(manifest.assets)) {
-  if (!/^[A-Za-z0-9._+-]+$/.test(name) || name === '.' || name === '..') {
-    fail('release.json', 'invalid manifest (malformed asset name)');
-  }
-  if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
-    fail('release.json', `invalid manifest (malformed digest for ${name})`);
-  }
-}
-
-if (wantVersion !== '' && manifest.version !== wantVersion) {
-  fail('release.json', `version mismatch (manifest names ${manifest.version}, wanted ${wantVersion})`);
-}
-const archive = `peerspan-${manifest.version}-linux-${arch}-rust.tar.gz`;
-if (!Object.hasOwn(manifest.assets, archive)) fail('release.json', `missing architecture (does not list ${archive})`);
-const lines = [manifest.version, manifest.assets[archive]];
-if (mode === 'installer') {
-  if (!Object.hasOwn(manifest.assets, 'install-release.sh')) {
-    fail('release.json', 'invalid manifest (does not list install-release.sh)');
-  }
-  lines.push(manifest.assets['install-release.sh']);
-}
-process.stdout.write(lines.join('\n') + '\n');
-JS
-  ) || exit 1
-  signed_digest=${signed#*$'\n'}
+  "$verifier" --keys "$PEERSPAN_RELEASE_KEYS" --manifest "$source_dir/release.json" \
+    --signature "$source_dir/release.json.sig" --version "$version" "$@" >/dev/null || exit 1
 }
 
 if [[ $source_kind == github ]]; then
@@ -271,15 +185,27 @@ if [[ $source_kind == github ]]; then
       fi
     fi
   }
+  fetch_from() {
+    local saved=$release_url
+    release_url=$1
+    fetch "$2" "$3"
+    release_url=$saved
+  }
+  fetch_from "https://github.com/$source_repo/releases/download/$PEERSPAN_VERIFIER_RELEASE" "$verifier_name" 16777216
+  use_verifier "$download_dir/$verifier_name"
   fetch release.json 65536
   fetch release.json.sig 1024
-  verify_manifest
+  verify_manifest --file "$name.tar.gz"
   fetch "$name.tar.gz" 0
   fetch "$name.tar.gz.sha256" 1024
+  verify_manifest --file "$name.tar.gz=$archive"
   rm -f -- "$download_dir/.download-error"
 elif [[ -e $source_dir/release.json || -L $source_dir/release.json ]]; then
   if [[ -e $source_dir/release.json.sig || -L $source_dir/release.json.sig ]]; then
-    verify_manifest
+    # Offline: the verifier must be in the directory; it is never downloaded here.
+    use_verifier "$source_dir/$verifier_name"
+    [[ -f $archive ]] || { echo "missing $archive" >&2; exit 1; }
+    verify_manifest --file "$name.tar.gz=$archive"
   else
     echo "$source_dir has release.json but no release.json.sig; refusing to install" >&2
     exit 1
@@ -296,25 +222,17 @@ fi
 # The checksum detects a mismatched or damaged archive. Obtain both files from
 # the trusted release repository; a checksum beside an untrusted archive does
 # not establish who published it.
-digest=$(node - "$archive" "$checksum" "$(basename "$archive")" <<'JS'
-const fs = require('node:fs');
-const crypto = require('node:crypto');
-const [archive, checksum, name] = process.argv.slice(2);
-const match = fs.readFileSync(checksum, 'utf8').match(/^([0-9a-f]{64})  ([^\n]+)\n$/);
-if (!match || match[2] !== name) {
-  process.stderr.write('invalid release checksum file\n');
-  process.exit(1);
-}
-const actual = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
-if (actual !== match[1]) {
-  process.stderr.write('release checksum mismatch\n');
-  process.exit(1);
-}
-process.stdout.write(actual);
-JS
-)
-if [[ -n $signed_digest && $digest != "$signed_digest" ]]; then
-  echo "$(basename "$archive"): digest mismatch with release.json (signed $signed_digest, got $digest)" >&2
+checksum_line=$(head -c 1025 -- "$checksum")
+checksum_pattern='^([0-9a-f]{64})  ([^/]+)$'
+if [[ $(wc -c < "$checksum") -gt 1024 || $(wc -l < "$checksum") -ne 1 ||
+      ! $checksum_line =~ $checksum_pattern || ${BASH_REMATCH[2]} != "$(basename "$archive")" ]]; then
+  echo "invalid release checksum file" >&2
+  exit 1
+fi
+expected=${BASH_REMATCH[1]}
+digest=$(sha256sum -- "$archive" | cut -d ' ' -f 1)
+if [[ $digest != "$expected" ]]; then
+  echo "release checksum mismatch" >&2
   exit 1
 fi
 
@@ -343,21 +261,16 @@ if [[ -L $launcher ]]; then
     exit 1
   }
   current_release=${current%/bin/peerspan}
-  node - "$current_release/RELEASE.json" "$implementation" <<'JS'
-const fs = require('node:fs');
-const [metadata, implementation] = process.argv.slice(2);
-let installed;
-try {
-  installed = JSON.parse(fs.readFileSync(metadata, 'utf8')).implementation;
-} catch {
-  process.stderr.write('cannot read the installed release metadata\n');
-  process.exit(1);
-}
-if (installed !== implementation) {
-  process.stderr.write('switching the installed host implementation needs a state migration review\n');
-  process.exit(1);
-}
-JS
+  # RELEASE.json is written by the packaging script, one member per line.
+  installed=$(sed -n 's/^  "implementation": "\([a-z]*\)",\{0,1\}$/\1/p' "$current_release/RELEASE.json" 2>/dev/null || true)
+  if [[ -z $installed ]]; then
+    echo "cannot read the installed release metadata" >&2
+    exit 1
+  fi
+  if [[ $installed != "$implementation" ]]; then
+    echo "switching the installed host implementation needs a state migration review" >&2
+    exit 1
+  fi
 fi
 
 stage=$(mktemp -d "$release_base/.install.XXXXXX")
@@ -386,7 +299,13 @@ else
   bundle=$release
 fi
 
-node - "$bundle" "$version" "$arch" "$implementation" <<'JS'
+# The bundle is verified by now; its own Node.js checks the rest.
+bundled_node="$bundle/share/peerspan/node/bin/node"
+if [[ ! -x $bundled_node ]] || ! "$bundled_node" --version >/dev/null 2>&1; then
+  echo "the bundled Node.js does not run on this machine (it needs glibc 2.28 or later)" >&2
+  exit 1
+fi
+"$bundled_node" - "$bundle" "$version" "$arch" "$implementation" <<'JS'
 const fs = require('node:fs');
 const path = require('node:path');
 const [bundle, version, arch, implementation] = process.argv.slice(2);

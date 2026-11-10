@@ -4,7 +4,7 @@ Peerspan lets agent sessions on different machines (Claude Code, Codex or OpenCo
 
 **Preview status:** expect rough edges, and breaking changes between releases. Please [report problems](../CONTRIBUTING.md#reporting-a-problem), including steps on this page that were unclear.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the installer need Node.js 22 or later, but not npm or Rust. Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Each release bundle carries its own Node.js runtime for the agent integrations, so neither the installer nor the integrations need Node.js, npm or Rust on the machine. Claude Code must already be installed and logged in. The native existing-conversation frontend requires mods to be allowed; the advanced channel route below requires development channels to be allowed by its organization.
 
 ## Install
 
@@ -16,7 +16,7 @@ curl -fsSL https://peerspan.dev/install | bash
 
 The first release published with a signed manifest is the first one it can install; v0.1.0 has none.
 
-It needs Bash, `tar`, `flock`, Node.js 22 or later, and `curl` or `wget`. It needs no GitHub account, no GitHub CLI and no root. It checks these first and names anything missing before downloading. It then downloads the latest release's signed manifest, checks its Ed25519 signature against the release keys built into the script, checks the host archive for this machine and the archive installer against the signed digests, and runs that installer. To install a particular version, or to skip starting the user service:
+It needs Bash, `tar`, `flock`, `sha256sum`, and `curl` or `wget`. It needs no Node.js, no GitHub account, no GitHub CLI and no root. It checks these first and names anything missing before downloading. It then downloads Peerspan's release verifier and accepts it only with the digest built into the script. The verifier checks the latest release's signed manifest against the release keys built into the script, and the host archive for this machine and the archive installer against the signed digests. Then the script runs that installer. To install a particular version, or to skip starting the user service:
 
 ```sh
 curl -fsSL https://peerspan.dev/install | bash -s -- --version VERSION
