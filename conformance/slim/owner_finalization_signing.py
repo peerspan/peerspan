@@ -935,7 +935,7 @@ def decision(f):
 def command(f, *, proxy=None, agent=None, data=None, env=None, stdin=True, args=()):
     h = f['h']; body = compact(decision(f)) if data is None else data
     environment = {**h.env, 'SSH_AUTH_SOCK': str(agent.path if agent else h.root / 'absent-agent.sock'), **(env or {})}
-    argv = [str(suite.host_bin), '--state', str(proxy.state if proxy else h.state), 'onboarding', 'join', 'owner', 'finalization', 'sign']
+    argv = [str(suite.host_bin), '--state', str(proxy.state if proxy else h.state), '--json', 'onboarding', 'join', 'owner', 'finalization', 'sign']
     if stdin:
         argv.append('--stdin')
     argv.extend(args)

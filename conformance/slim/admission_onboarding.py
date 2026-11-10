@@ -368,7 +368,7 @@ def _():
     before = snapshot(a)
     actual, value = raw_post(a, maximum)
     check(actual == 200, f"exact64KiB API input HTTP {actual}"); validate(f, value)
-    result = a.cli("onboarding", "admission", "inspect", "--stdin", input=maximum.decode(), timeout=10)
+    result = a.cli("--json", "onboarding", "admission", "inspect", "--stdin", input=maximum.decode(), timeout=10)
     check(result.ok, "exact64KiB private CLI input refused"); validate(f, result.json)
     ctx = compact(payload["context"])
     malformed = [b"null", b"[]", b"{", encoded + b"{}", maximum + b" ",

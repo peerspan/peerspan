@@ -346,7 +346,7 @@ def _():
     reuse, p2, original, selected = fixture("reuse")
     helper = {"address": "127.0.0.1:9", "public_key": source()["signer"].public}
     legacy = source()["signer"].invitation(original, change=lambda p: p.update(helpers=[helper]))
-    existing = reuse.cli("join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
+    existing = reuse.cli("--json", "join", "--invite-stdin", "--person-key", source()["key"], input=legacy + "\n", timeout=20)
     # Runtime contract: join publishes a flat pending LINK_VIEW and exits
     # nonzero until linking actually completes. Publication is not admission.
     check(not existing.ok and existing.json and existing.json.get("request_id") and existing.json.get("state") == "pending",
@@ -444,17 +444,17 @@ def _():
     body = proposal(parent, code, person); encoded = compact(body)
     # Exact stdin/body bound allows insignificant trailing whitespace.
     maximum = encoded + b" " * (65536 - len(encoded))
-    result = h.cli("onboarding", "join", "prepare", "--stdin", input=maximum.decode(), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "prepare", "--stdin", input=maximum.decode(), timeout=10)
     check(result.ok, "CLI refused exact64KiB private JSON boundary")
     flow = result.json; validate(h, parent, flow, person)
     check(prepare(h, parent, code, person, status=200) == flow, "CLI/API exact proposal parity")
     for verb, payload, expected in [("lookup", {"context": context(parent)}, {"version": 1, "host_id": h.id, "context": context(parent), "flow": flow}),
                                     ("decide", {"flow_id": flow["flow_id"], **decision(flow, code, "decline")}, None)]:
-        result = h.cli("onboarding", "join", verb, "--stdin", input=json.dumps(payload), timeout=10)
+        result = h.cli("--json", "onboarding", "join", verb, "--stdin", input=json.dumps(payload), timeout=10)
         check(result.ok, f"private CLI {verb} failed"); public(result.stdout, code)
         if expected:
             check(result.json == expected, "CLI lookup parity")
-    result = h.cli("onboarding", "join", "inspect", flow["flow_id"], timeout=10)
+    result = h.cli("--json", "onboarding", "join", "inspect", flow["flow_id"], timeout=10)
     check(result.ok and result.json["state"] == "declined", "CLI inspect parity"); public(result.stdout, code)
     invalid = [encoded + b"{}", b"null", b"[]", b"{", maximum + b" ",
                compact({**body, "extra": "private-marker"}), compact({**body, "person_public_key": "-"}),
@@ -582,7 +582,7 @@ def _():
 
 
 def identity_inventory(h, parent, *, agent=None, data=None, fallback=False):
-    argv = [str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "identities", "--stdin"]
+    argv = [str(suite.host_bin), "--state", str(h.state), "--json", "onboarding", "join", "identities", "--stdin"]
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
     if fallback:
         environment.pop("XDG_CONFIG_HOME", None)
@@ -728,7 +728,7 @@ def create_original(h, parent, *, data=None, agent=None, fallback=False):
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent or h.root / "absent-agent.sock")}
     if fallback:
         environment.pop("XDG_CONFIG_HOME", None)
-    result = subprocess.run([str(suite.host_bin), "--state", str(h.state), "onboarding", "join", "create-identity", "--stdin"],
+    result = subprocess.run([str(suite.host_bin), "--state", str(h.state), "--json", "onboarding", "join", "create-identity", "--stdin"],
                             input=compact(body) if data is None else data, env=environment, cwd=h.root, capture_output=True, timeout=20)
     for marker in (b"BEGIN OPENSSH PRIVATE KEY", b"PRIVATE_CREATION_MARKER", b"token_", b"psi2-",
                    str(Path(environment.get("XDG_CONFIG_HOME", str(h.home / ".config"))) / "peerspan" / "person_ed25519").encode()):
@@ -924,7 +924,7 @@ def _():
           and not observed["request"]["commit_approved"], "fresh progress advanced requester consent")
     body = {"flow_id": requested["flow_id"], **progress_body(requested)}; raw = compact(body)
     before, home = records(h), private_files(h.home)
-    cli = h.cli("onboarding", "join", "progress", "--stdin", input=(raw + b" " * (65536 - len(raw))).decode(), timeout=10)
+    cli = h.cli("--json", "onboarding", "join", "progress", "--stdin", input=(raw + b" " * (65536 - len(raw))).decode(), timeout=10)
     check(cli.ok and without(cli.json, "observed_at") == without(observed, "observed_at"), "exact64KiB progress CLI/API parity")
     public(cli.stdout + cli.stderr, code)
     route = BASE + "/" + requested["flow_id"] + "/progress"

@@ -314,7 +314,7 @@ def _():
           f"task run --peerfs-workspace: exit {result.code} {result.stdout!r} {result.stderr.strip()[-300:]}")
     post = rt.entries("post")[-1]["request"]
     check(post["peerfs_workspace"] == "agent" and post["workspace_archive"] is None, f"the start request {post}")
-    result = b.cli("task", "run", "--peer", a.id, "--detach", "--peerfs-workspace", "agent", "--", "cat", "cli.txt",
+    result = b.cli("--json", "task", "run", "--peer", a.id, "--detach", "--peerfs-workspace", "agent", "--", "cat", "cli.txt",
                    timeout=30)
     check(result.ok and isinstance(result.json, dict), f"--detach: exit {result.code} {result.stderr.strip()[-300:]}")
     request = result.json["request"]

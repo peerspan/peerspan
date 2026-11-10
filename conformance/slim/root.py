@@ -57,7 +57,7 @@ def root_seed(host, net):
 
 def rotate(host, net, *extra):
     for _ in range(3):  # a renewal or sync landing during the review asks for a fresh review (spec 11)
-        result = host.cli("network", "rotate-root", net, *extra, input="yes\n", tty=True, timeout=90)
+        result = host.cli("--json", "network", "rotate-root", net, *extra, input="yes\n", tty=True, timeout=90)
         if result.ok or "changed during review" not in result.stderr + result.stdout:
             break
     check(result.ok, f"{host.name}: rotate-root: exit {result.code}: {(result.stderr + result.stdout).strip()[-400:]}")
@@ -268,7 +268,7 @@ def _():
     net, _ = need("net", "split")
     old_catalog = b.api("GET", f"/v2/networks/{net}/catalog")[1]
     fresh = create_network(b, "fresh", "bob")
-    result = b.cli("network", "reinvite", net, fresh["id"])
+    result = b.cli("--json", "network", "reinvite", net, fresh["id"])
     check(result.ok and isinstance(result.json, list),
           f"network reinvite OLD NEW: exit {result.code}: {result.stderr.strip()[-200:]}")
     entries = {e["host_id"]: e for e in result.json}

@@ -1607,7 +1607,7 @@ def _():
             else:
                 raw = compact({'flow_id': f['flow']['flow_id'], **completion_body(f, approved)})
                 raw += b' ' * (65536 - len(raw))
-                result = h.cli('onboarding', 'join', 'commit', 'complete', '--stdin', input=raw.decode(), timeout=8)
+                result = h.cli('--json', 'onboarding', 'join', 'commit', 'complete', '--stdin', input=raw.decode(), timeout=8)
                 check(result.ok, 'completed private CLI replay failed: ' + phase)
                 public(result.stdout + result.stderr, str(h.root), f['code'], f['reply'])
                 value = result.json; validate_completion(f, value, approved)

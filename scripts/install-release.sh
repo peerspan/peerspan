@@ -343,5 +343,12 @@ mv -Tf -- "$temporary_link" "$launcher"
 echo "Installed Peerspan $version ($implementation) at $release"
 echo "Command: $launcher"
 if [[ :$PATH: != *":$bin_dir:"* ]]; then
-  echo "Add $bin_dir to PATH to use 'peerspan' from a new shell."
+  # The PATH a new login shell would have: Ubuntu's default ~/.profile, for
+  # example, adds ~/.local/bin once it exists (cli-output-contract section 3).
+  login_path=$(timeout 5 env -u PATH -u BASH_ENV -u ENV "${SHELL:-/bin/sh}" -lc 'printf %s "$PATH"' </dev/null 2>/dev/null) || login_path=
+  if [[ :$login_path: == *":$bin_dir:"* ]]; then
+    echo "'peerspan' is available in a new login shell."
+  else
+    echo "Add $bin_dir to PATH to use 'peerspan' from a new shell."
+  fi
 fi

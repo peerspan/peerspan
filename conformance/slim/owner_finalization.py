@@ -944,7 +944,7 @@ def _():
     check(snapshot(h) == before, 'first read materialized B/D/F, consent, authority or private files')
     body = {'flow_id': f['flow']['flow_id'], **payload(f)}
     quiet(f); before, network = snapshot(h), traffic(f)
-    result = h.cli('onboarding', 'join', 'owner', 'finalization', 'inspect', '--stdin', input=compact(body).decode(), timeout=8)
+    result = h.cli('--json', 'onboarding', 'join', 'owner', 'finalization', 'inspect', '--stdin', input=compact(body).decode(), timeout=8)
     check(result.ok, 'private finalization CLI failed without any available person-key/agent source')
     check(snapshot(h) == before and traffic(f) == network, 'read-only finalization CLI changed records/files or attempted carrier IO')
     validate(f, result.json)
@@ -1045,7 +1045,7 @@ def _():
     status, value = raw_post(h, endpoint(f), api_max)
     check(status == 200, f'exact64KiB API ceiling HTTP {status}'); validate(f, value)
     cli = compact({'flow_id': f['flow']['flow_id'], **body})
-    result = h.cli('onboarding', 'join', 'owner', 'finalization', 'inspect', '--stdin',
+    result = h.cli('--json', 'onboarding', 'join', 'owner', 'finalization', 'inspect', '--stdin',
         input=(cli + b' ' * (65536 - len(cli))).decode(), timeout=8)
     check(result.ok, 'exact64KiB CLI ceiling'); validate(f, result.json)
     ctx = compact(body['context'])

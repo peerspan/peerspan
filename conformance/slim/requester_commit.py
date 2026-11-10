@@ -681,7 +681,7 @@ def _():
     f = main(); h = f['h']
     null = op(f, 'lookup', pure=True); check(null['commit'] is None, 'lookup implicitly prepared requester consent')
     quiet(f); before, network = snapshot(h), traffic(f)
-    result = h.cli('onboarding', 'join', 'commit', 'lookup', '--stdin',
+    result = h.cli('--json', 'onboarding', 'join', 'commit', 'lookup', '--stdin',
         input=compact({'flow_id': f['flow']['flow_id'], **body(f)}).decode(), timeout=8)
     check(result.ok, 'exact private CLI null lookup'); validate(f, result.json)
     check(result.json['commit'] is None and snapshot(h) == before and traffic(f) == network, 'CLI null lookup prepared or mutated state/IO')
@@ -700,7 +700,7 @@ def _():
     quiet(f); before, network = snapshot(h), traffic(f)
     for action in ('prepare', 'lookup'):
         quiet(f); before, network = snapshot(h), traffic(f)
-        result = h.cli('onboarding', 'join', 'commit', action, '--stdin', input=compact(data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'join', 'commit', action, '--stdin', input=compact(data).decode(), timeout=8)
         check(result.ok, 'exact private CLI retained ' + action); validate(f, result.json)
         check(result.json['commit'] == prepared['commit'] and snapshot(h) == before and traffic(f) == network, 'CLI changed fixed review or persisted state/IO')
         public(result.stdout + result.stderr, f['code'], f['reply'])
@@ -813,7 +813,7 @@ def _():
     check(snapshot(h) == before and traffic(f) == network, 'maximum read changed records/files or attempted IO')
     cli_data = compact({'flow_id': f['flow']['flow_id'], **data}); cli_max = cli_data + b' ' * (65536 - len(cli_data))
     quiet(f); before, network = snapshot(h), traffic(f)
-    result = h.cli('onboarding', 'join', 'commit', 'lookup', '--stdin', input=cli_max.decode(), timeout=8)
+    result = h.cli('--json', 'onboarding', 'join', 'commit', 'lookup', '--stdin', input=cli_max.decode(), timeout=8)
     check(result.ok, 'exact64KiB CLI ceiling'); validate(f, result.json)
     check(snapshot(h) == before and traffic(f) == network, 'maximum CLI read changed records/files or attempted IO')
     ctx = compact(data['context'])
@@ -901,7 +901,7 @@ def _():
     check('prepared' in shared, 'earlier exact preparation did not complete')
     f, prepared = main(), shared['prepared']; h = f['h']; iid = prepared['commit']['review']['intent_id']
     assert_unapproved(f, prepared); schema = records(h)['$schema']; files = private_files(h.home)
-    result = h.cli('onboarding', 'join', 'commit', 'approve', '--stdin',
+    result = h.cli('--json', 'onboarding', 'join', 'commit', 'approve', '--stdin',
         input=compact({'flow_id': f['flow']['flow_id'], **body(f, prepared)}).decode(), timeout=8)
     check(result.ok, 'exact explicit CLI requester consent failed')
     approved = result.json; validate(f, approved, current=False); shared['approved'] = approved

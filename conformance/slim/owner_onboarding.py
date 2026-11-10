@@ -455,7 +455,7 @@ def _():
         if action != "approve":
             actual, response = raw_post(h, path(flow, action), maximum)
             check(actual == 200 and response["owner"] == prepared["owner"], f"{action} exact64KiB API boundary")
-            result = h.cli("onboarding", "join", "owner", action, "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **body}), timeout=10)
+            result = h.cli("--json", "onboarding", "join", "owner", action, "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **body}), timeout=10)
             check(result.ok and result.json["owner"] == prepared["owner"], f"literal private CLI {action} parity"); public(result.stdout)
         context_json = compact(body["context"])
         duplicate = b'{"context":' + context_json + b',"context":' + context_json + encoded[1 + len(b'"context":') + len(context_json):]
@@ -487,7 +487,7 @@ def _():
         check(not result.ok, f"CLI {action} consumed stdin without --stdin"); public(result.stdout + result.stderr)
     # Exact CLI byte ceiling includes its extra flow_id field.
     cli_body = compact({"flow_id": flow["flow_id"], **payload(flow)})
-    result = h.cli("onboarding", "join", "owner", "prepare", "--stdin", input=(cli_body + b" " * (65536 - len(cli_body))).decode(), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "owner", "prepare", "--stdin", input=(cli_body + b" " * (65536 - len(cli_body))).decode(), timeout=10)
     check(result.ok and result.json["owner"] == prepared["owner"], "private CLI exact64KiB ceiling")
     other_flow = {**flow, "flow_id": "flow_" + "0" * 32}
     for action in ("prepare", "lookup", "approve"):
@@ -523,7 +523,7 @@ def _():
                 response = http.client.HTTPResponse(stream); response.begin(); response.read()
                 check(response.status == 404, f"bootstrap exposed owner {action}: HTTP {response.status}")
     # Approval still needs its explicit private CLI action and exact digest.
-    result = h.cli("onboarding", "join", "owner", "approve", "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **payload(flow, prepared)}), timeout=10)
+    result = h.cli("--json", "onboarding", "join", "owner", "approve", "--stdin", input=json.dumps({"flow_id": flow["flow_id"], **payload(flow, prepared)}), timeout=10)
     check(result.ok and result.json["owner"]["state"] == "approved", "private CLI exact approval failed"); validate(h, flow, result.json)
     public(result.stdout, source()["code"], adapter.token)
     missing = suite.host("no-daemon", start=False); before = private_files(missing.root)

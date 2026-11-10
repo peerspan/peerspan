@@ -963,7 +963,7 @@ def _():
         value = pure(f, h, parent, prepared, command)
         check(value["application"] == applied["application"], "applied API exact retry changed marker")
         before, counters = whole(f), traffic(f)
-        cli = h.cli("onboarding", "access", command, "--stdin",
+        cli = h.cli("--json", "onboarding", "access", command, "--stdin",
             input=compact(application_input(f, h, parent, prepared, apply=command == "apply")).decode(), timeout=95 if command == "apply" else 8)
         check(cli.ok and cli.json["application"] == applied["application"] and cli.json["access"] == applied["access"], "private CLI applied-state parity")
         application_view(h, parent, prepared, cli.json); public(cli.stderr)
@@ -1171,7 +1171,7 @@ def _():
         for command in ("application", "apply"):
             value = operation(f, local, parent, prepared, command)
             check(value["application"] == applied["application"] and value["access"] == applied["access"], "historical applied API changed exact consent/evidence marker")
-            result = local.cli("onboarding", "access", command, "--stdin",
+            result = local.cli("--json", "onboarding", "access", command, "--stdin",
                 input=compact(application_input(f, local, parent, prepared, apply=command == "apply")).decode(), timeout=95 if command == "apply" else 8)
             check(result.ok and result.json["application"] == applied["application"] and result.json["access"] == applied["access"],
                   "historical private CLI lost exact retained application")
@@ -1240,7 +1240,7 @@ def _():
         encoded = compact(data); maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["application"] == applied["application"], "exact64KiB applied API recovery failed")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "apply" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "apply" else 8)
         check(result.ok and result.json["application"] == applied["application"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),

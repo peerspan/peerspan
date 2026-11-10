@@ -48,8 +48,13 @@ pub(crate) fn json_text(text: &str) -> String {
     }
     out
 }
+/// A result: the generic layout, or JSON with `--json`.
 fn print(value: &Value) -> anyhow::Result<()> {
-    println!("{}", json_text(&serde_json::to_string_pretty(value)?));
+    if crate::output::json() {
+        println!("{}", json_text(&serde_json::to_string_pretty(value)?));
+    } else {
+        println!("{}", crate::output::generic(value));
+    }
     Ok(())
 }
 /// A value's text, escaped for a terminal.

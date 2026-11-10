@@ -511,7 +511,7 @@ def expiry_world(w):
         last = []
 
         def control():
-            sent = carol.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
+            sent = carol.cli("--json", "message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "control")
             state = sent.json.get("state") if isinstance(sent.json, dict) else None
             error = sent.stderr.strip().splitlines()[-1] if sent.stderr.strip() else ""
             last[:] = [f"send exit={sent.code} state={state} error={error}"]
@@ -529,7 +529,7 @@ def expiry_world(w):
         view = w.b.api("GET", "/v2/networks")[1][0]
         check(view["authority"]["state"] == "authority_expired", f"after bob's device grant ended: {view['authority']}")
         w.b.api("POST", f"/v2/networks/{w.net}/sync", {})
-        sent = w.b.cli("message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "after expiry")
+        sent = w.b.cli("--json", "message", "send", "--peer", w.a.id, "--agent", ada.id, "--content", "after expiry")
         check(not sent.ok or sent.json["state"] != "accepted", "a host with expired grants had a message accepted")
     w.step("expiry_stops_access", expiry)
 

@@ -84,7 +84,7 @@ class PeerHost(Host):
         env = self.isolated(dict(os.environ))
         if not self.keep_agent:
             env.pop('SSH_AUTH_SOCK', None)
-        result = subprocess.run([self.binary, '--state', str(self.state), *args],
+        result = subprocess.run([self.binary, '--state', str(self.state), '--json', *args],
                                 capture_output=True, text=True, timeout=10, env=env)
         try:
             record = json.loads(result.stdout)

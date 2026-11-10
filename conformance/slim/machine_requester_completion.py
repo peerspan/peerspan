@@ -554,7 +554,7 @@ def inspect_machine(f, *, status=200, code=None, cli=False, override=None, path=
         before, counters = whole(f), traffic(f)
     data = inspection_body(f) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', 'inspect', '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester CLI success/refusal mismatch')
         public(result.stdout + result.stderr, *f['secrets'], str(f['b'].root))
@@ -686,7 +686,7 @@ def progress(f):
     wait_for(lambda: link_view(a, rid)['selection_id'] == view['selection_id'], timeout=10, interval=.1,
              message='existing computer retained exact requester selection')
     if link_view(b, rid)['owner_finalization_id'] == '-':
-        args = ['link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
+        args = ['--json', 'link', 'finalize', rid, '--network', view['network_id'], '--context', view['context_id'],
             '--expect-person', view['person_public_key'], '--expect-host-key', view['host_public_key'],
             '--expect-device-key', view['device_public_key'], '--owner-offer', view['owner_offer_id'],
             '--selection', view['selection_id'], '--administrator-offer', '-', '--approve']
@@ -1001,7 +1001,7 @@ def op(f, action, prepared=None, *, pure=False, cli=False, status=200, code=None
         quiet(f); before, counters = whole(f), traffic(f)
     data = input_for(f, action, prepared) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', action, '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', action, '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=8)
         check(result.ok == (status == 200), 'machine requester consent CLI success/refusal mismatch')
         public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])
@@ -1169,7 +1169,7 @@ def complete(f, *, status=200, code=None, pure=False, cli=False, override=None, 
         quiet(f); before, counters = whole(f), traffic(f)
     data = completion_body(f) if override is None else override
     if cli:
-        result = f['b'].cli('onboarding', 'join', 'machine-commit', 'complete', '--stdin',
+        result = f['b'].cli('--json', 'onboarding', 'join', 'machine-commit', 'complete', '--stdin',
             input=compact({'flow_id': f['flow']['flow_id'], **data}).decode(), timeout=100)
         check(result.ok == (status == 200), 'machine completion CLI success/refusal mismatch')
         public(result.stdout + result.stderr, str(f['b'].root), *f['secrets'])

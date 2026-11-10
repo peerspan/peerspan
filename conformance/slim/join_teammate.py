@@ -6,7 +6,8 @@ default-no prompts, the inviter's `link_request_waiting`, link-command exit stat
 
 Written from docs/decentralized-spec.md sections 6, 8 and 16 and the wire appendix
 (docs/decentralized-wire-formats.md sections 9, 10, 16 and 20.2), the exit status and `next` rules of
-docs/machine-linking-transactions.md and docs/decentralized-runtime-contract.md section 6 (ML-3, ML-4) only.
+docs/machine-linking-transactions.md and docs/decentralized-runtime-contract.md section 6 (ML-3, ML-4), and the
+linking views and review screens of docs/cli-output-contract.md sections 2 and 2.1 only.
 """
 import base64
 import json
@@ -22,8 +23,8 @@ import time
 import traceback
 
 from harness import (Failure, Result, Suite, attention, b64url_json, check, create_network, finalize, invite,
-                     join_request, link_view, parse_time, pull_until, redact, select, ssh_key, ssh_public_base64,
-                     wait_for, wait_linked)
+                     join_request, link_view, parse_time, parses_as_json, pull_until, redact, select, ssh_fingerprint,
+                     ssh_key, ssh_public_base64, wait_for, wait_linked)
 
 suite = Suite("join_teammate", __doc__)
 a, b = suite.host("alice"), suite.host("bob")
@@ -168,6 +169,12 @@ def two_prompt_join():
     check(len(requests) == 1, f"dave holds {len(requests)} requester requests after join: {join.tail()}")
     rid = requests[0]["request_id"]
     seen["rid"] = rid
+    if asked:  # the review printed before the approve prompt (CLI output contract 2.1)
+        view = link_view(d, rid)
+        with join.lock:
+            review = "".join(join.err)
+        seen["approve_review"] = {"stderr": review, "network_id": net["id"], "keys": {
+            "person": ssh_public_base64(key), "host": view["host_public_key"], "device": view["device_public_key"]}}
     # Before the joiner answers: the request reaches the inviter, whose status says it waits on the joining machine.
     try:
         seen["before"] = wait_for(lambda: waiting_item(a, rid), timeout=30, message="link_request_waiting on the inviter")
@@ -191,7 +198,7 @@ def two_prompt_join():
         raise Failure(f"after the joiner approved, {error}; join so far: {join.tail()}") from None
     sample_next(d, rid, "joiner, after owner approval")
     sample_next(a, rid, "inviter, after owner approval")
-    status = a.cli("link", "status", rid)  # the CLI's view of the same request
+    status = a.cli("--json", "link", "status", rid)  # the CLI's view of the same request
     seen["next"].append(("inviter's link status, after owner approval", a.name,
                          (status.json or {}).get("state", f"exit {status.code}, no JSON view"),
                          (status.json or {}).get("next")))
@@ -202,7 +209,7 @@ def two_prompt_join():
     seen["declined"] = a.cli(*interactive, tty=True, input="\n", timeout=90)
     seen["declined_view"] = link_view(a, rid)
     # Run exactly as given, answering its prompt.
-    seen["admitted"] = a.cli(*argv[1:], tty=True, input="y\n", timeout=90)
+    seen["admitted"] = a.cli("--json", *argv[1:], tty=True, input="y\n", timeout=90)
     sample_next(a, rid, "inviter, after link admit")
     sample_next(d, rid, "joiner, after link admit")
     check(join.wait_prompts(2, timeout=120), f"join never asked {COMMIT_PROMPT!r} after admission "
@@ -235,7 +242,7 @@ def run_two_prompt_join():
 # bob, so it runs alongside join_new_person (each alone takes about a minute); the cases at the end wait for it
 # and report what it saw. It is skipped only when --only names none of those cases.
 ML_CASES = ("join_new_person_two_prompts", "inviter_status_names_whose_step", "link_step_done_exits_zero",
-            "link_next_never_empty")
+            "link_next_never_empty", "review_screen_readable")
 flow_thread = threading.Thread(target=run_two_prompt_join, daemon=True)
 if not suite.args.only or set(ML_CASES) & set(suite.args.only):
     flow_thread.start()
@@ -249,7 +256,9 @@ def declined_owner_review():
     invitation = gus.root / "invite"
     invitation.write_text(invite(fay, "gus", net["id"])["invitation"] + "\n")
     invitation.chmod(0o600)
-    run = Terminal(gus, "join", "--invite-file", invitation, "--person-key", key, "--untrusted")
+    # With --json, which changes no prompt: the review before the approve prompt is the review object (2.1).
+    run = Terminal(gus, "--json", "join", "--invite-file", invitation, "--person-key", key, "--untrusted")
+    seen["gus_network_id"] = net["id"]
     if not run.wait_prompts(1, timeout=60):
         run.finish(timeout=5)
         return [f"join never asked {APPROVE_PROMPT!r} (exit {run.p.returncode}): {run.tail()}"]
@@ -257,6 +266,8 @@ def declined_owner_review():
     if APPROVE_PROMPT not in first:
         run.finish(timeout=5)
         return [f"join's first question {first!r}, want {APPROVE_PROMPT!r}"]
+    with run.lock:
+        seen["gus_review"] = "".join(run.err)
     run.answer("n")
     try:
         run.p.wait(timeout=30)
@@ -279,7 +290,7 @@ def declined_owner_review():
     if view["state"] in TERMINAL or view.get("owner_offer_id", "-") != "-":
         bad.append(f"after the no, the request is {view['state']} with owner offer {view.get('owner_offer_id')}, "
                    f"want it pending without an owner offer")
-    status = gus.cli("link", "status", rid)
+    status = gus.cli("--json", "link", "status", rid)
     shown = status.json or {}
     if shown.get("request_id", rid) != rid or shown.get("state") != view["state"]:
         bad.append(f"after the no, link status {rid} shows {shown.get('state', f'exit {status.code}, no JSON view')}, "
@@ -321,7 +332,7 @@ def run_declined():
 
 # It shares nothing with the other hosts either, so it too runs alongside join_new_person.
 decline_thread = threading.Thread(target=run_declined, daemon=True)
-if not suite.args.only or "join_owner_review_declined" in suite.args.only:
+if not suite.args.only or {"join_owner_review_declined", "review_screen_json"} & set(suite.args.only):
     decline_thread.start()
 
 
@@ -484,6 +495,81 @@ def _():
             if not (WHO.search(entry) and WHERE.search(entry)):
                 bad.append(f"{where} ({host}, {state}): entry {entry!r} does not name who acts and on which machine")
     check(not bad, "; ".join(bad))
+
+
+# CLI output contract: the review screens (2.1) and the readable linking views (2).
+
+SCOPE_NAMES = ("edit policy", "bind hosts", "approve devices")  # scopes 7, a new person's default (join_new_person)
+
+
+@suite.case("review_screen_readable", "CLI output contract 2.1 (ML-5): the summary before the approve prompt")
+def _():
+    wait_flow()
+    review = seen.get("approve_review")
+    check(review, gone("the joiner's approve prompt", "see join_new_person_two_prompts"))
+    text = review["stderr"]
+    shown = redact(text.strip()[-600:])
+    check(review["network_id"] in text, f"the review lacks the network ID: {shown!r}")
+    for role, key in review["keys"].items():
+        check(ssh_fingerprint(key) in text, f"the review lacks the {role} key as {ssh_fingerprint(key)}: {shown!r}")
+    missing = [name for name in SCOPE_NAMES if name not in text.lower()]
+    check(not missing, f"the review lacks the scope names {missing}: {shown!r}")
+    check('{"' not in text and not any(parses_as_json(line) and line.strip()[:1] in "{[" for line in text.splitlines()),
+          f"the review before the approve prompt holds a JSON object: {shown!r}")
+
+
+@suite.case("review_screen_json", "CLI output contract 2.1: with --json the review object, as before")
+def _():
+    if decline_thread.ident is not None:
+        decline_thread.join(timeout=180)
+    text = seen.get("gus_review")
+    check(text is not None, f"the --json join never reached its approve prompt: {seen.get('declined_review')}")
+    objects = []
+    for at in [i for i, c in enumerate(text) if c == "{"]:
+        try:
+            value, _ = json.JSONDecoder().raw_decode(text, at)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            objects.append(value)
+    reviews = [o for o in objects if o.get("network_id") == seen["gus_network_id"]
+               and {"person_public_key", "host_public_key", "device_public_key", "scopes", "not_after"} <= set(o)]
+    check(reviews, f"with --json, stderr before the approve prompt holds no review object: {redact(text[-600:])!r}")
+
+
+@suite.case("linking_views_readable", "CLI output contract 2 (linking views): join, link status")
+def _():
+    (net,) = need("net")
+    hal = suite.host("hal")
+    key = ssh_key(hal.root, "hal")
+    joined = hal.cli("join", "--invite-stdin", "--person-key", key, input=invite(a, "hal", net["id"])["invitation"] + "\n",
+                     timeout=90)
+    out = redact(joined.stdout.strip()[-600:])
+    check(joined.stdout.strip() and not parses_as_json(joined.stdout), f"join printed JSON or nothing by default: {out!r}")
+    requests = [v for v in hal.api("GET", "/v2/link/requests")[1] if v["role"] == "requester"]
+    check(len(requests) == 1, f"hal holds {len(requests)} requester requests after join: exit {joined.code}: {out!r}")
+    rid = requests[0]["request_id"]
+    check(rid in joined.stdout, f"join does not print the full request ID {rid}: {out!r}")
+    codes = [line.strip() for line in joined.stdout.splitlines() if re.fullmatch(r"\s*psl2-[A-Za-z0-9_-]+\s*", line)]
+    check(len(codes) == 1, f"join does not print the reply code on a line of its own: {out!r}")
+    if requests[0].get("display_code") not in (None, "-"):
+        check(codes[0] == requests[0]["display_code"], "join's readable reply code is not the request's whole code")
+    # The code as printed works: the joiner's own owner approval accepts it (spec 8.1).
+    hal.ok_incomplete("link", "approve", "--network", net["id"], "--person-key", key, "--code-stdin", "--approve",
+                      input=codes[0] + "\n")
+    one, one_json = hal.cli("link", "status", rid), hal.cli("--json", "link", "status", rid)
+    view = link_view(hal, rid)
+    check(one.code == one_json.code and one.stdout.strip() and not parses_as_json(one.stdout),
+          f"link status {rid}: exit {one.code} (with --json {one_json.code}): {redact(one.stdout[-400:])!r}")
+    for fact in (rid, net["id"], view["state"]):
+        check(fact in one.stdout, f"link status {rid} lacks {fact!r}: {redact(one.stdout[-400:])!r}")
+    listed, listed_json = a.cli("link", "status"), a.cli("--json", "link", "status")
+    check(listed.code == listed_json.code and not parses_as_json(listed.stdout),
+          f"link status (list): exit {listed.code} (with --json {listed_json.code}): {redact(listed.stdout[-400:])!r}")
+    rids = [v["request_id"] for v in a.api("GET", "/v2/link/requests")[1]]
+    check(len(rids) >= 2, f"alice holds {len(rids)} requests, want bob's and hal's")
+    missing = [r for r in rids if r not in listed.stdout]
+    check(not missing, f"link status (list) does not name {missing}: {redact(listed.stdout[-600:])!r}")
 
 
 suite.finish()

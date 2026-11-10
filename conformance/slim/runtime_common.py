@@ -209,7 +209,7 @@ def enable(*extra, host=None, socket=None):
     """`runtime enable` on alice's host; returns the new policy version once bob's host knows it."""
     host = host or state["a"]
     rt = state["rt"]
-    result = host.cli("runtime", "enable", "--socket", str(socket or rt.socket), "--person-key", state["alice_key"],
+    result = host.cli("--json", "runtime", "enable", "--socket", str(socket or rt.socket), "--person-key", state["alice_key"],
                       *extra, timeout=90)
     check(result.ok, f"runtime enable {' '.join(extra)}: exit {result.code} {result.stderr.strip()[-400:]}")
     version = policy_version(host, state["alice_public"])

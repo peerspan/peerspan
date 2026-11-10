@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [OUT-1 and OUT-2: readable output by default](#out-1-and-out-2-readable-output-by-default-2026-11-10) (2026-11-10)
   - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
   - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
@@ -58,6 +59,31 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### OUT-1 and OUT-2: readable output by default (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** CLI output (OUT): what commands print by default.
+- **Source:** the owner's answers, 2026-11-10, on issue [#158](https://github.com/peerspan/peerspan/issues/158). In 0.2.0 qualification (evidence F1, F2, F3, F13), `install-release.sh` printed a JSON block before its "Installed Peerspan …" message, `network list`, which the quick start uses to find the network ID, printed only JSON, and `allow` and `deny` printed the whole signed policy. ML-5 deferred the raw-JSON link review screens to this change. The options below are quoted from the questions put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [cli-output-contract.md](cli-output-contract.md).
+- **Fix that needs no decision,** recorded with these entries: the installer's PATH hint appears only when a new login shell would not have the launcher directory on its `PATH`.
+
+#### OUT-1. Which commands print a readable summary
+
+- **Options:**
+  - (a) "Every command (Recommended). Matches ML-5 (\"#158 cleans up the output of every command at once\"). Everyday commands get hand-written summaries; the rest get a generic readable layout. `--json` works on every command. This is the larger change, and every suite call that parses JSON gains `--json`."
+  - (b) "Named commands only. network list/members, allow, deny, block/unblock, install/uninstall, invite, the link approve/commit review screens, and the installer. Every other command keeps printing JSON for now. This is a smaller and quicker PR, but the output stays inconsistent."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
+
+#### OUT-2. How a command chooses between the summary and JSON
+
+- **Options:**
+  - (a) "--json flag only (Recommended). Readable by default everywhere, including when piped; scripts pass --json. This is predictable and matches status/agents today. It breaks any existing script that parses default output, which is acceptable at 0.2.x; the release notes will say so."
+  - (b) "Readable only on a terminal. Readable when stdout is a TTY and JSON when piped, with --json to force it. Existing scripts keep working, but the same command prints different things under a pipe."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
 
 ### STAT-1 and STAT-2: peer delivery failures in status (2026-11-10)
 

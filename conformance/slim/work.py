@@ -3,11 +3,14 @@
 
 Three people on three hosts (alice creates, bob and carol join), each with one fixture
 agent. Written from docs/peer-messaging-contract.md, docs/task-contract.md,
-docs/delegation-chain-contract.md and docs/launch-contract.md (slices 3 and 4).
+docs/delegation-chain-contract.md and docs/launch-contract.md (slices 3 and 4), and the readable output of sends
+and task submissions from docs/cli-output-contract.md sections 1, 2 and 4.
 """
+import os
+import re
 import time
 
-from harness import Suite, check, create_network, in_future, join_new_person, ssh_key, wait_for
+from harness import Suite, check, create_network, in_future, join_new_person, parses_as_json, ssh_key, wait_for
 
 suite = Suite("work", __doc__)
 a, b, c = suite.host("alice"), suite.host("bob"), suite.host("carol")
@@ -281,6 +284,61 @@ def _():
           "agents --json (no refresh) still lists bob/bert after the directory dropped it")
     print(f"  carol's directory listed bob/bert {took:.1f}s and dropped it {gone:.1f}s after storing the policy",
           flush=True)
+
+
+# CLI output contract (OUT-1, OUT-2): sends and task submissions. Last, so the messages and tasks they leave in
+# bert's queues do not reach the cases above.
+
+def readable_ids(text, prefix):
+    """Every whole ID with PREFIX in TEXT."""
+    return set(re.findall(rf"\b{prefix}[0-9A-Za-z]+\b", text))
+
+
+@suite.case("send_json_and_readable", "CLI output contract 1, 2 `send`, 4 (`--json` everywhere, sends)")
+def _():
+    front = a.cli("--json", "send", "bob/bert", "json before")
+    back = a.cli("send", "bob/bert", "json after", "--json")
+    for one, text in ((front, "json before"), (back, "json after")):
+        check(one.ok and isinstance(one.json, dict) and one.json.get("state") == "accepted"
+              and one.json["request"]["content"] == text, f"send --json ({text}): exit {one.code}, {one.stdout[:300]!r}")
+    check(set(front.json) == set(back.json) and set(front.json["request"]) == set(back.json["request"]),
+          f"send --json fields differ before and after the subcommand: {sorted(front.json)} / {sorted(back.json)}")
+    result = a.cli("send", "bob/bert", "readable send")
+    check(result.code == front.code, f"readable send: exit {result.code}, with --json {front.code}")
+    check(result.stdout.strip() and not parses_as_json(result.stdout),
+          f"send printed JSON or nothing by default: {result.stdout[:300]!r}")
+    prefix = front.json["request"]["request_id"].split("_", 1)[0] + "_"
+    named = [i for i in readable_ids(result.stdout, prefix)
+             if (lambda r: r[0] == 200 and r[1]["request"]["content"] == "readable send")(
+                 a.api("GET", f"/v1/outbound/{b.id}/{i}"))]
+    check(named, f"the readable send does not name its full message ID: {result.stdout[:400]!r}")
+    check("delivered" in result.stdout.lower(), f"an accepted send does not say it was delivered: {result.stdout[:400]!r}")
+
+
+@suite.case("task_submit_json_and_readable", "CLI output contract 1, 2 `task submit`, 4 (`--json` everywhere, sends)")
+def _():
+    (bert,) = need("bert")
+    ids = ["task_" + os.urandom(16).hex() for _ in range(3)]
+    submit = ["task", "submit", "--peer", b.id, "--agent", bert.id, "--input"]
+    front = a.cli("--json", *submit, "json before", "--task", ids[0])
+    back = a.cli(*submit, "json after", "--task", ids[1], "--json")
+    record = {"peer_host_id", "request", "submit_state", "status", "events_after", "cancel_state", "adapter_id",
+              "route_id", "attempts", "next_attempt_at", "error", "status_queries"}  # task contract, local record
+    for one, task_id in ((front, ids[0]), (back, ids[1])):
+        check(one.ok and isinstance(one.json, dict) and record <= set(one.json)
+              and one.json["request"]["task_id"] == task_id and one.json["submit_state"] == "accepted",
+              f"task submit --json: exit {one.code}, {one.stdout[:300]!r}")
+    check(set(front.json) == set(back.json), f"task submit --json fields differ: {sorted(front.json)} / {sorted(back.json)}")
+    result = a.cli(*submit, "readable task", "--task", ids[2])
+    check(result.code == front.code, f"readable task submit: exit {result.code}, with --json {front.code}")
+    check(result.stdout.strip() and not parses_as_json(result.stdout),
+          f"task submit printed JSON or nothing by default: {result.stdout[:300]!r}")
+    check(ids[2] in readable_ids(result.stdout, "task_"), f"the readable task submit lacks its task ID: {result.stdout[:400]!r}")
+    follow = [line for line in result.stdout.splitlines() if "peerspan task inspect" in line]
+    check(follow and any(ids[2] in line for line in follow),
+          f"the readable task submit does not give `peerspan task inspect` for {ids[2]}: {result.stdout[:400]!r}")
+    check(a.ok("task", "inspect", "--peer", b.id, ids[2])["request"]["input"] == "readable task",
+          "the readable submit did not submit the task")
 
 
 suite.finish()

@@ -16,8 +16,7 @@ fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().unwrap_or("-")
 }
 fn output(v: &Value) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(v)?);
-    Ok(())
+    crate::output::emit(v)
 }
 async fn call(socket: &Path, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
     crate::integration::admin(

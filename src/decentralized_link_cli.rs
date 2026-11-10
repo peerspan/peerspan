@@ -202,8 +202,12 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
     if !display && let Some(o) = v.as_object_mut() {
         o.remove("display_code");
     }
-    if v.is_array() {
-        println!("{}", serde_json::to_string_pretty(&v)?);
+    if let Some(items) = v.as_array() {
+        if crate::output::json() {
+            println!("{}", serde_json::to_string_pretty(&v)?);
+        } else {
+            println!("{}", crate::output::link_views(items));
+        }
         return Ok(());
     }
     // `join` adds its trust answer (CLI output, not part of the daemon view).
@@ -213,7 +217,11 @@ pub(crate) fn output(mut v: Value, display: bool) -> Result<()> {
         o.remove("trusted_error");
     }
     view(&checked)?;
-    println!("{}", serde_json::to_string_pretty(&v)?);
+    if crate::output::json() {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{}", crate::output::link_view(&v));
+    }
     if v["state"] == "linked" {
         return Ok(());
     }
@@ -271,12 +279,26 @@ async fn private_code(stdin: bool) -> Result<String> {
     );
     Ok(value)
 }
-fn describe(review: &Value) -> Result<()> {
+/// Prints the review before its prompt: a summary, or the object with
+/// `--json` (docs/cli-output-contract.md section 2.1, ML-5).
+async fn describe(local: &Local<'_>, review: &Value) -> Result<()> {
     shape(
         review,
         "stage network_id context_id person_id person_public_key host_public_key device_public_key root_state_id provider owner_offer_id selection_id administrator_offer_id person_lease_id host_lease_id binding_lease_id device_lease_id scopes not_after authority_warning",
     )?;
-    eprintln!("{}", serde_json::to_string_pretty(review)?);
+    if crate::output::json() {
+        eprintln!("{}", serde_json::to_string_pretty(review)?);
+        return Ok(());
+    }
+    // A joining machine does not know the network yet; it shows the ID only.
+    let networks = local.get("/v2/networks".into()).await.unwrap_or_default();
+    let name = networks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|n| n["id"] == review["network_id"])
+        .and_then(|n| n["name"].as_str());
+    eprintln!("{}", crate::output::review(review, name));
     Ok(())
 }
 fn pins(r: &Value, approve: bool) -> Value {
@@ -735,7 +757,7 @@ pub(crate) async fn guide_join(
                 }
                 let route = format!("{path}/{}", if commit { "commit" } else { "selection" });
                 let preview = local.post(route.clone(), body).await?;
-                describe(&preview["review"])?;
+                describe(&local, &preview["review"]).await?;
                 if !confirm(if commit {
                     "Commit this exact machine link? [y/N]"
                 } else {
@@ -1121,7 +1143,7 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         preview?
     };
     describe_shape(&result)?;
-    describe(&result["review"])?;
+    describe(&local, &result["review"]).await?;
     if input.approve || interactive && confirm("Approve this exact machine? (y/N)").await? {
         let prior = result["review"].clone();
         body["approve"] = json!(true);
@@ -1200,7 +1222,7 @@ async fn consent(socket: &Path, input: Consent, kind: &str, keys: Option<Keys>) 
     body["approve"] = json!(false);
     let route = format!("{}/{kind}", base(&input.request_id)?);
     let mut result = local.post(route.clone(), body).await?;
-    describe(&result["review"])?;
+    describe(&local, &result["review"]).await?;
     if input.approve {
         let reviewed = result["review"].clone();
         let mut fixed = pins(&reviewed, true);

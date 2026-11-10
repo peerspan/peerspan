@@ -796,7 +796,7 @@ def sign_exact(f, h, parent, prepared, *, cli=False, phase="device_signature"):
     stable(f)
     before, remote, counters = snapshot(h), snapshot(f["a"] if h is f["b"] else f["b"]), traffic(f)
     if cli:
-        result = h.cli("onboarding", "access", "sign", "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=True)).decode(), timeout=95)
+        result = h.cli("--json", "onboarding", "access", "sign", "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=True)).decode(), timeout=95)
         check(result.ok, "exact explicit private CLI policy signing failed")
         value = result.json; signing_view(h, parent, prepared, value); public(result.stderr)
     else:
@@ -830,7 +830,7 @@ def _():
     for command in ("signing", "sign"):
         check(pure_operation(f, h, parent, prepared, command)["signing"] == signed["signing"], "exact signed replay changed marker")
         stable(f); before, counters = whole(f), traffic(f)
-        result = h.cli("onboarding", "access", command, "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=compact(signing_input(f, h, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
         check(result.ok and result.json["signing"] == signed["signing"] and result.json["access"] == signed["access"], "private CLI exact signature observation/replay parity")
         signing_view(h, parent, prepared, result.json); public(result.stderr)
         strict_unchanged(f, before, counters, "pure_" + command)
@@ -1083,7 +1083,7 @@ def _():
         for command in ("signing", "sign"):
             value = operation(f, local, parent, prepared, command)
             check(value["access"] == signed["access"] and value["signing"] == signed["signing"], "historical API lost exact signed consent/slot")
-            result = local.cli("onboarding", "access", command, "--stdin", input=compact(signing_input(f, local, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
+            result = local.cli("--json", "onboarding", "access", command, "--stdin", input=compact(signing_input(f, local, parent, prepared, sign=command == "sign")).decode(), timeout=95 if command == "sign" else 8)
             check(result.ok and result.json["access"] == signed["access"] and result.json["signing"] == signed["signing"], "historical private CLI changed exact signed marker")
             signing_view(local, parent, prepared, result.json); public(result.stderr)
         check((intent(local, prepared["access"]["access_id"]), intent(local, prepared["access"]["review"]["intent_id"])) == retained[name],
@@ -1103,7 +1103,7 @@ def _():
         encoded = compact(data); maximum = b" " * (65536 - len(encoded)) + encoded
         status, value = raw(h, command, maximum)
         check(status == 200 and value["signing"] == signed["signing"], "exact64KiB signed API history")
-        result = h.cli("onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "sign" else 8)
+        result = h.cli("--json", "onboarding", "access", command, "--stdin", input=maximum.decode(), timeout=95 if command == "sign" else 8)
         check(result.ok and result.json["signing"] == signed["signing"], "exact64KiB private CLI parity")
         malformed = [b"null", b"[]", b"{", b"\xff", encoded + b"{}", maximum + b" ",
             encoded.replace(b'"context":', b'"context":null,"context":', 1),

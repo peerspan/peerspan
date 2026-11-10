@@ -110,7 +110,7 @@ def _():
         check((status == 201) == accepted, f"lifetime {seconds}s: {status} {body if status != 201 else ''}")
         if not accepted:
             check(body.get("code") == "invalid", f"lifetime {seconds}s refused with {body}")
-    longer = a.cli("invite", "x", "--network", net["id"], "--expires-in", "2h")
+    longer = a.cli("--json", "invite", "x", "--network", net["id"], "--expires-in", "2h")
     check(longer.ok, f"invite --expires-in 2h: {longer.stderr.strip()[-200:]}")
     left = (parse_time(longer.json["expires_at"]) - datetime.now(timezone.utc)).total_seconds()
     check(7100 <= left <= 7210, f"--expires-in 2h gave {left:.0f}s")
@@ -120,7 +120,7 @@ def _():
 def _():
     net, key = need("net", "alice_key")
     person = net["person_public_key"]
-    request = a2.cli("link", "--network", net["id"], "--expect-person", person, timeout=90).json
+    request = a2.cli("--json", "link", "--network", net["id"], "--expect-person", person, timeout=90).json
     check(request and request.get("display_code", "").startswith("psl2-"), "link printed no psl2- request code")
     rid, code = request["request_id"], request["display_code"]
     a.ok_incomplete("link", "approve", "--network", net["id"], "--person", person, "--expect-host-key",
@@ -177,7 +177,7 @@ def _():
     denied = a.cli("network", "group", "set", "--network", network, "--group", "no-admin", "--person", "alice", "--approve")
     check(not denied.ok, "the owner still has administrator authority after withdrawing its admin grant")
     machine = suite.host("root-only-machine")
-    request = machine.cli("link", "--network", network, "--expect-person", person, timeout=90).json
+    request = machine.cli("--json", "link", "--network", network, "--expect-person", person, timeout=90).json
     check(request and request.get("display_code"), "root-only link printed no request code")
     rid = request["request_id"]
     a.ok_incomplete("link", "approve", "--network", network, "--person", person,
@@ -238,7 +238,7 @@ def _():
         "member": "carol", "expected_person_public_key": ssh_public_base64(other),
         "expires_at": rfc3339(datetime.now(timezone.utc) + timedelta(hours=1))})
     check(status == 201, f"pinned invite: {status} {pinned}")
-    mismatch = c.cli("join", "--invite-stdin", "--person-key", key, input=pinned["invitation"] + "\n")
+    mismatch = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=pinned["invitation"] + "\n")
     check(not mismatch.ok and not (mismatch.json or {}).get("request_id"), "a join with a key the invite does not pin "
           "created a request")
     check(c.api("GET", "/v2/link/requests")[1] == before, "refused joins left join requests behind")
@@ -255,12 +255,12 @@ def _():
     made = invite(a, "carol", net["id"])
     expires = parse_time(made["expires_at"])
     set_clock(expires - timedelta(seconds=1))
-    last = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
+    last = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
     check((last.json or {}).get("request_id"), f"join at expires_at - 1 s: exit {last.code} {last.stderr.strip()[-200:]}")
     made = invite(a, "carol", net["id"])  # a fresh invite: re-joining the first one resumes its request
     expires = parse_time(made["expires_at"])
     set_clock(expires)
-    late = c.cli("join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
+    late = c.cli("--json", "join", "--invite-stdin", "--person-key", key, input=made["invitation"] + "\n")
     check(not late.ok and "expired" in late.stderr and not (late.json or {}).get("request_id"),
           f"join at expires_at: exit {late.code} {late.stderr.strip()[-200:]}")
     state["clock_at"] = expires

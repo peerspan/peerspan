@@ -529,7 +529,7 @@ def _():
     check(any(rule["agent"] == "default-artifact-rule" and "max_artifact_bytes" in rule
               and rule["max_artifact_bytes"] == 0 for rule in policy["body"]["rules"]),
           "exact signed policy JSON lost the explicitly present default artifact bound")
-    result = f["a"].cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], f["net"], f["bob"])).decode(), timeout=8)
+    result = f["a"].cli("--json", "onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], f["net"], f["bob"])).decode(), timeout=8)
     check(result.ok, "explicit stdin access CLI failed")
     validate(f["a"], f["pa"], f["net"], f["bob"], result.json)
     check({k: v for k, v in result.json.items() if k != "observed_at"} ==
@@ -664,7 +664,7 @@ def _():
     quiet(f, h, require_retirement=True)
     before, counters = snapshot(h), traffic(f)
     inspect(h, f["pa"], net, person)
-    result = h.cli("onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
+    result = h.cli("--json", "onboarding", "access", "inspect", "--stdin", input=compact(payload(f["pa"], net, person)).decode(), timeout=8)
     check(result.ok, "fresh attached project CLI after restart failed")
     validate(h, f["pa"], net, person, result.json)
     check(access_purity_diagnostic(snapshot(h), before, "post_restart_valid") == before and traffic(f) == counters, "post-restart valid API/CLI wrote rows/files or used a carrier")

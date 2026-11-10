@@ -42,7 +42,7 @@ def fixture_log():
 
 def call(host, address, operation, *args, wait="20s"):
     """`call ADDRESS OPERATION ...`; returns (exit code, local record)."""
-    result = host.cli("call", address, operation, *args, "--wait", wait, timeout=90)
+    result = host.cli("--json", "call", address, operation, *args, "--wait", wait, timeout=90)
     return result.code, result.json, result
 
 

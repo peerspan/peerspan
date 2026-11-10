@@ -121,7 +121,8 @@ def emit(result=None, error=None):
 
 def instrument(original):
     def observed_cli(host, *args, **kwargs):
-        if args[:2] != ('link', 'finalize'):
+        # Host.ok()/ok_incomplete() put the global `--json` first (CLI output contract, OUT-2).
+        if (args[1:] if args[:1] == ('--json',) else args)[:2] != ('link', 'finalize'):
             return original(host, *args, **kwargs)
         try:
             result = original(host, *args, **kwargs)

@@ -613,7 +613,7 @@ def op(f, action, prepared=None, *, parent=None, inspected=None, replace=None, o
     h = f['a']; parent = parent or f['parent']
     data = override if override is not None else input_for(f, action, prepared, parent=parent, inspected=inspected, replace=replace)
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=8)
         check(result.ok == (status == 200), 'private consent CLI outcome mismatch')
         public(result.stderr, str(h.state), *f['secrets'])
         if not result.ok:
@@ -1106,7 +1106,7 @@ def validate_signing(f, value):
 def signing_op(f, action, *, status=200, code=None, override=None, cli=False):
     h = f['a']; data = override if override is not None else signing_input(f, sign=action == 'sign')
     if cli:
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=100 if action == 'sign' else 8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=compact(data).decode(), timeout=100 if action == 'sign' else 8)
         check(result.ok == (status == 200), 'private signing CLI outcome mismatch')
         value = result.json
         public(result.stderr, str(h.root), *f['secrets'])
@@ -1468,7 +1468,7 @@ def _():
         quiet(f); before, counters = whole(f), traffic(f)
         status, value = raw_post(h, action, maximum)
         check(status == 200, f'exact64KiB {action} HTTP {status}'); validate_signing(f, value)
-        result = h.cli('onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=100 if action == 'sign' else 8)
+        result = h.cli('--json', 'onboarding', 'machine', action, '--stdin', input=maximum.decode(), timeout=100 if action == 'sign' else 8)
         check(result.ok and result.json['signing'] == value['signing'], 'exact64KiB private CLI parity')
         malformed = [b'null', b'[]', b'{', raw + b'{}', maximum + b' ',
             raw.replace(b'"request_id":', b'"request_id":"link_' + b'0' * 64 + b'","request_id":'),

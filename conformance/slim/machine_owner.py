@@ -423,7 +423,7 @@ def pure(f, *, h=None, parent=None, rid=None, status=200, code=None, data=None, 
         hold()
     before, counters = whole(f), traffic(f)
     if cli:
-        result = h.cli('onboarding', 'machine', 'inspect', '--stdin', input=compact(payload(parent, rid) if data is None else data).decode(), timeout=8)
+        result = h.cli('--json', 'onboarding', 'machine', 'inspect', '--stdin', input=compact(payload(parent, rid) if data is None else data).decode(), timeout=8)
         public(result.stdout + result.stderr, str(h.state), *f['secrets'])
         check(result.ok == (status == 200), 'private machine CLI success/refusal mismatch')
         value = result.json
@@ -617,7 +617,7 @@ def _():
     maximum = raw + b' ' * (65536 - len(raw))
     quiet(f); before, counters = whole(f), traffic(f)
     status, value = raw_post(h, maximum); check(status == 200, f'exact64KiB request HTTP {status}'); validate(f, value)
-    result = h.cli('onboarding', 'machine', 'inspect', '--stdin', input=maximum.decode(), timeout=8)
+    result = h.cli('--json', 'onboarding', 'machine', 'inspect', '--stdin', input=maximum.decode(), timeout=8)
     check(result.ok, 'exact64KiB private CLI refused'); validate(f, result.json)
     malformed = [b'null', b'[]', b'{', raw + b'{}', maximum + b' ',
         raw.replace(b'"request_id":', b'"request_id":"link_' + b'0' * 64 + b'","request_id":'),

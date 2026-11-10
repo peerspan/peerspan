@@ -504,19 +504,19 @@ def _():
     network = create_network(h, "cli", "owner")
     parent = project(h, "cli-private")
     body = proposal(parent, network)
-    empty = h.cli("onboarding", "invitation", "lookup", "--stdin", input=json.dumps({"context": context(parent)}))
+    empty = h.cli("--json", "onboarding", "invitation", "lookup", "--stdin", input=json.dumps({"context": context(parent)}))
     check(empty.ok and empty.json["flow"] is None, "CLI lookup did not preserve exact null view")
-    made = h.cli("onboarding", "invitation", "prepare", "--stdin", input=json.dumps(body))
+    made = h.cli("--json", "onboarding", "invitation", "prepare", "--stdin", input=json.dumps(body))
     check(made.ok, "CLI prepare failed")
     flow = made.json
     validate(h, parent, network, flow)
-    check(h.cli("onboarding", "invitation", "inspect", flow["flow_id"]).json == flow, "CLI inspect parity")
+    check(h.cli("--json", "onboarding", "invitation", "inspect", flow["flow_id"]).json == flow, "CLI inspect parity")
     decision_body = {"flow_id": flow["flow_id"], **decision(flow)}
-    result = h.cli("onboarding", "invitation", "decide", "--stdin", input=json.dumps(decision_body))
+    result = h.cli("--json", "onboarding", "invitation", "decide", "--stdin", input=json.dumps(decision_body))
     check(result.ok and result.json["state"] == "issued", "CLI exact approval failed")
     issued = result.json
     private_body = without(decision_body, "decision")
-    private = h.cli("onboarding", "invitation", "handoff", "--stdin", input=json.dumps(private_body))
+    private = h.cli("--json", "onboarding", "invitation", "handoff", "--stdin", input=json.dumps(private_body))
     check(private.ok and private.json == handoff(h, issued), "CLI private handoff parity")
     token = private.json["invitation"]
     inputs = {"lookup": {"context": context(parent)}, "prepare": body, "decide": decision_body, "handoff": private_body}
@@ -524,7 +524,7 @@ def _():
     for command, payload in inputs.items():
         encoded = json.dumps(payload)
         exact_bound = " " * (65536 - len(encoded.encode())) + encoded
-        valid = h.cli("onboarding", "invitation", command, "--stdin", input=exact_bound)
+        valid = h.cli("--json", "onboarding", "invitation", command, "--stdin", input=exact_bound)
         check(valid.ok, f"CLI {command} refused exact 64KiB input")
         if command != "handoff":
             public(valid.json, token)
@@ -926,7 +926,7 @@ def _():
     body = {"context": context(parent), "invitation": code}
     before = state_snapshot(h)
     exact = json.dumps(body); exact = " " * (65536 - len(exact.encode())) + exact
-    result = h.cli("onboarding", "invitation", "preview", "--stdin", input=exact)
+    result = h.cli("--json", "onboarding", "invitation", "preview", "--stdin", input=exact)
     check(result.ok and result.json == preview(h, parent, code), "private preview CLI/API parity at64KiB")
     public(result.json, code)
     for data in ('null', json.dumps(body) + ' {}', '{"context":null,' + json.dumps(body)[1:],

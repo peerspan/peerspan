@@ -966,7 +966,7 @@ def _():
     alice_p = state["alice_p"]
 
     def resolved():
-        result = dave.cli("conversation", "start", "person:alice", timeout=60)
+        result = dave.cli("--json", "conversation", "start", "person:alice", timeout=60)
         if result.ok:
             return result.json
         check("unknown" in result.stderr, f"dave's start: {result.stderr[-300:]!r}")
@@ -1000,7 +1000,7 @@ def _():
     conv = start("person:bob")
     bob_p = person_p(b, "bob")
     with Watch(b, conv) as watch:
-        said = a.cli("conversation", "say", conv, EVIL_CONTENT)
+        said = a.cli("--json", "conversation", "say", conv, EVIL_CONTENT)
         mid = json_output(said)["message"]["message_id"]  # `say` prints JSON: same bytes rule on alice
         check(said.json["message"]["content"] == EVIL_CONTENT, "`say` JSON does not parse back to the content")
         show_targets(a, conv, mid, bob_p, "delivered")
@@ -1120,7 +1120,7 @@ def _():
     limit, local, local_message, refused_subject, closed, _ = need("limit_conv", "local_conv", "local_message",
                                                                    "refused_subject", "closed_conv", "forgotten_conv")
     for host in (a, b):
-        result = host.cli("activity", "--limit", "1000")
+        result = host.cli("--json", "activity", "--limit", "1000")
         check(result.ok, f"{host.name}: activity: exit {result.code}: {result.stderr[-200:]!r}")
         for word in (WORD, TITLE_WORD, "fake line", "fake-name", "ev\\u001b"):
             check(word not in result.stdout, f"{host.name}: activity holds {word!r}")

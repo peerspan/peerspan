@@ -3,7 +3,9 @@
 
 alice creates a network and bob joins; carol only makes a join request. Written from
 docs/decentralized-spec.md sections 14 to 17, the wire appendix sections 16.1, 16.9 and 19, and
-docs/host-service-contract.md and docs/launch-contract.md (status, attention item 19 on the debug test clock).
+docs/host-service-contract.md and docs/launch-contract.md (status, attention item 19 on the debug test clock),
+and docs/cli-output-contract.md sections 1 and 2 (`--json`, readable output, the generic layout, terminal safety,
+`network list`).
 
 Not covered here: the installed-bundle smoke test (packaging a release bundle needs a release build and the
 Node integration bundles, several minutes on CI, over this suite's 2-minute budget). Legacy-network
@@ -16,7 +18,7 @@ import subprocess
 import time
 
 from harness import (Suite, attention, check, create_network, invite, join_new_person, join_request, members,
-                     ssh_key, ssh_public_base64, wait_for)
+                     parses_as_json, ssh_key, ssh_public_base64, terminal_escaped, wait_for)
 
 suite = Suite("basics", __doc__)
 suite.use_clock()  # one shared debug test clock, at +0s until `peer_delivery_failing` moves it
@@ -130,7 +132,7 @@ def _():
 
     def reached():
         # Work reaches bob while he is up, so alice holds his policy before he stops (policy travels by sync).
-        sent = a.cli("message", "send", "--peer", b.id, "--agent", bodie.id, "--content", "warm-up")
+        sent = a.cli("--json", "message", "send", "--peer", b.id, "--agent", bodie.id, "--content", "warm-up")
         if sent.ok and sent.json["state"] == "accepted":
             return True
         a.api("POST", f"/v2/networks/{net}/sync", {})
@@ -372,6 +374,161 @@ def _():
         code = None
     check(code not in (None, 0), "a second daemon started on a state directory already in use")
     check(a.api("GET", "/v1/host")[1] == identity, "the running daemon's socket or identity changed")
+
+
+# CLI output contract (OUT-1, OUT-2): sections 1 and 2's generic rules, and `network list`.
+
+def same_json(host, *args):
+    """`--json` before and after the subcommand: (front, back) results. Background sync may change a field between
+    the two runs, so a difference is retried; a real one persists."""
+    for _ in range(3):
+        front, back = host.cli("--json", *args), host.cli(*args, "--json")
+        if front.json == back.json:
+            break
+        time.sleep(1)
+    return front, back
+
+
+@suite.case("json_before_and_after_subcommand", "CLI output contract 1 (OUT-2), 4 `--json` everywhere")
+def _():
+    (net,) = need("net")
+    front, back = same_json(a, "network", "list")
+    check(front.ok and back.ok, f"network list --json: exit {front.code} before, {back.code} after the subcommand")
+    check(isinstance(front.json, list) and front.json == back.json,
+          f"`--json network list` and `network list --json` differ: {front.stdout[:300]!r} / {back.stdout[:300]!r}")
+    ids = [n.get("id") for n in front.json]
+    check(net in ids and ids == sorted(ids), f"network list --json IDs {ids}, want {net} among them, sorted by ID")
+    for view in front.json:  # NETWORK_VIEW (wire appendix 16.9)
+        check(view.get("mode") == "decentralized" and isinstance(view.get("name"), str) and view.get("member")
+              and isinstance(view.get("authority"), dict), f"network list --json entry {view}")
+
+
+@suite.case("readable_by_default_not_json", "CLI output contract 1 (OUT-1: also when stdout is not a terminal)")
+def _():
+    for args in (["network", "list"], ["info"]):
+        readable, structured = a.cli(*args), a.cli(*args, "--json")
+        check(structured.json is not None, f"`{' '.join(args)} --json` printed no JSON: {structured.stdout[:200]!r}")
+        check(readable.code == structured.code, f"`{' '.join(args)}`: exit {readable.code}, with --json {structured.code}")
+        check(readable.stdout.strip() and not parses_as_json(readable.stdout),
+              f"`{' '.join(args)}` with stdout a pipe printed JSON or nothing: {readable.stdout[:300]!r}")
+
+
+@suite.case("network_list_readable", "CLI output contract 2 `network list`")
+def _():
+    (net,) = need("net")
+    networks = a.ok("network", "list")
+    check(len(networks) >= 2, f"alice should be in `basics` and `other` (reinvite case): {[n['id'] for n in networks]}")
+    result = a.cli("network", "list")
+    check(result.ok, f"network list: exit {result.code}: {result.stderr.strip()[-200:]}")
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    ids = {n["id"] for n in networks}
+    check(lines and all(any(line.startswith(i) for i in ids) for line in lines),
+          f"not every line starts with a full network ID: {result.stdout[:600]!r}")
+    for view in networks:
+        mine = [line for line in lines if line.startswith(view["id"])]
+        check(len(mine) == 1, f"{len(mine)} lines for {view['id']}: {result.stdout[:600]!r}")
+        rest = mine[0][len(view["id"]):]
+        check(terminal_escaped(view["name"]) in rest and terminal_escaped(view["member"]) in rest,
+              f"line {mine[0]!r} lacks the name {view['name']!r} or member label {view['member']!r}")
+        authority = view["authority"]["state"]
+        check(authority == "usable" or authority in rest, f"line {mine[0]!r} lacks authority state {authority!r}")
+
+
+def generic_value(value):
+    """A scalar or an array of scalars in the generic layout (section 1.2); None for nested values."""
+    if isinstance(value, list):
+        if not value:
+            return "none"
+        if any(isinstance(v, (dict, list)) for v in value):
+            return None
+        return ", ".join(generic_value(v) for v in value)
+    if isinstance(value, dict):
+        return None
+    if value is None:
+        return "none"
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return terminal_escaped(value) if isinstance(value, str) else json.dumps(value)
+
+
+@suite.case("generic_layout_info", "CLI output contract 1.2 (`info` has no summary)")
+def _():
+    info = a.ok("info")
+    check(isinstance(info, dict) and info, f"info --json: {info}")
+    result = a.cli("info")
+    check(result.ok, f"info: exit {result.code}: {result.stderr.strip()[-200:]}")
+    lines = result.stdout.splitlines()
+    top = [line for line in lines if line and not line[0].isspace()]
+    at = -1
+    for key, value in info.items():
+        found = [i for i, line in enumerate(top) if line == key + ":" or line.startswith(key + ": ")]
+        check(found, f"info has no `{key}:` line at the left margin: {result.stdout[:600]!r}")
+        check(found[0] > at, f"`{key}:` is out of the object's order: {result.stdout[:600]!r}")
+        at = found[0]
+        want = generic_value(value)
+        if want is None:
+            check(top[at] == key + ":", f"nested `{key}` is not on its own `{key}:` line: {top[at]!r}")
+        else:
+            check(top[at] == f"{key}: {want}", f"info line {top[at]!r}, want {key}: {want}")
+
+
+@suite.case("generic_layout_empty_list", "CLI output contract 1.2 (an empty top-level array is `none`); 2 `network list`")
+def _():
+    fresh = suite.host("dora")  # no peers and no networks
+    check(fresh.ok("peer", "list") == [], "a fresh host's peer list --json is not []")
+    result = fresh.cli("peer", "list")
+    check(result.ok and result.stdout.strip() == "none", f"empty peer list: exit {result.code}, {result.stdout!r}")
+    check(fresh.ok("network", "list") == [], "a fresh host's network list --json is not []")
+    result = fresh.cli("network", "list")
+    check(result.ok and not parses_as_json(result.stdout), f"empty network list: exit {result.code}, {result.stdout!r}")
+    check("peerspan network create" in result.stdout and "peerspan join" in result.stdout,
+          f"empty network list does not point at `peerspan network create` or `peerspan join`: {result.stdout!r}")
+    fresh.stop()
+
+
+EVIL = "evil \x1b[31m red \x9b2J \x07 \x7f\nfake line"
+
+
+def raw_controls(text):
+    """Control characters in TEXT other than the layout's own line breaks."""
+    return sorted({hex(ord(c)) for c in text if (ord(c) < 0x20 and c != "\n") or 0x7f <= ord(c) <= 0x9f})
+
+
+@suite.case("terminal_safety", "CLI output contract 1.1 (text from another host: messages, error details)")
+def _():
+    (net,) = need("net")
+    evan = b.agent("evan")  # its own agent: bert's queue is left as the other cases expect
+
+    def accepted():
+        sent = a.cli("--json", "message", "send", "--peer", b.id, "--agent", evan.id, "--content", EVIL)
+        if sent.ok and sent.json["state"] == "accepted":
+            return sent.json
+        a.api("POST", f"/v2/networks/{net}/sync", {})
+    wait_for(accepted, timeout=20, interval=0.5, message="alice's message to evan to be accepted")
+    received = b.ok("message", "list")
+    check(any((m.get("request") or {}).get("content") == EVIL for m in received if isinstance(m, dict)),
+          "bob's message list --json does not hold the content as sent")
+    listed = b.cli("message", "list")
+    check(listed.ok, f"message list: exit {listed.code}")
+    check(not raw_controls(listed.stdout), f"message list printed raw control characters {raw_controls(listed.stdout)}")
+    check(terminal_escaped(EVIL) in listed.stdout and "\\u001b" in listed.stdout,
+          f"message list does not show the content escaped: {listed.stdout[-600:]!r}")
+    # A rejection reason from bob's agent, in alice's locally stored task events.
+    record = a.ok("task", "submit", "--peer", b.id, "--agent", evan.id, "--input", "please")
+    task_id = record["request"]["task_id"]
+    claimed = evan.next_task()
+    check(claimed["task"]["task_id"] == task_id, f"evan claimed {claimed['task']['task_id']}")
+    status, body = evan.post(f"/adapter/v1/tasks/{task_id}/reject", {"reason": EVIL})
+    check(status == 200, f"reject: {status} {body}")
+    wait_for(lambda: any(e["kind"] == "rejected" for e in a.ok("task", "events", "--peer", b.id, task_id)),
+             timeout=30, interval=0.5, message="the rejected event on alice's host")
+    events = a.cli("task", "events", "--peer", b.id, task_id)
+    check(events.ok, f"task events: exit {events.code}")
+    check(not raw_controls(events.stdout), f"task events printed raw control characters {raw_controls(events.stdout)}")
+    check(terminal_escaped(EVIL) in events.stdout,
+          f"task events does not show the rejection reason escaped: {events.stdout[-600:]!r}")
 
 
 suite.finish()

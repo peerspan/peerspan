@@ -168,7 +168,7 @@ class Host:
         if not self.keep_agent:
             env.pop("SSH_AUTH_SOCK", None)
         result = subprocess.run(
-            [self.binary, "--state", str(self.state), *args],
+            [self.binary, "--state", str(self.state), *([] if "--json" in args else ["--json"]), *args],
             capture_output=True, text=True, timeout=10, env=env,
         )
         assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)

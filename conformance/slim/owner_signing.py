@@ -429,7 +429,7 @@ def signed_body(flow, approved):
 def command(h, flow, approved, *, proxy=None, agent=None, data=None, env=None, stdin=True):
     body = compact(signed_body(flow, approved)) if data is None else data
     environment = {**h.env, "SSH_AUTH_SOCK": str(agent.path if agent else h.root / "absent-agent.sock"), **(env or {})}
-    argv = [str(suite.host_bin), "--state", str(proxy.state if proxy else h.state), "onboarding", "join", "owner", "sign"]
+    argv = [str(suite.host_bin), "--state", str(proxy.state if proxy else h.state), "--json", "onboarding", "join", "owner", "sign"]
     if stdin:
         argv.append("--stdin")
     result = subprocess.run(argv, input=body, env=environment, cwd=h.root, capture_output=True, timeout=20)

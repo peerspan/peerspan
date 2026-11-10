@@ -407,7 +407,7 @@ def _():
     original = credential(host, flow)
 
     def transport():
-        result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(payload))
+        result = host.cli("--json", "onboarding", "adapter", "transport", "--stdin", input=json.dumps(payload))
         check(result.ok, "private transport CLI failed")
         value = result.json
         check(set(value) == {"version", "adapter_id", "session_id", "token", "instance_id", "adapter_socket"}
@@ -473,7 +473,7 @@ def _():
         non_utf8.unlink()
     other_project, other = approved(host, "transport-other-flow")
     other_payload = {"flow_id": other["flow_id"], **without(decision(other), "decision")}
-    result = host.cli("onboarding", "adapter", "transport", "--stdin", input=json.dumps(other_payload))
+    result = host.cli("--json", "onboarding", "adapter", "transport", "--stdin", input=json.dumps(other_payload))
     check(result.ok and result.json["instance_id"] != private["instance_id"], "different flow/token reused the original instance")
     message = ("peerspan-guided-adapter-instance-v1\n" + other["flow_id"] + "\n" + other["review_id"]).encode()
     check(result.json["instance_id"] == "instance_" + hmac.new(bytes.fromhex(result.json["token"][6:]), message, hashlib.sha256).hexdigest(),
@@ -632,18 +632,18 @@ def _():
     host = suite.host("cli")
     attached = project(host, "cli-private")
     ctx = context(attached)
-    looked = host.cli("onboarding", "adapter", "lookup", "--stdin", input=json.dumps(ctx))
+    looked = host.cli("--json", "onboarding", "adapter", "lookup", "--stdin", input=json.dumps(ctx))
     check(looked.ok and looked.json == observe(host, attached, None), "lookup CLI/API differ")
-    result = host.cli("onboarding", "adapter", "prepare", "--stdin", input=json.dumps({"context": ctx}))
+    result = host.cli("--json", "onboarding", "adapter", "prepare", "--stdin", input=json.dumps({"context": ctx}))
     check(result.ok, "adapter prepare CLI failed")
     flow = result.json
     validate(host, attached, flow)
     check(host.ok("onboarding", "adapter", "inspect", flow["flow_id"]) == flow, "inspect CLI/API differ")
     payload = {"flow_id": flow["flow_id"], **decision(flow)}
-    result = host.cli("onboarding", "adapter", "decide", "--stdin", input=json.dumps(payload))
+    result = host.cli("--json", "onboarding", "adapter", "decide", "--stdin", input=json.dumps(payload))
     check(result.ok and result.json["state"] == "authorized" and "token_" not in result.stdout + result.stderr, "decision CLI exposed a token or failed")
     private_payload = without(payload, "decision")
-    result = host.cli("onboarding", "adapter", "credential", "--stdin", input=json.dumps(private_payload))
+    result = host.cli("--json", "onboarding", "adapter", "credential", "--stdin", input=json.dumps(private_payload))
     check(result.ok and result.json == credential(host, flow), "explicit private credential CLI/API differ")
     token = result.json["token"]
     before = records(host)

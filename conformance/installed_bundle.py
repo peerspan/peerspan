@@ -20,7 +20,7 @@ from peer_messaging import PeerHost
 
 def run(binary, state, cwd, *args, success=True, env=None):
     result = subprocess.run(
-        [str(binary), "--state", str(state), *args],
+        [str(binary), "--state", str(state), *([] if "--json" in args else ["--json"]), *args],
         cwd=cwd,
         capture_output=True,
         text=True,

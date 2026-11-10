@@ -949,7 +949,7 @@ def _():
     f.update(a=a, b=b, secrets=[])
     check(a.id != b.id and a.public_key != b.public_key and not a.original.exists() and not b.original.exists(),
           'genuine isolated fresh hosts/original prerequisite')
-    result = a.cli('network', 'create', 'Combined "東京" network', '--as', 'Existing "é" person', timeout=60)
+    result = a.cli('--json', 'network', 'create', 'Combined "東京" network', '--as', 'Existing "é" person', timeout=60)
     check(result.code == 0 and type(result.json) is dict, 'ordinary local network creation failed')
     net = result.json
     check(net['id'] == 'net_' + hashlib.sha256(base64.b64decode(net['genesis_root_public_key'], validate=True)).hexdigest()
@@ -1102,7 +1102,7 @@ def _():
     validate_completion(f, completed)
     f['completion'] = completed
     # Fresh private CLI Lookup; no repeated mutation and no replacement project.
-    lookup = b.cli('onboarding', 'join', 'machine-commit', 'lookup', '--stdin',
+    lookup = b.cli('--json', 'onboarding', 'join', 'machine-commit', 'lookup', '--stdin',
         input=compact({'flow_id': f['flow']['flow_id'], **body}).decode(), timeout=5)
     check(lookup.code == 0, 'fresh pure CLI consent Lookup failed after lost200')
     public(lookup.stdout + lookup.stderr, *f['secrets'])
