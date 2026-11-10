@@ -1534,9 +1534,9 @@ Do not silently rewrite an existing service unit to add listeners: preserve it
 and return the exact bootstrap-listener configuration/restart repair step.
 No public unauthenticated roster/address enumeration is started. Existing peer
 QUIC and actual default integration behavior remain explicit. The separate
-[optional helper operator](decentralized-helper-contract.md) supplies Go-only
-peerspan-helper; neither host bundle launches/requires it, and no second helper
-implementation is needed for both host clients to replace operators.
+[optional helper operator](decentralized-helper-contract.md) supplies
+`peerspan-helper`, which the release ships as a Rust binary in its own archive;
+the host bundle neither launches nor requires it.
 
 New create/join/link/up reject `--coordinator`, `--coordinator-key` and new-mode
 JSON coordinator fields, rather than ignore them or interpret an empty value as

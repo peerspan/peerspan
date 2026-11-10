@@ -5,8 +5,43 @@ sidecar joins its existing local app-server socket and preserves the thread,
 history, model, sandbox and normal tool approvals. Requires Node 22+ and Codex
 CLI/backend 0.160.0+.
 
-Release bundles already contain the pinned production dependencies. In a source
-checkout, install them before attaching a session:
+From a project directory, attach the conversation in one command:
+
+```sh
+cd ~/src/project
+peerspan attach codex \
+  --option thread=EXISTING_CODEX_THREAD_UUID \
+  --option socket=/absolute/app-server-control.sock
+```
+
+`attach` registers the agent (with a default name based on `codex`, or
+`--name NAME`),
+authorizes the session and starts Peerspan's sidecar in the foreground. Add
+`--option executable=/absolute/codex` when `codex` is not on `PATH`. Each
+attached project directory holds one session, so use a directory with no other
+attached agent: attaching Codex where a Claude session already runs is refused
+with "the session for … is already running".
+
+Use the socket of the backend serving that conversation. For the shared local
+Codex daemon, `codex app-server daemon version` reports `socketPath`. Inside the
+native Codex CLI conversation, enter `/status` and copy the **Session** UUID for
+`--option thread`. If that line is absent, send a message and run `/status` again.
+The daemon version command does not list conversation IDs. Peerspan refuses stored
+but unloaded threads, rather than starting a replacement. The desktop/TUI continues running;
+`attach` (or `session start`) starts only Peerspan's sidecar. Optional `-- --json` produces JSONL
+progress. Ctrl-C stops the sidecar and disconnects Peerspan, leaving Codex running.
+
+Setup writes only private Peerspan artifacts. Doctor reads prerequisites and the
+selected thread without connecting an adapter, changing Codex configuration,
+renewing leases or consuming messages. Keep the sibling `shared/` directory with
+the integration bundles.
+
+## Advanced: explicit session setup
+
+`attach` covers the normal case. The lower-level commands set up a session for
+an agent registered separately, with an explicit expiry and destinations file.
+Release bundles already contain the pinned production dependencies; in a source
+checkout, install them first:
 
 ```sh
 npm ci --ignore-scripts --prefix integrations/codex
@@ -20,20 +55,6 @@ peerspan-host --state STATE session setup --harness codex \
 peerspan-host session start --directory /absolute/codex-attachment
 peerspan-host session doctor --directory /absolute/codex-attachment
 ```
-
-Use the socket of the backend serving that conversation. For the shared local
-Codex daemon, `codex app-server daemon version` reports `socketPath`. Inside the
-native Codex CLI conversation, enter `/status` and copy the **Session** UUID for
-`--option thread`. If that line is absent, send a message and run `/status` again.
-The daemon version command does not list conversation IDs. Peerspan refuses stored
-but unloaded threads, rather than starting a replacement. The desktop/TUI continues running;
-`session start` starts only Peerspan's sidecar. Optional `-- --json` produces JSONL
-progress. Ctrl-C stops the sidecar and disconnects Peerspan, leaving Codex running.
-
-Setup writes only private Peerspan artifacts. Doctor reads prerequisites and the
-selected thread without connecting an adapter, changing Codex configuration,
-renewing leases or consuming messages. Keep the sibling `shared/` directory with
-the integration bundles.
 
 ## Tools and delivery
 
