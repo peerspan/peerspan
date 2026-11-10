@@ -197,6 +197,11 @@ pub(crate) async fn create_join(
     Ok(approved)
 }
 
+/// Whether a new person's own join request is still waiting for its owner
+/// approval on this machine after `create_join` (declined, or no terminal).
+pub(crate) fn declined_owner_approval(v: &Value) -> bool {
+    v["role"] == "requester" && v["owner_offer_id"] == "-" && v["state"] == "pending"
+}
 #[allow(clippy::too_many_arguments)]
 async fn join(
     socket: &Path,
@@ -214,6 +219,12 @@ async fn join(
     );
     let token = input.read().await?;
     let v = create_join(&Local(socket), &token, person_key).await?;
+    // A declined (or not yet given) owner approval ends here: the request
+    // stays pending, `next` names the approval on this machine, and the
+    // command exits nonzero (spec 8.4, ML-3).
+    if declined_owner_approval(&v) {
+        return crate::decentralized_link_cli::output(v, true);
+    }
     let mut v = crate::decentralized_link_cli::guide_join(
         socket,
         v,
