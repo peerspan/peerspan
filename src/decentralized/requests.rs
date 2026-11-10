@@ -455,7 +455,7 @@ impl Pending {
             Vec::new()
         };
         Ok(
-            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":[]}),
+            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,state,network,&person)}),
         )
     }
     pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
@@ -992,6 +992,60 @@ pub(crate) fn after_create_commit(store: &Store, id: &str) -> Result<()> {
 }
 /// Public request views within the caller's existing read snapshot. Never
 /// returns pairing material or advances the request's state.
+/// The public view's `next` (machine-linking transactions: never empty while a
+/// request is neither linked nor terminal; ML-3). Each line is "WHO, on
+/// WHERE: WHAT", with the exact command when the step runs on this host.
+pub(crate) fn next_steps(
+    id: &str,
+    roles: &[String],
+    state: &str,
+    network: &str,
+    person: &str,
+) -> Vec<String> {
+    let has = |role: &str| roles.iter().any(|r| r == role);
+    let requester = has("requester");
+    let owner = has("owner");
+    let administrator = has("administrator");
+    match state {
+        "pending" if requester => vec![format!(
+            "owner, on this machine for a new person: peerspan link approve {id} --network {network} --person {person} (an existing person approves on one of their machines: peerspan link approve {id} --network {network})"
+        )],
+        "pending" if owner => vec![format!(
+            "owner, on this machine: peerspan link approve {id} --network {network}"
+        )],
+        "pending" => vec![
+            "owner, on the joining machine: approve this machine there (peerspan up --join asks 'Approve this exact machine?')".into(),
+        ],
+        "needs_selection" if requester => vec![format!(
+            "requester, on this machine: select the owner offer with peerspan link resume {id}"
+        )],
+        "needs_selection" => vec![
+            "requester, on the joining machine: select the owner offer (automatic when there is exactly one)".into(),
+        ],
+        "needs_administrator" if administrator => vec![format!(
+            "administrator, on this machine: peerspan link admit {id} --network {network} --person {person}"
+        )],
+        "needs_administrator" => vec![
+            "administrator, on an administrator's machine: run the peerspan link admit command its peerspan status shows".into(),
+        ],
+        "needs_owner_finalization" if owner || requester => vec![format!(
+            "owner, on this machine: finalization runs automatically under the owner's approval; peerspan link resume {id} asks for an immediate pass"
+        )],
+        "needs_owner_finalization" => vec![
+            "owner, on the joining machine or a machine of the person: finalization runs automatically under the owner's approval".into(),
+        ],
+        "needs_commit" if requester => vec![format!(
+            "requester, on this machine: answer 'Commit this exact machine link?' with peerspan link resume {id}"
+        )],
+        "needs_commit" => vec![
+            "requester, on the joining machine: confirm 'Commit this exact machine link?'".into(),
+        ],
+        "finalizing" => vec![
+            "requester, on the joining machine: applying the committed link runs automatically, as on every participant".into(),
+        ],
+        _ => Vec::new(),
+    }
+}
 pub(crate) fn views_in(c: &Connection, now: &str) -> Result<Vec<Value>> {
     ids_in(c)?.iter().map(|id| load(c, id)?.view(now)).collect()
 }

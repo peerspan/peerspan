@@ -460,7 +460,10 @@ expires.
    For a **new person**, the owner is the joining person, so `join` and `up
    --join` show the owner review on the new machine right after the identity
    choice and ask `Approve this exact machine? [y/N]` (ML-4). A yes signs the
-   owner offer there; there is no separate `link approve` for the joiner. For an
+   owner offer there; there is no separate `link approve` for the joiner. The
+   command then keeps running: it waits for the admission, signs owner
+   finalization under that same approval, and asks the commit prompt, so the
+   joiner runs no other command. For an
    **existing person**, the owner approves with `link approve REQUEST_ID` on one
    of that person's machines. The inviter's status shows
    `link_request_waiting`, naming whose step comes next and where (section 16).
