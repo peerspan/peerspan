@@ -358,9 +358,21 @@ fn load_manifest(
     let mut m = selected.context("harness is not installed in the integration directory")?;
     if let Some(runner) = runner {
         m.command[0] = runner.to_string_lossy().into_owned()
+    } else if m.command[0] == "node"
+        && let Some(bundled) = bundled_node()
+    {
+        m.command[0] = bundled.to_string_lossy().into_owned()
     }
     m.command[0] = executable(&m.command[0])?;
     Ok(m)
+}
+/// The release's own Node.js runtime, `share/peerspan/node/bin/node` beside the
+/// binary's `bin/` (install contract, Bundled Node.js; INST-9). A source
+/// checkout has none, and integrations then run with `node` from `PATH`.
+fn bundled_node() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let node = exe.parent()?.join("../share/peerspan/node/bin/node");
+    node.is_file().then(|| absolute(&node).ok()).flatten()
 }
 struct HelperGroup(u32);
 impl Drop for HelperGroup {

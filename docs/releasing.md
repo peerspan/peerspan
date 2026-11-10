@@ -4,6 +4,16 @@ The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is ru
 
 Coordinator-free host packages need no coordinator address, coordinator public key, staging identity or vendor helper default. Do not set `PEERSPAN_COORDINATOR` or `PEERSPAN_COORDINATOR_KEY` when packaging, including empty values: the scripts refuse those obsolete options. The workflow does not consume the old repository variables. Optional helper addresses, transport pins and resource credentials are explicit private host configuration, separate from network authority.
 
+## The release verifier
+
+The install scripts accept a release only through Peerspan's own verifier ([install contract](install-contract.md#release-verifier), INST-10). It is published once per version of the verifier, not with each host release:
+
+1. Run the [Draft verifier release workflow](../.github/workflows/verifier-release.yml) from `main` with the next N. It builds `peerspan-verify-linux-amd64` and `-arm64` as static binaries and creates a draft prerelease `verifier-vN` with exactly those two assets. Its notes give the two pin lines.
+2. Download both binaries and check their digests against the notes. Then publish the draft **as a prerelease**, so it never becomes `releases/latest`: `gh release edit verifier-vN --repo peerspan/peerspan --draft=false --prerelease`.
+3. In a pull request that changes nothing else, set `PEERSPAN_VERIFIER_RELEASE` and `PEERSPAN_VERIFIER_SHA256` to the new values in both `scripts/install.sh` and `scripts/install-release.sh`. The owner reviews it.
+
+A published `verifier-vN` is never edited or deleted. Older bootstraps keep downloading the version they pin, and hand each installer the version that installer pins.
+
 ## Build a draft candidate
 
 1. Merge the reviewed source and run the Rust checks and all slim conformance suites at the intended revision. Record that exact commit. The remaining installed and live checks qualify the resulting draft before publication.
@@ -98,7 +108,7 @@ After the candidate qualification above:
    gh release download vVERSION --repo peerspan/peerspan --dir DIRECTORY
    ```
 
-2. Check that `PEERSPAN_RELEASE_KEYS` in the tagged `scripts/install.sh` and in the draft's `install-release.sh` asset equals the keys of the latest key decision in the [decision log](decision-log.md). A difference stops publication.
+2. Check that `PEERSPAN_VERIFIER_RELEASE` and `PEERSPAN_VERIFIER_SHA256` in the tagged scripts name a published `verifier-vN` whose binaries have those digests. Check that `PEERSPAN_RELEASE_KEYS` in the tagged `scripts/install.sh` and in the draft's `install-release.sh` asset equals the keys of the latest key decision in the [decision log](decision-log.md). A difference stops publication.
 3. Sign the manifest:
 
    ```sh
@@ -106,7 +116,7 @@ After the candidate qualification above:
    ```
 
    It checks `release.json`, every listed asset's digest and every archive's `RELEASE.json` before asking for the passphrase, then writes `DIRECTORY/release.json.sig` and prints the public key it signed with. Any failed check writes nothing.
-4. On clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, with no `gh` installed, copy that directory (now including `release.json.sig`) and install from it. This exercises the signed-manifest check on the exact candidate:
+4. On clean Debian 12, Ubuntu 22.04 and Ubuntu 24.04 machines, on amd64 and arm64, with no `gh` and no Node.js installed, copy that directory (now including `release.json.sig`, plus `peerspan-verify-linux-ARCH` from the pinned `verifier-vN` release) and install from it. This exercises the signed-manifest check on the exact candidate:
 
    ```sh
    bash DIRECTORY/install-release.sh VERSION --from DIRECTORY
@@ -137,7 +147,7 @@ After the candidate qualification above:
    curl -fsSL https://peerspan.dev/install | cmp - <(git show vVERSION:scripts/install.sh)
    ```
 
-9. On a clean Debian 12, Ubuntu 22.04 or Ubuntu 24.04 machine for each architecture, with no `gh` installed, run the real one-liner. It must install this release, both as `latest` and pinned:
+9. On a clean Debian 12, Ubuntu 22.04 or Ubuntu 24.04 machine for each architecture, with no `gh` and no Node.js installed, run the real one-liner. It must install this release, both as `latest` and pinned:
 
    ```sh
    curl -fsSL https://peerspan.dev/install | bash
