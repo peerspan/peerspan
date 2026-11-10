@@ -168,7 +168,11 @@ pub(crate) async fn network(
             let v =
                 crate::decentralized_onboarding_cli::create_join(&local, token, &args.person_key)
                     .await?;
-            let v = guide_join(&socket, v, args.person_key.clone()).await?;
+            let v = if crate::decentralized_onboarding_cli::declined_owner_approval(&v) {
+                v
+            } else {
+                guide_join(&socket, v, args.person_key.clone()).await?
+            };
             incomplete(result, &v)?;
         } else {
             let name = args

@@ -455,7 +455,7 @@ impl Pending {
             Vec::new()
         };
         Ok(
-            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,state,network,&person)}),
+            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,r.contact_invitation_base64!="-",state,network,&person,&r.owner_offer_id,&r.selection_id)}),
         )
     }
     pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
@@ -995,20 +995,30 @@ pub(crate) fn after_create_commit(store: &Store, id: &str) -> Result<()> {
 /// The public view's `next` (machine-linking transactions: never empty while a
 /// request is neither linked nor terminal; ML-3). Each line is "WHO, on
 /// WHERE: WHAT", with the exact command when the step runs on this host.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn next_steps(
     id: &str,
     roles: &[String],
+    invited: bool,
     state: &str,
     network: &str,
     person: &str,
+    owner_offer: &str,
+    selection: &str,
 ) -> Vec<String> {
     let has = |role: &str| roles.iter().any(|r| r == role);
     let requester = has("requester");
     let owner = has("owner");
     let administrator = has("administrator");
     match state {
+        // A request made from an invite is a new person joining from their
+        // own original machine, which approves it (ML-4); a same-person link
+        // is approved on another machine of that person.
+        "pending" if requester && invited => vec![format!(
+            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}"
+        )],
         "pending" if requester => vec![format!(
-            "owner, on this machine for a new person: peerspan link approve {id} --network {network} --person {person} (an existing person approves on one of their machines: peerspan link approve {id} --network {network})"
+            "owner, on a machine of the person: peerspan link approve {id} --network {network}"
         )],
         "pending" if owner => vec![format!(
             "owner, on this machine: peerspan link approve {id} --network {network}"
@@ -1023,7 +1033,7 @@ pub(crate) fn next_steps(
             "requester, on the joining machine: select the owner offer (automatic when there is exactly one)".into(),
         ],
         "needs_administrator" if administrator => vec![format!(
-            "administrator, on this machine: peerspan link admit {id} --network {network} --person {person}"
+            "administrator, on this machine: peerspan link admit {id} --network {network} --person {person} --owner-offer {owner_offer} --selection {selection}"
         )],
         "needs_administrator" => vec![
             "administrator, on an administrator's machine: run the peerspan link admit command its peerspan status shows".into(),
