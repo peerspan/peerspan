@@ -609,7 +609,7 @@ The readable layout prints, after each agent, `address` when there is one, follo
 
 ### Verification
 
-`conformance/launch_directory.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, `--node` for the MCP cases, and OpenSSH. It covers:
+These cases were written for `conformance/launch_directory.py`, which was removed with the other pre-slim suites ([DEC-OWN10](decision-log.md#dec-own10-delete-the-old-conformance-suites-2026-10-28)). The slim suites now cover them in part: `work` (the directory, addresses and sends by address), `direct_dial` (the directory's 10-second bound), `naming` (attach names) and `policy` (`allow` and `deny`). A case below with no slim counterpart is not currently covered. The list:
 - **Peer route:**
   - listing through self access, a person rule, a `*` rule, a group rule, `everyone`, an `agent:` principal (`from_agent`), and a grant;
   - unlisted agents with no authorization, and `[]`;
@@ -791,7 +791,7 @@ Change notifications are checked by `conformance/launch_push.py`, written from t
 - the three fallbacks: `allow` by a label admitted moments earlier, a directory refresh retrying a 403 and a sibling answer without `self`, and a send citing a policy submitted moments earlier;
 - `delegation_depth` on an address delegation, with a forward by the receiver by address, and the 400 cases.
 
-The attach launch is checked by `conformance/launch_directory.py`, which existing cases make pass `--no-start` where they expect the output object, plus cases for the launch with the fixture harness, the reused session, and `--no-start`. Otherwise this slice adds no conformance suite. It is accepted when:
+The attach launch was checked by `conformance/launch_directory.py`, removed with the pre-slim suites (DEC-OWN10); `naming` and `conversations_run_fixes` now run `attach` with fixture bundles. Otherwise this slice adds no conformance suite. It is accepted when:
 - `launch_acceptance.py` passes every run, and its results file shows the counts above;
 - `live_launch_agents.py` completes once with real models, and its results file is committed;
 - the quick start documents exactly the counted path, and the [manual agent testing guide](manual-agent-testing.md) is presented as the advanced path.
