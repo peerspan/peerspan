@@ -65,7 +65,7 @@ Contents:
 - **Source:** the owner's answers, 2026-11-10, on issue [#159](https://github.com/peerspan/peerspan/issues/159). In 0.2.0 qualification step 5 (evidence F22), bob's daemon was stopped while alice had a task queued for him. alice's `status --json` showed `delivery.peer_errors` with `transport_unavailable` for bob's host and a pending proof, and `agents` showed bob/claude as "connected, host error". Human `status` said "Nothing needs attention". The options below are quoted from the questions put to the owner.
 - **Recorded in:** this log and the contract below.
 - **Contract section:** [launch-contract.md](launch-contract.md), attention item 19, `peer_delivery_failing`.
-- **Fix that needs no decision,** recorded with these entries: a new item, `peer_delivery_failing`, with one entry per peer host, naming the peer, what is waiting and the last error. Like every attention item, it makes `status` exit 1.
+- **Fix that needs no decision,** recorded with these entries: a new item, `peer_delivery_failing`, with one entry per peer host, naming the peer, what is waiting and the errors it last failed with. Like every attention item, it makes `status` exit 1.
 
 #### STAT-1. What counts as waiting
 

@@ -60,24 +60,21 @@ struct Waiting {
     counts: [usize; 4],
     oldest: Option<DateTime<Utc>>,
     oldest_at: String,
-    latest_at: Option<DateTime<Utc>>,
-    latest_error: String,
+    /// Each distinct error the waiting work last failed with. Records keep
+    /// no attempt time, so none is called the latest.
+    errors: std::collections::BTreeSet<String>,
 }
 impl Waiting {
     fn add(&mut self, kind: usize, created: &str, error: &str) {
         self.counts[kind] += 1;
+        self.errors.insert(error.to_owned());
         let Some(at) = time(created) else { return };
         if self.oldest.is_none_or(|o| at < o) {
             self.oldest = Some(at);
             self.oldest_at = created.to_owned();
         }
-        if self.latest_at.is_none_or(|l| at >= l) {
-            self.latest_at = Some(at);
-            self.latest_error = error.to_owned();
-        }
     }
 }
-
 fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> {
     let code = v["authority"]["state"].as_str()?;
     if matches!(code, "usable" | "unbound") {
@@ -462,6 +459,26 @@ impl Store {
         now: DateTime<Utc>,
     ) -> Result<Vec<(String, String, String)>, Error> {
         let mut peers: std::collections::BTreeMap<String, Waiting> = Default::default();
+        // Creation times in one pass over the event log, not one per record.
+        let mut created = std::collections::HashMap::<(String, String), String>::new();
+        {
+            let mut q = connection.prepare(
+                "SELECT kind, subject_id, MIN(created_at) FROM events \
+                 WHERE kind IN ('message.queued','task.submitted','call.submitted') \
+                 GROUP BY kind, subject_id",
+            )?;
+            let rows = q.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (kind, subject, at) = row?;
+                created.insert((kind, subject), at);
+            }
+        }
         for (kind, table, id, state, event) in [
             (
                 0,
@@ -486,23 +503,22 @@ impl Store {
             ),
         ] {
             let mut q = connection.prepare(&format!(
-                "SELECT t.peer, json_extract(t.record,'$.error'), \
-                 (SELECT MIN(e.created_at) FROM events e WHERE e.kind=?1 AND e.subject_id=t.peer||'/'||t.{id}) \
+                "SELECT t.peer, json_extract(t.record,'$.error'), t.{id} \
                  FROM {table} t WHERE json_extract(t.record,'$.{state}')='unknown' \
                  AND json_extract(t.record,'$.error') IS NOT NULL \
                  AND json_extract(t.record,'$.next_attempt_at') IS NOT NULL"
             ))?;
-            let rows = q.query_map([event], |r| {
+            let rows = q.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
-                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(2)?,
                 ))
             })?;
             for row in rows {
-                let (peer, error, created) = row?;
-                if let Some(created) = created {
-                    peers.entry(peer).or_default().add(kind, &created, &error);
+                let (peer, error, record) = row?;
+                if let Some(at) = created.get(&(event.to_owned(), format!("{peer}/{record}"))) {
+                    peers.entry(peer).or_default().add(kind, at, &error);
                 }
             }
         }
@@ -542,10 +558,20 @@ impl Store {
             items.push((
                 peer.clone(),
                 format!(
-                    "{} waiting for host {peer} since {}; last error: {}",
+                    "{} waiting for host {peer} since {}; {}: {}",
                     parts.join(", "),
                     w.oldest_at,
-                    w.latest_error
+                    if w.errors.len() == 1 {
+                        "error"
+                    } else {
+                        "errors"
+                    },
+                    w.errors
+                        .iter()
+                        .take(3)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("; ")
                 ),
                 "peerspan agents --refresh".into(),
             ));
