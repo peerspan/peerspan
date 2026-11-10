@@ -145,6 +145,8 @@ The rest of the script is a function definition, and its last line calls that fu
 7. **Handoff.** It runs `bash DIR/install-release.sh V --from DIR`, adding `--no-service` when given, with the caller's environment. It exits with that command's status.
 8. **Cleanup.** It removes the temporary directory on every exit after step 3 began, including failures and signals.
 
+**Releases it installs.** The bootstrap installs releases whose `install-release.sh` pins a verifier, that is 0.2.1 and later. An earlier release's installer has no `PEERSPAN_VERIFIER_RELEASE` or `PEERSPAN_VERIFIER_SHA256`, so step 6 refuses it with `invalid installer pins`. For example, `--version 0.2.0` fails closed after the verifier has checked that release, and writes nothing outside the temporary directory. Such a release stays installable with its own `install-release.sh VERSION --from-github peerspan/peerspan`, which needs Node.js 22 or later.
+
 Every failure in steps 3 to 6 prints one line to standard error naming the file and the reason, with the download tool's own error message folded into that line rather than printed separately (download failed, verifier digest mismatch, bad signature, invalid manifest, version mismatch, missing architecture, digest mismatch, invalid installer pins), and exits 1. Before step 7, the bootstrap writes nothing outside its temporary directory.
 
 ### Downloads
