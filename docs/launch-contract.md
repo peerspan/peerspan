@@ -552,7 +552,7 @@ A session's credential may be created with **directory access**. Then its adapte
 | --- | --- |
 | `attach HARNESS [--name NAME] [--directory DIR] [--expires-in D \| --expires-at T] [--max-sends-per-hour N] [--option KEY=VALUE ...] [--integrations DIR] [--runner PATH]` | Registers the agent if needed and sets up a directory session for the project at `--directory` (default: the current directory), below. |
 | `agents [--network ID] [--refresh] [--json]` | Shows the directory (below). `--refresh` refreshes first. |
-| `send TARGET TEXT [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `message send` addressed by `TARGET`, an address. Prints the outbound record. |
+| `send TARGET TEXT [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `message send` addressed by `TARGET`, an address. Prints the outbound record, with `message send`'s exit status: 1 when the receiver refused it (`rejected`, MSG-1), 0 otherwise. |
 | `task TARGET TEXT [--file PATH ...] [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `task submit` addressed by `TARGET`. `--file` is `--artifact`, with the default media type. Prints the local task record. |
 | `session start` / `session doctor` | `--directory` becomes optional: without it, they use the `attach` profile whose recorded workspace is the current directory, and fail when there is none. |
 
