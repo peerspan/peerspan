@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
   - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
   - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
   - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
@@ -55,6 +56,39 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### ML-3 to ML-5: joining a teammate, step by step (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** machine linking (ML): what each participant sees and runs when a new person joins.
+- **Source:** the owner's answers, 2026-11-10, "1a, 2a, 3b works", on issues [#156](https://github.com/peerspan/peerspan/issues/156) and [#157](https://github.com/peerspan/peerspan/issues/157). Both joins in 0.2.0 qualification and the four-machine demo needed operator help. The inviter's status suggested `link approve` on the inviter, which failed with `error: host daemon: invalid`. The joiner was never shown the request ID its own `link approve --person` needed. And every link command ended with `linking is incomplete; follow the returned next step` and an empty `next`, even after its own step succeeded. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) sections 8.1, 8.3, 8.4, 16 and its verification cases; [machine-linking-transactions.md](machine-linking-transactions.md) (exit status and `next`); [quick-start.md](quick-start.md), "Invite a teammate".
+- **Fixes that need no decision,** recorded with these entries: the inviter's `link_request_waiting` names whose step it is and on which machine. `next` is never empty while a request is neither linked nor terminal.
+
+#### ML-3. Exit status when your part is done but someone else's step remains
+
+- **Options:**
+  - (a) "Exit 0 (recommended). Print 'your part is done', what happens next and where. Non-zero stays for real failures, or when this machine still has a step to do. Scripts then fail only on actual errors."
+  - (b) "Keep exiting non-zero, as specified today, but with a real `next` and a message that isn't 'follow the returned next step'."
+- **Chosen:** (a). It replaces "Incomplete CLI operations exit nonzero with the public view and next step" in the transactions contract.
+- **Reason given:** none beyond choosing it.
+
+#### ML-4. How the joiner gets their `link approve` step
+
+- **Options:**
+  - (a) "`up --join` does the owner approval itself (recommended). After the joiner chooses 'create a new person', it shows the owner review and asks 'Approve this exact machine? [y/N]' in the same session. That removes the separate `link approve --person` step from the quick start."
+  - (b) "Keep the separate step, but have `up --join` print the request ID and the exact `peerspan link approve … --person …` command."
+- **Chosen:** (a). A new person's machine now has two default-no prompts, owner approval and then commit, where spec 8.4 said one.
+- **Reason given:** none beyond choosing it.
+
+#### ML-5. The raw-JSON review screens
+
+- **Options:**
+  - (a) "In this change: a short human summary before each 'Approve/Commit this exact machine?' prompt (person, machine key fingerprint, scope names, expiry), with JSON behind `--json`."
+  - (b) "Later, with #158's output pass (recommended). This change stays focused on who does what next; #158 then cleans up the output of every command at once."
+- **Chosen:** (b). The review screens are covered by [#158](https://github.com/peerspan/peerspan/issues/158).
+- **Reason given:** none beyond choosing it.
 
 ### INST-9 to INST-11: bundled Node.js and our own release verifier (2026-11-10)
 
