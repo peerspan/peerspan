@@ -82,12 +82,14 @@ command -v flock >/dev/null || { echo "flock is required" >&2; exit 1; }
 download_dir=
 stage=
 temporary_link=
+temporary_current=
 verifier_dir=
 cleanup() {
   if [[ -n $stage ]]; then rm -rf -- "$stage"; fi
   if [[ -n $download_dir ]]; then rm -rf -- "$download_dir"; fi
   if [[ -n $verifier_dir ]]; then rm -rf -- "$verifier_dir"; fi
   if [[ -n $temporary_link ]]; then rm -f -- "$temporary_link"; fi
+  if [[ -n $temporary_current ]]; then rm -f -- "$temporary_current"; fi
 }
 trap cleanup EXIT
 
@@ -249,6 +251,15 @@ mkdir -p -- "$release_base" "$bin_dir"
 exec 9>"$data_home/peerspan/.install.lock"
 flock -n 9 || { echo "another Peerspan install is running" >&2; exit 1; }
 
+# A stable path to the installed release, for integrations a harness loads by
+# path, such as OpenCode's plugin (install contract, INST-12).
+current_link="$data_home/peerspan/current"
+if [[ -e $current_link || -L $current_link ]]; then
+  [[ -L $current_link && $(readlink -- "$current_link") == releases/* ]] || {
+    echo "$current_link is not a Peerspan installer link; refusing to replace it" >&2
+    exit 1
+  }
+fi
 if [[ -e $launcher && ! -L $launcher ]]; then
   echo "$launcher already exists and is not a Peerspan installer link" >&2
   exit 1
@@ -274,6 +285,7 @@ fi
 
 stage=$(mktemp -d "$release_base/.install.XXXXXX")
 temporary_link="$bin_dir/.peerspan-link.$$"
+temporary_current="$data_home/peerspan/.current-link.$$"
 
 # The packager emits one named root. Reject unexpected paths before extraction.
 tar -tzf "$archive" > "$stage/members"
@@ -339,6 +351,8 @@ fi
 
 ln -s -- "$release/bin/peerspan" "$temporary_link"
 mv -Tf -- "$temporary_link" "$launcher"
+ln -s -- "releases/${release##*/}" "$temporary_current"
+mv -Tf -- "$temporary_current" "$current_link"
 
 echo "Installed Peerspan $version ($implementation) at $release"
 echo "Command: $launcher"

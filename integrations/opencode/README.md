@@ -33,13 +33,19 @@ private, account-owned directory for bindings and substitute full absolute paths
 }
 ```
 
-With a release install, the plugin is at
-`~/.local/share/peerspan/releases/RELEASE/share/peerspan/integrations/opencode/plugin.mjs`
-(under `$XDG_DATA_HOME` when set), where `RELEASE` names the installed release;
-`readlink ~/.local/bin/peerspan` shows the current one. The path changes with
-every upgrade, and the installer keeps older releases, so an entry that is not
-updated keeps loading the previous release's plugin. After each upgrade, point
-the entry at the new release's path.
+With a release install, name the plugin through the installer's stable link,
+which always leads to the installed release:
+
+```
+file:///home/YOU/.local/share/peerspan/current/share/peerspan/integrations/opencode/plugin.mjs
+```
+
+(under `$XDG_DATA_HOME` when set). An entry naming one release's directory,
+`…/peerspan/releases/RELEASE/…`, keeps loading that release's plugin after an
+upgrade, since the installer keeps older releases. `peerspan attach opencode`
+and `session doctor` refuse such an entry, and any setup without a loaded
+plugin, and print the exact entry to use. In a source checkout, name the
+checkout's `integrations/opencode/plugin.mjs`.
 
 Load the plugin through OpenCode's normal configuration/reload workflow while
 idle. Keep `shared/` alongside the integration bundles. This installation enables
