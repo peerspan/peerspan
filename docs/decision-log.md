@@ -63,6 +63,7 @@ Contents:
 - **Source:** the owner's answers, 2026-11-10, on issue [#170](https://github.com/peerspan/peerspan/issues/170). During 0.2.0 publication (step 9), the one-liner on a clean Ubuntu 24.04.5 machine stopped at "Node.js 22 or later is required but node was not found", and every fresh machine in qualification needed Node installed by hand. Ubuntu 24.04's own `nodejs` package is version 18. The options below are quoted from the issue and from the questions put to the owner.
 - **Recorded in:** this log and the contract.
 - **Contract section:** [install-contract.md](install-contract.md#release-verifier) and [Bundled Node.js](install-contract.md#bundled-nodejs).
+- **Implementing PRs:** [#173](https://github.com/peerspan/peerspan/pull/173) (the verifier, its workflow, the Node-free install scripts and the bundled Node.js, with placeholder verifier digests); then the pull request that pins `verifier-v1`.
 - **Supersedes:** the verification half of [INST-1](#inst-1-signing-scheme), "verified with Node's built-in crypto". The signing scheme itself, an Ed25519 signature over `release.json`, is unchanged.
 
 #### INST-9. Node.js for the install and the integrations
