@@ -227,38 +227,36 @@ own machine, the administrator on an authorized existing machine, and the new
 machine's separate selection and final consent. The inviter cannot sign as the
 new person.
 
-1. On the teammate's machine, run `peerspan link approve REQUEST_ID --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY`. Review and approve
-   the exact host/device and requested powers. The new-person default is 7;
-   this initial possession review grants no membership or administrator power.
+1. On the teammate's machine, `up --join` continues by itself: right after the
+   identity choice it shows the owner review and asks **Approve this exact
+   machine?** (default no). Review and approve the exact host/device and
+   requested powers. The new-person default is 7; this initial possession
+   review grants no membership or administrator power. There is no command to
+   run and no request ID to find.
 2. A single owner offer is selected automatically. If several are present,
    choose the exact reviewed offer with no default. The daemon advances the
    request automatically; `peerspan link resume REQUEST_ID` requests an
    immediate pass.
-3. On the administrator's machine, run `peerspan link admit REQUEST_ID --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY`. If using the manual fallback, omit REQUEST_ID
-   and enter the private request code at the hidden prompt. Check the exact
-   host/device, owner-offer and selection references from `link status` and the
-   review. Supply `--owner-offer OWNER_OFFER_ID --selection SELECTION_ID` and
-   the matching `--expect-host-key` / `--expect-device-key` pins. The default
+3. On the administrator's machine, `peerspan status` now shows the exact
+   `peerspan link admit …` command for the request; run it as shown. Until the
+   teammate has approved, status says the request is waiting on their machine.
+   The general form is `peerspan link admit REQUEST_ID --network NETWORK_ID
+   --person PERSON_PUBLIC_KEY`, plus the `--owner-offer`, `--selection`,
+   `--expect-host-key` and `--expect-device-key` values that status fills in.
+   With the manual fallback, omit REQUEST_ID, enter the private request code at
+   the hidden prompt, and take those values from `link status` and the review.
+   The default
    signer is explicitly `network_root`; `--signer auto` selects the existing
    administrator's current signing path instead.
-4. Back on the teammate's machine, finalize its exact owner consent. Use the
-   references shown by `peerspan link status REQUEST_ID`:
-
-   ```sh
-   peerspan link finalize REQUEST_ID --network NETWORK_ID --context CONTEXT_ID \
-     --expect-person PERSON_PUBLIC_KEY --expect-host-key HOST_PUBLIC_KEY \
-     --expect-device-key DEVICE_PUBLIC_KEY --owner-offer OWNER_OFFER_ID \
-     --selection SELECTION_ID --administrator-offer ADMINISTRATOR_OFFER_ID
-   ```
-
-   Omission of `--approve` previews. After reviewing those same terms, rerun
-   with `--approve`; use `--person-key PATH` if the original SSH signer was
-   selected explicitly. That private key stays on this machine.
-5. Resume the same request and separately accept its complete final manifest
-   at **Commit this exact machine link?**, which also defaults to no. Run `up`
-   again only after the request is `linked` and its signer is usable.
+4. Back on the teammate's machine, owner finalization runs automatically: the
+   approval in step 1 covers it (spec 8.3). Only when it doesn't, for example
+   after a deadline change, does `peerspan link status REQUEST_ID` name a
+   `peerspan link finalize …` command to review and rerun with `--approve`. The
+   private key stays on this machine.
+5. `up --join` then asks **Commit this exact machine link?** (default no) for
+   the complete final manifest. After a yes, the teammate is a member and their
+   agent starts. Each command along the way prints whose step comes next and
+   on which machine.
 
 A pending request exits nonzero and retains its identity and next step. Keep
 using that request after an interruption; do not create another person or copy

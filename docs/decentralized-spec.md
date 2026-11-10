@@ -35,7 +35,8 @@ locally, are valid now.
 - **No quorum.** Ordinary work never waits for another host. A host that cannot
   reach anyone keeps working until its grants expire or it learns of a ban.
 - **Joining** uses an invite code. The new machine's request travels back to
-  the inviter by itself. One prompt on the new machine confirms the link.
+  the inviter by itself. On the new machine, a new person approves their own
+  machine and then confirms the link; an existing person only confirms it.
 - **Helpers are optional.** A helper is a small server that holds encrypted
   mailboxes and forwards encrypted packets. It cannot admit anyone, sign
   anything or read traffic. Nothing Peerspan operates is required.
@@ -455,9 +456,15 @@ expires.
    key is pinned by the invite's signature (DEC-Q25). If every path fails
    within one 30-second attempt, `join` prints the `psl2-` request code, which
    the user sends to the inviter by hand.
-5. **Approval.** The inviter's status shows `link_request_waiting`. The owner
-   and the admin review and approve it with `link approve REQUEST_ID` and `link
-   admit REQUEST_ID` (section 8.3).
+5. **Approval.** The owner and the admin review and approve it (section 8.3).
+   For a **new person**, the owner is the joining person, so `join` and `up
+   --join` show the owner review on the new machine right after the identity
+   choice and ask `Approve this exact machine? [y/N]` (ML-4). A yes signs the
+   owner offer there; there is no separate `link approve` for the joiner. For an
+   **existing person**, the owner approves with `link approve REQUEST_ID` on one
+   of that person's machines. The inviter's status shows
+   `link_request_waiting`, naming whose step comes next and where (section 16).
+   The admin then runs the exact `link admit` command that status gives.
 6. **Commit.** The new machine shows everything it is about to accept and asks
    once: `Commit this exact machine link? [y/N]`.
 7. **Apply.** Each participant checks the complete request and applies it.
@@ -516,7 +523,10 @@ Each stage is a signed **packet** (appendix section 9).
 
 - The owner reviews with `peerspan link approve` (API `POST /v2/link/approvals`),
   given either the request ID of a request that arrived through the return path
-  or a request code.
+  or a request code. A new person's owner review runs inside `join` or `up
+  --join` on the new machine (section 8.1 step 5), using the same review and
+  the guided contract's owner preparation; the joiner never has to find a
+  request ID.
   For an admitted owner, scopes default to 15 capped by the owner's path. For a
   new person, the proposed scopes default to 7. The deadline defaults to the
   request's `created_at` plus 7 days, capped by every parent.
@@ -528,8 +538,11 @@ Each stage is a signed **packet** (appendix section 9).
 
 ### 8.4 Prompts on the new machine
 
-- **One prompt.** The only consent prompt is at commit: `Commit this exact
-  machine link? [y/N]`. Blank means no; only `y` or `yes` (any case) means yes.
+- **Prompts.** An existing person's machine has one consent prompt, at commit:
+  `Commit this exact machine link? [y/N]`. A new person's machine has two: the
+  owner review, `Approve this exact machine? [y/N]`, right after the identity
+  choice, and then the commit prompt (ML-4). Blank means no; only `y` or `yes`
+  (any case) means yes.
   The review shows the network, inviter, owner, person, admin, scopes,
   deadline and every grant being accepted.
 - **Selection** is signed without a prompt when exactly one valid owner offer
@@ -912,7 +925,15 @@ as legacy history.
   `network_state_conflict`, `network_clock_rollback`,
   `network_root_unreachable`, `person_device_signer_unavailable`, then
   `link_request_waiting`. Each gives the network, the cause and the
-  command to run. A clock rollback tells the user to fix the clock or wait;
+  command to run. `link_request_waiting` names whose step comes next and on
+  which machine, and gives a command only when that step runs on this host:
+  - a new person's request without an owner offer: waiting for the joining
+    person's approval on their own machine, with no command here;
+  - an existing person's request without an owner offer: `peerspan link approve
+    REQUEST_ID --network NETWORK_ID`, on a machine of that person;
+  - with the owner offer and the requester's selection: the complete `peerspan
+    link admit` command for this request, with every argument it needs, when
+    this host can admit. A clock rollback tells the user to fix the clock or wait;
   there is no command to lower the stored time.
 - **Errors** are `{code,error,details:{network_id,context_id,request_id,stage,
   required_ids,conflict_ids,next}}` with the status codes in the appendix.
@@ -1136,12 +1157,16 @@ named, with no change to stored state other than the stored decision time.
 **Joining**
 
 28. Create, invite and join with the Rust CLI and daemon, no coordinator and
-    no helper; the joiner sees exactly one default-no
-    consent prompt, at commit; with a pinned key that exists locally there is
-    no identity choice.
+    no helper. A new person's joiner sees exactly two default-no consent
+    prompts, owner approval and then commit, and runs no other command. A
+    joiner whose pinned key exists locally has no identity choice. Neither
+    the inviter nor the joiner ever needs a request ID it was not shown.
 29. The request reaches the inviter without a code over a direct address, and
     through a helper when the inviter has no reachable address; the inviter's
-    status shows `link_request_waiting` and `link approve REQUEST_ID` works.
+    status shows `link_request_waiting`. For a new person it first says the
+    request waits on the joining machine, with no command for the inviter.
+    After the joiner approves, it gives a `link admit` command that, run as
+    given, admits the request.
     With neither path, `join` prints a `psl2-` code within about 30 seconds and
     the manual path completes.
 30. An invite used 30 minutes after issue, whose contacts are past their own
