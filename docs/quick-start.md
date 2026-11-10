@@ -258,7 +258,7 @@ new person.
    agent starts. Each command along the way prints whose step comes next and
    on which machine.
 
-A pending request exits nonzero and retains its identity and next step. Keep
+A command whose own step is done exits 0, even while the request still waits on another machine; it prints whose step comes next and where. A failure, a declined prompt, or a step still due on this machine exits nonzero (ML-3). Either way the request keeps its identity and next step. Keep
 using that request after an interruption; do not create another person or copy
 an original key. The introduction must still be current when starting. The new
 request has a one-hour backstop and a 10-minute inactivity limit for each stage:
