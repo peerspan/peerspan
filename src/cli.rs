@@ -1906,7 +1906,7 @@ pub fn advanced_help(name: &str) -> String {
     )
 }
 
-const OPTIONS: &str = "Options:\n      --state <DIR>  Private state directory; otherwise use XDG_STATE_HOME or HOME\n  -h, --help         Print help\n\n";
+const OPTIONS: &str = "Options:\n      --state <DIR>  Private state directory; otherwise use XDG_STATE_HOME or HOME\n      --json         Print the full JSON object instead of a readable summary\n  -h, --help         Print help\n\n";
 
 fn heading(command: &clap::Command, name: &str) -> String {
     format!(
