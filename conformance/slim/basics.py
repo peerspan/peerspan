@@ -3,7 +3,7 @@
 
 alice creates a network and bob joins; carol only makes a join request. Written from
 docs/decentralized-spec.md sections 14 to 17, the wire appendix sections 16.1, 16.9 and 19, and
-docs/host-service-contract.md and docs/launch-contract.md (status).
+docs/host-service-contract.md and docs/launch-contract.md (status, attention item 19 on the debug test clock).
 
 Not covered here: the installed-bundle smoke test (packaging a release bundle needs a release build and the
 Node integration bundles, several minutes on CI, over this suite's 2-minute budget). Legacy-network
@@ -19,6 +19,7 @@ from harness import (Suite, attention, check, create_network, invite, join_new_p
                      ssh_key, ssh_public_base64, wait_for)
 
 suite = Suite("basics", __doc__)
+suite.use_clock()  # one shared debug test clock, at +0s until `peer_delivery_failing` moves it
 a, b = suite.host("alice"), suite.host("bob")
 state = {}
 ERROR_DETAILS = {"network_id", "context_id", "request_id", "stage", "required_ids", "conflict_ids", "next"}
@@ -108,6 +109,76 @@ def _():
               f"{method} {path}: details {sorted(details) if isinstance(details, dict) else details}")
         check(isinstance(details["required_ids"], list) and isinstance(details["conflict_ids"], list),
               f"{method} {path}: id lists {details}")
+
+
+def delivery_items(host):
+    """`status --json` on HOST: (result, its `peer_delivery_failing` items)."""
+    result = host.cli("status", "--json")
+    check(result.code in (0, 1) and isinstance(result.json, dict), f"{host.name}: status --json: {result}")
+    return result, [i for i in result.json.get("attention") or [] if i.get("kind") == "peer_delivery_failing"]
+
+
+def outbound(host, kind, peer, ident):
+    """The local outbound record of a message or task (peer messaging contract; task contract)."""
+    return host.ok(kind, "inspect", "--peer", peer, ident)
+
+
+@suite.case("peer_delivery_failing", "launch contract attention item 19 (STAT-1, STAT-2); status exit codes")
+def _():
+    (net,) = need("net")
+    bodie = b.agent("bodie")  # its own agent, so bert's queue stays as the later cases expect
+
+    def reached():
+        # Work reaches bob while he is up, so alice holds his policy before he stops (policy travels by sync).
+        sent = a.cli("message", "send", "--peer", b.id, "--agent", bodie.id, "--content", "warm-up")
+        if sent.ok and sent.json["state"] == "accepted":
+            return True
+        a.api("POST", f"/v2/networks/{net}/sync", {})
+    wait_for(reached, timeout=20, interval=0.5, message="a message from alice to bodie to be accepted")
+    b.stop()
+    try:
+        message = a.ok("message", "send", "--peer", b.id, "--agent", bodie.id, "--content", "while bob is down")
+        task = a.ok("task", "submit", "--peer", b.id, "--agent", bodie.id, "--input", "while bob is down")
+        waiting = [("message", message["request"]["request_id"], "state"),
+                   ("task", task["request"]["task_id"], "submit_state")]
+
+        def failing():
+            records = [outbound(a, kind, b.id, ident) for kind, ident, _ in waiting]
+            return records if all(r[field] == "unknown" and r["error"] and r["next_attempt_at"]
+                                  for r, (_, _, field) in zip(records, waiting)) else None
+        records = wait_for(failing, timeout=20, interval=0.5, message="alice's sends to stopped bob to fail")
+        _, items = delivery_items(a)
+        check(not items, f"peer_delivery_failing before 2 minutes, by the test clock: {items}")
+
+        suite.set_offset(150)  # the oldest waiting work is now 2.5 minutes old by alice's clock
+        attempts = [r["attempts"] for r in records]
+        wait_for(lambda: all(outbound(a, kind, b.id, ident)["attempts"] > n
+                             for (kind, ident, _), n in zip(waiting, attempts)),
+                 timeout=40, interval=0.5, message="a further failed attempt of each send to stopped bob")
+        result, items = delivery_items(a)
+        check(len(items) == 1, f"{len(items)} peer_delivery_failing items: {result.json.get('attention')}")
+        item = items[0]
+        check(item.get("subject") == b.id, f"subject {item.get('subject')}, want bob's host ID {b.id}")
+        check(item.get("command") == "peerspan agents --refresh", f"command {item.get('command')!r}")
+        detail = (item.get("detail") or "").lower()
+        check("message" in detail and "task" in detail, f"detail does not name the waiting message and task: {detail!r}")
+        check(result.json["attention"][-1] == item,
+              f"item 19 is not sorted after every other kind: {[i['kind'] for i in result.json['attention']]}")
+        check(result.code == 1, f"status --json exited {result.code} with an attention item")
+        human = a.cli("status")
+        check(human.code == 1, f"status exited {human.code} with peer_delivery_failing raised")
+        heading = human.stdout.find("Needs attention")
+        check(heading >= 0 and "Nothing needs attention" not in human.stdout
+              and "peerspan agents --refresh" in human.stdout[heading:],
+              f"human status does not list the item under Needs attention: {human.stdout[-600:]!r}")
+    finally:
+        b.start()
+
+    def accepted():
+        return all(outbound(a, kind, b.id, ident)[field] == "accepted" for kind, ident, field in waiting)
+    wait_for(accepted, timeout=60, interval=1, message="alice's retries to be accepted after bob restarted")
+    wait_for(lambda: not delivery_items(a)[1], timeout=20, interval=1,
+             message="peer_delivery_failing to go away once the work is accepted")
 
 
 @suite.case("link_request_waiting", "spec 8.1 step 5, 16 (attention order)")
