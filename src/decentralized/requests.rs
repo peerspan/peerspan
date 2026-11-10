@@ -1025,17 +1025,18 @@ pub(crate) fn next_steps(
     let requester = has("requester");
     let owner = has("owner");
     let administrator = has("administrator");
+    // An explicit key file is named, so the command runs as given.
+    let key = if key_path == "-" {
+        String::new()
+    } else {
+        format!(" --person-key {}", shell_word(key_path))
+    };
     match state {
         // A request made from an invite is a new person joining from their
         // own original machine, which approves it (ML-4); a same-person link
         // is approved on another machine of that person.
         "pending" if requester && invited => vec![format!(
-            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}{}",
-            if key_path == "-" {
-                String::new()
-            } else {
-                format!(" --person-key {}", shell_word(key_path))
-            }
+            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}{key}"
         )],
         "pending" if requester => vec![format!(
             "owner, on a machine of the person: peerspan link approve {id} --network {network}"
@@ -1058,6 +1059,11 @@ pub(crate) fn next_steps(
         "needs_administrator" => vec![
             "administrator, on an administrator's machine: run the peerspan link admit command its peerspan status shows".into(),
         ],
+        // The joining person's key may be one the daemon cannot use itself
+        // (a key file or ssh-agent), so the joiner signs it here.
+        "needs_owner_finalization" if requester && invited => vec![format!(
+            "owner, on this machine: peerspan link finalize {id} --approve{key}"
+        )],
         "needs_owner_finalization" if owner || requester => vec![format!(
             "owner, on this machine: finalization runs automatically under the owner's approval; peerspan link resume {id} asks for an immediate pass"
         )],
