@@ -82,7 +82,7 @@ INST-7 still applies: there is no conformance suite for the install scripts. The
 
 The cases below go in the slim suites of the areas they touch: `basics` for sections 1 and 2's generic rules, `policy` for `allow`, `deny` and `block`, `work` for sends and tasks, `join_teammate` for linking views and the review screens.
 
-- **`--json` everywhere:** for `network list`, `allow`, `deny`, `send` and `task submit`, `--json` before and after the subcommand gives the same object, with the fields other contracts list.
+- **`--json` everywhere:** for `network list`, `allow`, `deny`, `send`, `task submit` and the `task TARGET TEXT` shorthand, `--json` before and after the subcommand (for the shorthand, also after TEXT) gives the same object, with the fields other contracts list.
 - **Readable by default, not JSON:** the same commands without `--json`, with stdout a pipe, print text that does not parse as JSON, with the same exit status as with `--json`.
 - **`network list`:** each line starts with a network's full ID; the name and member label appear; with no networks, the line saying so.
 - **`allow`:** the readable output names the principal as given, `all your agents` for `*` and the agent name with `--agent`, says messages, tasks and delegation as set, the file limit with `--files 100M` as `100 MB`, and the policy version that `--json` reports.
