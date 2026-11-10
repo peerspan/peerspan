@@ -56,6 +56,11 @@ pub(crate) struct Record {
     /// for a record written before stage times were kept.
     #[serde(default = "empty")]
     pub stage_at: String,
+    /// The `--person-key` path a joining person gave on this machine, so the
+    /// local `next` approval is exact (ML-3); `-` when the key is discovered.
+    /// Local only: it never leaves this host.
+    #[serde(default = "empty")]
+    pub person_key_path: String,
 }
 /// Each stage times out after 10 minutes of inactivity (spec 8.5).
 const STAGE_SECONDS: i64 = 600;
@@ -455,7 +460,7 @@ impl Pending {
             Vec::new()
         };
         Ok(
-            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,r.contact_invitation_base64!="-",state,network,&person,&r.owner_offer_id,&r.selection_id)}),
+            json!({"request_id":self.id,"role":if r.roles.iter().any(|r|r=="requester"){"requester"}else{"approver"},"mode":r.mode,"state":state,"network_id":network,"context_id":context,"migration_proposal_id":r.migration_proposal_id,"person_public_key":person,"host_public_key":r.host_public_key,"device_public_key":r.device_public_key,"created_at":text(&request.payload,"created_at")?,"expires_at":self.deadline,"request_packet_id":request.id,"owner_offer_id":r.owner_offer_id,"selection_id":r.selection_id,"administrator_offer_id":r.administrator_offer_id,"owner_finalization_id":r.owner_finalization_id,"manifest_id":r.manifest_id,"activation_id":r.activation_id,"outcome_id":outcome,"selection_approved":r.selection_approved,"commit_approved":r.commit_approved,"completed":completed,"attention":attention,"next":next_steps(&self.id,&r.roles,r.contact_invitation_base64!="-",state,network,&person,&r.owner_offer_id,&r.selection_id,&r.person_key_path)}),
         )
     }
     pub(crate) fn code(&self, connection: &Connection, now: &str) -> Result<Option<String>> {
@@ -696,10 +701,18 @@ pub(crate) fn create(store: &Store, input: &Obj) -> Result<(u16, Vec<u8>)> {
 }
 /// Shared protocol operation; the caller commits its exact consent atomically.
 pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(u16, Vec<u8>)> {
-    fields(
-        input,
-        "mode network_id person_public_key migration_proposal_id contact_invitation helpers",
-    )?;
+    let key_path = match input.get("person_key_path") {
+        Some(_) => text(input, "person_key_path")?.to_owned(),
+        None => empty(),
+    };
+    check(key_path == "-" || key_path.starts_with('/'))?;
+    let mut shape =
+        "mode network_id person_public_key migration_proposal_id contact_invitation helpers"
+            .to_owned();
+    if input.contains_key("person_key_path") {
+        shape.push_str(" person_key_path");
+    }
+    fields(input, &shape)?;
     let mode = text(input, "mode")?;
     check(matches!(mode, "new" | "renew"))?;
     let migration = text(input, "migration_proposal_id")?;
@@ -959,6 +972,7 @@ pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(
             json!({"role":"request","writer_public_key":host,"frame_id":frame.frame_id,"acknowledged_by":[]}),
         ],
         stage_at: empty(),
+        person_key_path: key_path,
     };
     let p = Pending {
         id: id.clone(),
@@ -1005,6 +1019,7 @@ pub(crate) fn next_steps(
     person: &str,
     owner_offer: &str,
     selection: &str,
+    key_path: &str,
 ) -> Vec<String> {
     let has = |role: &str| roles.iter().any(|r| r == role);
     let requester = has("requester");
@@ -1015,7 +1030,12 @@ pub(crate) fn next_steps(
         // own original machine, which approves it (ML-4); a same-person link
         // is approved on another machine of that person.
         "pending" if requester && invited => vec![format!(
-            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}"
+            "owner, on this machine: peerspan link approve {id} --network {network} --person {person}{}",
+            if key_path == "-" {
+                String::new()
+            } else {
+                format!(" --person-key {}", shell_word(key_path))
+            }
         )],
         "pending" if requester => vec![format!(
             "owner, on a machine of the person: peerspan link approve {id} --network {network}"
@@ -1108,4 +1128,16 @@ pub(crate) fn cancel(store: &Store, id: &str) -> Result<Vec<u8>> {
     let view = p.view(&controls::local_decision_time()?)?;
     tx.commit().map_err(db)?;
     bytes(&view)
+}
+/// `path` as one POSIX shell word, quoted only when it needs it.
+fn shell_word(path: &str) -> String {
+    if !path.is_empty()
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b))
+    {
+        path.into()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
 }
