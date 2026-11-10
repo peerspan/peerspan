@@ -778,10 +778,23 @@ pub(crate) async fn guide_join(
                     person_key: join_key.clone().flatten(),
                     root_key: None,
                 };
-                // A daemon that already finalized under the same approval
-                // makes this a no-op conflict; polling continues either way.
-                if let Ok(next) = consent(socket, input, "finalization", Some(keys)).await {
-                    v = next;
+                match consent(socket, input, "finalization", Some(keys)).await {
+                    Ok(next) => v = next,
+                    Err(error) => {
+                        // A daemon that finalized under the same approval
+                        // first makes this a harmless conflict; any other
+                        // failure stops here instead of waiting to expiry.
+                        v = local.get(path.clone()).await?;
+                        view(&v)?;
+                        if v["state"] == "needs_owner_finalization"
+                            && v["owner_finalization_id"] == "-"
+                        {
+                            return Err(error.context(format!(
+                                "owner finalization was not signed; next: {}",
+                                v["next"]
+                            )));
+                        }
+                    }
                 }
             }
             _ => {
