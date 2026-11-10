@@ -410,20 +410,56 @@ pub(crate) fn waiting_items(
         {
             continue;
         }
-        // The owner reviews first (spec 8.3); the administrator admits
-        // after the owner offer and the requester's selection.
-        let command = if r.owner_offer_id != "-" && r.selection_id != "-" {
-            format!(
-                "peerspan link admit {id} --network {network} --owner-offer {} --selection {}",
-                r.owner_offer_id, r.selection_id
+        // Spec 8.1 step 5 and 16 (ML-3/ML-4): name whose step is next and
+        // where; give a command only when it runs on this host. The owner
+        // reviews first (spec 8.3); the administrator admits after the owner
+        // offer and the requester's selection.
+        let owner_here = r.roles.iter().any(|role| role == "owner");
+        let admin_here = r.roles.iter().any(|role| role == "administrator");
+        let (cause, command) = if r.owner_offer_id == "-" {
+            if owner_here {
+                (
+                    format!("join request {id} waits for the owner's approval on this host"),
+                    format!("peerspan link approve {id} --network {network}"),
+                )
+            } else {
+                (
+                    format!(
+                        "join request {id} waits for the joining person's approval on their own machine; nothing to run here yet"
+                    ),
+                    String::new(),
+                )
+            }
+        } else if r.selection_id == "-" {
+            (
+                format!(
+                    "join request {id} waits for the joining machine to select the owner offer; nothing to run here yet"
+                ),
+                String::new(),
+            )
+        } else if admin_here {
+            let person = p
+                .view(&now)
+                .ok()
+                .and_then(|v| v["person_public_key"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| r.expected_person_public_key.clone());
+            (
+                format!("join request {id} waits for administrator admission on this host"),
+                format!(
+                    "peerspan link admit {id} --network {network} --person {person} --owner-offer {} --selection {}",
+                    r.owner_offer_id, r.selection_id
+                ),
             )
         } else {
-            format!("peerspan link approve {id} --network {network}")
+            (
+                format!("join request {id} waits for an administrator to admit it"),
+                String::new(),
+            )
         };
         out.push((
             "link_request_waiting".into(),
             network.into(),
-            format!("join request {id} waits for approval on this host"),
+            cause,
             command,
         ));
     }

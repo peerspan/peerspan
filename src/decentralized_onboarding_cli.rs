@@ -158,9 +158,43 @@ pub(crate) async fn create_join(
         "request creation changed the reviewed introduction or original identity"
     );
     eprintln!(
-        "The request was sent to the inviting machine through the invite's return path when it was reachable; otherwise return the private reply code to it. Owner and administrator approval follow there. Membership remains pending."
+        "The request was sent to the inviting machine through the invite's return path when it was reachable; otherwise return the private reply code to it. Membership remains pending."
     );
-    Ok(v)
+    // ML-4: the joining person owns this machine's request, so its owner
+    // review happens here, before the administrator admits it there. Without
+    // a terminal nothing can be approved: the output stays the request view
+    // (with any manual code), and its `next` names this step.
+    if !io::stdin().is_terminal() {
+        return Ok(v);
+    }
+    let request_id = v["request_id"]
+        .as_str()
+        .context("request creation returned no request ID")?
+        .to_owned();
+    let approved = crate::decentralized_link_cli::approve_own_join(
+        local.0,
+        &request_id,
+        &intro.descriptor.network_id,
+        &person,
+        person_key.clone(),
+        true,
+    )
+    .await?;
+    let mut approved = approved;
+    if let Some(code) = v.get("display_code") {
+        approved["display_code"] = code.clone();
+    }
+    if approved["owner_offer_id"] == "-" {
+        eprintln!(
+            "This machine is not approved yet; the request stays pending. Approve it later with: peerspan link approve {request_id} --network {} --person {person}",
+            intro.descriptor.network_id
+        );
+    } else {
+        eprintln!(
+            "Approved. The administrator on the inviting machine admits it next; this command waits for that."
+        );
+    }
+    Ok(approved)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -180,7 +214,13 @@ async fn join(
     );
     let token = input.read().await?;
     let v = create_join(&Local(socket), &token, person_key).await?;
-    let mut v = crate::decentralized_link_cli::guide(socket, v, io::stdin().is_terminal()).await?;
+    let mut v = crate::decentralized_link_cli::guide_join(
+        socket,
+        v,
+        io::stdin().is_terminal(),
+        Some(person_key.clone()),
+    )
+    .await?;
     let network = v["network_id"].as_str().unwrap_or_default().to_owned();
     let linked = v["state"] == "linked";
     // The output stays the exact LINK_VIEW (spec 15, wire formats 16.8)

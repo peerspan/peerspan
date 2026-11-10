@@ -928,7 +928,13 @@ async fn dispatch(
             Ok(id) => id,
             Err(e) => return failure(e, network, "-", route.stage, None),
         };
-        if !retained && let Err(e) = requests_io::poll(store.clone(), &id).await {
+        // Always bring the request up to date first: an administrator that
+        // already holds it (it now reads the mailbox while waiting, spec 16)
+        // still needs everything the carriers hold for this admission. A
+        // refresh failure only matters when nothing was held before.
+        if let Err(e) = requests_io::poll_fresh(store.clone(), &id).await
+            && !retained
+        {
             return failure(e, network, "-", route.stage, None);
         }
     }

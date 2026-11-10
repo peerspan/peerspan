@@ -978,8 +978,11 @@ fields. No bare --yes authorizes linking. Code/token inputs use hidden TTY or
 `invite MEMBER` produces psi2 contact/approval introduction, not membership;
 `join` verifies/reviews it before choosing/generating an original person and
 returns the psl2 request plus the explicit return-code/approval next step.
-It is a pending success envelope/nonzero until actual local linking completes,
-never a misleading admitted/bound result. Existing identity/key selection and
+At a terminal it then shows the owner review and asks `Approve this exact
+machine?`, and keeps running through admission, owner finalization and the
+commit prompt (spec 8.1 step 5, 8.4; ML-4). Without a terminal it returns the
+pending request with its `next`, exiting nonzero because the owner approval is
+due on this machine (ML-3). It is never a misleading admitted/bound result. Existing identity/key selection and
 source/private-file permissions remain. A same-person `link` creates a device
 request without asking to copy/generate an original-person key. An original
 person is selected only on its own original machine or explicit new-person join.

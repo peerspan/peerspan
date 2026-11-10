@@ -523,6 +523,15 @@ fn retain(store: &Store, id: &str, incoming: Vec<Frame>) -> Result<()> {
     Ok(())
 }
 pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
+    poll_with(store, id, false).await
+}
+/// `poll` that reads every carrier even when it was read within the last 2
+/// seconds: an admission must see what arrived since the waiting
+/// administrator's last background read (spec 16).
+pub(crate) async fn poll_fresh(store: Arc<Store>, id: &str) -> Result<()> {
+    poll_with(store, id, true).await
+}
+async fn poll_with(store: Arc<Store>, id: &str, fresh: bool) -> Result<()> {
     let capture = store.clone();
     let lookup = id.to_owned();
     let Some(plan) = tokio::task::spawn_blocking(move || plan(&capture, &lookup))
@@ -560,7 +569,7 @@ pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
             })
             .transpose()?
             .unwrap_or(false);
-        if recent {
+        if recent && !fresh {
             success = true;
             continue;
         }
@@ -667,9 +676,16 @@ pub(crate) async fn approver_worker(
                                 && intent.record.approved
                                 && intent.record.terminal == "-"
                         });
+                // An administrator that has not admitted yet also reads the
+                // mailbox, so the owner offer and selection arrive and status
+                // can give the exact `link admit` command (spec 16, ML-3).
+                let administrator_waiting = p.record.administrator_intent_id == "-"
+                    && p.record.roles.iter().any(|r| r == "administrator")
+                    && (p.record.owner_offer_id == "-" || p.record.selection_id == "-");
                 if p.record.terminal == "-"
                     && (approved_owner
                         || approved_administrator
+                        || administrator_waiting
                         || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
