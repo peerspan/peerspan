@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
   - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
   - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
   - [INST-6: who may change the release keys](#inst-6-who-may-change-the-release-keys-2026-11-04) (2026-11-04)
@@ -54,6 +55,42 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### INST-9 to INST-11: bundled Node.js and our own release verifier (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** install: removing the Node.js 22 prerequisite from the one-line install.
+- **Source:** the owner's answers, 2026-11-10, on issue [#170](https://github.com/peerspan/peerspan/issues/170). During 0.2.0 publication (step 9), the one-liner on a clean Ubuntu 24.04.5 machine stopped at "Node.js 22 or later is required but node was not found", and every fresh machine in qualification needed Node installed by hand. Ubuntu 24.04's own `nodejs` package is version 18. The options below are quoted from the issue and from the questions put to the owner.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [install-contract.md](install-contract.md#release-verifier) and [Bundled Node.js](install-contract.md#bundled-nodejs).
+- **Supersedes:** the verification half of [INST-1](#inst-1-signing-scheme), "verified with Node's built-in crypto". The signing scheme itself, an Ed25519 signature over `release.json`, is unchanged.
+
+#### INST-9. Node.js for the install and the integrations
+
+- **Options:**
+  - (1) "Ship a pinned Node.js runtime inside each host bundle (per architecture); the installer verifies the manifest without Node (for example in the Rust binary or with a small static verifier)."
+  - (2) "Have the installer download a pinned, checksum-verified Node.js into Peerspan's own directory when none ≥22 is found."
+  - (3) "Keep requiring Node but print exact per-distro steps from the bootstrap."
+- **Chosen:** (1).
+- **Reason given:** none beyond choosing it: "option 1, bundle node in the release".
+
+#### INST-10. What verifies the release before Node is available
+
+- **Options:**
+  - (a) "The `openssl` command (recommended). OpenSSL 3 (Ubuntu 22.04+, Debian 12) checks the signature and `sha256sum` checks file digests. `openssl` comes with ca-certificates, which curl needs for HTTPS, so it's there wherever the one-liner works. Nothing new needs to be trusted."
+  - (b) "`openssl`, falling back to a system Node 22+ as today. Covers unusual minimal images, but means keeping two checking paths identical."
+  - (c) "A small checker program the bootstrap downloads, with its SHA-256 written into `install.sh`. Needs nothing on the machine, but it's a second file to build, pin and update."
+- **Chosen:** (c), against the recommendation.
+- **Reason given:** "mainly because of all the hacks/vulns i think our own program to verify would be easier to maintain from a security perspective".
+
+#### INST-11. Which Node.js line the bundle carries
+
+- **Options:**
+  - (a) "Node 24 LTS, v24.22.2 (recommended). Supported until April 2028. It's a step up from what we tested, so the integration tests and installed acceptance re-run on it."
+  - (b) "Node 22 LTS, v22.23.4. Exactly what qualification used, so lowest risk now, but a forced upgrade within months."
+  - (c) "Node 26 LTS, v26.13.0. The newest LTS, supported to April 2029, but the least tested with our dependencies (the MCP SDK, `ws`, the OpenCode plugin)."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it: "option a, node 24".
 
 ### INST-8: the first release key (2026-11-05)
 
