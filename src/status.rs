@@ -23,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 24] = [
+pub const ATTENTION_ORDER: [&str; 25] = [
     "policy_expired",
     "credential_expiring",
     "tasks_failed",
@@ -48,7 +48,35 @@ pub const ATTENTION_ORDER: [&str; 24] = [
     "policy_edit_dropped",
     "call_approval_pending",
     "conversation_invites",
+    "peer_delivery_failing",
 ];
+
+/// Item 19: waiting work must have been failing this long (STAT-2).
+const FAILING_FOR: TimeDelta = TimeDelta::minutes(2);
+
+/// What is waiting for one peer host (item 19).
+#[derive(Default)]
+struct Waiting {
+    counts: [usize; 4],
+    oldest: Option<DateTime<Utc>>,
+    oldest_at: String,
+    latest_at: Option<DateTime<Utc>>,
+    latest_error: String,
+}
+impl Waiting {
+    fn add(&mut self, kind: usize, created: &str, error: &str) {
+        self.counts[kind] += 1;
+        let Some(at) = time(created) else { return };
+        if self.oldest.is_none_or(|o| at < o) {
+            self.oldest = Some(at);
+            self.oldest_at = created.to_owned();
+        }
+        if self.latest_at.is_none_or(|l| at >= l) {
+            self.latest_at = Some(at);
+            self.latest_error = error.to_owned();
+        }
+    }
+}
 
 fn network_attention(v: &Value, guard: &str) -> Option<(String, String, Value)> {
     let code = v["authority"]["state"].as_str()?;
@@ -399,6 +427,9 @@ impl Store {
                 "peerspan conversations --invites".into(),
             ));
         }
+        for (subject, detail, command) in self.failing_peers(connection, now)? {
+            attention.push(item("peer_delivery_failing", subject, detail, command));
+        }
         let capabilities = self.capabilities_summary(connection)?;
         attention.sort_by(|a, b| {
             let rank = |k: &str| ATTENTION_ORDER.iter().position(|x| *x == k);
@@ -419,6 +450,107 @@ impl Store {
             "conversations": {"open": open_conversations, "unread": unread_conversations, "invites": invites},
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
+    }
+
+    /// Status item 19 (STAT-1, STAT-2): each peer host with messages, task
+    /// submissions or calls still `unknown` and retrying after a failed
+    /// attempt, or network updates whose last delivery failed, when the
+    /// oldest of them was created at least 2 minutes ago.
+    fn failing_peers(
+        &self,
+        connection: &Connection,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(String, String, String)>, Error> {
+        let mut peers: std::collections::BTreeMap<String, Waiting> = Default::default();
+        for (kind, table, id, state, event) in [
+            (
+                0,
+                "outbound_messages",
+                "request_id",
+                "state",
+                "message.queued",
+            ),
+            (
+                1,
+                "outbound_tasks",
+                "task_id",
+                "submit_state",
+                "task.submitted",
+            ),
+            (
+                2,
+                "outbound_calls",
+                "call_id",
+                "submit_state",
+                "call.submitted",
+            ),
+        ] {
+            let mut q = connection.prepare(&format!(
+                "SELECT t.peer, json_extract(t.record,'$.error'), \
+                 (SELECT MIN(e.created_at) FROM events e WHERE e.kind=?1 AND e.subject_id=t.peer||'/'||t.{id}) \
+                 FROM {table} t WHERE json_extract(t.record,'$.{state}')='unknown' \
+                 AND json_extract(t.record,'$.error') IS NOT NULL \
+                 AND json_extract(t.record,'$.next_attempt_at') IS NOT NULL"
+            ))?;
+            let rows = q.query_map([event], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (peer, error, created) = row?;
+                if let Some(created) = created {
+                    peers.entry(peer).or_default().add(kind, &created, &error);
+                }
+            }
+        }
+        let mut q = connection.prepare(
+            "SELECT target_key, json_extract(record,'$.created_at'), json_extract(record,'$.last_error_code') \
+             FROM dec_outbox WHERE json_extract(record,'$.last_error_code') <> '-'",
+        )?;
+        let rows = q.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (key, created, error) = row?;
+            let Ok(key) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &key)
+            else {
+                continue;
+            };
+            peers
+                .entry(crate::peer_store::key_id(&key))
+                .or_default()
+                .add(3, &created, &error);
+        }
+        let mut items = Vec::new();
+        for (peer, w) in peers {
+            if w.oldest.is_none_or(|o| now - o < FAILING_FOR) {
+                continue;
+            }
+            let parts: Vec<String> = ["messages", "tasks", "calls", "network updates"]
+                .iter()
+                .zip(w.counts)
+                .filter(|(_, n)| *n > 0)
+                .map(|(name, n)| format!("{n} {name}"))
+                .collect();
+            items.push((
+                peer.clone(),
+                format!(
+                    "{} waiting for host {peer} since {}; last error: {}",
+                    parts.join(", "),
+                    w.oldest_at,
+                    w.latest_error
+                ),
+                "peerspan agents --refresh".into(),
+            ));
+        }
+        Ok(items)
     }
 
     /// Status item 13: the agent name of each authorization whose adapter

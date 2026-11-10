@@ -105,6 +105,13 @@ No schema change is needed: these are fields of the JSON records.
 6. `tasks_failed`: outbound tasks whose latest `task.updated` activity in the last 24 hours left them `failed`, `rejected`, or `expired`, including submissions the receiver refused. One item; subject: the count as a decimal string; command: `peerspan task list`.
 7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Subject: `artifacts`; command: `peerspan artifact prune`.
 
+**Attention item 19, `peer_delivery_failing`** (STAT-1, STAT-2), sorted after every other kind. One item per peer host with work waiting for it whose last attempt failed and whose oldest piece is at least 2 minutes old (as defined below). Work waiting for a peer host is any of:
+- an outbound message whose `state` is `unknown`, with a non-null `error` and a non-null `next_attempt_at` (the host still retries it);
+- an outbound task or call whose `submit_state` is `unknown`, with a non-null `error` and a non-null `next_attempt_at`;
+- a network update (proof delivery) to that host that has not been delivered and whose last attempt failed (its host key appears in a network's `delivery.peer_errors`).
+
+The item is raised when the oldest such piece of work was created at least 2 minutes ago: for a message, its `message.queued` event; for a task, `task.submitted`; for a call, `call.submitted`; for a network update, when the host queued it. Subject: the peer's host ID. Detail (free text): the count of each waiting kind present, named in words (`messages`, `tasks`, `calls`, `network updates`), the creation time of the oldest, and the latest error. Command: `peerspan agents --refresh`. The item, in `status --json` and in human `status`, goes away once that host has no such work, for example after the work is accepted.
+
 Within one kind, items are sorted by subject. `detail` is free text. `policy_expiring` excludes a policy that has already expired, which is `policy_expired`.
 
 **`peerspan status`** prints a readable summary; its layout is not shared. `--json` prints the daemon's object. Exit codes:
