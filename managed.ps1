@@ -1,5 +1,5 @@
 param(
- [ValidateSet('start','stop','status','token','serve')][string]$Command='status',
+ [ValidateSet('start','stop','status','token','serve','doctor')][string]$Command='status',
  [string]$Distro='Ubuntu-24.04',
  [string]$LinuxUser=''
 )

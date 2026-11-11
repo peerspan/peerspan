@@ -10,7 +10,9 @@ to keep assigned work moving, retain its history, and make blocked work visible.
 The first release is a single-owner local operator preview. It connects existing
 Peerspan workers, schedules bounded assignments, persists submission identities
 before delivery, reconciles runs after restart, and exposes an authenticated
-loopback console. It does not provision cloud machines, launch model sessions,
+loopback console. Its second revision makes that slice complete enough to run
+unattended: workers registered by agent, editing and archiving, cancellation,
+run timelines, an activity log, and a measure of how often the operator steps in. It does not provision cloud machines, launch model sessions,
 bill customers, or guarantee that an agent's answer is correct. These limits are
 visible in the console and documentation.
 
@@ -34,6 +36,10 @@ manual interventions, repeat weekly use and paid retention.
 
 1. Local operations: durable queue, recurring schedules, exact worker readiness,
    pause/resume, daily dispatch caps, failure circuit, task history and results.
+   Implemented, with editing, archiving, cancellation, timelines, activity and
+   reliability figures ([contract](managed-contract.md) revision 2). Still open
+   in this step: workers on other machines, which need readiness evidence the
+   sender can obtain without the worker host's state, and wall-clock schedules.
 2. Worker lifecycle: managed dedicated harness sessions, repository workspaces,
    health repair, approvals and independently checked result contracts.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,

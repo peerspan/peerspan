@@ -1,81 +1,112 @@
 # Peerspan Managed operator preview
 
-A local console and durable scheduler for existing Peerspan agent sessions. Node
-24, Linux or WSL, and an installed Peerspan CLI are required. No npm dependencies.
-The original daemon and peer permissions remain the authority for execution.
+A local console and durable scheduler for agent sessions that are already
+attached to Peerspan. It dispatches recurring assignments as Peerspan tasks,
+keeps every task identity and result across restarts, and shows what needs you.
+The Peerspan daemon and each owner's access rules stay the authority for
+execution: this application only invokes the owner CLI on this machine.
+
+![The console's overview: attention items, workflows with their latest runs, a followed program, runs and activity](assets/console-overview.png)
+
+The picture shows scripted demonstration data, not real agent work.
+
+It needs Node 24, Linux or WSL, and an installed Peerspan CLI that accepts the
+global `--json` flag. There are no npm dependencies and no build step.
 
 ## Start
 
 ```sh
+node managed/cli.mjs doctor        # checks Node, flock, state permissions and the Peerspan CLI
 node managed/cli.mjs serve
-# In another terminal, print your private local sign-in token:
+# In another terminal, print your private sign-in token:
 node managed/cli.mjs token
 ```
 
-Open http://localhost:4310 and paste the token. Keep the token private. The server
-binds loopback only and is not a public hosted service. Use `--state /absolute/dir`
-on every command for an independent workspace. Default runtime state is
-`~/.local/state/peerspan-managed`, never the repository.
+Open http://localhost:4310 and paste the token. The server binds loopback only
+and is not a hosted service. Runtime state lives in
+`~/.local/state/peerspan-managed`, never in the repository; pass
+`--state /absolute/dir` to every command for an independent workspace.
 
-On Windows, `./managed.ps1 token` and `./managed.ps1 status` use the default user
-of Ubuntu-24.04. Override those choices with `-Distro NAME -LinuxUser NAME`.
-The helper uses the Linux login environment to find Node. `start` and `stop`
-control the user service after it is installed as described below.
+On Windows, `./managed.ps1 doctor`, `token` and `status` run the same commands
+in WSL (Ubuntu-24.04 by default; `-Distro NAME -LinuxUser NAME` override that),
+and `start` and `stop` control the user service described below.
 
-## Connect an agent
+## Connect a worker
 
-Prepare a dedicated Peerspan agent using the upstream quick start, paired hosts,
-and the owner's actual task permissions. The agent must already have a running
-model session and acknowledge its current Peerspan hello. The managed scheduler
-does not grant access or start a model session.
-
-Save the attachment identities in a private JSON file. Its exact fields are:
-
-```json
-{
-  "host_dir": "/absolute/private/receiver-host-state",
-  "host_id": "host_ followed by the actual 64 hex digits",
-  "agent_id": "agent_ followed by the actual 32 hex digits",
-  "adapter_id": "adapter_ followed by the actual 32 hex digits",
-  "session_id": "session_ followed by the actual 32 hex digits"
-}
-```
-
-Get these from `peerspan --state DIR info`, `agent list`, `session list`, and
-`adapter list`. A supervisor can keep this file current across attachment changes.
-Host and agent are pinned when connecting; changing either requires a new
-connection. Real identifiers are required; the text above is a schema example.
+A worker is one agent on a Peerspan host whose state directory is on this
+machine, with a running model session that has acknowledged its Peerspan channel.
+Prepare it with the upstream quick start and grant the sender host task access
+to it. The scheduler never grants access and never starts a model session.
 
 ```sh
-node managed/cli.mjs connect --name "Repository maintainer" \
-  --worker-state /absolute/private/worker.json \
-  --sender-state /absolute/private/sender-host-state
+node managed/cli.mjs connect --name "Repository maintainer" --agent maintainer
 ```
 
-Omit sender-state to use Peerspan's normal local owner state. Then create a
-workflow in the console. Specify a bounded assignment, interval, acceptance
-window, and daily dispatch cap. New workflows are paused unless explicitly enabled.
-Use a dedicated agent: the scheduler prevents collisions among its own workflows,
-but cannot reserve agents against other independent dispatchers.
+`--agent` is the agent's name as `peerspan agents` shows it, or its agent ID.
+The registration pins the host and the agent; readiness then follows whichever
+session of that agent is attached and verified, so re-attaching the agent needs
+no change here. Options:
 
-A responding standalone daemon can be ready without an installed user service.
-The console shows an advisory in that case. Readiness still requires the exact
-host, agent, session and adapter plus the adapter's verified live channel.
+- `--host-state DIR`: the worker host's Peerspan state, when it is not the default.
+- `--sender-state DIR`: the Peerspan state of the host that submits the tasks,
+  when it is not the default. Sender and worker are two hosts.
+- `--worker-state FILE` instead of `--agent`: the revision 1 form, a private JSON
+  file naming `host_dir`, `host_id`, `agent_id`, `adapter_id` and `session_id`,
+  for setups where a supervisor already maintains that file.
 
-## Recovery and operational limits
+Use a dedicated agent. The scheduler never puts two of its own runs on one
+agent, but it cannot reserve an agent against other dispatchers.
 
-- One unresolved run per workflow and per sender/host/agent target.
-- Submission identity and payload are saved before external calls. Restart and
-  uncertain replies reconcile the same task rather than inventing another one.
-- Daily limits count dispatches in UTC, persist across restart, and include failed
-  submissions. They are not model-cost limits. Model usage and costs are unavailable.
-- Pause stops new dispatch while active work continues. Three consecutive terminal
-  failures pause the workflow. Resume is an explicit operator action.
-- A task success is the receiver's report. Inspect artifacts and apply any required
-  review separately. This preview retains result text and task IDs, not artifact
-  file downloads or automatic result validation.
-- Polling, storage and all connection configuration remain local. Do not expose
-  the console through a proxy or public interface as if it had tenant isolation.
+`disconnect --id ID` removes a worker once no workflow uses it. The Workers page
+shows each worker's readiness with its reason, and what the worker host's own
+`peerspan status` says needs attention, with the command Peerspan suggests.
+
+## Workflows
+
+Create a workflow in the console: a bounded assignment, the worker, how often it
+repeats, a daily dispatch limit and an acceptance window. New workflows are
+paused unless you enable them.
+
+- **Pause and resume.** Pausing stops new dispatch and lets the run in progress
+  finish. Resuming does not run at once: the schedule decides, or "Run now".
+- **Edit.** Changes apply from the next dispatch. A run that was already
+  reserved keeps the exact instructions it was sent.
+- **Archive and restore.** An archived workflow never dispatches and leaves the
+  list; its runs stay in the history. There is no delete.
+- **Failure circuit.** Three consecutive failed runs pause the workflow until
+  you resume it.
+
+The interval counts from the end of the previous run. Daily limits count
+dispatches per UTC day, including failed ones; they are not cost limits, and
+model usage is billed by your provider.
+
+## Runs
+
+Every run has a page with the worker's reported result, the instructions that
+were actually sent, and a timeline of the task's events, progress messages
+included.
+
+- **Cancel** asks the worker to stop. The run ends when the worker confirms, or
+  with the worker's own result if it finishes anyway. A run that was never sent
+  is cancelled without being sent. A cancellation does not count as a failure.
+- **Release** is for a run that can no longer be resolved, for example because
+  its worker host is gone. It frees the workflow and the worker here and stops
+  all further calls for that task. It does not stop the worker.
+
+A succeeded run is the worker's own report. Nothing in this preview checks the
+output, downloads artifacts or approves anything on your behalf.
+
+## Recovery
+
+- A task ID and its exact payload are stored before anything is sent. After a
+  lost reply or a restart the controller inspects that same task first and
+  resubmits the same ID and payload only when the sender daemon has never held
+  it. It never invents replacement work.
+- One unresolved run per workflow and per worker, enforced by the store.
+- A stopped controller exits within seconds; work it was waiting for is picked
+  up again under the same identities at the next start.
+- The Activity page records what you did and what the controller did. Each
+  workflow shows how many runs it has finished since you last stepped in.
 
 ## Follow existing programs
 
@@ -84,13 +115,14 @@ node managed/cli.mjs observe --name "Existing research program" \
   --directory /absolute/private/controller/continuous
 ```
 
-The source directory must contain config.json and state.json in the documented
-controller format. Observation reads only. It cannot pause, resume, dispatch to,
-or repair the external program, and its run history stays with its controller.
+The directory must contain `config.json` and `state.json` in the documented
+controller format. Observation is read only: it cannot pause, resume, dispatch
+to or repair the external program, whose history stays with its own controller.
+`unobserve --id ID` stops following it.
 
 ## Supervised operation
 
-Create a user systemd service with absolute Node/repository paths for your machine:
+Create a user systemd service with absolute paths for your machine:
 
 ```ini
 [Unit]
@@ -110,22 +142,38 @@ UMask=0077
 WantedBy=default.target
 ```
 
-Enable that service with `systemctl --user enable --now peerspan-managed.service`.
-Linux needs a persistent user manager; Windows/WSL additionally needs its distro
-started after logon. A process lock prevents two schedulers for the same state.
-No installation command replaces the existing Peerspan host service.
+Enable it with `systemctl --user enable --now peerspan-managed.service`. Linux
+needs a persistent user manager; Windows with WSL also needs the distribution
+started after logon. A process lock refuses a second scheduler for the same
+state directory. Nothing here replaces the Peerspan host service.
+
+## Upgrading from the first preview
+
+The first command of this version that opens an existing state directory
+migrates it in place, after saving a copy as `managed.v1-backup.sqlite` beside
+it. Connections, observations, workflows, runs, task IDs and results keep their
+IDs; a run that was unresolved is reconciled under its task ID as after any
+restart. Restart the service after updating the checkout.
 
 ## Develop
 
 ```sh
-npm --prefix managed run check
-# Independent contract-derived suite, fake transport and temporary state only:
-node managed/conformance/acceptance.mjs
+npm --prefix managed run check                  # syntax check of every source
+node managed/conformance/acceptance.mjs         # contract cases 1 to 6
+node managed/conformance/operations.mjs         # contract cases 7 to 10
+node managed/conformance/visibility.mjs         # contract cases 11 and 12
 # Actual two-host transport with a scripted adapter, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```
 
-The [product plan](../docs/managed-product.md) defines the path to managed hosted
-workers, billing and agency workspaces. The [operator contract](../docs/managed-contract.md)
-defines this release and independent acceptance cases. This is an unofficial
-Apache-2.0 fork, not an upstream Peerspan hosted product.
+The suites are written from the [operator contract](../docs/managed-contract.md)
+by a separate author who does not read this implementation; they use an
+explicitly fake Peerspan executable and throwaway state. The code is small:
+`lib/model.mjs` holds every state transition as one SQLite transaction,
+`lib/engine.mjs` owns timing and all Peerspan calls, `lib/server.mjs` is the
+HTTP boundary, and `public/` is the console.
+
+The [product plan](../docs/managed-product.md) covers the path to managed
+sessions, hosted workers and teams, and [managed-decisions.md](../docs/managed-decisions.md)
+records the choices made so far. This is an unofficial Apache-2.0 fork, not an
+upstream Peerspan hosted product.
