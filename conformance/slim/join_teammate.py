@@ -6,8 +6,9 @@ default-no prompts, the inviter's `link_request_waiting`, link-command exit stat
 
 Written from docs/decentralized-spec.md sections 6, 8 and 16 and the wire appendix
 (docs/decentralized-wire-formats.md sections 9, 10, 16 and 20.2), the exit status and `next` rules of
-docs/machine-linking-transactions.md and docs/decentralized-runtime-contract.md section 6 (ML-3, ML-4), and the
-linking views and review screens of docs/cli-output-contract.md sections 2 and 2.1 only.
+docs/machine-linking-transactions.md and docs/decentralized-runtime-contract.md section 6 (ML-3, ML-4), the inviter's
+`link admit` of decision ML-6 and docs/quick-start.md "Invite a teammate", and the linking views and review screens
+of docs/cli-output-contract.md sections 2 and 2.1 only.
 """
 import base64
 import json
@@ -43,9 +44,9 @@ def no_secret(text, code):
     return text.replace(code, "<code>") if code else text
 
 
-# ML-3 and ML-4 (decision log, "ML-3 to ML-5: joining a teammate, step by step"): one interactive join of a new
-# person carries the checks of spec 20 items 28 and 29, section 16's `link_request_waiting`, and the transactions
-# contract's exit status and `next`. The flow records what it saw; each case below checks its own part.
+# ML-3, ML-4 and ML-6 (decision log, "ML-3 to ML-5: joining a teammate, step by step" and "ML-6: how the inviter
+# learns the owner offer and selection"): one interactive join of a new person carries the checks of spec 20 items
+# 28 and 29, section 16's `link_request_waiting`, and the transactions contract's exit status and `next`. The flow records what it saw; each case below checks its own part.
 PROMPT = re.compile(r"[\[(]y/N[\])]")
 APPROVE_PROMPT, COMMIT_PROMPT = "Approve this exact machine?", "Commit this exact machine link?"
 # The transactions contract: each `next` entry names who acts (owner, administrator or requester) and on which
@@ -156,6 +157,7 @@ def two_prompt_join():
     """Spec 20 item 28 and 29 on a network of its own: erin invites, dave joins with one interactive `join`."""
     a, d = inviter, dave
     net = create_network(a, "join-teammate-ml", "erin")
+    seen["network_id"] = net["id"]
     key = ssh_key(d.root, "dave")
     invitation = d.root / "invite"
     invitation.write_text(invite(a, "dave", net["id"])["invitation"] + "\n")
@@ -175,23 +177,36 @@ def two_prompt_join():
             review = "".join(join.err)
         seen["approve_review"] = {"stderr": review, "network_id": net["id"], "keys": {
             "person": ssh_public_base64(key), "host": view["host_public_key"], "device": view["device_public_key"]}}
-    # Before the joiner answers: the request reaches the inviter, whose status says it waits on the joining machine.
+    # Before the joiner answers: the request reaches the inviter, whose status says it waits on the joining machine
+    # and already gives `link admit REQUEST_ID --network NETWORK_ID` (spec 16; ML-6).
     try:
         seen["before"] = wait_for(lambda: waiting_item(a, rid), timeout=30, message="link_request_waiting on the inviter")
     except Failure as error:
         seen["notes"].append(f"before approval: {error}")
     sample_next(d, rid, "joiner, before owner approval")
-    if any(v["request_id"] == rid for v in a.api("GET", "/v2/link/requests")[1]):
+    known = any(v["request_id"] == rid for v in a.api("GET", "/v2/link/requests")[1])
+    if known:
         sample_next(a, rid, "inviter, before owner approval")
+    # Run as given before the joiner approves, it says the request waits on the joining machine, admits nothing and
+    # exits nonzero (spec 16, 20 item 29; ML-6). A "y" answers any prompt it should not ask, so a wrong admission shows.
+    early = shlex.split(str((seen.get("before") or {}).get("command") or ""))
+    if early[:3] == ["peerspan", "link", "admit"]:
+        seen["early"] = a.cli(*early[1:], tty=True, input="y\n", timeout=90)
+        seen["early_offer"] = link_view(a, rid)["administrator_offer_id"] if known else "-"
+        seen["early_selection"] = link_view(d, rid)["selection_id"]  # still "-": the joiner had not approved
     check(asked, f"join asked no question (exit {join.p.poll()}); want {APPROVE_PROMPT!r} right after the identity "
                  f"choice: {join.tail()}")
     check(APPROVE_PROMPT in join.prompts()[0],
           f"first question {join.prompts()[0]!r}, want {APPROVE_PROMPT!r}")
     join.answer("y")
-    # After the owner approval and the automatic selection, the inviter's status gives the exact `link admit` command.
+    # The inviter's status cannot tell when the owner offer and selection arrive (spec 16; ML-6), so "after the joiner
+    # approves" is read from the joiner's own public view: its owner offer and automatic selection are durable there
+    # (wire formats 16.8: a stage appears only after its verified durable evidence; spec 8.1 step 5, DEC.impl19).
     try:
+        wait_for(lambda: link_view(d, rid)["selection_id"] != "-", timeout=60,
+                 message="the joiner's owner offer and selection")
         item = wait_for(lambda: (lambda i: i if i and not no_command(i) else None)(waiting_item(a, rid)),
-                        timeout=60, message="a command in the inviter's link_request_waiting")
+                        timeout=30, message="a command in the inviter's link_request_waiting")
         seen["after"] = item
     except Failure as error:
         seen["notes"].append(f"after approval: {error}")
@@ -206,7 +221,16 @@ def two_prompt_join():
     check(argv[:3] == ["peerspan", "link", "admit"], f"the inviter's command is {item['command']!r}, want peerspan link admit")
     # A declined prompt exits nonzero and admits nothing (ML-3; spec 8.4): the interactive form of the command.
     interactive = [x for x in argv[1:] if x != "--approve"]
-    seen["declined"] = a.cli(*interactive, tty=True, input="\n", timeout=90)
+    # `link admit` reads the request's carriers itself (ML-6), and the owner offer and selection travel by mailbox
+    # after the joiner signs them, so a run in that interval may still say the request waits on the joining machine,
+    # which changes nothing (spec 16). It is repeated until it shows the review and asks.
+    def decline():
+        seen["declined"] = a.cli(*interactive, tty=True, input="\n", timeout=90)
+        return PROMPT.search(seen["declined"].stdout + seen["declined"].stderr)
+    try:
+        wait_for(decline, timeout=30, interval=1, message="link admit asking after the joiner approved")
+    except Failure as error:
+        seen["notes"].append(f"declined admit: {error}")
     seen["declined_view"] = link_view(a, rid)
     # Run exactly as given, answering its prompt.
     seen["admitted"] = a.cli("--json", *argv[1:], tty=True, input="y\n", timeout=90)
@@ -242,7 +266,7 @@ def run_two_prompt_join():
 # bob, so it runs alongside join_new_person (each alone takes about a minute); the cases at the end wait for it
 # and report what it saw. It is skipped only when --only names none of those cases.
 ML_CASES = ("join_new_person_two_prompts", "inviter_status_names_whose_step", "link_step_done_exits_zero",
-            "link_next_never_empty", "review_screen_readable")
+            "link_next_never_empty", "review_screen_readable", "early_admit_waits_on_joiner")
 flow_thread = threading.Thread(target=run_two_prompt_join, daemon=True)
 if not suite.args.only or set(ML_CASES) & set(suite.args.only):
     flow_thread.start()
@@ -445,14 +469,16 @@ def _():
     check(seen.get("linked"), "the two-prompt join stopped without linking")
 
 
-@suite.case("inviter_status_names_whose_step", "spec 8.1 step 5, 16 link_request_waiting (ML-4); 20 item 29")
+@suite.case("inviter_status_names_whose_step", "spec 8.1 step 5, 16 link_request_waiting (ML-4, ML-6); 20 item 29")
 def _():
     wait_flow()
     check("rid" in seen, gone("the inviter's status", "the join created no request"))
     before = seen.get("before")
     check(before, f"the inviter's status never showed link_request_waiting for the new person's request before the "
                   f"joiner approved ({'; '.join(seen['notes'])})")
-    check(no_command(before), f"before the joiner approved, the inviter's item gives a command: {before.get('command')!r}")
+    want = ["peerspan", "link", "admit", seen["rid"], "--network", seen.get("network_id")]
+    check(shlex.split(str(before.get("command") or "")) == want,
+          f"before the joiner approved, the inviter's item gives {before.get('command')!r}, want {' '.join(want)!r}")
     check("joining" in str(before.get("detail") or "").lower(),
           f"before the joiner approved, the inviter's item does not say it waits on the joining machine: {before}")
     after = seen.get("after")
@@ -465,11 +491,29 @@ def _():
           f"administrator_offer_id {view['administrator_offer_id']}: {admitted.stderr.strip()[-300:]}")
 
 
+@suite.case("early_admit_waits_on_joiner", "spec 16 link_request_waiting (ML-6); 20 item 29; quick start, Invite 3")
+def _():
+    wait_flow()
+    check(seen.get("before"), gone("the inviter's link_request_waiting", "; ".join(seen["notes"]) or "see above"))
+    early = seen.get("early")
+    check(early is not None, f"the inviter's item before the joiner approved gives no link admit command to run: "
+                             f"{seen['before'].get('command')!r}")
+    check(seen["early_selection"] == "-", "the joiner had already selected an offer when the early link admit ran")
+    shown = redact((early.stdout + early.stderr).strip()[-300:])
+    check(not early.ok, f"link admit run before the joiner approved exited 0: {shown}")
+    check("joining" in (early.stdout + early.stderr).lower(),
+          f"link admit run before the joiner approved does not say the request waits on the joining machine: {shown}")
+    check(seen["early_offer"] == "-", f"link admit run before the joiner approved signed the admin offer "
+                                      f"{seen['early_offer']}")
+
+
 @suite.case("link_step_done_exits_zero", "machine-linking transactions, exit status (ML-3); runtime contract 6")
 def _():
     wait_flow()
     declined, admitted = seen.get("declined"), seen.get("admitted")
     check(declined is not None and admitted is not None, gone("the inviter's link admit", "see the cases above"))
+    check(PROMPT.search(declined.stdout + declined.stderr), f"link admit, run after the joiner approved, never asked "
+                                                           f"({'; '.join(seen['notes'])}): {declined.stderr.strip()[-300:]}")
     check(not declined.ok, f"a blank answer at link admit's prompt exited 0: {declined.stderr.strip()[-300:]}")
     check(seen["declined_view"]["administrator_offer_id"] == "-", "a declined link admit signed the admin offer")
     check(admitted.ok, f"link admit completed its own step (the request now waits on the joiner's commit) but "

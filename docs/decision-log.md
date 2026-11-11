@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
   - [OUT-1 and OUT-2: readable output by default](#out-1-and-out-2-readable-output-by-default-2026-11-10) (2026-11-10)
   - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
@@ -59,6 +60,20 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### ML-6: how the inviter learns the owner offer and selection (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** machine linking (ML): the administrator's step when a new person joins.
+- **Source:** the owner's answer, 2026-11-11, "go with (a)". The ML-3 to ML-5 change (#177) let a waiting administrator read the request's mailbox in the background, so that the inviter's `link_request_waiting` could give the complete `link admit --owner-offer … --selection …` command, and it made every admission read its carriers. The full-tier suites then failed: `incoming_progress` (guided session contract section 22: the administrator holds no owner offer or selection before an explicit progress action), `admission_retained_prefix` (an exact retained preview does no carrier I/O) and `machine_owner_consent` (section 42: preparing the owner review leaves the request view unchanged). The per-push `join_teammate` suite checks the opposite for the inviter's status. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) sections 8.1 step 5 and 16 and verification item 29; [quick-start.md](quick-start.md), "Invite a teammate".
+- **Fixes that need no decision,** recorded with this entry: an admission that already holds the exact requested owner offer and selection does no carrier I/O, as before #177. The request view's `next` for another host's pending request no longer depends on the owner role that preparing the owner review adds.
+- **Options:**
+  - (a) "Keep the no-early-I/O rule (my recommendation). The inviter's status says \"run `peerspan link admit REQUEST_ID`\" without the offer and selection IDs. `link admit` then reads the carriers itself, shows the review and asks to admit. That's an explicit action, so it's allowed. It needs a small CLI change, plus the suite author updating `join_teammate`."
+  - (b) "Keep the background read. Amend the guided-session contracts behind `incoming_progress` and `machine_owner_consent` so a waiting administrator may hold the offer and selection early. The suite author would have to rewrite the cases that check for no early I/O."
+- **Chosen:** (a). The background mailbox read is removed. An explicit `link resume` of a request waiting for its owner offer or selection reads its carriers; `link admit REQUEST_ID --network NETWORK_ID` does that and takes the person, owner offer and selection from the request. Run before they exist, it says whose step remains, changes nothing and exits nonzero, since this machine's step is still to do (ML-3).
+- **Reason given:** none beyond choosing it.
 
 ### OUT-1 and OUT-2: readable output by default (2026-11-10)
 

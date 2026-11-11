@@ -945,17 +945,20 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         .signer
         .as_deref()
         .unwrap_or(if admin { "network_root" } else { "auto" });
-    let private = match (&input.request, input.code_stdin) {
+    // An explicit resume also reads a waiting administrator's carriers, so
+    // its view has the owner offer and selection that arrived (ML-6).
+    let (private, resumed) = match (&input.request, input.code_stdin) {
         (Some(id), false) => {
             let view = local
                 .post(format!("{}/resume", base(id)?), json!({}))
                 .await?;
-            view["display_code"]
+            let code = view["display_code"]
                 .as_str()
                 .context("this request's code is not here yet; enter it with --code-stdin")?
-                .to_owned()
+                .to_owned();
+            (code, Some(view))
         }
-        _ => private_code(input.code_stdin).await?,
+        _ => (private_code(input.code_stdin).await?, None),
     };
     let now = local_decision_time()?;
     let token = PairingToken::read(&private, &now)?;
@@ -1020,10 +1023,13 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
             true,
         )
     };
-    let person = input
-        .person
-        .as_deref()
-        .unwrap_or(text(&n, "person_public_key")?);
+    // `link admit REQUEST_ID` admits the request's own person; the review
+    // below shows it before anything is signed.
+    let person = match (input.person.as_deref(), &resumed) {
+        (Some(person), _) => person,
+        (None, Some(view)) if admin => text(view, "person_public_key")?,
+        (None, _) => text(&n, "person_public_key")?,
+    };
     ensure!(
         key(person),
         "supply the exact target original person with --person"
@@ -1081,12 +1087,31 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
         "/v2/link/approvals"
     };
     if admin {
-        ensure!(
-            input.owner_offer.is_some() && input.selection.is_some(),
-            "administrator review needs --owner-offer and --selection"
-        );
-        body["owner_offer_id"] = json!(input.owner_offer);
-        body["selection_id"] = json!(input.selection);
+        // With a request ID and neither flag, take both from the request as
+        // just read (ML-6). Until they exist, this machine's step is not
+        // ready, so this exits nonzero (ML-3) and changes nothing.
+        let (offer, selection) = match (&input.owner_offer, &input.selection, &resumed) {
+            (Some(offer), Some(selection), _) => (offer.clone(), selection.clone()),
+            (None, None, Some(view)) => {
+                let id = text(view, "request_id")?;
+                let offer = text(view, "owner_offer_id")?;
+                let selection = text(view, "selection_id")?;
+                ensure!(
+                    offer != "-",
+                    "join request {id} has no owner offer on this machine yet: the joining person approves on their own machine, and the approval takes a few seconds to arrive here; run this again after they approve"
+                );
+                ensure!(
+                    selection != "-",
+                    "join request {id} still waits for the joining machine's selection of the owner offer to arrive here; run this again in a few seconds"
+                );
+                (offer.to_owned(), selection.to_owned())
+            }
+            _ => bail!(
+                "administrator review needs --owner-offer and --selection, or a request ID on this machine"
+            ),
+        };
+        body["owner_offer_id"] = json!(offer);
+        body["selection_id"] = json!(selection);
     } else {
         let mut provider = if pending {
             json!({"kind":"original_person","person_public_key":person,"scopes":0,"not_after":"-"})
