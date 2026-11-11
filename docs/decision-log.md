@@ -11,11 +11,13 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync.
 
 Contents:
 - [Full entries](#full-entries), with options:
   - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
+  - [SYNC-1: an explicit sync restarts the background interval](#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10) (2026-11-10)
+  - [DIR-1: an on-demand refresh counts for earlier changes](#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10) (2026-11-10)
   - [OUT-1 and OUT-2: readable output by default](#out-1-and-out-2-readable-output-by-default-2026-11-10) (2026-11-10)
   - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
@@ -74,6 +76,40 @@ Contents:
   - (a) "Keep the no-early-I/O rule (my recommendation). The inviter's status says \"run `peerspan link admit REQUEST_ID`\" without the offer and selection IDs. `link admit` then reads the carriers itself, shows the review and asks to admit. That's an explicit action, so it's allowed. It needs a small CLI change, plus the suite author updating `join_teammate`."
   - (b) "Keep the background read. Amend the guided-session contracts behind `incoming_progress` and `machine_owner_consent` so a waiting administrator may hold the offer and selection early. The suite author would have to rewrite the cases that check for no early I/O."
 - **Chosen:** (a). The background mailbox read is removed. An explicit `link resume` of a request waiting for its owner offer or selection reads its carriers; `link admit REQUEST_ID --network NETWORK_ID` does that and takes the person, owner offer and selection from the request. Run before they exist, it says whose step remains, changes nothing and exits nonzero, since this machine's step is still to do (ML-3).
+- **Reason given:** none beyond choosing it.
+
+### SYNC-1: an explicit sync restarts the background interval (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** network sync (SYNC): when coordinator-free hosts exchange catalogs.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). With DIR-1 in place, the access purity suites still saw stray traffic in measured steps: the spec's background sync, every 60 seconds with up to 10 seconds of jitter, landed in an `access_consent` "pure lookup" (catalog exchange from bob to alice 64 seconds after bob started). The suites had no way to avoid it. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 10, "Timing", and verification item 48a.
+
+#### SYNC-1. How the purity suites avoid the background sync
+
+- **Options:**
+  - (a) "Explicit sync resets timer (Recommended). Contract and daemon: a network sync (`POST /v2/networks/{id}/sync`, `peerspan network sync`) restarts that network's 60 s background interval, as DIR-1 does for the directory. Before each measured step the suites do one sync and one directory refresh, then wait for quiet. The next background sync is then at least 50 s away. That costs about 0.1–1 s per step, and it also removes a redundant background sync right after a manual one."
+  - (b) "Debug-only switch. A debug-build environment variable turns background sync off, and the purity suites set it. That's cheap and certain, but the suites would no longer test the daemon as shipped, and the debug switch is new test-only surface (like the existing debug test clock)."
+  - (c) "Accept and retry. No product change. A measured step whose window overlapped the sync is re-run once, and the case fails only if traffic appears again. The suites can't tell sync traffic apart on an opaque carrier, so this is a retry policy, and AGENTS.md forbids weakening cases; I don't recommend it."
+- **Chosen:** (a). Each network keeps its own background due time: a background sync sets it 60 seconds plus jitter later, and an explicit sync sets it 60 seconds after the explicit one, so that network gets at least 60 seconds rather than the "at least 50" in the option, and other networks' schedules are unaffected.
+- **Reason given:** none beyond choosing it.
+
+### DIR-1: an on-demand refresh counts for earlier changes (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** agent directory (DIR): when hosts query each other's agents.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). The access purity suites failed now and then on one stray QUIC exchange during a step that must send no traffic. It was the directory worker's refresh, `GET /peer/v1/networks/{network}/agents`: the worker looks for map and policy changes every 2 seconds and refreshes within the contract's 10 seconds, so a refresh owed for an earlier step could start after the suites' 0.3-second quiet check. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [launch-contract.md](launch-contract.md), the directory's "When".
+
+#### DIR-1. How the purity suites stop seeing a refresh owed for an earlier change
+
+- **Options:**
+  - (a) "On-demand refresh counts (Recommended). Contract and daemon: an on-demand refresh (POST /v1/directory/refresh, `agents --refresh`) counts as the refresh owed for any change made before it started, so the worker doesn't repeat it. The suites then do one on-demand refresh, wait for quiet, and measure. That costs well under a second per measured step, and it also removes duplicate refreshes after `agents --refresh`."
+  - (b) "Suites wait for the refresh. No daemon change. Before each measured step, the suites wait until each peer's directory `refreshed_at` is newer than the last state change, or until 10 s pass. That adds about 2–10 s per measured step: roughly 30–80 s per suite across about 40 steps, which pushes these second-tier suites further past 2 minutes."
+  - (c) "Tighten the contract bound. The contract states the actual bound (the check runs every 2 s, so a refresh starts within about 3 s of a change), and the suites wait 3 s of quiet before each measured step. That's simple, but it costs about 3 s per step (roughly 40 s per suite) and ties the contract to the worker's polling period."
+- **Chosen:** (a).
 - **Reason given:** none beyond choosing it.
 
 ### OUT-1 and OUT-2: readable output by default (2026-11-10)

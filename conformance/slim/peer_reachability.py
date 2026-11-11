@@ -45,7 +45,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, b64url_json, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import exchange_current_contacts, peer_address, peer_request
+from counted_peer import exchange_current_contacts, peer_address, peer_request, refresh_then_quiet
 
 suite = Suite("peer_reachability", __doc__)
 BASE = "/v1/onboarding/reachability"
@@ -871,8 +871,8 @@ def world():
         local.restart()
     restart_project(state)
     current_contacts(state, 55)
-    for local in (a, b):
-        quiet(state, local, require_retirement=True)
+    refresh_then_quiet((a, b), (state["net"],), lambda: [quiet(state, local, require_retirement=True) for local in (a, b)],
+                       lambda: tuple(snapshot(local) for local in (a, b)))  # DIR-1
     before, counts = whole(state), traffic(state)
     observe(state, outcome="not_verified")
     began = b.now()
@@ -897,8 +897,8 @@ def world():
     current_contacts(state, 55)
     restart_project(state)
     state["pa"] = project(a, "target")
-    for local in (a, b):
-        quiet(state, local, require_retirement=True)
+    refresh_then_quiet((a, b), (state["net"],), lambda: [quiet(state, local, require_retirement=True) for local in (a, b)],
+                       lambda: tuple(snapshot(local) for local in (a, b)))  # DIR-1
     state["fresh_window"] = min(a.started_at, b.started_at)
     state["ready"] = True
     return state
@@ -991,8 +991,8 @@ def _():
     for field, value in (("project_root", str(suite.work / "different-project")), ("native_session_id", "different-conversation"),
                          ("project_review_id", "review_" + "0" * 64)):
         refusals.append(({**body, "context": {**body["context"], field: value}}, 409, "review_changed"))
-    for local in (f["a"], h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], h)],
+                       lambda: tuple(snapshot(local) for local in (f["a"], h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for invalid, status, code in refusals:
         observe(f, body=invalid, status=status, code=code)
@@ -1013,8 +1013,8 @@ def _():
 @suite.case("actual_dispatched_counted_exchange_rechecks_detached_parent_without_lock_or_rebind", "guided38 verification4")
 def _():
     f = world(); h, target = f["b"], f["a"]
-    for local in (target, h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((target, h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (target, h)],
+                       lambda: tuple(snapshot(local) for local in (target, h)))  # DIR-1
     old = f["pb"]; body = request(f); counts = traffic(f)
     generation = target.counted_peer.arm()
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -1045,8 +1045,8 @@ def _():
 def _():
     f = world(); h, target = f["b"], f["a"]
     check(f["no_route_pure"], "genuine no-current-route capture was omitted")
-    for local in (target, h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((target, h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (target, h)],
+                       lambda: tuple(snapshot(local) for local in (target, h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for _ in range(2):
         observe(f, outcome="authenticated_response")
@@ -1088,8 +1088,8 @@ def _():
         invalid.append(compact({**body, **extra}))
     invalid.extend([compact({**body, "peer_host_id": "host_1"}), compact({**body, "network_id": "net_1"}),
         compact({**body, "person_public_key": "bad"}), compact({**body, "context": {**body["context"], "extra": "PRIVATE_INPUT"}})])
-    for local in (f["a"], h):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], h), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], h)],
+                       lambda: tuple(snapshot(local) for local in (f["a"], h)))  # DIR-1
     before, counters = whole(f), traffic(f)
     for number, data in enumerate(invalid):
         status, denied = raw(h, data)

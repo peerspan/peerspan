@@ -1322,9 +1322,30 @@ pub(crate) fn presence(store: &Arc<Store>, host: String, network: String) {
     });
 }
 
+/// When the worker last refreshed each network, and the fingerprint it saw.
+/// A whole-network on-demand refresh records here too, so it counts as the
+/// refresh owed for every change made before it started (launch contract,
+/// directory "When", DIR-1).
+static REFRESHED: std::sync::LazyLock<std::sync::Mutex<BTreeMap<String, (Instant, String)>>> =
+    std::sync::LazyLock::new(Default::default);
+
 /// Refreshes networks now and waits at most 10 seconds; an unfinished
 /// refresh completes in the background.
 pub(crate) async fn refresh_now(store: &Arc<Store>, networks: Vec<String>, only: Option<String>) {
+    if only.is_none() {
+        let ids = networks.clone();
+        // Read and record under the lock, so a worker pass cannot compare an
+        // older fingerprint against this newer record (DIR-1).
+        let _ = blocking(store.clone(), move |s| {
+            let mut refreshed = REFRESHED.lock().unwrap_or_else(|e| e.into_inner());
+            for id in ids {
+                let fingerprint = s.directory_fingerprint(&id)?;
+                refreshed.insert(id, (Instant::now(), fingerprint));
+            }
+            Ok::<_, Error>(())
+        })
+        .await;
+    }
     let mut running = Vec::new();
     for network in networks {
         running.push(tokio::spawn(refresh(
@@ -1584,32 +1605,35 @@ pub(crate) async fn owner_request(
 /// Watches every network: refreshes each at startup, every 5 minutes, and
 /// within seconds of a change to its map or stored policies.
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
-    let mut last: BTreeMap<String, (Instant, String)> = BTreeMap::new();
     loop {
-        let networks = blocking(store.clone(), |s| {
+        // Fingerprints are read and compared under the lock that on-demand
+        // refreshes record under, so neither sees a stale snapshot (DIR-1).
+        let (networks, due) = blocking(store.clone(), |s| {
             let ids: Vec<String> = s.product_network_ids(&*s.connection()?)?;
-            ids.into_iter()
-                .map(|id| Ok((s.directory_fingerprint(&id)?, id)))
-                .collect::<Result<Vec<_>, Error>>()
+            let mut last = REFRESHED.lock().unwrap_or_else(|e| e.into_inner());
+            let mut due = Vec::new();
+            for id in &ids {
+                let fingerprint = s.directory_fingerprint(id)?;
+                if last
+                    .get(id)
+                    .is_none_or(|(at, seen)| at.elapsed() >= REFRESH_EVERY || *seen != fingerprint)
+                {
+                    last.insert(id.clone(), (Instant::now(), fingerprint));
+                    due.push(id.clone());
+                }
+            }
+            last.retain(|id, _| ids.contains(id));
+            Ok::<_, Error>((ids, due))
         })
         .await
         .unwrap_or_default();
-        for (fingerprint, id) in &networks {
-            let due = last
-                .get(id)
-                .is_none_or(|(at, seen)| at.elapsed() >= REFRESH_EVERY || seen != fingerprint);
-            if due {
-                last.insert(id.clone(), (Instant::now(), fingerprint.clone()));
-                tokio::spawn(refresh(store.clone(), id.clone(), None, false));
-            }
+        for id in due {
+            tokio::spawn(refresh(store.clone(), id, None, false));
         }
-        last.retain(|id, _| networks.iter().any(|(_, n)| n == id));
         if let Ok(mut cache) = store.directory_cache() {
-            cache
-                .networks
-                .retain(|id, _| networks.iter().any(|(_, n)| n == id));
+            cache.networks.retain(|id, _| networks.contains(id));
         }
-        prune_queries(&store, |n, _| networks.iter().any(|(_, id)| id == n));
+        prune_queries(&store, |n, _| networks.contains(&n.to_owned()));
         tokio::select! {
             _ = tokio::time::sleep(WATCH_EVERY) => {}
             // A sync after the coordinator's change notification.

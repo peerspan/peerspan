@@ -38,7 +38,7 @@ Conformance is the [slim suites](conformance/slim/) ([DEC-OWN6](docs/decision-lo
 - `policy`: allow, deny, block, bans, policy edits and capability claims (spec 5, 12).
 - `work`: messages, tasks, delegation chains, agent lookup.
 - `renewal`: leases, automatic renewal, retention, root offline, expiry (spec 7); uses the debug-build test clock.
-- `sync`: propagation and repair between hosts (spec 10).
+- `sync`: propagation and repair between hosts, and the explicit sync restarting the background interval (spec 10, SYNC-1); second tier only, since its setup and the 50-second quiet window take it past 4 minutes.
 - `delivery`: first-contact listener, mailboxes, QUIC completion, the helper and relay (spec 9).
 - `root`: root rotation, root split and reinvite (spec 13, 14.2).
 - `live`: live delivery (readiness, seen, redelivery, adoption, pending work).

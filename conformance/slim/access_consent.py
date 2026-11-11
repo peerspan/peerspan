@@ -45,7 +45,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64,
                      wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("access_consent", __doc__)
 BASE = "/v1/onboarding/access-consent"
@@ -430,8 +430,10 @@ def directory(f):
 
 
 def stable(f):
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    def both():
+        for local in (f["a"], f["b"]):
+            quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), both, lambda: whole(f))  # DIR-1
 
 
 def whole(f):

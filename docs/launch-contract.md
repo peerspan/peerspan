@@ -494,7 +494,7 @@ Older receivers return 404 for this route. The caller records the host as `unsup
 
 Each daemon keeps a directory per network, in memory:
 - **Hosts queried:** every current, unrevoked member other than itself.
-- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand. A stored policy includes another person's policy this host received by sync on a network without a coordinator: when bob allows alice, alice's directory lists bob's agents within 10 seconds of her host storing bob's new policy, with no refresh; when bob denies her, they leave it within the same bound.
+- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand. A stored policy includes another person's policy this host received by sync on a network without a coordinator: when bob allows alice, alice's directory lists bob's agents within 10 seconds of her host storing bob's new policy, with no refresh; when bob denies her, they leave it within the same bound. An on-demand refresh of a whole network (`agents --refresh`, `POST /v1/directory/refresh`) counts as the refresh owed for every change made before it started: no refresh follows for those changes, and the 5-minute interval restarts from it. A change made after it started is still refreshed within 10 seconds. A refresh of one host, such as a send's recheck, does not count ([DIR-1](decision-log.md#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10)).
 - **How:** at most 8 queries at once, each with a 5-second timeout, over the usual peer transport, relay included.
 - **Failures:** a host that fails keeps its previous agents, marked with the time of the last success and the error.
 
@@ -619,6 +619,7 @@ These cases were written for `conformance/launch_directory.py`, which was remove
 - **Discovery:**
   - a new agent appearing after `--refresh`;
   - a policy change reflected within 10 seconds without a refresh;
+  - after a policy change and then a whole-network `POST /v1/directory/refresh`, no further query to the other host within the following 10 seconds (counted on an opaque UDP carrier, DIR-1); a policy change made after that refresh is still reflected within 10 seconds;
   - a stopped host keeping its agents with `state: error`.
 - **Addresses:** both forms; case-folded labels; `unknown`, `ambiguous` (with an injected duplicate), and `local`; a host without a person addressed by host ID.
 - **Sending:**
