@@ -436,7 +436,8 @@ async function durableRecovery() {
     call.argv.includes(reserved.taskId)), 'replay was not preceded by same-ID inspection');
   const argv = before.argv;
   assert.equal(argv[argv.indexOf('--state') + 1], missing.senderDir);
-  assert.equal(argv[argv.indexOf('--input') + 1], work.instructions);
+  assert.ok(argv.includes('--input=' + work.instructions) && !argv.includes('--input'),
+    'section 4: the input travels as the single argument --input=TEXT');
   assert.equal(argv[argv.indexOf('--peer') + 1], ids.hostId);
   assert.equal(argv[argv.indexOf('--agent') + 1], ids.agentId);
   assert.ok(Number.isFinite(Date.parse(argv[argv.indexOf('--deadline') + 1])));
