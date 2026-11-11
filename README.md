@@ -1,81 +1,68 @@
-<p align="center">
-  <img src="assets/peerspan-logo.png" alt="Peerspan logo" width="128" />
-</p>
+# Peerspan Managed
 
-<h1 align="center">peerspan</h1>
+An unofficial Peerspan fork for managed, always-on agent teams.
 
-<p align="center">
-  <a href="https://github.com/peerspan/peerspan/actions/workflows/pull-request.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/pull-request.yml?style=flat-square&label=checks" /></a>
-  <a href="https://github.com/peerspan/peerspan/actions/workflows/conformance.yml"><img alt="Conformance" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/conformance.yml?style=flat-square&label=conformance" /></a>
-  <a href="https://github.com/peerspan/peerspan/releases"><img alt="Preview release" src="https://img.shields.io/github/v/release/peerspan/peerspan?include_prereleases&style=flat-square&label=preview" /></a>
-  <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
-</p>
+Run recurring assignments against existing agents, retain task history across
+restarts, and see which workers or workflows need attention. The first release
+is a **single-owner local operator preview**, with a product path toward hosted
+teams and customer-supplied model access.
 
-<h3 align="center">Infrastructure for agents to collaborate across machines and owners.</h3>
+## Available now
 
-You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
+- Authenticated loopback dashboard with live workflow and worker state.
+- Durable recurring assignments through the Peerspan CLI, using existing host
+  permissions and genuinely verified channels.
+- Exact submission identity retained through uncertain replies and restart.
+- Pause/resume, daily dispatch caps, one unresolved assignment per target, and
+  automatic pause after three failed runs.
+- Actual task result history and a read-only bridge for existing controllers.
+- SQLite persistence on a dedicated storage thread, private local credentials,
+  and a supervised Linux/WSL service recipe.
 
-- **Messages and tasks.** Send work to an agent, get a result, and pass files with the task. The hosts store work and retry uncertain deliveries.
-- **Conversations.** Keep a discussion with several people and agents in one place.
-- **Tools.** Share selected MCP operations; an attached agent can call them only when its owner opts in.
+## Run locally
 
-## Demo
-
-<p align="center">
-  <a href="https://peerspan.dev/#demo"><img src="assets/peerspan-demo.gif" width="960" alt="Peerspan demo: carol joins alice and bob's network, then Claude Code, Codex and OpenCode pass a task, tests and a review across four machines." /></a>
-</p>
-
-A live recording on Peerspan 0.2.0 (2 min 25 s, shown at 3× speed): carol joins alice and bob's network from her own machine. alice's Claude Code gives Codex on her second machine a task, then sends the result to bob's OpenCode, which runs tests and delegates a review to carol's Claude Code. [Watch it on peerspan.dev](https://peerspan.dev/#demo) or [download the MP4](https://peerspan.dev/demo4.mp4).
-
-## Quick start
-
-### Tell your agent
-
-Paste this into an agent with shell access on the machine you want to connect:
-
-```text
-Help me set up Peerspan for this project. Read the quick start:
-https://github.com/peerspan/peerspan/blob/main/docs/quick-start.md
-
-Check what is installed, then ask whether I am creating a network, joining
-someone else, or linking another of my machines. Show me the identity and
-access choices before applying them. Check peerspan status and send a test
-message when both agent sessions are ready.
-```
-
-### By hand
-
-Install on Linux (amd64 or arm64). It needs Node.js 22 or later, but no root and no GitHub account:
+Requires Node 24 and an existing Peerspan installation on Linux or WSL.
 
 ```sh
-curl -fsSL https://peerspan.dev/install | bash
+node managed/cli.mjs serve
+# In another terminal, get the private console access token:
+node managed/cli.mjs token
 ```
 
-The installer checks the release's signature before installing anything; the [quick start](docs/quick-start.md#install) explains what it checks and how to read it first. Then, in a project:
+Open **http://localhost:4310**, sign in, and follow the
+[operator guide](managed/README.md) to connect a dedicated worker. No npm install
+is needed for this application. On Windows, `./managed.ps1 start` and
+`./managed.ps1 token` provide the WSL entry points.
 
-```sh
-peerspan up claude --create team
-peerspan status
-```
+## Product direction
 
-For another of your machines, run `peerspan up claude` there and choose **link**. For a teammate, run `peerspan invite NAME`; they use `peerspan up claude --join`, and you grant access with `peerspan allow NAME`. The [quick start](docs/quick-start.md) covers pairing, invitations, and existing Claude, Codex, or OpenCode conversations.
+Start with engineering teams and agencies that already use agents and need less
+manual supervision. Offer free local operation, then hosted execution and team
+administration with separately metered compute. The proposed $99–299 team price
+is an experiment, not validated willingness to pay.
 
-For a group thread, run `peerspan conversation start bob/claude person:carol`. Use `peerspan conversations` to find it and `peerspan conversation show ID` to read it.
+Read the [product specification](docs/managed-product.md),
+[operator contract](docs/managed-contract.md), and
+[upstream Peerspan documentation](README_UPSTREAM.md).
 
-## How it works
+## Current limits
 
-<p align="center">
-  <img src="docs/architecture.svg" width="750" alt="Agents on two owners' machines use local Peerspan hosts. The hosts check signed membership and access, exchange work directly over QUIC, and can use an optional helper for rendezvous and encrypted relay. The helper cannot approve or read work." />
-</p>
+This release does not provision cloud machines or model sessions, isolate SaaS
+tenants, meter model costs, bill customers, or certify the quality of agent
+output. Daily caps limit assignment count, not dollars. Existing observed
+programs keep their original controllers and cannot be controlled from this UI.
 
-Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
+The scheduler supervises task delivery and reconciliation; dedicated agent
+session lifecycle is the next product slice. Do not expose this local preview as
+a public hosted service.
 
-## Status
+## Upstream and license
 
-Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Agent integrations and the installer need Node.js 22 or later. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
+Forked from [peerspan/peerspan](https://github.com/peerspan/peerspan), retaining its
+Rust host, protocols, integrations and Apache-2.0 license. This fork is not an
+official Peerspan service. `upstream` tracks the original project; `origin` is
+[maschad96/peerspan-managed](https://github.com/maschad96/peerspan-managed).
 
-## Development
-
-The Rust host lives in [src/](src/); the Go implementation is maintained in [peerspan-go](https://github.com/peerspan/peerspan-go). See the [developer guide](docs/developer-guide.md) for builds and checks, [conformance/](conformance/) for black-box suites, and [AGENTS.md](AGENTS.md) for the development rules. During the preview we welcome issues but not pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
-
-Apache License 2.0. See [LICENSE](LICENSE).
+The operator product is contained in `managed/`. Its contract-derived acceptance
+suite is independently authored under `managed/conformance/`. Upstream host
+implementation and release installers are unchanged.
