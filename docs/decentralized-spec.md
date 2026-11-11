@@ -636,6 +636,9 @@ adds no authority, and a failed path leaves the request intact for another.
 - A host serves the same mailbox routes as a helper. A participant may host it.
 - The mailbox's lifetime equals the request window (DEC-Q1). At expiry or
   `DELETE` all ciphertext is erased and a small tombstone is kept for 24 hours.
+  The host erases an expired mailbox within 2 seconds of its expiry on the
+  host's clock, without waiting for a request, and that erasure is the host's
+  own maintenance, not part of any request ([MBX-1](decision-log.md)).
 - Limits: 64 frames per mailbox, 32 MiB ciphertext per mailbox, 4 active
   mailboxes per client host, 2 writes per second (burst 8), 1 read per second
   (burst 4).

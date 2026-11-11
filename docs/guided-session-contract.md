@@ -8343,6 +8343,32 @@ name to unknown; never print raw values/labels/paths/IDs. No assertion/setup/
 operation/purity-counter/bound change. Run once to classify this remaining
 observation; a passing sample leaves the prior cause unclassified.
 
+### GU.impl42f: settle mailbox expiry after a clock jump
+
+The case5 observation retained in GU.impl42b/42e is now classified. Full-tier run
+43103041743 (2026-11-11) and 7 of 20 local whole-suite samples capture, with the
+GU.impl42e allowlist, exactly the existing side's `frames` and `mailboxes`
+tables changed during a lookup or approve CLI step after the case's test-clock
+jump past request expiry, with no files/schema/version/database-set or carrier
+change ([#189](https://github.com/peerspan/peerspan/issues/189)). That is the
+existing host erasing expired participant mailboxes (decentralized spec
+section 9.2, [MBX-1](decision-log.md)): its own maintenance on the host clock,
+not work done by the pure step. The case's settling (`settled` and `quiet`,
+0.1 s of stable state) can end before that erasure runs, so the erasure lands
+inside the measured step.
+
+A measured purity step that follows a test-clock change starts only after
+mailbox expiry for that clock has settled: at least 2 seconds (the section 9.2
+bound) after the clock was changed, and then the existing stable-state and
+counter settling. This applies wherever a case changes the clock before a pure
+step, in sections 42 and 43 alike. It is settling, not an allowance: the same
+whole DB/private-file/TCP+UDP comparison, allowed writes, actions, counters and
+bounds stay unchanged, and nothing that changes after settling is excused.
+Discarded: allowing `frames`/`mailboxes` changes in pure comparisons (it would
+also hide a pure step that wrote a mailbox), a debug switch that stops erasure
+(the suite would no longer test the daemon as shipped), and retrying a failed
+step.
+
 ## 43. Bounded existing-computer owner-offer signing
 
 GU.impl43 follows merged94. Add an explicit bounded private signing continuation
