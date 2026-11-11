@@ -20,6 +20,7 @@ Contents:
   - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
   - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
+  - [INST-12: a stable path to the installed release](#inst-12-a-stable-path-to-the-installed-release-2026-11-10) (2026-11-10)
   - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
   - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
   - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
@@ -181,6 +182,23 @@ Contents:
   - (a) "In this change: a short human summary before each 'Approve/Commit this exact machine?' prompt (person, machine key fingerprint, scope names, expiry), with JSON behind `--json`."
   - (b) "Later, with #158's output pass (recommended). This change stays focused on who does what next; #158 then cleans up the output of every command at once."
 - **Chosen:** (b). The review screens are covered by [#158](https://github.com/peerspan/peerspan/issues/158).
+- **Reason given:** none beyond choosing it.
+
+### INST-12: a stable path to the installed release (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** install (INST): paths that stay the same across upgrades.
+- **Source:** the owner's answer, 2026-11-10, on issue [#183](https://github.com/peerspan/peerspan/issues/183): "go with the stable path plus detection". The OpenCode plugin entry had to name a file inside one release's directory, which changes on every upgrade, and the installer keeps older releases, so an entry that was not updated silently loaded the previous release's plugin (found in the 0.2.0 four-machine demo, #164). The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [install-contract.md](install-contract.md), `scripts/install-release.sh`, "A stable link to the installed release"; [integrations/opencode/README.md](../integrations/opencode/README.md).
+
+#### INST-12. How the OpenCode plugin entry survives upgrades
+
+- **Options:**
+  - "A stable path. The installer maintains a link that always points at the current release's integrations, for example `~/.local/share/peerspan/current` → the active release. The plugin entry then names `…/peerspan/current/share/peerspan/integrations/opencode/plugin.mjs`. This is the smallest change. The link has to be swapped atomically with the launcher, and an upgrade while OpenCode is running would reload the new plugin only on OpenCode's next reload."
+  - "`peerspan` writes the entry. `peerspan attach opencode`, or a separate command, adds or updates the plugin entry in the OpenCode configuration, preserving comments and other plugins. The integration README currently promises that Peerspan \"changes no … OpenCode configuration\", so this needs an owner decision, and JSONC editing is error-prone."
+  - "Detect a stale entry. `attach opencode` and `session doctor` compare the loaded plugin's version with the daemon's, and print the exact path to use. This doesn't remove the manual step, but it makes the mismatch visible."
+- **Chosen:** the stable path plus detection. Peerspan still writes no OpenCode configuration. Detection compares the file each entry resolves to with the running release's plugin, rather than a version string.
 - **Reason given:** none beyond choosing it.
 
 ### INST-9 to INST-11: bundled Node.js and our own release verifier (2026-11-10)
