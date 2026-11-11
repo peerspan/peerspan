@@ -1,0 +1,89 @@
+// Assembles the console's view of the controller (contract section 8). This is
+// the privacy boundary of the HTTP API: everything returned here is built from
+// public fields; no path, credential or upstream detail text is passed through.
+import { stamp } from './clock.mjs';
+import { readObservations } from './observations.mjs';
+import { SCHEMA_VERSION } from './schema.mjs';
+
+const SEVERITIES = ['action', 'warning', 'info'];
+
+function orderAttention(items) {
+  const rank = item => SEVERITIES.indexOf(item.severity);
+  return items.sort((a, b) => {
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (a.since === b.since) return 0;
+    if (a.since === null) return 1;
+    if (b.since === null) return -1;
+    return a.since < b.since ? -1 : 1;
+  });
+}
+
+function attentionFor({ engine, workflows, connections, problems, observed }) {
+  const items = [];
+  const add = (kind, severity, type, subject, message, since) =>
+    items.push({ kind, severity, subject: { type, id: subject.id, name: subject.name }, message, since: since ?? null });
+
+  if (engine.error) {
+    add('controller_error', 'action', 'controller', { id: 'controller', name: 'controller' }, engine.error, engine.errorSince);
+  }
+  for (const workflow of workflows) {
+    if (workflow.pausedBy === 'failures') {
+      add('workflow_auto_paused', 'action', 'workflow', workflow,
+        'Paused after three consecutive failed runs; review the results, then resume', workflow.pausedAt);
+    }
+  }
+  for (const connection of connections) {
+    const { readiness } = connection;
+    if (readiness.ready || readiness.code === 'checking') continue;
+    const inUse = workflows.some(workflow => workflow.enabled && workflow.connectionId === connection.id);
+    add('worker_unready', inUse ? 'action' : 'warning', 'connection', connection, readiness.reason, readiness.since);
+  }
+  for (const problem of problems) add('run_problem', 'warning', 'run', problem, problem.message, problem.since);
+  for (const source of observed) {
+    if (!source.available) add('observed_unavailable', 'warning', 'observation', source, source.error, null);
+    else if (source.error) add('observed_problem', 'warning', 'observation', source, source.error, source.lastTickAt);
+  }
+  for (const workflow of workflows) {
+    if (workflow.dailyLimitReached) {
+      add('daily_limit_reached', 'info', 'workflow', workflow,
+        'Daily dispatch limit reached; dispatch continues after 00:00 UTC', workflow.latestRunAt);
+    }
+  }
+  return orderAttention(items);
+}
+
+export async function buildSnapshot({ store, engine, version }) {
+  const [data, sources] = await Promise.all([store.snapshot(stamp()), store.listObservations()]);
+  const observed = await readObservations(sources);
+  const connections = data.connections.map(connection => ({
+    id: connection.id,
+    name: connection.name,
+    hostId: connection.hostId,
+    agentId: connection.agentId,
+    mode: connection.mode,
+    readiness: engine.readinessOf(connection)
+  }));
+  const attention = attentionFor({ engine, workflows: data.workflows, connections, problems: data.problems, observed });
+  return {
+    connections,
+    workflows: data.workflows.map(({ dailyLimitReached, pausedAt, latestRunAt, ...workflow }) => workflow),
+    runs: data.runs,
+    observed,
+    attention,
+    activity: data.activity,
+    archived: data.archived,
+    meta: {
+      name: 'Peerspan Managed',
+      version,
+      mode: 'Local operator preview',
+      revision: engine.revision,
+      schemaVersion: SCHEMA_VERSION,
+      lastTickAt: engine.lastTickAt,
+      tickSeconds: engine.tickMs / 1000,
+      error: engine.error,
+      modelCostAvailable: false,
+      modelCost: 'Unavailable; model usage is billed by your provider',
+      cloudProvisioning: false
+    }
+  };
+}

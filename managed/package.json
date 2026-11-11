@@ -1,11 +1,12 @@
 {
   "name": "peerspan-managed",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24" },
   "scripts": {
     "start": "node cli.mjs serve",
-    "check": "node --check cli.mjs && node --check server.mjs && node --check engine.mjs && node --check connector.mjs && node --check db.mjs && node --check db-worker.mjs && node --check public/app.js"
+    "check": "node scripts/check.mjs",
+    "test": "node conformance/acceptance.mjs && node conformance/operations.mjs"
   }
 }
