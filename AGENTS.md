@@ -1,5 +1,18 @@
 # Implementation instructions
 
+## Managed product tracking
+
+Managed product work has a standing [upstream draft PR #186](https://github.com/peerspan/peerspan/pull/186).
+The working repository is `maschad96/peerspan-managed` (`origin/main`); its review
+branch is `maschad96/peerspan:managed` (`review/managed`). When publishing managed
+changes, keep those branches aligned: `git push origin main` and
+`git push review main:managed`. The `review` remote is
+`https://github.com/maschad96/peerspan.git`. Keep the PR summary current at meaningful
+milestones, with comments only for notable decisions or blockers. Leave it in
+draft unless the owner changes that plan; no per-commit progress ledger is needed.
+
+## Host implementation
+
 The Rust host service (the crate at the repository root: `src/` and `tests/`) is the only host implementation in this repository ([DEC-OWN5](docs/decision-log.md)). The Go implementation is maintained separately at https://github.com/peerspan/peerspan-go and is not built, tested or packaged here. Shared specifications are in `docs/`; binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository.
 
 Coordination remains outside the collaboration data path. Hosts enforce permissions and own execution and local state. Agent identities are distinct from sessions. Membership, ownership, and access are separate.

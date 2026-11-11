@@ -45,6 +45,11 @@ Read the [product specification](docs/managed-product.md),
 [operator contract](docs/managed-contract.md), and
 [upstream Peerspan documentation](README_UPSTREAM.md).
 
+Ongoing work is tracked in [upstream draft PR #186](https://github.com/peerspan/peerspan/pull/186).
+This repository is the working copy; `maschad96/peerspan:managed` is its upstream
+review branch. The draft carries the current implementation and a short milestone
+overview. It stays open while the product develops.
+
 ## Current limits
 
 This release does not provision cloud machines or model sessions, isolate SaaS
