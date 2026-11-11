@@ -892,7 +892,15 @@ async fn dispatch(
         // background before it has taken a step (guided sections 20 to 22).
         // An explicit resume of a request still waiting for the owner offer
         // or the selection reads them now, past the 2-second poll skip, so
-        // `link admit REQUEST_ID` sees what arrived (spec 16, ML-6).
+        // `link admit REQUEST_ID` sees what arrived (spec 16, ML-6). A
+        // malformed body is refused before any of that.
+        if let Err(e) = object
+            .as_ref()
+            .ok_or_else(|| Error::new("invalid"))
+            .and_then(|o| fields(o, ""))
+        {
+            return failure(e, network, "-", route.stage, None);
+        }
         let capture = store.clone();
         let lookup = id.to_string();
         let waiting = tokio::task::spawn_blocking(move || -> Result<bool> {
