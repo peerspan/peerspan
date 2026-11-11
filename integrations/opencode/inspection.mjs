@@ -55,9 +55,13 @@ export async function inspect(client, config) {
       if (entry[1]?.bindings === config.bindings) loaded = true;
     } else stale ??= entry[0];
   }
-  if (!loaded && stale)
+  // Both releases' plugins register the same tool names, so a stale entry is
+  // refused even beside a current one: the tool check could not tell them apart.
+  if (stale)
     throw new Error(
-      `OpenCode loads a Peerspan plugin from another release (${stale}). Point its plugin entry at ${wanted}, then reload OpenCode while idle.`
+      `OpenCode loads a Peerspan plugin from another release (${stale}). ${
+        loaded ? 'Remove that plugin entry' : `Point its plugin entry at ${wanted}`
+      }, then reload OpenCode while idle.`
     );
   if (!loaded)
     throw new Error(
