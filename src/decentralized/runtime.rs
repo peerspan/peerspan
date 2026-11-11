@@ -888,6 +888,28 @@ async fn dispatch(
     if method == Method::POST
         && let ["v2", "link", "requests", id, "resume"] = parts.as_slice()
     {
+        // An administrator does not read a request's carriers in the
+        // background before it has taken a step (guided sections 20 to 22).
+        // An explicit resume of a request still waiting for the owner offer
+        // or the selection reads them now, past the 2-second poll skip, so
+        // `link admit REQUEST_ID` sees what arrived (spec 16, ML-6).
+        let capture = store.clone();
+        let lookup = id.to_string();
+        let waiting = tokio::task::spawn_blocking(move || -> Result<bool> {
+            let c = capture.connection().map_err(|_| Error::new("internal"))?;
+            let r = requests::load(&c, &lookup)?.record;
+            Ok(r.terminal == "-"
+                && r.administrator_intent_id == "-"
+                && r.roles.iter().any(|role| role == "administrator")
+                && !r.roles.iter().any(|role| role == "requester")
+                && (r.owner_offer_id == "-" || r.selection_id == "-"))
+        })
+        .await
+        .unwrap_or_else(|_| Err(Error::new("internal")));
+        if waiting.unwrap_or(false) {
+            // The view after the read shows whether anything arrived.
+            let _ = requests_io::poll_fresh(store.clone(), id).await;
+        }
         match completed_resume(
             store.clone(),
             id,
@@ -928,13 +950,10 @@ async fn dispatch(
             Ok(id) => id,
             Err(e) => return failure(e, network, "-", route.stage, None),
         };
-        // Always bring the request up to date first: an administrator that
-        // already holds it (it now reads the mailbox while waiting, spec 16)
-        // still needs everything the carriers hold for this admission. A
-        // refresh failure only matters when nothing was held before.
-        if let Err(e) = requests_io::poll_fresh(store.clone(), &id).await
-            && !retained
-        {
+        // An admission that already holds the exact requested owner offer
+        // and selection does no carrier I/O. Otherwise it reads every carrier
+        // fresh, past the 2-second poll skip.
+        if !retained && let Err(e) = requests_io::poll_fresh(store.clone(), &id).await {
             return failure(e, network, "-", route.stage, None);
         }
     }

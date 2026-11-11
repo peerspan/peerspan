@@ -237,12 +237,14 @@ new person.
    choose the exact reviewed offer with no default. The daemon advances the
    request automatically; `peerspan link resume REQUEST_ID` requests an
    immediate pass.
-3. On the administrator's machine, `peerspan status` now shows the exact
-   `peerspan link admit …` command for the request; run it as shown. Until the
-   teammate has approved, status says the request is waiting on their machine.
-   The general form is `peerspan link admit REQUEST_ID --network NETWORK_ID
-   --person PERSON_PUBLIC_KEY`, plus the `--owner-offer`, `--selection`,
-   `--expect-host-key` and `--expect-device-key` values that status fills in.
+3. On the administrator's machine, `peerspan status` shows
+   `peerspan link admit REQUEST_ID --network NETWORK_ID` for the request; run
+   it as shown once the teammate has approved. It reads the request, shows the
+   review and asks before admitting. Run too early, it says the request still
+   waits on their machine and changes nothing.
+   The general form adds `--person PERSON_PUBLIC_KEY`, `--owner-offer` and
+   `--selection`, which `link admit REQUEST_ID` otherwise takes from the
+   request.
    With the manual fallback, omit REQUEST_ID, enter the private request code at
    the hidden prompt, and take those values from `link status` and the review.
    The default

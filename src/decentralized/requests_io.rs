@@ -526,8 +526,8 @@ pub(crate) async fn poll(store: Arc<Store>, id: &str) -> Result<()> {
     poll_with(store, id, false).await
 }
 /// `poll` that reads every carrier even when it was read within the last 2
-/// seconds: an admission must see what arrived since the waiting
-/// administrator's last background read (spec 16).
+/// seconds, for an explicit administrator step: an admission without the
+/// exact owner offer and selection, or a resume (spec 16, ML-6).
 pub(crate) async fn poll_fresh(store: Arc<Store>, id: &str) -> Result<()> {
     poll_with(store, id, true).await
 }
@@ -676,16 +676,9 @@ pub(crate) async fn approver_worker(
                                 && intent.record.approved
                                 && intent.record.terminal == "-"
                         });
-                // An administrator that has not admitted yet also reads the
-                // mailbox, so the owner offer and selection arrive and status
-                // can give the exact `link admit` command (spec 16, ML-3).
-                let administrator_waiting = p.record.administrator_intent_id == "-"
-                    && p.record.roles.iter().any(|r| r == "administrator")
-                    && (p.record.owner_offer_id == "-" || p.record.selection_id == "-");
                 if p.record.terminal == "-"
                     && (approved_owner
                         || approved_administrator
-                        || administrator_waiting
                         || requester && p.record.commit_packet_base64 == "-")
                     && stamp(&now)? < stamp(&p.deadline)?
                 {
