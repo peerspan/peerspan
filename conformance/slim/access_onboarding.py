@@ -48,7 +48,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64,
                      wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 
 suite = Suite("access_onboarding", __doc__)
@@ -478,6 +478,13 @@ def unsigned_maintenance(h):
 
 
 def quiet(f, h, *, require_retirement=False):
+    if require_retirement:  # precedes every strict carrier baseline here: DIR-1 first
+        return refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: settle(f, h, require_retirement=True),
+                                  lambda: (snapshot(f["a"]), snapshot(f["b"])))
+    settle(f, h)
+
+
+def settle(f, h, *, require_retirement=False):
     previous = snapshot(h), traffic(f)
     stable_since = time.monotonic()
     def settled():

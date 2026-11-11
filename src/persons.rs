@@ -492,6 +492,34 @@ pub fn encode_openssh_private_key(key: &SigningKey, comment: &str) -> Result<Str
     Ok(text)
 }
 /// Parses an unencrypted OpenSSH `ssh-ed25519` private key file.
+/// The configured owner key file's key, read safely: opened without following
+/// a final symlink or blocking on a FIFO, and only from an owner-owned regular
+/// file with no group or other permissions, at most 16 KiB (guided session
+/// contract, configured original file; #184). Anything else is `None`.
+pub fn read_owner_key_file(path: &std::path::Path) -> Option<SigningKey> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    // O_NONBLOCK keeps a FIFO from blocking before this check rejects it.
+    if !meta.is_file()
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.mode() & 0o077 != 0
+        || meta.len() > 16384
+    {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(16385).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > 16384 {
+        return None;
+    }
+    parse_openssh_private_key(std::str::from_utf8(&bytes).ok()?).ok()
+}
 pub fn parse_openssh_private_key(text: &str) -> Result<SigningKey, Error> {
     let body: String = text
         .lines()

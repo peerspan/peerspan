@@ -51,7 +51,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, join_new_person,
                      parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("access_application", __doc__)
 BASE = "/v1/onboarding/access-consent"
@@ -344,9 +344,11 @@ def directory(f):
 
 
 
-def stable(f):
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+def stable(f, sync=True):
+    def both():
+        for local in (f["a"], f["b"]):
+            quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), both, lambda: whole(f), sync=sync)  # SYNC-1, DIR-1
 
 
 
@@ -742,8 +744,8 @@ def strict_unchanged(f, before, counters, phase):
     check(purity_traffic_diagnostic(traffic(f), counters, phase) == counters, "application used original TCP or an enabled UDP path")
 
 
-def pure(f, h, parent, prepared, action="application", **options):
-    stable(f); before, counters = whole(f), traffic(f)
+def pure(f, h, parent, prepared, action="application", *, sync=True, **options):
+    stable(f, sync=sync); before, counters = whole(f), traffic(f)
     value = operation(f, h, parent, prepared, action, **options)
     strict_unchanged(f, before, counters, "pure_" + action)
     return value
@@ -1210,9 +1212,11 @@ def _():
             else:
                 db.execute("DELETE FROM dec_admissions WHERE network_id=? AND statement_id=?", (f["net"], sid))
         try:
-            h.start(); fault_startup_observed(f); stable(f)
+            # Deleted proof/admission evidence is what an explicit sync would fetch back, so this phase relies on
+            # the fresh start's full background interval instead (SYNC-1 sync left out; DIR-1 refresh kept).
+            h.start(); fault_startup_observed(f); stable(f, sync=False)
             for command in ("application", "apply"):
-                pure(f, h, parent, prepared, command, status=409, code="access_application_unavailable")
+                pure(f, h, parent, prepared, command, status=409, code="access_application_unavailable", sync=False)
         finally:
             h.stop(kill=True)
             with closing(sqlite3.connect(database)) as db, db:

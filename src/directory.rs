@@ -1322,9 +1322,30 @@ pub(crate) fn presence(store: &Arc<Store>, host: String, network: String) {
     });
 }
 
+/// When the worker last refreshed each network, and the fingerprint it saw.
+/// A whole-network on-demand refresh records here too, so it counts as the
+/// refresh owed for every change made before it started (launch contract,
+/// directory "When", DIR-1).
+static REFRESHED: std::sync::LazyLock<std::sync::Mutex<BTreeMap<String, (Instant, String)>>> =
+    std::sync::LazyLock::new(Default::default);
+
 /// Refreshes networks now and waits at most 10 seconds; an unfinished
 /// refresh completes in the background.
 pub(crate) async fn refresh_now(store: &Arc<Store>, networks: Vec<String>, only: Option<String>) {
+    if only.is_none() {
+        let ids = networks.clone();
+        let seen = blocking(store.clone(), move |s| {
+            ids.into_iter()
+                .map(|id| Ok((s.directory_fingerprint(&id)?, id)))
+                .collect::<Result<Vec<_>, Error>>()
+        })
+        .await
+        .unwrap_or_default();
+        let mut refreshed = REFRESHED.lock().unwrap_or_else(|e| e.into_inner());
+        for (fingerprint, id) in seen {
+            refreshed.insert(id, (Instant::now(), fingerprint));
+        }
+    }
     let mut running = Vec::new();
     for network in networks {
         running.push(tokio::spawn(refresh(
@@ -1584,7 +1605,6 @@ pub(crate) async fn owner_request(
 /// Watches every network: refreshes each at startup, every 5 minutes, and
 /// within seconds of a change to its map or stored policies.
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
-    let mut last: BTreeMap<String, (Instant, String)> = BTreeMap::new();
     loop {
         let networks = blocking(store.clone(), |s| {
             let ids: Vec<String> = s.product_network_ids(&*s.connection()?)?;
@@ -1594,16 +1614,19 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
         })
         .await
         .unwrap_or_default();
-        for (fingerprint, id) in &networks {
-            let due = last
-                .get(id)
-                .is_none_or(|(at, seen)| at.elapsed() >= REFRESH_EVERY || seen != fingerprint);
-            if due {
-                last.insert(id.clone(), (Instant::now(), fingerprint.clone()));
-                tokio::spawn(refresh(store.clone(), id.clone(), None, false));
+        {
+            let mut last = REFRESHED.lock().unwrap_or_else(|e| e.into_inner());
+            for (fingerprint, id) in &networks {
+                let due = last
+                    .get(id)
+                    .is_none_or(|(at, seen)| at.elapsed() >= REFRESH_EVERY || seen != fingerprint);
+                if due {
+                    last.insert(id.clone(), (Instant::now(), fingerprint.clone()));
+                    tokio::spawn(refresh(store.clone(), id.clone(), None, false));
+                }
             }
+            last.retain(|id, _| networks.iter().any(|(_, n)| n == id));
         }
-        last.retain(|id, _| networks.iter().any(|(_, n)| n == id));
         if let Ok(mut cache) = store.directory_cache() {
             cache
                 .networks

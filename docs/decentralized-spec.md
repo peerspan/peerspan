@@ -720,7 +720,11 @@ helper is valid: then only direct paths are used.
   jitter. New outgoing records are tried at once and then every 2 seconds,
   backing off to 60 seconds. `POST /v2/networks/{id}/sync` (`peerspan network
   sync`) contacts known peers, 4 at a time, 5 seconds each, 30 seconds in total,
-  and returns what it learned and which peers were unreachable.
+  and returns what it learned and which peers were unreachable. It also
+  restarts that network's background interval: the next background sync of the
+  network comes at least 60 seconds after the explicit one, and other networks
+  keep their own schedule. Other syncs the daemon starts itself, such as a
+  send's contact-learning sync, do not count ([SYNC-1](decision-log.md#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10)).
 - **Repair.** A host whose grants lapsed can still fetch records from a peer
   that once admitted it and has not revoked it, on `peerspan-state-repair/1`,
   `GET /repair/v1/networks/{id}/catalog`, at most 1 request per second (burst
@@ -1227,6 +1231,10 @@ named, with no change to stored state other than the stored decision time.
 47. A received catalog cannot erase a known ban, fork or high-water mark.
 48. A former member with expired grants fetches records on the repair ALPN; an
     unknown or revoked key gets nothing; repair grants nothing.
+48a. After `POST /v2/networks/{id}/sync`, the host sends no background sync of
+    that network for at least 50 seconds, counted on an opaque UDP carrier
+    while nothing else is owed (SYNC-1). Without another explicit sync,
+    background sync of that network resumes within the following 30 seconds.
 
 **Signing plans**
 

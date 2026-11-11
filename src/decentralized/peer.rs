@@ -555,6 +555,8 @@ async fn sync_dispatch(
         return failure(Error::new("invalid"), &network, "repair", None);
     }
     let result = sync(store, &network).await;
+    // An explicit sync restarts this network's background interval (SYNC-1).
+    delivery::explicitly_synced(&network);
     match result {
         Ok(value) => (StatusCode::OK, axum::Json(value)).into_response(),
         Err(error) => failure(error, &network, "repair", None),

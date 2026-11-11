@@ -251,6 +251,29 @@ async fn deliver(store: Arc<Store>, delivery: Arc<Delivery>) {
         let _ = tokio::task::spawn_blocking(move || failed(&store, &delivery, error)).await;
     }
 }
+/// The background interval between syncs of one network (spec 10).
+const ANTI_ENTROPY: Duration = Duration::from_secs(60);
+/// When each network was last synced explicitly (`POST /v2/networks/{id}/sync`).
+/// Background sync leaves such a network until a full interval has passed
+/// since then (SYNC-1).
+static EXPLICIT: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, tokio::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+/// The earliest time a network skipped by the last background pass is due.
+static SKIPPED_DUE: std::sync::Mutex<Option<tokio::time::Instant>> = std::sync::Mutex::new(None);
+pub(crate) fn explicitly_synced(network: &str) {
+    EXPLICIT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(network.to_owned(), tokio::time::Instant::now());
+}
+/// The next background pass: a full interval plus jitter from now, or sooner
+/// when a network the last pass skipped comes due.
+fn next_pass() -> tokio::time::Instant {
+    let regular = tokio::time::Instant::now() + ANTI_ENTROPY + Duration::from_secs(jitter());
+    let skipped = SKIPPED_DUE.lock().unwrap_or_else(|e| e.into_inner()).take();
+    skipped.map_or(regular, |due| due.min(regular))
+}
 async fn reconcile(store: Arc<Store>) {
     let owner = store.clone();
     let Ok(Ok(ids)) = tokio::task::spawn_blocking(move || {
@@ -261,16 +284,32 @@ async fn reconcile(store: Arc<Store>) {
     else {
         return;
     };
+    let mut skipped_due: Option<tokio::time::Instant> = None;
     for network in ids {
+        let explicit = EXPLICIT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&network)
+            .copied();
+        if let Some(at) = explicit
+            && at.elapsed() < ANTI_ENTROPY
+        {
+            let due = at + ANTI_ENTROPY;
+            skipped_due = Some(skipped_due.map_or(due, |d| d.min(due)));
+            continue;
+        }
         let _ = sync(store.clone(), &network).await;
     }
+    *SKIPPED_DUE.lock().unwrap_or_else(|e| e.into_inner()) = skipped_due;
 }
 /// No heartbeat grants authority or renews a lease. Only exact pending public
 /// bytes retry here; ordinary anti-entropy has a separate real monotonic timer.
 pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     let mut pending = tokio::time::interval(Duration::from_secs(2));
     pending.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut anti = Box::pin(tokio::time::sleep(Duration::from_secs(60 + jitter())));
+    let mut anti = Box::pin(tokio::time::sleep(
+        ANTI_ENTROPY + Duration::from_secs(jitter()),
+    ));
     let mut active = tokio::task::JoinSet::new();
     let mut inflight = std::collections::BTreeSet::new();
     let mut syncing = false;
@@ -282,11 +321,11 @@ pub(super) async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool
             _=&mut anti,if !syncing=>{syncing=true;let owner=store.clone();active.spawn(async move{reconcile(owner).await;None});false},
             Some(result)=active.join_next(),if !active.is_empty()=>{match result {
                 Ok(Some(id))=>{inflight.remove(&id);},
-                Ok(None)=>{syncing=false;anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));},
+                Ok(None)=>{syncing=false;anti.as_mut().reset(next_pass());},
                 Err(_)=>{
                     active.abort_all();while active.join_next().await.is_some(){}
                     inflight.clear();syncing=false;
-                    anti.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(60+jitter()));
+                    anti.as_mut().reset(next_pass());
                 }
             };false},
         };
