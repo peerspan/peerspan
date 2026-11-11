@@ -416,39 +416,34 @@ pub(crate) fn waiting_items(
         // offer and the requester's selection.
         let owner_here = r.roles.iter().any(|role| role == "owner");
         let admin_here = r.roles.iter().any(|role| role == "administrator");
-        let (cause, command) = if r.owner_offer_id == "-" {
-            if owner_here {
-                (
-                    format!("join request {id} waits for the owner's approval on this host"),
-                    format!("peerspan link approve {id} --network {network}"),
-                )
-            } else {
-                (
-                    format!(
-                        "join request {id} waits for the joining person's approval on their own machine; nothing to run here yet"
-                    ),
-                    String::new(),
-                )
-            }
-        } else if r.selection_id == "-" {
+        // An administrator does not read the request's carriers until it acts
+        // (guided sections 20 to 22), so the owner offer and selection are
+        // not known here before `link admit` reads them (ML-6). The command
+        // is the same throughout: run before the joining person approves, it
+        // says the request still waits on their machine.
+        let (cause, command) = if r.owner_offer_id == "-" && owner_here {
+            (
+                format!("join request {id} waits for the owner's approval on this host"),
+                format!("peerspan link approve {id} --network {network}"),
+            )
+        } else if admin_here && r.selection_id == "-" {
             (
                 format!(
-                    "join request {id} waits for the joining machine to select the owner offer; nothing to run here yet"
+                    "join request {id} waits on the joining machine (the person's approval, then its selection of the owner offer); then admit it here"
                 ),
-                String::new(),
+                format!("peerspan link admit {id} --network {network}"),
             )
         } else if admin_here {
-            let person = p
-                .view(&now)
-                .ok()
-                .and_then(|v| v["person_public_key"].as_str().map(str::to_owned))
-                .unwrap_or_else(|| r.expected_person_public_key.clone());
             (
                 format!("join request {id} waits for administrator admission on this host"),
+                format!("peerspan link admit {id} --network {network}"),
+            )
+        } else if r.owner_offer_id == "-" {
+            (
                 format!(
-                    "peerspan link admit {id} --network {network} --person {person} --owner-offer {} --selection {}",
-                    r.owner_offer_id, r.selection_id
+                    "join request {id} waits for the joining person's approval on their own machine; nothing to run here yet"
                 ),
+                String::new(),
             )
         } else {
             (

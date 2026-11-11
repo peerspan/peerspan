@@ -467,7 +467,8 @@ expires.
    **existing person**, the owner approves with `link approve REQUEST_ID` on one
    of that person's machines. The inviter's status shows
    `link_request_waiting`, naming whose step comes next and where (section 16).
-   The admin then runs the exact `link admit` command that status gives.
+   The admin then runs the `link admit` command that status gives, which reads
+   the request's owner offer and selection itself (ML-6).
 6. **Commit.** The new machine shows everything it is about to accept and asks
    once: `Commit this exact machine link? [y/N]`.
 7. **Apply.** Each participant checks the complete request and applies it.
@@ -934,13 +935,20 @@ as legacy history.
   `link_request_waiting`. Each gives the network, the cause and the
   command to run. `link_request_waiting` names whose step comes next and on
   which machine, and gives a command only when that step runs on this host:
-  - a new person's request without an owner offer: waiting for the joining
-    person's approval on their own machine, with no command here;
-  - an existing person's request without an owner offer: `peerspan link approve
-    REQUEST_ID --network NETWORK_ID`, on a machine of that person;
-  - with the owner offer and the requester's selection: the complete `peerspan
-    link admit` command for this request, with every argument it needs, when
-    this host can admit. A clock rollback tells the user to fix the clock or wait;
+  - on a host that can admit: `peerspan link admit REQUEST_ID --network
+    NETWORK_ID`, run as given. Until the request's owner offer and selection
+    arrive, the cause says it waits on the joining machine. An administrator
+    does not read the request's carriers before it acts (guided session
+    contract sections 20 to 22), so status cannot tell when they have arrived;
+    `link admit REQUEST_ID` reads them (an explicit `link resume` of such a
+    request reads its carriers) and takes the person, owner offer and
+    selection from the request. They travel through the request's carriers, so
+    they arrive a few seconds after the joiner approves. Before they arrive it
+    says whose step remains, changes nothing and exits nonzero (ML-6);
+  - an existing person's request without an owner offer, on a machine of that
+    person: `peerspan link approve REQUEST_ID --network NETWORK_ID`;
+  - otherwise the cause names whose step it is, with no command here. A clock
+    rollback tells the user to fix the clock or wait;
   there is no command to lower the stored time.
 - **Errors** are `{code,error,details:{network_id,context_id,request_id,stage,
   required_ids,conflict_ids,next}}` with the status codes in the appendix.
@@ -1170,10 +1178,13 @@ named, with no change to stored state other than the stored decision time.
     the inviter nor the joiner ever needs a request ID it was not shown.
 29. The request reaches the inviter without a code over a direct address, and
     through a helper when the inviter has no reachable address; the inviter's
-    status shows `link_request_waiting`. For a new person it first says the
-    request waits on the joining machine, with no command for the inviter.
-    After the joiner approves, it gives a `link admit` command that, run as
-    given, admits the request.
+    status shows `link_request_waiting`. For a new person it says the
+    request waits on the joining machine and gives `peerspan link admit
+    REQUEST_ID --network NETWORK_ID`. Run before the joiner approves, that
+    command says the request still waits on the joining machine, admits
+    nothing and exits nonzero, as it does in the few seconds the owner offer
+    and selection take to arrive; run as given after they arrive, it admits
+    the request (ML-6).
     With neither path, `join` prints a `psl2-` code within about 30 seconds and
     the manual path completes.
 30. An invite used 30 minutes after issue, whose contacts are past their own

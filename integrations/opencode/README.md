@@ -33,6 +33,14 @@ private, account-owned directory for bindings and substitute full absolute paths
 }
 ```
 
+With a release install, the plugin is at
+`~/.local/share/peerspan/releases/RELEASE/share/peerspan/integrations/opencode/plugin.mjs`
+(under `$XDG_DATA_HOME` when set), where `RELEASE` names the installed release;
+`readlink ~/.local/bin/peerspan` shows the current one. The path changes with
+every upgrade, and the installer keeps older releases, so an entry that is not
+updated keeps loading the previous release's plugin. After each upgrade, point
+the entry at the new release's path.
+
 Load the plugin through OpenCode's normal configuration/reload workflow while
 idle. Keep `shared/` alongside the integration bundles. This installation enables
 the shared tools with a `peerspan_` prefix: `peerspan_list_destinations`, `peerspan_send`,
@@ -61,6 +69,27 @@ Run `opencode session list --format json --max-count 10` from the native
 conversation's project directory. The list is scoped to that project, so running
 it from a different checkout can return nothing. Match the title and use its `id`
 (starting with `ses_`); use that conversation's `directory` for `--option directory`.
+
+Then attach it from a project directory with no other attached agent:
+
+```sh
+cd ~/src/project
+peerspan attach opencode \
+  --option server=http://127.0.0.1:4096 \
+  --option session=EXISTING_OPENCODE_SESSION_ID \
+  --option directory=/absolute/project \
+  --option bindings=/absolute/private/peerspan-opencode-bindings
+```
+
+`attach` registers the agent (with a default name based on `opencode`, or
+`--name NAME`), authorizes the session and starts Peerspan's sidecar in the
+foreground. Use the same `bindings` directory as the plugin entry above. Each
+attached project directory holds one session: attaching OpenCode where another
+agent's session already runs is refused with "the session for … is already
+running".
+
+For an agent registered separately, with an explicit expiry and destinations
+file, the lower-level commands remain:
 
 ```sh
 peerspan-host --state STATE session setup --harness opencode \
