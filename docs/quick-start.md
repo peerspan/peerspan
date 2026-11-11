@@ -240,8 +240,9 @@ new person.
 3. On the administrator's machine, `peerspan status` shows
    `peerspan link admit REQUEST_ID --network NETWORK_ID` for the request; run
    it as shown once the teammate has approved. It reads the request, shows the
-   review and asks before admitting. Run too early, it says the request still
-   waits on their machine and changes nothing.
+   review and asks before admitting. Run too early, including in the few
+   seconds their approval takes to arrive, it says the request still waits on
+   their machine and changes nothing.
    The general form adds `--person PERSON_PUBLIC_KEY`, `--owner-offer` and
    `--selection`, which `link admit REQUEST_ID` otherwise takes from the
    request.

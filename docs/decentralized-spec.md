@@ -938,8 +938,9 @@ as legacy history.
     contract sections 20 to 22), so status cannot tell when they have arrived;
     `link admit REQUEST_ID` reads them (an explicit `link resume` of such a
     request reads its carriers) and takes the person, owner offer and
-    selection from the request. Before they exist it says whose step remains,
-    changes nothing and exits nonzero (ML-6);
+    selection from the request. They travel through the request's carriers, so
+    they arrive a few seconds after the joiner approves. Before they arrive it
+    says whose step remains, changes nothing and exits nonzero (ML-6);
   - an existing person's request without an owner offer, on a machine of that
     person: `peerspan link approve REQUEST_ID --network NETWORK_ID`;
   - otherwise the cause names whose step it is, with no command here. A clock
@@ -1177,8 +1178,9 @@ named, with no change to stored state other than the stored decision time.
     request waits on the joining machine and gives `peerspan link admit
     REQUEST_ID --network NETWORK_ID`. Run before the joiner approves, that
     command says the request still waits on the joining machine, admits
-    nothing and exits nonzero; run as given after the joiner approves, it
-    admits the request (ML-6).
+    nothing and exits nonzero, as it does in the few seconds the owner offer
+    and selection take to arrive; run as given after they arrive, it admits
+    the request (ML-6).
     With neither path, `join` prints a `psl2-` code within about 30 seconds and
     the manual path completes.
 30. An invite used 30 minutes after issue, whose contacts are past their own

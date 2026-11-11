@@ -1098,11 +1098,11 @@ async fn approval(socket: &Path, input: Approval, admin: bool, interactive: bool
                 let selection = text(view, "selection_id")?;
                 ensure!(
                     offer != "-",
-                    "join request {id} still waits for the joining person's approval on their own machine; run this again after they approve"
+                    "join request {id} has no owner offer on this machine yet: the joining person approves on their own machine, and the approval takes a few seconds to arrive here; run this again after they approve"
                 );
                 ensure!(
                     selection != "-",
-                    "join request {id} still waits for the joining machine to select the owner offer; run this again shortly"
+                    "join request {id} still waits for the joining machine's selection of the owner offer to arrive here; run this again in a few seconds"
                 );
                 (offer.to_owned(), selection.to_owned())
             }
