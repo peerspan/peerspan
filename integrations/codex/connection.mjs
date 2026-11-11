@@ -58,7 +58,7 @@ export class Connection extends EventEmitter {
   async initialize() {
     await this.opened;
     await this.request('initialize', {
-      clientInfo: { name: 'peerspan', title: 'Peerspan', version: '0.2.0' },
+      clientInfo: { name: 'peerspan', title: 'Peerspan', version: '0.2.1' },
       capabilities: { experimentalApi: true }
     });
     this.write({ method: 'initialized' });
