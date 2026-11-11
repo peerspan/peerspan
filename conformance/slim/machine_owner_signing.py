@@ -321,6 +321,7 @@ def context(parent):
 
 def advance_to(h, moment):
     h.clock.set(math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
+    h.clock_changed = time.monotonic()  # GU.impl42f settling starts here
 
 
 def pending(h, rid):
@@ -373,6 +374,10 @@ def whole(f):
 
 
 def quiet(f):
+    # GU.impl42f: the host erases mailboxes a clock change expired within 2 s
+    # (spec 9.2) as its own maintenance; settle that before any measurement.
+    last = max(getattr(f[k], 'clock_changed', float('-inf')) for k in ('a', 'b'))
+    time.sleep(max(0, last + 2 - time.monotonic()))
     settled(f['a'])
     previous = (whole(f), traffic(f))
     def stable():
