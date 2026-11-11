@@ -8361,7 +8361,10 @@ A measured purity step that follows a test-clock change starts only after
 mailbox expiry for that clock has settled: at least 2 seconds (the section 9.2
 bound) after the clock was changed, and then the existing stable-state and
 counter settling. This applies wherever a case changes the clock before a pure
-step, in sections 42 and 43 alike. It is settling, not an allowance: the same
+step, in sections 42 and 43 alike, and counts a change on either host of the
+fixture. It adds settling only where a pure step already settles: a comparison
+that settles nothing, such as a schema-only ABORT rollback check, keeps its
+existing timing. It is settling, not an allowance: the same
 whole DB/private-file/TCP+UDP comparison, allowed writes, actions, counters and
 bounds stay unchanged, and nothing that changes after settling is excused.
 Discarded: allowing `frames`/`mailboxes` changes in pure comparisons (it would
