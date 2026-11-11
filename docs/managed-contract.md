@@ -427,7 +427,10 @@ ascending, as `{sequence,kind,state,message,at}` from the upstream task events;
 `message` is at most 2,000 characters and `output` is never repeated there. The
 controller retains events as it observes them, at most 500 per run, keeping the
 newest; it may skip older `progress` events of a long task, but never the
-terminal event. A timeline fetch that fails while the task is not final is not a
+terminal event: a run takes any final state only once that state's event, the
+record's `last_event`, is retained. Events newer than the record the controller
+read are left for the next read, so a final event is always taken together with
+the record that reports it. A timeline fetch that fails while the task is not final is not a
 run problem.
 
 `POST /api/runs/:id/cancel` accepts `{}` and asks the worker to stop an
@@ -508,7 +511,9 @@ Version 1 state is `managed.sqlite` with `PRAGMA user_version` 0 and one table,
 
 Migration keeps every record's ID and values, with two exceptions. A run's
 `target` is not copied: the target that reserves its worker is derived from the
-submission's peer and agent, as for a new run. A workflow's
+submission's peer and agent, as for a new run. Revision 1 let one agent hold two
+unresolved runs through two senders; such runs are all kept and reconciled, and
+no new run is dispatched to that agent until every one of them is resolved. A workflow's
 `blockedReason` is the scheduler's current explanation, not a setting: the first
 scheduler pass after migration rewrites it, as every pass does. Version 1 IDs
 are UUIDs; every route accepts any ID of 1 to 64 letters, digits, `_` or `-`

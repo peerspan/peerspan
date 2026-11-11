@@ -9,8 +9,10 @@ const OPEN = new Set(['submitting', 'queued', 'running']);
 const FINAL = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancelled']);
 const CONCURRENCY = 4;
 const POKE_DELAY_MS = 20;
-// A long task's older progress may be skipped, never its newest events.
-const EVENT_FETCH_WINDOW = 200;
+// A long task's older progress may be skipped, never its newest events. Progress
+// messages can be 64 KiB each, so the window keeps a fetch well inside the 4 MiB
+// output limit of one Peerspan call.
+const EVENT_FETCH_WINDOW = 50;
 const MESSAGE_LIMIT = 2000;
 
 const PROBLEM = 'Delivery or status uncertain; retaining this task identity';
@@ -76,6 +78,10 @@ export class Engine {
     this.again = false;
     this.timer = null;
     this.dataVersion = null;
+    // Tasks with a Peerspan call in flight; no second call for one task starts meanwhile.
+    this.inFlight = new Set();
+    this.prompt = null;
+    this.promptAgain = false;
   }
 
   // ----- change notification ------------------------------------------------------
@@ -103,11 +109,11 @@ export class Engine {
     this.schedule(0);
   }
 
-  /** Stops scheduling and waits for the pass in flight, whose subprocesses the caller aborts. */
+  /** Stops scheduling and waits for the work in flight, whose subprocesses the caller aborts. */
   async stop() {
     this.running = false;
     clearTimeout(this.timer);
-    await this.passing;
+    await Promise.all([this.passing, this.prompt]);
   }
 
   schedule(delay) {
@@ -117,11 +123,42 @@ export class Engine {
     }, delay);
   }
 
-  /** Asks for a scheduler pass now, for example after an operator request. */
+  /**
+   * Acts on an operator request at once (contract section 4). With no pass in
+   * flight a full pass starts. During a pass, which may be waiting for slow
+   * Peerspan calls, prompt work runs beside it: cancellations not yet sent, and
+   * dispatch with the readiness already known. A full pass follows either way.
+   */
   poke() {
     if (!this.running) return;
-    if (this.passing) this.again = true;
-    else this.schedule(POKE_DELAY_MS);
+    if (!this.passing) {
+      this.schedule(POKE_DELAY_MS);
+      return;
+    }
+    this.again = true;
+    if (this.prompt) {
+      this.promptAgain = true;
+      return;
+    }
+    this.prompt = (async () => {
+      try {
+        do {
+          this.promptAgain = false;
+          await this.promptWork();
+        } while (this.promptAgain && this.running);
+      } catch (error) {
+        if (this.running && !error.aborted) console.error('Prompt scheduler work failed: ' + error.message);
+      } finally {
+        this.prompt = null;
+      }
+    })();
+  }
+
+  async promptWork() {
+    const tasks = await this.store.openTasks();
+    const cancels = tasks.filter(task => task.cancelRequestedAt !== null && task.cancelSentAt === null);
+    await pool(cancels, CONCURRENCY, task => this.reconcile({ ...task, retryAt: null }));
+    await this.dispatch();
   }
 
   async pass() {
@@ -164,12 +201,17 @@ export class Engine {
       if (!connections.some(connection => connection.id === id)) this.readiness.delete(id);
     }
 
+    await this.dispatch();
+    this.lastTickAt = stamp();
+  }
+
+  /** Reserves runs for every workflow that may dispatch now, then sends them. */
+  async dispatch() {
     const ready = {};
     for (const [id, state] of this.readiness) ready[id] = { ready: state.ready, reason: state.reason };
     const reserved = await this.store.planDispatch(stamp(), ready);
     // Each reserved task is persisted; only now may anything be sent for it.
     await pool(reserved, CONCURRENCY, task => this.reconcile(task, { fresh: true }));
-    this.lastTickAt = stamp();
   }
 
   async refreshReadiness(connection) {
@@ -212,13 +254,19 @@ export class Engine {
    */
   async reconcile(task, { fresh = false } = {}) {
     if (task.retryAt && Date.parse(task.retryAt) > nowMs()) return;
+    if (this.inFlight.has(task.taskId)) return;
+    this.inFlight.add(task.taskId);
     try {
+      // A released run is never inspected again, however long this task waited for its turn.
+      if (!fresh && !(await this.store.isOpen(task.taskId))) return;
       const record = fresh ? await this.firstSubmission(task) : await this.remoteRecord(task);
       if (record) await this.absorb(task, record);
     } catch (error) {
       if (error.aborted || !this.running) return;
       const retryAt = new Date(nowMs() + Math.max(1000, this.tickMs)).toISOString();
       await this.store.taskProblem(task.taskId, PROBLEM, retryAt, stamp());
+    } finally {
+      this.inFlight.delete(task.taskId);
     }
   }
 
@@ -259,21 +307,44 @@ export class Engine {
     return record;
   }
 
-  /** Stores what a record and its new events say; a result is final only with its output event. */
+  /**
+   * Events after the stored ones, up to the record's `last_event`. The status
+   * record and the events are two reads, so the events may already hold a newer
+   * final event; that one belongs to a later record and is taken with it.
+   */
+  async newEvents(task, remoteLast, final) {
+    const after = Math.max(task.lastEvent, remoteLast - EVENT_FETCH_WINDOW);
+    let events;
+    try {
+      events = await this.peerspan.events(task, after);
+    } catch (error) {
+      // A final event is needed; when the window is too large to fetch, fetching
+      // after last_event - 1 is permitted (contract section 6).
+      if (error.aborted || !final || after >= remoteLast - 1) throw error;
+      events = await this.peerspan.events(task, remoteLast - 1);
+    }
+    return normalizeEvents(events, task.lastEvent).filter(event => event.sequence <= remoteLast);
+  }
+
+  /** Stores what a record and its new events say; a result is final only with its final event. */
   async absorb(task, record) {
     const state = stateOf(record);
     if (!OPEN.has(state) && !FINAL.has(state)) throw new Error('Remote task state is unresolved');
+    const final = FINAL.has(state);
     const producesOutput = state === 'succeeded' || state === 'failed';
     const remoteLast = record.status?.last_event;
 
     let events = [];
     if (Number.isInteger(remoteLast) && remoteLast > task.lastEvent) {
-      const after = Math.max(task.lastEvent, remoteLast - EVENT_FETCH_WINDOW);
       try {
-        events = normalizeEvents(await this.peerspan.events(task, after), task.lastEvent);
+        events = await this.newEvents(task, remoteLast, final);
       } catch (error) {
-        // The timeline is best effort while the task runs; the final output is not.
-        if (error.aborted || producesOutput) throw error;
+        // The timeline is best effort while the task runs; a final result waits for its event.
+        if (error.aborted || final) throw error;
+      }
+      // Status can run ahead of the stored events: a final state waits until its event is retained.
+      if (final && !events.some(event => event.sequence === remoteLast)) {
+        throw new Error('Waiting for the final task event');
       }
     }
 

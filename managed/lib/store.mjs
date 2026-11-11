@@ -11,6 +11,7 @@ export const DATABASE_NAME = 'managed.sqlite';
  */
 export async function openStore(directory) {
   let onChange = null;
+  let onFatal = null;
   const worker = new Worker(new URL('./store-worker.mjs', import.meta.url), {
     workerData: { file: join(directory, DATABASE_NAME) }
   });
@@ -45,12 +46,18 @@ export async function openStore(directory) {
     if (message.changed) onChange?.();
     request.resolve(message.value);
   });
+  let stopped = false;
   worker.on('error', failAll);
-  worker.on('exit', () => failAll(new Error('Storage worker stopped')));
+  worker.on('exit', () => {
+    // Every later call fails at once instead of waiting for a worker that is gone.
+    stopped = true;
+    failAll(new Error('Storage worker stopped'));
+    if (!closed) onFatal?.();
+  });
 
   const call = (op, args) => new Promise((resolve, reject) => {
-    if (closed) {
-      reject(new Error('Storage closed'));
+    if (closed || stopped) {
+      reject(new Error(stopped ? 'Storage worker stopped' : 'Storage closed'));
       return;
     }
     const id = ++counter;
@@ -62,9 +69,13 @@ export async function openStore(directory) {
     onChange(listener) {
       onChange = listener;
     },
+    /** Called when the storage worker stops while the store is open. */
+    onFatal(listener) {
+      onFatal = listener;
+    },
     async close() {
       if (closed) return;
-      await call('close', []);
+      if (!stopped) await call('close', []);
       closed = true;
       await worker.terminate();
     }

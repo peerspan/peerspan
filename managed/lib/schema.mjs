@@ -90,6 +90,7 @@ CREATE TABLE tasks (
 );
 -- One unresolved task per worker agent, host and agent (contract section 4).
 CREATE UNIQUE INDEX tasks_open_target ON tasks(target) WHERE open = 1;
+CREATE INDEX tasks_open_agent ON tasks(peer, agent) WHERE open = 1;
 CREATE INDEX tasks_finished ON tasks(finished_at);
 
 CREATE TABLE runs (
@@ -177,12 +178,17 @@ function migrateFromV1(db, now) {
     VALUES (?, ?, 'work', (SELECT connection_id FROM workflows WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?)`);
   const addRun = db.prepare('INSERT INTO runs (id, workflow_id, task_id, open, created_at) VALUES (?, ?, ?, ?, ?)');
+  const heldTargets = new Set();
   for (const r of rows('run')) {
     const open = OPEN_STATES.includes(r.state) ? 1 : 0;
     const s = r.submission;
     if (!s) throw new Error('Version 1 state has a run without its submission');
     // The target is derived from the submission itself, the same way new reservations derive it.
-    const target = JSON.stringify([s.peer, s.agent]);
+    // Revision 1 allowed one agent two unresolved runs through two senders; both are kept, the
+    // second under a target of its own, and the agent stays reserved until both are resolved.
+    let target = JSON.stringify([s.peer, s.agent]);
+    if (open && heldTargets.has(target)) target = JSON.stringify([s.peer, s.agent, r.taskId]);
+    if (open) heldTargets.add(target);
     addTask.run(r.taskId, r.id, r.workflowId, target, s.peer, s.agent, s.senderState ?? null, s.input,
       s.deadline, r.state, open, r.output ?? null, open ? r.error ?? null : null,
       open && r.error ? r.updatedAt : null, open ? r.retryAt ?? null : null, r.createdAt,

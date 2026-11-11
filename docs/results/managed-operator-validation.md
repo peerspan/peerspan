@@ -61,6 +61,33 @@ three problems, all addressed in revision 2:
   Observation summaries are normalized to plain strings and numbers before
   they leave the controller, and the console renders every value as text.
 
+### Independent code review of revision 2
+
+A reviewer who had not written the code read `managed/` against the contract and
+confirmed its findings with probes against the real store and engine. All ten
+were fixed before publication, and the suites above were rerun afterwards:
+
+- **A run could stay unresolved forever (high).** The status record and the
+  task events are two reads. When a task finished between them, the final event
+  was stored with the earlier record's state and its output dropped, and no
+  later read fetched it again. Events newer than the record are now left for the
+  next read, and every final state waits until its own event is retained.
+- **Version 1 state could fail to migrate (high).** Revision 1 let one agent
+  hold two unresolved runs through two senders, which the new per-agent unique
+  index refused. Both runs are now kept and reconciled, and the agent stays
+  reserved until both are resolved.
+- **Operator requests during a slow pass (medium).** A request waited for a pass
+  blocked on a hanging Peerspan call. Cancellations and dispatch now run beside
+  the pass at once, with the readiness already known.
+- Smaller fixes: a final `cancelled`, `expired` or `rejected` state no longer
+  becomes final when its event fetch fails; a stopped storage worker makes later
+  calls fail at once and the controller exit for its supervisor to restart; a
+  released run is not inspected again while it waits for its turn; final events
+  are fetched alone when a long task's event window is too large; a released run
+  does not count as unattended; the console ignores snapshots that arrive after
+  sign-out or out of order; and editing a workflow whose worker was disconnected
+  no longer moves it to the first listed worker.
+
 ### This machine's clock
 
 The WSL clock on the validation machine steps backwards by seconds several times

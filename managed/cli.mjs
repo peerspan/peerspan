@@ -107,6 +107,11 @@ async function serve(store, { token, options }) {
   const abort = new AbortController();
   const engine = new Engine(store, new Peerspan({ signal: abort.signal }), { tickMs });
   store.onChange(() => engine.touch());
+  // Without its store the controller can do nothing correctly; a supervisor restarts it.
+  store.onFatal(() => {
+    console.error('Storage worker stopped; exiting so that the service manager can restart the controller');
+    process.exit(1);
+  });
   const server = await startServer({ engine, store, token, port, version: await version() });
   engine.start();
   console.log(`Peerspan Managed ready at http://localhost:${port}\n`

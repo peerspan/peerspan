@@ -77,6 +77,9 @@ export function workflowDialog({ workflow = null, connections, submit }) {
       h('input', { id: 'wf-name', name: 'name', maxlength: '100', required: true, autofocus: true, value: workflow?.name ?? '', placeholder: 'Weekly repository maintenance' }),
       h('label', { for: 'wf-connection' }, 'Worker'),
       h('select', { id: 'wf-connection', name: 'connectionId', required: true },
+        // A workflow whose worker was disconnected keeps it until another one is chosen.
+        editing && !connections.some(connection => connection.id === workflow.connectionId)
+          && h('option', { value: workflow.connectionId, selected: true }, 'Disconnected worker (choose another)'),
         connections.map(connection => h('option', { value: connection.id, selected: connection.id === workflow?.connectionId },
           connection.name + (connection.readiness.ready ? '' : ' (not ready)')))),
       h('p.help', null, 'The worker uses its own workspace and model configuration.'),

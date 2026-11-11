@@ -379,7 +379,7 @@ export class Model {
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
-    if (this.one('SELECT 1 FROM tasks WHERE target = ? AND open = 1', targetOf(connection))) {
+    if (this.one('SELECT 1 FROM tasks WHERE peer = ? AND agent = ? AND open = 1', connection.host_id, connection.agent_id)) {
       return 'Worker is assigned to another managed workflow';
     }
     if (workflow.next_run_at > now) return 'Waiting for next scheduled run';
@@ -472,8 +472,12 @@ export class Model {
     return true;
   }
 
-  /** Releases a finished task's reservations and updates its workflow. */
-  close(task, run, now) {
+  /**
+   * Releases a finished task's reservations and updates its workflow. A run the
+   * operator released ends at the moment of that intervention, not after it, so
+   * it does not count as unattended.
+   */
+  close(task, run, now, { released = false } = {}) {
     this.run('UPDATE runs SET open = 0 WHERE id = ?', run.id);
     this.log(now, 'system', 'run.finished', { workflowId: run.workflow_id, runId: run.id, data: { state: task.state } });
     const workflow = this.one('SELECT * FROM workflows WHERE id = ?', run.workflow_id);
@@ -481,8 +485,8 @@ export class Model {
     const succeeded = task.state === 'succeeded';
     const streak = succeeded ? 0 : isOperatorResult(task) ? workflow.failure_streak : workflow.failure_streak + 1;
     const delay = Math.max(workflow.interval_minutes * MINUTE, succeeded ? 0 : MINUTE);
-    this.run(`UPDATE workflows SET failure_streak = ?, next_run_at = ?, unattended_runs = unattended_runs + 1
-      WHERE id = ?`, streak, iso(Date.parse(now) + delay), workflow.id);
+    this.run(`UPDATE workflows SET failure_streak = ?, next_run_at = ?, unattended_runs = unattended_runs + ?
+      WHERE id = ?`, streak, iso(Date.parse(now) + delay), released ? 0 : 1, workflow.id);
     if (streak >= FAILURE_LIMIT && workflow.enabled === 1) {
       this.run(`UPDATE workflows SET enabled = 0, paused_by = 'failures', paused_at = ?, blocked_reason = ?
         WHERE id = ?`, now, PAUSED_BY_FAILURES, workflow.id);
@@ -531,7 +535,7 @@ export class Model {
     this.run(`UPDATE tasks SET state = 'abandoned', open = 0, error = NULL, problem_since = NULL, retry_at = NULL,
       updated_at = ?, finished_at = ? WHERE task_id = ?`, now, now, row.task_id);
     this.log(now, 'operator', 'run.abandoned', { workflowId: row.workflow_id, runId });
-    this.close({ ...row, state: 'abandoned' }, { id: runId, workflow_id: row.workflow_id }, now);
+    this.close({ ...row, state: 'abandoned' }, { id: runId, workflow_id: row.workflow_id }, now, { released: true });
     return this.runPreview(runId);
   }
 

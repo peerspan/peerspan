@@ -186,14 +186,22 @@ function signatureOf(data) {
   return JSON.stringify(data, (key, value) => (key === 'checkedAt' || key === 'lastTickAt' ? undefined : value));
 }
 
+// Each refresh and each sign-out takes the next number; a response is applied only when no
+// later refresh has been applied and no sign-out happened since it was requested.
+let requested = 0;
+let applied = 0;
+
 async function refresh() {
+  const number = ++requested;
   let data;
   try {
     data = await request('/api/snapshot');
   } catch {
-    if (!$('console').hidden) setLive(false);
+    if (number > applied && !$('console').hidden) setLive(false);
     return;
   }
+  if (number < applied || number <= signedOutAt) return;
+  applied = number;
   app.data = data;
   $('login').hidden = true;
   $('console').hidden = false;
@@ -228,10 +236,14 @@ function stopLive() {
   clearInterval(app.poll);
 }
 
+let signedOutAt = 0;
+
 function showLogin() {
+  signedOutAt = requested;
   stopLive();
   $('dialog').close();
   $('console').hidden = true;
+  $('view').replaceChildren();
   $('login').hidden = false;
   $('token').focus();
 }
