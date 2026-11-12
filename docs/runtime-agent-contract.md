@@ -19,6 +19,7 @@ The only harness is **Codex** (`codex exec`), with an OpenAI API key.
 
 Not in this contract:
 - choosing a guest image per profile;
+- input artifacts on a runtime agent's tasks (refused, below) and result artifacts;
 - talking to a running agent (messages, progress, delegation from inside the VM);
 - per-tool-call snapshots;
 - a credential proxy, which keeps the key out of the VM;
@@ -61,7 +62,13 @@ Removing an agent removes its profile and its credential.
 ## Receiving a task
 
 A task whose `target_agent_id` is an agent with a profile is received, authorized, persisted
-and expired exactly as an agent task is today. Then:
+and expired exactly as an agent task is today, with one exception:
+- **No input artifacts in this version.** A request with a non-empty `artifacts` manifest is
+  refused with 400 `invalid` naming `artifacts`, before it is persisted, so a sender is never
+  told that files it attached reached the agent when they did not. Staging input files into
+  the VM is later work.
+
+Then:
 - It is never offered to an adapter session. `POST /adapter/v1/tasks/next` passes it over, and no
   session can accept, reject, progress, complete or cancel it. Sessions of the agent may still
   attach, and they send and receive messages as before.
@@ -257,7 +264,8 @@ The suite covers:
   appearing in any response, task record, event, activity or log.
 - **Receiving:** a task to a runtime agent, sent by the owner's other host under policy and by
   another person's host under a grant, never offered to an attached session of the agent. A task
-  received before the profile was set stays with the adapter path.
+  received before the profile was set stays with the adapter path. A task with an input artifact
+  refused with 400 naming `artifacts`, and nothing persisted.
 - **Running:** the request the host sends. It has the harness `argv` beginning `/bin/sh -c`, the
   task's `input` as `stdin`, the profile's resources and network, and the fork name
   `NAME.TASK_ID` from `from_branch`. It has `peerfs_agent` and `peerfs_commit` true, the harness
