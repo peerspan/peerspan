@@ -100,7 +100,8 @@ current state does not permit the operation, and 413 for an oversized body.
   `intervalMinutes` and a non-null `schedule` is required: both, or neither, is
   400. At creation, `schedule` null beside `intervalMinutes` means no schedule.
   (rev 4) The body may also have `reviewerId`, `reviewCriteria` (section 15.1)
-  and `reworkLimit` (section 15.2).
+  and `reworkLimit` (section 15.2). Instructions that contain NUL (U+0000) are
+  400, because they travel as one command-line argument, which cannot carry it.
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
@@ -840,8 +841,8 @@ operator may give a verdict at any time while the review is `pending`.
 
 **Fields.**
 
-- `reviewerId` is null, or the ID of a connection that is not removed. It is not
-  null exactly when `review` is `agent`. At creation, `review` `agent` without a
+- `reviewerId` is null, or the ID of a connection that is not removed when the
+  request sets it. It is not null exactly when `review` is `agent`. At creation, `review` `agent` without a
   `reviewerId`, a non-null `reviewerId` with another `review`, an unknown
   connection, and a reviewer whose worker agent is the workflow's are 400;
   `reviewerId` null beside another `review` means no reviewer.
@@ -860,9 +861,12 @@ operator may give a verdict at any time while the review is `pending`.
   results fall back with `reviewer_removed` (below) until a `PATCH` gives it
   another reviewer or another `review`.
 - `reviewCriteria` is null, or a string of at most 2,000 characters as sent,
-  stored trimmed; an empty trimmed string is stored as null. It tells the
-  reviewer agent, and the operator in the console, what a good result must do.
-  It is valid with every `review`.
+  without NUL, stored trimmed; an empty trimmed string is stored as null. It
+  tells the reviewer agent, and the operator in the console, what a good result
+  must do. It is valid with every `review`.
+- (rev 4) Wherever this contract limits or cuts text by characters, a character
+  is a Unicode code point. A verdict's `note` (section 15) is also refused with
+  400 when it contains NUL, because it may be sent to the worker with a rework.
 
 **The run's review task.** `reviewTask` is null for a run that needs no agent
 review. A run reserved while its workflow's `review` was `agent` keeps that
@@ -904,7 +908,8 @@ RESULT
 ```
 
 The run's assignment is its `assignment` (section 10), its output is the retained
-output, and `reviewCriteria` is read when the review task is reserved. When
+output without any NUL characters, which a command-line argument cannot carry,
+and `reviewCriteria` is read when the review task is reserved. When
 `reviewCriteria` is null, the three lines `CRITERIA`, its text and the empty line
 after it are left out. An input longer than 65,536 bytes of UTF-8 has the output
 cut at a character boundary and ended with `…` (U+2026), keeping as much of the
@@ -1005,7 +1010,8 @@ PREVIOUS RESULT
 
 The workflow's `instructions` are read when the rework is reserved, and they are
 the rework's `assignment`. A null `reviewNote` is written `The reviewer gave no
-reasons.` An input longer than 65,536 bytes of UTF-8 has the previous result cut
+reasons.` The previous result is the rejected run's retained output without any
+NUL characters, as in section 15.1. An input longer than 65,536 bytes of UTF-8 has the previous result cut
 at a character boundary and ended with `…`, keeping as much of it as lets the
 whole input fit in 65,536 bytes.
 

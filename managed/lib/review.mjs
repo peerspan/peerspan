@@ -29,19 +29,24 @@ function fit(prefix, body) {
   return prefix + bytes.subarray(0, end).toString() + ELLIPSIS;
 }
 
+// A command-line argument cannot carry NUL, so an agent's output loses its NUL
+// characters where it is inserted into another task's input (sections 15.1, 15.2).
+// Everything the operator writes is refused with NUL at the API instead.
+const withoutNul = text => text.replaceAll('\u0000', '');
+
 /** The review task's input for a result (section 15.1). */
 export function reviewInput({ assignment, criteria, output }) {
-  const lines = [...REVIEW_HEADER, '', 'ASSIGNMENT', assignment, ''];
-  if (criteria !== null) lines.push('CRITERIA', criteria, '');
+  const lines = [...REVIEW_HEADER, '', 'ASSIGNMENT', withoutNul(assignment), ''];
+  if (criteria !== null) lines.push('CRITERIA', withoutNul(criteria), '');
   lines.push('RESULT', '');
-  return fit(lines.join('\n'), output);
+  return fit(lines.join('\n'), withoutNul(output));
 }
 
 /** A rework's input: the instructions, the review and the rejected result (section 15.2). */
 export function reworkInput({ instructions, note, output }) {
-  const prefix = [instructions, '', 'REVISION REQUESTED', REWORK_REQUEST, '', 'REVIEW', note ?? NO_REASONS, '',
-    'PREVIOUS RESULT', ''].join('\n');
-  return fit(prefix, output);
+  const prefix = [withoutNul(instructions), '', 'REVISION REQUESTED', REWORK_REQUEST, '', 'REVIEW',
+    note === null ? NO_REASONS : withoutNul(note), '', 'PREVIOUS RESULT', ''].join('\n');
+  return fit(prefix, withoutNul(output));
 }
 
 // Section 10.1. Names and errors are counted in characters, so the expressions use the `u` flag.

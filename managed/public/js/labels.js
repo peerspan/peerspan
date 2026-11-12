@@ -67,6 +67,8 @@ export const waitsForOperator = run => run.review === 'pending' && (!run.reviewT
 export function reviewState(run) {
   const byAgent = run.reviewedBy === 'agent';
   if (run.review === 'pending') {
+    // A `recent` entry does not say who the result waits for.
+    if (!('reviewTask' in run)) return ['Review pending', 'warn'];
     if (!run.reviewTask || run.reviewFallback) return ['Awaiting your review', 'warn'];
     return OPEN_STATES.includes(run.reviewTask.state) ? ['Reviewer checking', 'info'] : ['Awaiting reviewer', 'warn'];
   }
@@ -170,7 +172,7 @@ export function activityText(entry, names) {
     case 'review.fallback': return `handed a result of ${workflow} to you: ${fallbackText(entry.data?.cause)}`;
     case 'review.cancel_requested': return `asked to cancel a review task of ${workflow}`;
     case 'review.abandoned': return `released a review task of ${workflow}`;
-    case 'workflow.rework_due': return `sent a rejected result of ${workflow} back to its worker (attempt ${entry.data?.attempt ?? 2})`;
+    case 'workflow.rework_due': return `made a rework of a rejected result of ${workflow} due (attempt ${entry.data?.attempt ?? 2})`;
     case 'connection.added': return `connected ${connection}`;
     case 'connection.removed': return `disconnected ${connection}`;
     case 'observation.added': return 'started following an external program';

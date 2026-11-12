@@ -55,8 +55,9 @@ function attentionList(ctx) {
   }));
 }
 
-function runStrip(workflow) {
-  const recent = [...workflow.recent].reverse();
+function runStrip(workflow, runs) {
+  // The snapshot's own runs say who a pending result waits for; older `recent` entries do not.
+  const recent = [...workflow.recent].reverse().map(entry => runs.find(run => run.id === entry.id) ?? entry);
   if (!recent.length) return h('div.strip', null, h('span.strip-label', null, 'No runs yet'));
   const label = run => [runState(run.state)[0], reviewState(run)?.[0]].filter(Boolean).join(', ');
   return h('div.strip', { 'aria-label': 'Latest runs, oldest first' },
@@ -113,7 +114,7 @@ function workflowCard(ctx, workflow) {
         badge(status, Boolean(openRun) && openRun.state === 'running')),
       h('p.card-meta', null,
         `${worker ? worker.name : 'No worker'} · ${schedule(workflow)} · up to ${plural(workflow.maxRunsPerDay, 'run')} a day${checkedBy}`),
-      runStrip(workflow),
+      runStrip(workflow, runs),
       openRun?.progress && h('p.card-line', null, h('span', null, 'Now:'), h('span.progress', null, openRun.progress))),
     h('div.card-foot', null,
       h('span.next', null, nextLine(workflow, openRun)),

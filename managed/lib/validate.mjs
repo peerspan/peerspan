@@ -21,6 +21,13 @@ const CRITERIA_LIMIT = 2000;
 // The store decides whether an ID exists; this only bounds its shape.
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Characters counted as Unicode code points, as agents' notes are cut (contract section 15.1). */
+const characters = text => {
+  let count = 0;
+  for (const _ of text) count += 1;
+  return count;
+};
+
 export function invalid(message) {
   const error = new Error(message);
   error.status = 400;
@@ -40,6 +47,8 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
     }
     if (key in TEXT_LIMITS) {
       if (typeof value !== 'string' || !value.trim() || value.length > TEXT_LIMITS[key]) throw invalid('Invalid ' + key);
+      // Instructions travel as one command-line argument, which cannot carry NUL (contract section 2).
+      if (key === 'instructions' && value.includes('\u0000')) throw invalid('Instructions cannot contain NUL characters');
       fields[key] = key === 'name' ? value.trim() : value;
     } else if (key in INTEGER_RANGES) {
       const [min, max] = INTEGER_RANGES[key];
@@ -67,9 +76,10 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
       fields[key] = value;
     } else if (key === 'reviewCriteria') {
       // Stored trimmed, with an empty text stored as no criteria (contract section 15.1).
-      if (value !== null && (typeof value !== 'string' || value.length > CRITERIA_LIMIT)) {
+      if (value !== null && (typeof value !== 'string' || characters(value) > CRITERIA_LIMIT)) {
         throw invalid('Review criteria are at most 2,000 characters');
       }
+      if (value?.includes('\u0000')) throw invalid('Review criteria cannot contain NUL characters');
       fields[key] = value === null ? null : value.trim() || null;
     }
   }
@@ -107,7 +117,9 @@ export function reviewVerdict(body) {
   if (!VERDICTS.includes(body.verdict)) throw invalid('Verdict is accepted or rejected');
   let note = null;
   if (body.note !== undefined) {
-    if (typeof body.note !== 'string' || body.note.length > NOTE_LIMIT) throw invalid('Note is at most 2,000 characters');
+    if (typeof body.note !== 'string' || characters(body.note) > NOTE_LIMIT) throw invalid('Note is at most 2,000 characters');
+    // A note may be sent to the worker with a rework, as part of one command-line argument.
+    if (body.note.includes('\u0000')) throw invalid('Note cannot contain NUL characters');
     note = body.note.trim() || null;
   }
   return { verdict: body.verdict, note };
