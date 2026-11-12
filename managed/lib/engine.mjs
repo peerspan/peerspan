@@ -92,7 +92,10 @@ export class Engine {
     this.work = new Map();
     this.workSlots = 0;
     this.workQueue = [];
-    this.workFailed = false;
+    // Keys whose latest work failed; the controller problem stays visible until each succeeds.
+    this.failedWork = new Set();
+    // A pass never waits longer than one interval, so that passes keep their pace (contract section 1).
+    this.passWaitMs = Math.min(PASS_WAIT_MS, this.tickMs);
   }
 
   // ----- change notification ------------------------------------------------------
@@ -129,31 +132,61 @@ export class Engine {
 
   /**
    * Starts `job` under `key` unless work with that key is still running, and
-   * returns its completion. Work runs beside passes, at most BACKGROUND_LIMIT at
-   * once; a failure is logged and reported by the next pass, never thrown.
+   * returns the new work's completion, or null when the key was already running:
+   * a pass waits only for work it started itself. At most BACKGROUND_LIMIT jobs
+   * hold a slot at once, and a job that outlasts the pass wait gives its slot
+   * back, so slow calls never queue fast ones behind them (MGD-15). A failure is
+   * logged and reported by every pass until that key's work succeeds; it is never
+   * thrown.
    */
   startWork(key, job) {
-    const running = this.work.get(key);
-    if (running) return running;
+    if (this.work.has(key)) return null;
     const promise = (async () => {
-      if (this.workSlots >= BACKGROUND_LIMIT) await new Promise(resolve => this.workQueue.push(resolve));
-      else this.workSlots += 1;
+      await this.acquireSlot();
+      let held = true;
+      const release = () => {
+        if (!held) return;
+        held = false;
+        this.releaseSlot();
+      };
+      const timer = setTimeout(release, this.passWaitMs);
       try {
         if (this.running) await job();
+        this.failedWork.delete(key);
       } catch (error) {
         if (this.running && !error.aborted) {
           console.error('Scheduler work failed: ' + error.message);
-          this.workFailed = true;
+          this.failedWork.add(key);
         }
       } finally {
+        clearTimeout(timer);
+        release();
         this.work.delete(key);
-        const next = this.workQueue.shift();
-        if (next) next();
-        else this.workSlots -= 1;
       }
     })();
     this.work.set(key, promise);
     return promise;
+  }
+
+  acquireSlot() {
+    if (this.workSlots < BACKGROUND_LIMIT) {
+      this.workSlots += 1;
+      return Promise.resolve();
+    }
+    return new Promise(resolve => this.workQueue.push(resolve));
+  }
+
+  /** Hands a slot to the next waiting job, or frees it. */
+  releaseSlot() {
+    const next = this.workQueue.shift();
+    if (next) next();
+    else this.workSlots -= 1;
+  }
+
+  /** Starts each keyed job and waits, at most one pass wait, for the ones this call started. */
+  async runWork(jobs) {
+    const started = jobs.map(([key, job]) => this.startWork(key, job)).filter(Boolean);
+    if (started.length) await waitAtMost(Promise.all(started), this.passWaitMs);
   }
 
   schedule(delay) {
@@ -197,19 +230,17 @@ export class Engine {
   async promptWork() {
     const tasks = await this.store.openTasks();
     const cancels = tasks.filter(task => task.cancelRequestedAt !== null && task.cancelSentAt === null);
-    await waitAtMost(Promise.all(cancels.map(task =>
-      this.startWork('task:' + task.taskId, () => this.reconcile({ ...task, retryAt: null })))), PASS_WAIT_MS);
+    await this.runWork(cancels.map(task => ['task:' + task.taskId, () => this.reconcile({ ...task, retryAt: null })]));
     await this.dispatch();
   }
 
   async pass() {
     this.again = false;
+    const started = performance.now();
     try {
       await this.tick();
-      // Work that failed beside this pass counts as a failed check of the controller.
-      const failed = this.workFailed;
-      this.workFailed = false;
-      this.setError(failed ? CONTROLLER_PROBLEM : null);
+      // Work beside the passes that failed, and has not since succeeded, is a failed check of the controller.
+      this.setError(this.failedWork.size ? CONTROLLER_PROBLEM : null);
     } catch (error) {
       if (this.running && !error.aborted) {
         console.error('Scheduler pass failed: ' + error.message);
@@ -217,7 +248,8 @@ export class Engine {
       }
     } finally {
       this.passing = null;
-      if (this.running) this.schedule(this.again ? 0 : this.tickMs);
+      // The next pass starts one interval after this one started, or at once when this one took longer.
+      if (this.running) this.schedule(this.again ? 0 : Math.max(0, this.tickMs - (performance.now() - started)));
     }
   }
 
@@ -238,11 +270,14 @@ export class Engine {
 
     const [connections, tasks] = await Promise.all([this.store.listConnections(), this.store.openTasks()]);
     // A slow call delays only its own task or connection: the pass waits a bounded time (MGD-15).
-    await waitAtMost(Promise.all([
-      ...tasks.map(task => this.startWork('task:' + task.taskId, () => this.reconcile(task))),
-      ...connections.map(connection =>
-        this.startWork('connection:' + connection.id, () => this.refreshReadiness(connection)))
-    ]), PASS_WAIT_MS);
+    const jobs = [
+      ...tasks.map(task => ['task:' + task.taskId, () => this.reconcile(task)]),
+      ...connections.map(connection => ['connection:' + connection.id, () => this.refreshReadiness(connection)])
+    ];
+    // A failure of work whose task or connection is gone no longer needs the operator.
+    const keys = new Set(jobs.map(([key]) => key));
+    for (const key of this.failedWork) if (!keys.has(key)) this.failedWork.delete(key);
+    await this.runWork(jobs);
     for (const id of this.readiness.keys()) {
       if (!connections.some(connection => connection.id === id)) {
         this.readiness.delete(id);
@@ -262,8 +297,7 @@ export class Engine {
     }
     const reserved = await this.store.planDispatch(stamp(), ready);
     // Each reserved task is persisted; only now may anything be sent for it.
-    await waitAtMost(Promise.all(reserved.map(task =>
-      this.startWork('task:' + task.taskId, () => this.reconcile(task, { fresh: true })))), PASS_WAIT_MS);
+    await this.runWork(reserved.map(task => ['task:' + task.taskId, () => this.reconcile(task, { fresh: true })]));
   }
 
   async refreshReadiness(connection) {

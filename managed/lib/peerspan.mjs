@@ -38,6 +38,8 @@ export class Peerspan {
     const options = {
       encoding: 'utf8',
       timeout: timeoutMs,
+      // A CLI process that ignores SIGTERM must not hold its task or connection forever.
+      killSignal: 'SIGKILL',
       maxBuffer: MAX_OUTPUT_BYTES,
       windowsHide: true,
       signal: this.signal

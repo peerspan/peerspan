@@ -291,15 +291,18 @@ the agent stops being ready: they finish as before, and no new task is reserved
 for that target until it holds fewer than its capacity. One unresolved run per
 workflow stays the rule whatever the capacity.
 
-(rev 6) **Slow Peerspan calls.** A scheduler pass waits at most 2 seconds for the
-readiness checks and reconciliations it starts. It then dispatches with the
-readiness each connection last recorded, and a check or reconciliation still
-running goes on beside later passes; no second one for the same connection or
-task starts until it has ended. A slow or hanging Peerspan call therefore delays
-only its own connection or task, never another connection's readiness, another
-task's reconciliation, or dispatch to a ready worker. A submission started by a
-pass is waited for in the same way. Until a connection's first check after a
-start has ended its readiness stays `checking` (section 3).
+(rev 6) **Slow Peerspan calls.** A scheduler pass waits at most 2 seconds, or one
+scheduler interval when that is shorter, for the readiness checks,
+reconciliations and submissions it starts itself, and never for one still
+running from an earlier pass. It then dispatches with the readiness each
+connection last recorded, and a check or reconciliation still running goes on
+beside later passes; no second one for the same connection or task starts until
+it has ended. A slow or hanging Peerspan call therefore delays only its own
+connection or task, however many such calls there are: never another
+connection's readiness, another task's reconciliation, a cancellation, or
+dispatch to a ready worker. Each pass starts one interval after the previous
+one started, or as soon as it ends when it took longer. Until a connection's
+first check after a start has ended its readiness stays `checking` (section 3).
 
 Before any submission, persist a task ID (`task_` plus 32 hex digits) and exact
 input, peer, agent, deadline and sender state. Submit using `task submit --peer

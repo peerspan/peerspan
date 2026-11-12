@@ -524,6 +524,13 @@ function reviewTaskPanel(ctx, run, events = []) {
   ];
 }
 
+/** How many tasks a worker agent holds, against how many it may hold (contract section 4). */
+function workingOn({ activeTasks, capacity }) {
+  if (activeTasks > capacity) return `${activeTasks} tasks, more than its capacity of ${capacity} now; no new task until fewer`;
+  if (capacity > 1) return `${activeTasks} of ${capacity} tasks at once`;
+  return activeTasks ? 'One task' : 'Nothing now';
+}
+
 function workerPanel(ctx, connection) {
   const { readiness } = connection;
   const tone = readiness.ready ? 'ok' : readiness.code === 'checking' ? '' : 'warn';
@@ -553,9 +560,7 @@ function workerPanel(ctx, connection) {
       readiness.runtime && fact('Runtime', runtimeText(readiness.runtime) || 'Launch profile without details'),
       fact('Workflows', assigned.length ? links(assigned) : 'None'),
       reviewing.length > 0 && fact('Reviews for', links(reviewing)),
-      fact('Working on', connection.capacity > 1
-        ? `${connection.activeTasks} of ${connection.capacity} tasks at once`
-        : connection.activeTasks ? 'One task' : 'Nothing now'),
+      fact('Working on', workingOn(connection)),
       fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet')),
       remote && fact('Directory as of', timeAgo(readiness.directoryAt, 'Unknown'))),
     readiness.hints.length > 0 && h('div.hints', null,
