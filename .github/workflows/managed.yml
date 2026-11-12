@@ -22,3 +22,4 @@ jobs:
       - run: node managed/conformance/remote.mjs
       - run: node managed/conformance/schedules.mjs
       - run: node managed/conformance/reviewers.mjs
+      - run: node managed/conformance/runtime-agents.mjs

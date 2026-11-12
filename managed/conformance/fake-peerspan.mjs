@@ -30,6 +30,8 @@ const taskIndex = args.indexOf('task');
 const command = args[taskIndex + 1];
 const invoked = args.includes('status') ? 'status'
   : args.includes('agents') ? 'agents'
+  // Revision 5: `agent runtime show` and `runtime show`.
+  : args.includes('runtime') ? (args.includes('agent') ? 'agent-runtime' : 'runtime')
   : args.includes('adapter') && args.includes('connection') ? 'adapter'
   : taskIndex >= 0 ? command : null;
 // Revision 3: "default" in senderStates makes a call without --state a call to a sender host.
@@ -116,6 +118,29 @@ if (rejectsJson && args.includes('--json')) {
       ...networks[id]};
     for (const key of config.agentsOmit ?? []) delete directory[key];
     emit(directory);
+  }
+} else if (invoked === 'agent-runtime' || invoked === 'runtime') {
+  // Revision 5 (contract section 6): `agent runtime show` prints the host's launch profiles (`profiles`,
+  // default none) and `runtime show` its runtime switch and report (`runtimeShow`). runtimeMode "older" is an
+  // executable older than runtime agents; profilesMode and runtimeShowMode make either command fail
+  // ("error", exiting with profilesExit or 1), print output that is not JSON ("malformed"), or, for the
+  // profiles, print a JSON object instead of an array ("object").
+  const failing = invoked === 'agent-runtime' ? config.profilesMode : config.runtimeShowMode;
+  if (config.runtimeMode === 'older') {
+    fail("error: unrecognized subcommand 'runtime'\n\nUsage: FAKE-peerspan [OPTIONS] <COMMAND>\n\n" +
+      "For more information, try '--help'.", 2);
+  } else if (failing === 'error') {
+    fail(`error: FAKE ${invoked === 'agent-runtime' ? 'launch profiles' : 'runtime state'} cannot be read`,
+      invoked === 'agent-runtime' ? config.profilesExit ?? 1 : 1);
+  } else if (failing === 'malformed') {
+    process.stdout.write('FAKE output that is not JSON\n');
+  } else if (invoked === 'agent-runtime') {
+    emit(failing === 'object' ? {profiles: config.profiles ?? []} : config.profiles ?? []);
+  } else {
+    emit(config.runtimeShow ?? {enabled: true, socket: path.join(dir, 'PRIVATE-runtime.sock'), rule: 'FAKE rule',
+      runtime: {version: 'FAKE-runtime 0.0', image: path.join(dir, 'PRIVATE-rootfs.img'), max_cpus: 8,
+        max_memory_mib: 16384, max_seconds: 3600, max_concurrent_runs: 4, running: 0, peerfs: 'FAKE peerfs',
+        max_network: 'FAKE-full'}});
   }
 } else if (args.includes('status') && senderState) {
   // Revision 2 (contract section 6): a sender state directory is another host than the worker's, with

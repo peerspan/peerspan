@@ -7,6 +7,6 @@
   "scripts": {
     "start": "node cli.mjs serve",
     "check": "node scripts/check.mjs",
-    "test": "node conformance/acceptance.mjs && node conformance/operations.mjs && node conformance/visibility.mjs && node conformance/remote.mjs && node conformance/schedules.mjs && node conformance/reviewers.mjs"
+    "test": "node conformance/acceptance.mjs && node conformance/operations.mjs && node conformance/visibility.mjs && node conformance/remote.mjs && node conformance/schedules.mjs && node conformance/reviewers.mjs && node conformance/runtime-agents.mjs"
   }
 }

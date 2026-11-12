@@ -1,8 +1,9 @@
-// Shared plumbing for the revision 2, 3 and 4 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs and reviewers.mjs). Contract-only and black-box: it launches the documented CLI, speaks HTTP
-// and drives the explicitly fake Peerspan executable in throwaway private directories. It never imports or
-// reads the managed implementation or its database. Section numbers (§) refer to docs/managed-contract.md.
-// Shapes are those of revision 4, which keeps every revision 3 behavior and adds fields (§1: schema 4).
+// Shared plumbing for the revision 2 to 5 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs and runtime-agents.mjs). Contract-only and black-box: it launches the
+// documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in throwaway private
+// directories. It never imports or reads the managed implementation or its database. Section numbers (§)
+// refer to docs/managed-contract.md. Shapes are those of revision 5, which keeps every revision 4 behavior and
+// adds readiness for runtime agents (§3.1); the store stays at schema 4 (§1).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -96,8 +97,12 @@ function keys(value, names, rule) {
 
 export const readinessCodes = {worker_state_invalid: false, identity_changed: false, peerspan_unavailable: false,
   peerspan_incompatible: false, daemon_not_running: false, status_invalid: false, sender_unavailable: false,
-  sender_is_worker: false, agent_missing: false, session_not_ready: false, channel_unverified: false,
+  sender_is_worker: false, agent_missing: false, runtime_disabled: false, runtime_unavailable: false,
+  runtime_credential_missing: false, ready_runtime: true, session_not_ready: false, channel_unverified: false,
   ready_service_inactive: true, ready: true};
+// §3.1 (rev 5): the codes of a runtime agent (agent mode only), and the codes that follow sessions.
+export const runtimeCodes = ['runtime_disabled', 'runtime_unavailable', 'runtime_credential_missing', 'ready_runtime'];
+const sessionCodes = ['session_not_ready', 'channel_unverified', 'ready_service_inactive', 'ready'];
 // §7.1 (rev 3): the table of a remote connection.
 export const remoteReadinessCodes = {peerspan_unavailable: false, peerspan_incompatible: false,
   sender_unavailable: false, sender_is_worker: false, directory_unavailable: false, agent_missing: false,
@@ -159,18 +164,34 @@ export function parseBranch(output) {
   return null;
 }
 
+// §3.1 (rev 5): a runtime agent's launch profile summary; each value a string, an integer or null.
+export function checkRuntime(runtime) {
+  keys(runtime, 'fromBranch network cpus memoryMib timeoutSeconds maxRuns', '§3.1 readiness runtime');
+  expect(Object.values(runtime).every(value => value === null || text(value) || Number.isInteger(value)),
+    '§3.1 each runtime value is the profile value when it is a string or an integer, and null otherwise', runtime);
+}
+
 // `mode` is the connection's (§8): file and agent mode use the §3 table, remote mode the §7.1 table.
 export function checkReadiness(r, {mode} = {}) {
-  keys(r, 'ready code reason checkedAt since hints directoryAt', '§3 readiness');
+  keys(r, 'ready code reason checkedAt since hints directoryAt runtime', '§3 readiness');
   if (r.checkedAt === null || r.code === 'checking') {
     expect(r.ready === false && r.code === 'checking' && r.checkedAt === null && isDeepStrictEqual(r.hints, []) &&
-      nullable(r.since, isTime) && r.directoryAt === null, '§3 before the first check readiness is ' +
-      '{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null} with the last recorded since', r);
+      nullable(r.since, isTime) && r.directoryAt === null && r.runtime === null, '§3 before the first check readiness ' +
+      'is {ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null,runtime:null} with the last recorded since', r);
     return;
   }
-  const table = mode === 'remote' ? remoteReadinessCodes : mode === undefined ? anyReadinessCode : readinessCodes;
+  // §3.1 (rev 5): file mode never runs `agent runtime show`, so the runtime codes are agent mode's only.
+  const fileTable = Object.fromEntries(Object.entries(readinessCodes).filter(([code]) => !runtimeCodes.includes(code)));
+  const table = mode === 'remote' ? remoteReadinessCodes : mode === 'file' ? fileTable
+    : mode === undefined ? anyReadinessCode : readinessCodes;
   expect(Object.hasOwn(table, r.code) && r.ready === table[r.code],
-    `§3/§7.1 readiness code and ready value come from the table of a ${mode ?? 'connection'}`, r);
+    `§3/§3.1/§7.1 readiness code and ready value come from the table of a ${mode ?? 'connection'}`, r);
+  // §3.1: runtime is null except for a runtime agent, whose codes are the runtime ones; an agent whose
+  // sessions are followed, a file-mode and a remote connection have runtime null.
+  if (runtimeCodes.includes(r.code)) checkRuntime(r.runtime);
+  else if (sessionCodes.includes(r.code) || mode === 'file' || mode === 'remote') {
+    expect(r.runtime === null, '§3.1 runtime is null except for a runtime agent (file and remote mode, followed sessions)', r);
+  } else if (r.runtime !== null) checkRuntime(r.runtime);
   expect(mode === 'remote' || mode === undefined ? nullable(r.directoryAt, isTime) : r.directoryAt === null,
     '§3 directoryAt is null except for remote connections; §7.1 there it is null or a time', r);
   expect(text(r.reason) && r.reason !== '' && isTime(r.checkedAt) && isTime(r.since),
