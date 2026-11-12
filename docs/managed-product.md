@@ -50,8 +50,10 @@ manual interventions, repeat weekly use and paid retention.
    health repair, approvals and independently checked result contracts.
    Upstream's runtime agents (one microVM per task on a peerfs fork, from a
    host-local launch profile) are the intended basis for sessions and
-   workspaces; revision 4 already shows the branch such an agent reports, and
-   readiness for them follows once upstream implements them.
+   workspaces. Revision 4 shows the branch such an agent reports, and revision 5
+   makes a runtime agent whose host runs on this machine a ready worker without
+   any session; remote runtime agents wait for upstream to say how its
+   directory presents them.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,
    per-tenant secrets and isolation, account authentication, actual cost telemetry.
 4. Paid teams: billing, client workspaces, organization administration, service

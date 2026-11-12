@@ -1,15 +1,17 @@
 # Managed operator contract
 
-Revision 4. Revision 1 defined the first local slice: the console, recurring
+Revision 5. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
 reliability statistics, live updates and an indexed store. Revision 3 kept every
 revision 2 behavior and added workers on other machines (section 7.1), wall-clock
 schedules (section 14) and operator review of results (section 15). Revision 4
-keeps every revision 3 behavior and adds reviewer agents (section 15.1), rework of
+kept every revision 3 behavior and added reviewer agents (section 15.1), rework of
 rejected results (section 15.2) and the workspace branches of runtime agents
-(section 10.1). Additions are marked "(rev 2)", "(rev 3)" or "(rev 4)" where they
+(section 10.1). Revision 5 keeps every revision 4 behavior and adds readiness for
+runtime agents whose host runs on this machine (section 3.1); its store is
+version 4, unchanged. Additions are marked "(rev 2)" to "(rev 5)" where they
 extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
@@ -155,6 +157,10 @@ section 7.1 says instead.
 | `sender_unavailable` | false | The sender host's status cannot be read: any outcome other than exit 0 or 1 with valid status JSON. |
 | `sender_is_worker` | false | The sender status `host_id` is the pinned worker host. A Peerspan host cannot submit a task to itself: it answers that submission as not found. |
 | `agent_missing` | false | The pinned agent is not in `agents`. |
+| `runtime_disabled` | false | (rev 5) Agent mode, a runtime agent (section 3.1): the worker host's runtime switch is off. |
+| `runtime_unavailable` | false | (rev 5) Agent mode, a runtime agent: the worker host's runtime does not answer, or its report cannot be read. |
+| `runtime_credential_missing` | false | (rev 5) Agent mode, a runtime agent: its launch profile has no credential. |
+| `ready_runtime` | true | (rev 5) Agent mode, a runtime agent: none of the rows above applies. |
 | `session_not_ready` | false | No candidate session of the agent has `connection` `ready`. |
 | `channel_unverified` | false | A candidate is ready in status, but no candidate's `adapter connection` reports the same adapter and session, `state` `ready`, `channel` `verified` and a nonempty `channel_verified_at`; or that command fails. |
 | `ready_service_inactive` | true | All evidence holds and `service.active` is false. |
@@ -174,7 +180,8 @@ connection` is invoked only for candidates whose status `connection` is
 the first that is verified.
 
 Until a connection's first check after a start has finished, its readiness is
-`{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null}` with the
+`{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null}`, (rev 5)
+with `runtime:null`, with the
 `since` last recorded (null for a new connection); `checking` raises no attention
 item and records no activity.
 
@@ -186,6 +193,58 @@ at most 200 printable ASCII characters and contains no `/` or `\`; otherwise it
 is null. The upstream `detail` and `subject` texts are never returned. Hints are
 advice: they never change `ready`. They are an empty array whenever status could
 not be read.
+
+### 3.1 Runtime agents (rev 5)
+
+A **runtime agent** of the upstream [runtime agent contract](runtime-agent-contract.md)
+is a registered agent with a launch profile: its host runs each of its tasks in
+the host's runtime, in a microVM on a fork of a peerfs branch, and never hands
+them to an attached session (MGD-13). Such an agent has no session to check, so
+in agent mode readiness follows its launch profile and the host's runtime
+instead. Senders submit to it, and the controller dispatches, recovers and
+cancels its runs, exactly as for any agent.
+
+In agent mode, once the rows of section 3 up to `agent_missing` do not apply,
+every check also runs `agent runtime show` with the global `--json` flag and no
+agent argument against the worker host state: the host's launch profiles, as a
+JSON array. Then:
+
+- An exit 0 with a JSON array that has an entry whose `agent_id` is the pinned
+  agent makes the agent a runtime agent. The check then runs `runtime show` with
+  the global `--json` flag against the worker host state, and `code` is the first
+  of these that applies: `runtime_disabled` when that command exits 0 with a JSON
+  object whose `enabled` is false; `runtime_unavailable` when it exits otherwise,
+  its output is not such an object, `enabled` is not a boolean, or `runtime` is
+  not an object without an `error` field; `runtime_credential_missing` when the
+  profile's `credential` is not true; and otherwise `ready_runtime`. Sessions are
+  not read and `adapter connection` is not invoked for a runtime agent.
+- An exit 0 with a JSON array that has no entry for the pinned agent, or an exit
+  2 with `unrecognized subcommand` on stderr (an executable older than runtime
+  agents), means the agent is not a runtime agent: readiness follows the session
+  rows of section 3, as before.
+- Any other outcome is `status_invalid`, with a reason that says the host's
+  launch profiles could not be read.
+
+The `reason` of `ready_runtime` says that tasks run in the host's runtime; when
+the worker status's `service.active` is false, it also carries the advisory of
+section 3, and the code stays `ready_runtime`. Hints are the worker host's, as
+for any agent-mode connection.
+
+Readiness gains `runtime`, null except for a runtime agent, for which it is
+`{fromBranch,network,cpus,memoryMib,timeoutSeconds,maxRuns}` from its launch
+profile (`from_branch`, `network`, `cpus`, `memory_mib`, `timeout_seconds` and
+`max_runs`), each value as the profile gives it when it is a string or an
+integer, and null otherwise. No other profile field, and never a path, is
+returned. A change of `runtime` is a readiness change.
+
+File mode always follows its worker state file. Remote mode (section 7.1) is not
+changed: upstream's directory does not tell a sender whether an agent runs in a
+runtime, and it lists a runtime agent without a session as not `connected`, so a
+remote runtime agent is `session_not_ready`.
+
+A runtime agent's runs are dispatched one at a time like any agent's (section 4),
+although its launch profile may let the host run several of its tasks at once.
+Their output ends with the branch line of section 10.1.
 
 ## 4. Dispatch and recovery
 
@@ -300,6 +359,19 @@ directory keeps a host's previous agents when a refresh of that host fails, so
 `connected` can be stale while that host's `state` is `error`. A host in no
 network, or in several when `--network` is omitted, exits 1 with an `error:` line
 on stderr. Other upstream fields may be present.
+
+(rev 5) `agent runtime show` with the global `--json` flag and no agent argument
+prints a JSON array of the host's launch profiles in agent ID order, each
+`{agent_id,harness,harness_dir,from_branch,network,cpus,memory_mib,
+timeout_seconds,max_runs,credential}`, where `harness_dir` is an absolute path and
+`credential` a boolean. `runtime show` with the global `--json` flag prints
+`{enabled,socket,runtime,rule}`: `enabled` is a boolean, `socket` a path or null,
+and `runtime` null while the switch is off, the runtime's report
+`{version,image,max_cpus,max_memory_mib,max_seconds,max_concurrent_runs,running,
+peerfs,max_network}` when it answers, or `{error}` with a sentence when it does
+not. An executable older than runtime agents exits 2 for `agent runtime show`
+with `error: unrecognized subcommand 'runtime'` on stderr and nothing on stdout.
+Other upstream fields may be present.
 
 Submission and inspection return `{peer_host_id,request:{task_id,target_agent_id,
 input,deadline},submit_state:"accepted",status:{state:"running",last_event:2},
@@ -442,6 +514,7 @@ either the elapsed time or the controller's clock of section 1 has advanced by
 | `ready` | true | All of the above hold. |
 
 When a `reachable` and a `mine` entry both match, the `reachable` entry is used.
+(rev 5) A remote connection's readiness has `runtime` null.
 `directoryAt` is the `refreshed_at` of the pinned host's `hosts` entry in the
 directory of the pinned network that the check read, whatever the `code`,
 written as an RFC 3339 UTC time; it is null when there is no such entry or no
@@ -1133,6 +1206,21 @@ area, not by revision.
     `failed` run, and `branch` null for an output without the empty line before
     its last line, a commit ID of another length or case, a name with `/`, and
     a run that is not `succeeded` or `failed`.
+
+`runtime-agents.mjs` (revision 5 runtime agents):
+
+19. Runtime agents, in agent mode: an agent with a launch profile and a
+    credential `ready_runtime` without any session, with `runtime` from its
+    profile and no path anywhere in a response; `runtime_disabled`,
+    `runtime_unavailable` (a failing `runtime show`, a report with `error`, and
+    malformed output) and `runtime_credential_missing`, each blocking dispatch;
+    `ready_runtime` with an inactive user service; an agent without a profile,
+    and an executable without `agent runtime`, following their sessions as
+    before; a failing profile listing as `status_invalid`; a runtime agent
+    becoming one, and ceasing to be one, without operator action; file and
+    remote mode never running `agent runtime show`; a run dispatched to a
+    runtime agent, completed with a branch line; and the `checking` readiness
+    with `runtime` null.
 
 Version 2 and version 3 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those

@@ -250,3 +250,34 @@ stays [managed-contract.md](managed-contract.md).
   the `agents` directory present an agent that runs without an attached
   session, which is what readiness reads.
 - **Contract.** Section 10.1.
+
+## MGD-13. Runtime agents as workers (2026-11-12)
+
+- **Question.** Upstream now runs a runtime agent's tasks in its host's runtime,
+  one microVM per task on a peerfs fork, with no attached session. Section 3
+  readiness asks for a ready session with a verified channel, so such an agent
+  could never be ready. What evidence should the operator use instead?
+- **Options.**
+  - (a) For an agent whose host runs on this machine, read the host's own launch
+    profiles (`agent runtime show`) and runtime switch and report
+    (`runtime show`): a profile with a credential, the switch on and a runtime
+    that answers are the conditions under which the host starts the agent's
+    tasks.
+  - (b) Treat any agent with a profile as ready, without the runtime checks.
+  - (c) Wait for upstream to say how `status` and `agents` present runtime
+    agents, and change nothing until then.
+- **Chosen.** (a), for agent mode only. File mode keeps its session file, and
+  remote mode is unchanged.
+- **Reason.** These are the same checks the host makes at the start of each of
+  the agent's tasks (runtime agent contract, Running): a task sent while one of
+  them fails is rejected at start, so (b) would turn a disabled runtime into a
+  failed run and, three times over, a paused workflow. The commands are
+  owner-local and already used the same way as `status`, so (a) needs nothing
+  new from upstream, whereas (c) leaves an implemented upstream feature unusable.
+  A sender on another machine cannot run them: on upstream `b270c1b6` the
+  sender's directory lists a runtime agent without a session as not
+  `connected`, so remote readiness waits for upstream's answer, asked on
+  PR #186. The operator still sends one task at a time per agent, as MGD-6
+  says, even though a launch profile may allow several runs at once; using
+  that capacity is a later change.
+- **Contract.** Sections 3.1 and 6.
