@@ -147,17 +147,20 @@ The VM is the sandbox, so Codex's own sandbox is off. `HOME` lives in the VM's t
 so Codex's session state ends with the VM.
 
 **The harness command** for Claude is `["/bin/sh", "-c", SCRIPT]`, where SCRIPT:
-1. sets `HOME` to `/root`, and `IS_SANDBOX` to `1`;
-2. sets `ANTHROPIC_API_KEY` from `/run/secrets/anthropic_api_key`;
-3. runs `/opt/peerspan/harness/claude -p --dangerously-skip-permissions --output-format text
+1. exits 127, writing `the image has no glibc, which Claude Code needs` to stdout, when
+   `/lib64/ld-linux-x86-64.so.2` does not exist;
+2. sets `HOME` to `/root`, and `IS_SANDBOX` to `1`;
+3. sets `ANTHROPIC_API_KEY` from `/run/secrets/anthropic_api_key`;
+4. runs `/opt/peerspan/harness/claude -p --dangerously-skip-permissions --output-format text
    --no-session-persistence` in `/workspace`, with the prompt on its stdin, and exits with its
    status.
 
 Its stdout is Claude's final message, or its error, such as an invalid key; its stderr is Claude's
 logs. As for Codex, the VM is the sandbox, so Claude's permission checks are off. Claude Code
 refuses to skip them as root unless `IS_SANDBOX` is set, and the command runs as root in its own
-VM (RUN-13). On an image without glibc the binary cannot start, and the run fails before
-`started`. The script's text is fixed by the host release, not
+VM (RUN-13). On an image without glibc the shell starts but Claude Code cannot, so the run
+starts and the task ends `failed`. Its output is the message of step 1 and the branch line of a
+run that started, `Branch: NAME, unchanged from FROM`. The script's text is fixed by the host release, not
 by this contract.
 
 **Transitions.** They are those of a runtime task, with the run result replaced by the
@@ -302,6 +305,8 @@ The suite covers:
   `image`: the `argv` runs `claude -p`, the secret is `anthropic_api_key`, and `image` is the
   profile's; a profile without one sends no `image`.
 - **An image that cannot be pulled:** the task fails before `started`, with `Branch: none`.
+  (A `claude` profile on an image without glibc fails after `started`. That is a live check, not
+  a suite case, since the fake runtime runs no shell.)
 - **Lifecycle:** queued, accepted, then succeeded with the output `MESSAGE\n\nBranch: NAME at
   commit ID`. The fork holds the agent's write, and `from_branch` is unchanged.
 - **Failure and empty output:** a failing exit with its message and branch line. An empty message
