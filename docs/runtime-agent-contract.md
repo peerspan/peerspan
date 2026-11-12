@@ -90,6 +90,16 @@ The host then dispatches the run as for a runtime task (runtime task contract, R
 records the dispatch before sending, keeps the dispatch rules for 429 and 422, and resends an
 unanswered start after a restart. A 422 ends the task `rejected`, with the runtime's error as
 the reason.
+- **The request is stored.** The dispatch record holds the whole `POST /v1/runs` body built
+  from the profile at that moment, with the secret's path but never the key. Every resend uses
+  exactly that body, never the current profile. A profile replaced or cleared after dispatch
+  therefore changes nothing for that run, and a resend never meets the runtime's 409 for a
+  changed request.
+- **A 429 or 422 clears the stored body** with the dispatch. The next start builds a new one
+  from the profile as it is then, after the checks above.
+- **The credential is read at each start.** A resend reads the credential file at the stored
+  path when the runtime starts the run. If it was cleared meanwhile, the run fails before
+  `started`, and the task ends `failed` with `Branch: none`.
 
 **The run.** The host sends `POST /v1/runs` with:
 - `run_id` as for runtime tasks, from the sender host ID and the task ID;
@@ -132,8 +142,8 @@ agent's output:
 | `queued` to `rejected` | `rejected` | A check at start failed, or the runtime refused the run (422). |
 | `queued` to `expired` | `expired` | Not dispatched by `deadline`. |
 | `queued` to `failed` | `failed` | The runtime reports `exited` without `started`: for example, the fork's name or branch exists already, or `from_branch` does not exist. |
-| `running` to `succeeded` | `succeeded` | The command exited 0. |
-| `running` to `failed` | `failed` | Any other exit, a signal, the timeout, or the loss of the run. |
+| `running` to `succeeded` | `succeeded` | The command exited 0, and the run result has no `error`. |
+| `running` to `failed` | `failed` | Any other exit, a signal, the timeout, or the loss of the run. Also a run result with `error` after the command ran, such as a snapshot or commit that failed, even when the command exited 0. |
 | `queued` or `running` to `cancelled` | `cancelled` | As for a runtime task. |
 
 A runtime agent's tasks have no `output` events, and their events have no `chunk` field: they
@@ -153,7 +163,13 @@ naming the branch (RUN-11).
   - `Branch: NAME at commit ID`, where ID is the commit the runtime made (66 lowercase hex
     digits);
   - `Branch: NAME, unchanged from FROM`, when the run changed nothing;
+  - `Branch: NAME, not committed: ERROR`, when the run started but the result has `commit`
+    null and `error` set, with ERROR being that error on one line, cut to 1,024 bytes. What the
+    command wrote stays in the workspace `NAME`, for the owner to commit or discard;
   - `Branch: none`, when the run never started.
+
+  The trailer is chosen in that order of precedence: a result with `error` never reports a
+  commit or `unchanged`, so an error stays visible even when the message is not empty.
 
 The stdout and stderr logs are not attached and not served. The output of a `cancelled` task
 follows the same rules. A task cancelled before dispatch has `output` null, as in the runtime
@@ -198,8 +214,9 @@ With these fields, the runtime task contract's guarantee "the guest has no netwo
 The host schema version increments by one, with no new tables: it is the next free version on
 `main` when the implementing PR merges. The received task record of a runtime agent's task gains
 `runtime_agent: true` and the internal run fields that a runtime task has: `run_id`, whether the
-run was dispatched, and the last stored runtime event sequence. The fork's name is derived, not
-stored. Profiles are the `runtime-agents.json` file, and credentials are the `credentials/`
+run was dispatched, and the last stored runtime event sequence. While dispatched, it also holds
+the stored `POST /v1/runs` body (Running, above), which never contains the key. The fork's name
+is derived, not stored. Profiles are the `runtime-agents.json` file, and credentials are the `credentials/`
 directory, neither a table. Older binaries reject the new version.
 
 New activity kinds are `runtime.agent_set`, `runtime.agent_cleared`, `runtime.credential_set`
@@ -228,6 +245,7 @@ runtime suites.
   fork's, to a new one, and refuses an existing name.
 - A commit's ID is `01` followed by the lowercase hex SHA-256 of the workspace's sorted paths and
   contents and the commit message, or null when nothing changed since the fork.
+- A command-line flag makes every commit fail, giving `commit` null and `error` set.
 - It records each request's fields, `secrets` paths but never their contents, in a file named on
   its command line, so the suite can check what the host sent.
 
@@ -260,7 +278,11 @@ The suite covers:
 - **Cancellation:** while running, ending `cancelled` with an output and a branch line.
   Before dispatch, ending `cancelled` with `output` null.
 - **Restarts:** the daemon during a run, reattaching and finishing. The fake runtime during a
-  run, failing the task with `the runtime restarted`.
+  run, failing the task with `the runtime restarted`. The daemon restarted after dispatch but
+  before `started`, with the profile replaced and then cleared meanwhile: the resent request is
+  byte-identical to the first one, and the task finishes.
+- **A failed commit:** with the fake runtime told to fail commits, a command that exits 0
+  ending `failed` with its message and the `not committed:` trailer.
 - **Migration:** opening a database of the previous schema version.
 
 A **live acceptance** run, story 2 in `runtime.md`, uses an installed release, `peerspan-runtime`
