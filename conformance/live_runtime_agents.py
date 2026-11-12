@@ -201,9 +201,15 @@ def _():
         t["state"], t["output"] = final["state"], final["output"] or ""
         m = re.search(r"Branch: (\S+) at commit ([0-9a-f]{66})$", t["output"])
         t["branch"], t["commit"] = (m.group(1), m.group(2)) if m else (None, None)
-        usage = [json.loads(line).get("usage") for e in t["events"] if e["kind"] == "stderr"
-                 for line in base64.b64decode(e["data"]).decode(errors="replace").splitlines()
-                 if '"turn.completed"' in line]
+        # stderr chunks are not line-aligned (runtime task contract, The runtime's local API): join them first.
+        stderr = b"".join(base64.b64decode(e["data"]) for e in t["events"] if e["kind"] == "stderr")
+        usage = []
+        for line in stderr.decode(errors="replace").splitlines():
+            if '"turn.completed"' in line:
+                try:
+                    usage.append(json.loads(line).get("usage"))
+                except json.JSONDecodeError:
+                    pass
         t["usage"] = [u for u in usage if u]
     check(running_max == 3, f"three VMs at once: the runtime reported at most {running_max} running")
     check(all(t["state"] == "succeeded" for t in tasks), f"states {[t['state'] for t in tasks]}")
@@ -273,7 +279,9 @@ def _():
     leaked = [p for p in [state["rt"].serve_log, *suite.work.rglob("*.log")]
               if p.is_file() and secret in p.read_text(errors="replace")]
     check(not leaked and all(secret not in t["output"] for t in state["tasks"]), f"key in {leaked}")
-    check(all(m[0] is not None for m in mem.values()), "memory recorded")
+    missing = [t["task"] for t in report["tasks"] if t["memory_peak_mib"] is None]
+    check(not missing, f"no memory measurement for {missing}")
+    check(all(t["usage"] for t in report["tasks"]), f"no token usage for {[t['task'] for t in report['tasks'] if not t['usage']]}")
 
 
 suite.finish()
