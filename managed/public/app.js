@@ -1,6 +1,7 @@
 // Peerspan Managed console: sign-in, routing, live updates and operator actions.
 import { h, icon, tickTimes } from './js/dom.js';
-import { abandonDialog, confirmDialog, workflowDialog } from './js/dialogs.js';
+import { abandonDialog, confirmDialog, recipeDialog, workflowDialog } from './js/dialogs.js';
+import { recipeTemplate } from './js/recipes.js';
 import * as views from './js/views.js';
 
 const POLL_MS = 15_000;
@@ -91,9 +92,35 @@ async function loadLog({ more = false } = {}) {
 async function loadRun(id) {
   try {
     const detail = await request('/api/runs/' + id);
-    app.runDetail = { id, run: detail.run, events: detail.events, reviewEvents: detail.reviewEvents ?? [], error: null };
+    const previous = app.runDetail.id === id && app.runDetail.previous !== undefined
+      ? app.runDetail.previous : await previousResult(detail.run);
+    app.runDetail = { id, run: detail.run, events: detail.events, reviewEvents: detail.reviewEvents ?? [], previous, error: null };
   } catch (error) {
-    app.runDetail = { id, run: null, events: [], reviewEvents: [], error: error.message };
+    app.runDetail = { id, run: null, events: [], reviewEvents: [], previous: null, error: error.message };
+  }
+}
+
+/**
+ * The workflow's previous run with a result, in full, for comparing results:
+ * `{id, createdAt, attempt, output}`, null when there is none to compare, or
+ * undefined while the run has no final result yet. A found answer is kept per
+ * run page, so live refreshes do not fetch it again.
+ */
+async function previousResult(run) {
+  if (run.state !== 'succeeded' && run.state !== 'failed') return undefined;
+  if (typeof run.output !== 'string' || run.outputTruncated) return null;
+  try {
+    const page = await request(`/api/runs?workflowId=${encodeURIComponent(run.workflowId)}&limit=200`);
+    const index = page.runs.findIndex(item => item.id === run.id);
+    const earlier = index < 0 ? null : page.runs.slice(index + 1)
+      .find(item => (item.state === 'succeeded' || item.state === 'failed') && item.output !== null);
+    if (!earlier) return null;
+    const { run: full } = await request('/api/runs/' + earlier.id);
+    if (typeof full.output !== 'string' || full.outputTruncated) return null;
+    return { id: full.id, createdAt: full.createdAt, attempt: full.attempt, output: full.output };
+  } catch {
+    // The comparison is a convenience; the page works without it.
+    return null;
   }
 }
 
@@ -215,6 +242,7 @@ async function refresh() {
   if (number < applied || number <= signedOutAt) return;
   applied = number;
   app.data = data;
+  notifyAttention(data.attention);
   $('login').hidden = true;
   $('console').hidden = false;
   setLive(true);
@@ -269,7 +297,10 @@ const actions = {
   },
 
   async newWorkflow() {
+    const recipe = await recipeDialog();
+    if (recipe === undefined) return;
     const created = await workflowDialog({
+      template: recipe ? recipeTemplate(recipe) : null,
       connections: app.data.connections,
       submit: fields => post('/api/workflows', fields)
     });
@@ -421,6 +452,71 @@ $('logout').addEventListener('click', async () => {
     showLogin();
   }
 });
+
+// ----- notifications ------------------------------------------------------------------------
+
+// Attention items already seen by this page, by kind and subject; null until the first snapshot.
+let seenAttention = null;
+
+function storedNotify() {
+  try {
+    return localStorage.getItem('notify') === 'on';
+  } catch {
+    return false;
+  }
+}
+
+const notificationsGranted = () => 'Notification' in window && Notification.permission === 'granted';
+
+function showNotifyButton() {
+  const button = $('notify');
+  // Browsers without notifications, or where the operator blocked them, get no button.
+  button.hidden = !('Notification' in window) || Notification.permission === 'denied';
+  const on = storedNotify() && notificationsGranted();
+  button.textContent = on ? 'Notifications on' : 'Notify me';
+  button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  button.title = on ? 'Stop notifying this browser' : 'Notify this browser when something new needs you, while this page is open';
+}
+
+/**
+ * Notifies this browser, while the page is open but not in view, of each new
+ * attention item that needs the operator to act. Nothing leaves this machine:
+ * the browser shows the notification itself.
+ */
+function notifyAttention(attention) {
+  const keys = new Map(attention.filter(item => item.severity === 'action')
+    .map(item => [`${item.kind}:${item.subject.type}:${item.subject.id}`, item]));
+  const fresh = seenAttention === null ? [] : [...keys].filter(([key]) => !seenAttention.has(key));
+  seenAttention = new Set(keys.keys());
+  if (!fresh.length || !storedNotify() || !notificationsGranted() || (!document.hidden && document.hasFocus())) return;
+  for (const [key, item] of fresh.slice(0, 3)) {
+    const title = item.subject.type === 'controller' ? 'Peerspan Managed' : item.subject.name;
+    try {
+      const note = new Notification(title, { body: item.message, tag: key });
+      note.onclick = () => {
+        window.focus();
+        note.close();
+      };
+    } catch {
+      // Some browsers only notify through a service worker; the console still shows the item.
+    }
+  }
+}
+
+$('notify').addEventListener('click', async () => {
+  const on = storedNotify() && notificationsGranted();
+  let next = !on;
+  if (next && Notification.permission !== 'granted') next = (await Notification.requestPermission()) === 'granted';
+  try {
+    localStorage.setItem('notify', next ? 'on' : 'off');
+  } catch {
+    // The choice then lasts for this page only.
+  }
+  showNotifyButton();
+  if (next) toast('This browser will be notified when something new needs you, while this page is open.');
+});
+
+showNotifyButton();
 
 window.addEventListener('hashchange', navigate);
 window.addEventListener('pagehide', stopLive);

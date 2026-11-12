@@ -1,6 +1,7 @@
 // Modal dialogs: one <dialog> element whose content is rebuilt for each use.
 import { h, icon, shortId } from './dom.js';
-import { DAYS } from './labels.js';
+import { DAYS, schedule } from './labels.js';
+import { RECIPES } from './recipes.js';
 
 const REVIEW_MODES = [['none', 'As reported'], ['operator', 'I check them'], ['agent', 'An agent checks them']];
 const REWORK_CHOICES = ['Count it as a failure', 'Send it back once with the review', 'Send it back up to twice',
@@ -112,6 +113,28 @@ export function abandonDialog(run, { what = 'run', who = 'worker' } = {}) {
   }).then(Boolean);
 }
 
+/**
+ * Where a new workflow starts: a blank form or a recipe. Resolves the recipe,
+ * null for a blank form, or undefined when the dialog is dismissed.
+ */
+export function recipeDialog() {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return show('New workflow', close => [
+    h('div.dialog-body', null,
+      h('p', null, 'Start from a blank form, or from a recipe to adapt. Nothing is created until you have read and saved the form.'),
+      h('div.recipes', null,
+        h('button.recipe', { type: 'button', onclick: () => close(null), autofocus: true },
+          h('strong', null, 'Blank workflow'), h('span', null, 'Write your own assignment.')),
+        RECIPES.map(recipe => h('button.recipe', { type: 'button', onclick: () => close(recipe), 'data-recipe': recipe.id },
+          h('strong', null, recipe.name),
+          h('span', null, recipe.summary),
+          h('span.recipe-meta', null, schedule({ schedule: { ...recipe.schedule, timeZone: zone } }, { zone: false }),
+            recipe.review === 'operator' ? ' · you check results' : ''))))),
+    h('div.dialog-actions', null,
+      h('button.button', { type: 'button', onclick: () => close(undefined) }, 'Cancel'))
+  ]);
+}
+
 const UNITS = [['minutes', 1], ['hours', 60], ['days', 1440]];
 const WEEKDAYS = DAYS.slice(0, 5).map(([value]) => value);
 
@@ -146,13 +169,15 @@ function parseTimes(text) {
 }
 
 /**
- * Create (no `workflow`) or edit a workflow. `submit(fields)` performs the
+ * Create (no `workflow`, optionally from a recipe's `template`) or edit a workflow. `submit(fields)` performs the
  * request; its error message is shown in the form and the dialog stays open.
  */
-export function workflowDialog({ workflow = null, connections, submit }) {
+export function workflowDialog({ workflow = null, template = null, connections, submit }) {
   const editing = workflow !== null;
-  const interval = splitInterval(workflow?.intervalMinutes ?? 60);
-  const planned = workflow?.schedule ?? null;
+  // The form starts from the workflow being edited, or from a recipe.
+  const initial = workflow ?? template;
+  const interval = splitInterval(initial?.intervalMinutes ?? 60);
+  const planned = initial?.schedule ?? null;
   return show(editing ? 'Edit workflow' : 'New workflow', close => {
     const error = h('p.form-error', { role: 'alert' });
     const save = h('button.button.primary', { type: 'submit' }, editing ? 'Save changes' : 'Create workflow');
@@ -197,24 +222,24 @@ export function workflowDialog({ workflow = null, connections, submit }) {
         connection.name + (connection.readiness.ready ? '' : ' (not ready)'))));
     const form = h('form', null,
       h('label', { for: 'wf-name' }, 'Name'),
-      h('input', { id: 'wf-name', name: 'name', maxlength: '100', required: true, autofocus: true, value: workflow?.name ?? '', placeholder: 'Weekly repository maintenance' }),
+      h('input', { id: 'wf-name', name: 'name', maxlength: '100', required: true, autofocus: true, value: initial?.name ?? '', placeholder: 'Weekly repository maintenance' }),
       h('label', { for: 'wf-connection' }, 'Worker'),
       workerSelect,
       h('p.help', null, 'The worker uses its own workspace and model configuration.'),
       h('label', { for: 'wf-instructions' }, 'Assignment'),
       h('textarea', { id: 'wf-instructions', name: 'instructions', maxlength: '12000', required: true, rows: '6',
-        placeholder: 'Describe a bounded assignment, the result you expect, and the checks it must pass.' }, workflow?.instructions ?? ''),
+        placeholder: 'Describe a bounded assignment, the result you expect, and the checks it must pass.' }, initial?.instructions ?? ''),
       h('div.when', null, h('span.label', null, 'When it runs'), modes, intervalPart, schedulePart),
       h('div.field-row.two', null,
         h('div', null,
           h('label', { for: 'wf-cap' }, 'Daily run limit'),
-          h('input', { id: 'wf-cap', name: 'maxRunsPerDay', type: 'number', min: '1', max: '1000', required: true, value: String(workflow?.maxRunsPerDay ?? 12) })),
+          h('input', { id: 'wf-cap', name: 'maxRunsPerDay', type: 'number', min: '1', max: '1000', required: true, value: String(initial?.maxRunsPerDay ?? 12) })),
         h('div', null,
           h('label', { for: 'wf-acceptance' }, 'Acceptance window (min)'),
-          h('input', { id: 'wf-acceptance', name: 'acceptanceMinutes', type: 'number', min: '1', max: '1440', required: true, value: String(workflow?.acceptanceMinutes ?? 60) }))),
+          h('input', { id: 'wf-acceptance', name: 'acceptanceMinutes', type: 'number', min: '1', max: '1440', required: true, value: String(initial?.acceptanceMinutes ?? 60) }))),
       h('p.help', null, 'The daily limit counts dispatches per UTC day, not model cost. ',
         'A run the worker has not accepted within the window expires.'),
-      resultsPart(workflow, connections, workerSelect),
+      resultsPart(initial, connections, workerSelect),
       !editing && h('label.check', { for: 'wf-enabled' },
         h('input', { id: 'wf-enabled', name: 'enabled', type: 'checkbox' }), 'Start dispatching as soon as it is created'),
       !editing && h('p.help', null, 'Otherwise it is created paused. Three consecutive failed runs pause a workflow automatically.'),

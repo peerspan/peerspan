@@ -1,5 +1,6 @@
 // Console views. Each takes the app context and returns the nodes of one page.
 import { absoluteTime, commandLine, copyable, duration, h, icon, secondsBetween, shortId, timeAgo } from './dom.js';
+import { diffLines, foldUnchanged } from './diff.js';
 import {
   OPEN_STATES, activityText, fallbackText, hintText, reviewState, reworkText, runState, runtimeText, schedule,
   waitsForOperator, workflowStatus
@@ -404,6 +405,7 @@ export function runPage(ctx, id) {
           run.outputTruncated && h('span.section-note', null, 'Truncated at 262,144 characters')),
         run.output ? h('pre.output', { tabindex: '0' }, run.output)
           : h('div.panel.empty', null, open ? ['No result yet.', run.progress && [' Latest update: ', run.progress]] : 'This run reported no output.'),
+        comparePanel(run, detail.previous),
         reviewPanel(ctx, run, rework),
         reviewTaskPanel(ctx, run, detail.reviewEvents),
         h('div.section-head.section', null, h('h2', null, 'Instructions sent'),
@@ -429,6 +431,30 @@ export function runPage(ctx, id) {
               timeAgo(event.at, '')))))
           : h('div.panel.empty', null, 'No task events have been retained yet.')))
   ];
+}
+
+// The latest comparison, so that live refreshes do not compute it again.
+let compared = { key: null, ops: null };
+
+/** What changed in this result since the workflow's previous one, line by line. */
+function comparePanel(run, previous) {
+  if (!previous || typeof run.output !== 'string') return null;
+  const key = run.id + '/' + previous.id;
+  if (compared.key !== key) compared = { key, ops: diffLines(previous.output, run.output) };
+  const { ops } = compared;
+  const earlier = [h('a', { href: `#/runs/${previous.id}` }, previous.attempt > 1 ? `attempt ${previous.attempt}` : 'the previous result'),
+    ' from ', timeAgo(previous.createdAt)];
+  if (ops === null) return h('p.help.compare', null, 'Compared with ', earlier, ': too long or too different to compare line by line.');
+  const added = ops.filter(([op]) => op === '+').length;
+  const removed = ops.filter(([op]) => op === '-').length;
+  if (!added && !removed) return h('p.help.compare', null, 'Unchanged since ', earlier, '.');
+  const line = ([op, text]) => (op === '…'
+    ? h('span.diff-fold', null, `… ${text} unchanged line${text === 1 ? '' : 's'}`)
+    : h('span', { class: { '+': 'diff-add', '-': 'diff-del', '=': 'diff-same' }[op] }, `${op === '=' ? ' ' : op} ${text}`));
+  return h('details.compare', null,
+    h('summary', null, `Changes since the previous result: ${added} line${added === 1 ? '' : 's'} added, ${removed} removed`),
+    h('p.help', null, 'Compared with ', earlier, '.'),
+    h('pre.output.diff', { tabindex: '0' }, foldUnchanged(ops).map(line)));
 }
 
 const BRANCH_OUTCOMES = {
