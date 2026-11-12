@@ -927,9 +927,17 @@ pub enum AgentRuntimeCommand {
     Set {
         /// Agent ID or name on this host
         agent: String,
-        /// Directory holding the Codex release's binaries
+        /// Directory holding the harness's binaries: the Codex release's,
+        /// or Claude Code's `claude`
         #[arg(long, value_name = "DIR")]
         harness_dir: PathBuf,
+        /// codex or claude; default codex
+        #[arg(long, value_name = "HARNESS", value_parser = ["codex", "claude"])]
+        harness: Option<String>,
+        /// OCI image each run boots, such as python:3.12-slim; default the
+        /// runtime's own image
+        #[arg(long, value_name = "REF")]
+        image: Option<String>,
         /// The peerfs branch each task forks; default main
         #[arg(long, value_name = "BRANCH")]
         from_branch: Option<String>,
