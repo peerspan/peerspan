@@ -1584,7 +1584,8 @@ impl Store {
             .collect())
     }
 
-    /// Pollable tasks, each with whether its newest status is `running`.
+    /// Pollable tasks, each with whether it takes a held turn: its newest
+    /// status is `running` and no cancellation waits to be resent.
     fn pollable_states(&self) -> Result<Vec<(TaskKey, bool)>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
@@ -1594,7 +1595,10 @@ impl Store {
         for record in statement.query_map([], |r| r.get::<_, String>(0))? {
             let out: OutboundTask = serde_json::from_str(&record?)?;
             if out.pollable() || out.cancel_state.as_deref() == Some("unknown") {
-                let running = out.status.as_ref().is_some_and(|s| s.state == "running");
+                // A cancellation still to be resent takes the free slot,
+                // not a held turn: the poll sends it first, unheld.
+                let running = out.status.as_ref().is_some_and(|s| s.state == "running")
+                    && out.cancel_state.as_deref() != Some("unknown");
                 result.push(((out.peer_host_id, out.request.task_id), running));
             }
         }
