@@ -2199,7 +2199,9 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                         let interval = match plan.get(&key) {
                             _ if held => Duration::ZERO,
                             _ if progressed => POLL_FIRST,
-                            Some((_, last)) => (*last * 2).min(POLL_MAX),
+                            // After held polls the last interval is zero:
+                            // backing off starts again at 1 second.
+                            Some((_, last)) => (*last * 2).clamp(POLL_FIRST, POLL_MAX),
                             None => POLL_FIRST,
                         };
                         plan.insert(key, (Instant::now() + interval, interval));
