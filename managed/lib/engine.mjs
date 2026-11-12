@@ -247,14 +247,16 @@ export class Engine {
         code: 'status_invalid',
         reason: 'Worker host status could not be read',
         hints: [],
-        directoryAt: null
+        directoryAt: null,
+        runtime: null
       };
     }
     const since = await this.store.recordReadiness(connection.id, result.ready, result.code, checkedAt);
     const previous = this.readiness.get(connection.id);
     this.readiness.set(connection.id, { ...result, checkedAt, since });
     const same = previous && previous.code === result.code && previous.reason === result.reason
-      && previous.directoryAt === result.directoryAt && JSON.stringify(previous.hints) === JSON.stringify(result.hints);
+      && previous.directoryAt === result.directoryAt && JSON.stringify(previous.hints) === JSON.stringify(result.hints)
+      && JSON.stringify(previous.runtime) === JSON.stringify(result.runtime);
     if (!same) this.touch();
   }
 
@@ -267,7 +269,8 @@ export class Engine {
       checkedAt: null,
       since: connection.readySince,
       hints: [],
-      directoryAt: null
+      directoryAt: null,
+      runtime: null
     };
   }
 

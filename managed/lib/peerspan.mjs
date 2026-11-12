@@ -129,6 +129,47 @@ export class Peerspan {
     return valid ? { kind: 'ok', value } : { kind: 'directory_unavailable' };
   }
 
+  /**
+   * The host's launch profiles (contract section 3.1). Resolves `{kind: 'ok',
+   * value}` with the array, `{kind: 'none'}` for an executable older than
+   * runtime agents, or `{kind: 'invalid'}` when they cannot be read.
+   */
+  async launchProfiles(hostDir) {
+    let result;
+    try {
+      result = await this.exec(hostDir, ['agent', 'runtime', 'show']);
+    } catch (error) {
+      if (error.aborted) throw error;
+      return { kind: 'invalid' };
+    }
+    if (result.code === 2 && result.stderr.includes('unrecognized subcommand')) return { kind: 'none' };
+    if (result.code !== 0) return { kind: 'invalid' };
+    try {
+      const value = parse(result.stdout);
+      return Array.isArray(value) ? { kind: 'ok', value } : { kind: 'invalid' };
+    } catch {
+      return { kind: 'invalid' };
+    }
+  }
+
+  /** The host's runtime switch and report (`runtime show`), or null when they cannot be read. */
+  async runtimeSwitch(hostDir) {
+    let result;
+    try {
+      result = await this.exec(hostDir, ['runtime', 'show']);
+    } catch (error) {
+      if (error.aborted) throw error;
+      return null;
+    }
+    if (result.code !== 0) return null;
+    try {
+      const value = parse(result.stdout);
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
   adapterConnection(hostDir, adapterId) {
     return this.json(hostDir, ['adapter', 'connection', adapterId]);
   }

@@ -1,8 +1,8 @@
 // Console views. Each takes the app context and returns the nodes of one page.
 import { absoluteTime, commandLine, copyable, duration, h, icon, secondsBetween, shortId, timeAgo } from './dom.js';
 import {
-  OPEN_STATES, activityText, fallbackText, hintText, reviewState, reworkText, runState, schedule, waitsForOperator,
-  workflowStatus
+  OPEN_STATES, activityText, fallbackText, hintText, reviewState, reworkText, runState, runtimeText, schedule,
+  waitsForOperator, workflowStatus
 } from './labels.js';
 
 const CLI = 'node managed/cli.mjs';
@@ -182,6 +182,9 @@ function connectHelp() {
       h('p.help', null, 'Name the agent as ', h('code', null, 'peerspan agents'), ' shows it, or pass its agent ID. Add ',
         h('code', null, '--host-state DIR'), ' when the worker host does not use the default Peerspan state, and ',
         h('code', null, '--sender-state DIR'), ' when tasks are submitted from a host other than the default.'),
+      h('p.help', null, 'A runtime agent, one with a launch profile (', h('code', null, 'peerspan agent runtime set'),
+        '), needs no attached session: it is ready while its host\'s runtime is on and answering and it has a credential, ',
+        'and each of its tasks runs in its own microVM on a fork of its branch.'),
       h('h3', null, 'An agent on another machine'),
       commandLine(`${CLI} connect --name "Research agent" --remote PERSON/AGENT`),
       h('p.help', null, 'Pass the address or agent ID that ', h('code', null, 'peerspan agents'),
@@ -203,7 +206,7 @@ export function overview(ctx) {
 
   const tiles = h('div.tiles', null,
     tile('Workflows', enabled, 'active', `${workflows.length - enabled} paused`),
-    tile('Workers ready', ready, `of ${connections.length}`, connections.length ? 'Live channel checks' : 'None connected yet'),
+    tile('Workers ready', ready, `of ${connections.length}`, connections.length ? 'Live readiness checks' : 'None connected yet'),
     tile('Runs, last 7 days', sum('runs'), null, judged ? `${percent(sum('succeeded') / judged)} succeeded` : 'No finished runs yet'),
     tile('Unattended runs', sum('unattendedRuns'), null, `${plural(sum('interventions'), 'operator action')} in 7 days`));
 
@@ -539,7 +542,9 @@ function workerPanel(ctx, connection) {
       fact('Host', copyable(connection.hostId, shortId(connection.hostId))),
       fact('Where', remote ? 'Another machine, seen through the sender host\'s directory' : 'A Peerspan host on this machine'),
       fact('Follows', remote ? 'Whether the directory shows the agent connected, its host reachable and task submission allowed'
-        : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
+        : readiness.runtime ? 'Its launch profile and the host\'s runtime: each task runs in its own microVM on a fork'
+          : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
+      readiness.runtime && fact('Runtime', runtimeText(readiness.runtime) || 'Launch profile without details'),
       fact('Workflows', assigned.length ? links(assigned) : 'None'),
       reviewing.length > 0 && fact('Reviews for', links(reviewing)),
       fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet')),

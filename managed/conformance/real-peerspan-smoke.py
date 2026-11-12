@@ -7,6 +7,7 @@ All hosts, network membership, authorization, credentials and state are throwawa
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -17,10 +18,13 @@ import urllib.request
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "conformance" / "slim"))
+
 from harness import Suite, check, create_network, free_port, join_new_person, ssh_key, wait_for
+import runtime_common
 
 
 suite = Suite("managed-real-scripted", "Real Peerspan transport, isolated scripted adapter, no model")
+runtime_common.bind(suite)
 
 
 def node_24():
@@ -392,6 +396,76 @@ def reviewer_agent():
           flush=True)
     adapter.stop()
     reviewer.stop()
+
+
+@suite.case("real-runtime-agent", "managed contract rev 5: runtime agent ready without a session, run on a fork")
+def runtime_agent():
+    node = node_24()
+    # alice's host runs upstream's fake runtime, which serves a peerfs space with a `main` branch; bob sends.
+    runtime_common.setup_network(peerfs_workspace=["main"], max_concurrent_runs=2)
+    alice, bob, runtime = runtime_common.need("a", "b", "rt")
+    main = runtime.dir / "peerfs" / "main"
+    main.mkdir(parents=True, exist_ok=True)
+    (main / "README").write_text("SCRIPTED runtime smoke seed\n")
+    status, body = alice.api("PUT", "/v1/runtime", {"socket": str(runtime.socket)})
+    check(status == 200 and body.get("peerfs") is True, f"the runtime switch: {status} {body}")
+    status, agent = alice.api("POST", "/v1/agents", {"name": "codex", "owner": "alice"})
+    check(status in (200, 201), f"register codex: {status} {agent}")
+    # Submissions cite the worker owner's policy, as for every managed run; bob sees it once it has synced.
+    alice.ok("allow", "bob", "--agent", "codex", "--person-key", str(runtime_common.state["alice_key"]))
+    wait_for(lambda: any(entry.get("agent_id") == agent["id"] and "task.submit" in entry.get("actions", [])
+                         for entry in (bob.cli("--json", "agents", "--refresh").json or {}).get("reachable", [])),
+             timeout=40, interval=1, message="alice's policy for codex at bob's host")
+
+    managed = Controller(node, bob, "runtime")
+    connection = json.loads(managed.cli("connect", "--name", "SCRIPTED runtime agent — no model", "--agent", "codex",
+                                        "--host-state", alice.state, "--sender-state", bob.state))
+    managed.start()
+
+    def code(expected, what):
+        return wait_for(lambda: (row := managed.connection(connection["id"]))["readiness"]["code"] == expected and row,
+                        timeout=30, message=what)
+
+    # Without a launch profile it is an ordinary agent with no session.
+    code("session_not_ready", "an agent without a profile or a session")
+    harness = suite.work / "scripted-codex-release"
+    harness.mkdir()
+    for binary in ("codex", "codex-code-mode-host"):
+        (harness / binary).write_text("#!/bin/sh\nexit 0\n")
+        (harness / binary).chmod(0o755)
+    alice.ok("agent", "runtime", "set", "codex", "--harness-dir", str(harness), "--max-runs", "2")
+    missing = code("runtime_credential_missing", "a launch profile without a credential")
+    check(missing["readiness"]["runtime"] == {"fromBranch": "main", "network": "internet", "cpus": 2, "memoryMib": 2048,
+                                              "timeoutSeconds": 3600, "maxRuns": 2},
+          f"readiness does not summarize the launch profile: {missing['readiness']}")
+    check(str(harness) not in json.dumps(managed.request("GET", "/api/snapshot")), "a launch profile path was returned")
+    key = suite.work / "scripted-openai.key"
+    key.write_text("sk-scripted-" + os.urandom(12).hex() + "\n")
+    key.chmod(0o600)
+    alice.ok("agent", "credential", "set", "codex", "--from-file", str(key))
+    ready = code("ready_runtime", "a runtime agent ready without any session")
+    check(ready["readiness"]["ready"] is True, f"ready_runtime is not ready: {ready['readiness']}")
+
+    # The fake runtime acts as the agent: it runs the instructions as steps on a fork of `main`.
+    workflow = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED runtime agent smoke — no model", "connectionId": connection["id"],
+        "instructions": "write notes.txt SCRIPTED-RUNTIME-RECEIPT ; echo done", "intervalMinutes": 60,
+        "maxRunsPerDay": 1, "acceptanceMinutes": 2, "enabled": True})
+    run = wait_for(lambda: managed.run(workflow["id"], "succeeded"), timeout=60, message="the runtime agent's run")
+    fork = f"codex.{run['taskId']}"
+    branch = run["branch"]
+    check(branch and branch["outcome"] == "committed" and branch["name"] == fork and len(branch["commit"]) == 66,
+          f"the run's branch is not the committed fork: {branch} (output {run['output']!r})")
+    check(run["output"].startswith("done\n\nBranch: " + fork + " at commit "), f"runtime agent output: {run['output']!r}")
+    check((runtime.dir / "peerfs" / fork / "notes.txt").read_text() == "SCRIPTED-RUNTIME-RECEIPT"
+          and not (main / "notes.txt").exists(), "the fork does not hold the write, or main changed")
+
+    # The runtime switched off: the host would reject new tasks, so the worker is not ready.
+    status, _ = alice.api("DELETE", "/v1/runtime")
+    check(status == 200, f"switching the runtime off: {status}")
+    code("runtime_disabled", "a runtime agent whose host's runtime is off")
+    print("  Runtime agent readiness from its launch profile, a run on a peerfs fork with its branch, and the switch; "
+          "no model.", flush=True)
 
 
 suite.finish()

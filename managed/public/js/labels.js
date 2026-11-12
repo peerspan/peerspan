@@ -140,8 +140,27 @@ const READINESS_CODES = {
   channel_unverified: 'channel not verified',
   directory_unavailable: "sender's directory unreadable",
   host_unreachable: 'worker host unreachable',
-  not_authorized: 'sender not allowed to submit tasks'
+  not_authorized: 'sender not allowed to submit tasks',
+  runtime_disabled: 'runtime switched off',
+  runtime_unavailable: 'runtime not answering',
+  runtime_credential_missing: 'no model credential',
+  ready_runtime: 'runtime agent'
 };
+
+const count = (value, word) => (Number.isInteger(value) ? `${value.toLocaleString('en-US')} ${word}` : null);
+
+/** One line about a runtime agent's launch profile, from its readiness (contract section 3.1). */
+export function runtimeText(runtime) {
+  const parts = [
+    runtime.fromBranch !== null && `forks of ${runtime.fromBranch}`,
+    runtime.network === 'none' ? 'no network' : runtime.network === 'internet' ? 'internet access' : null,
+    count(runtime.cpus, runtime.cpus === 1 ? 'CPU' : 'CPUs'),
+    count(runtime.memoryMib, 'MiB'),
+    Number.isInteger(runtime.timeoutSeconds) && `${Math.round(runtime.timeoutSeconds / 60)} min limit`,
+    Number.isInteger(runtime.maxRuns) && `up to ${runtime.maxRuns} at once on its host`
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
 
 /** One sentence for an activity entry; `names` resolves IDs to current names. */
 export function activityText(entry, names) {

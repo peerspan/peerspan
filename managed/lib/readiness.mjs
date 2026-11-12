@@ -1,6 +1,7 @@
 // Worker readiness (contract section 3): positive evidence that the pinned
-// agent has an attached session whose live channel is verified, with a stable
-// code for why not.
+// agent has an attached session whose live channel is verified, or (section
+// 3.1) that its host's runtime would start its tasks, with a stable code for
+// why not.
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 
@@ -21,8 +22,16 @@ const REASONS = {
   sender_is_worker: 'Sender and worker are the same Peerspan host; a host cannot send tasks to itself',
   agent_missing: 'Agent is no longer registered on the worker host',
   session_not_ready: 'Waiting for an attached, ready agent session',
-  channel_unverified: 'Waiting for a verified worker channel'
+  channel_unverified: 'Waiting for a verified worker channel',
+  // Runtime agents (contract section 3.1).
+  runtime_disabled: "The worker host's runtime is switched off, so it would reject this runtime agent's tasks",
+  runtime_unavailable: "The worker host's runtime is not answering",
+  runtime_credential_missing: 'This runtime agent has no model credential on its host',
+  ready_runtime: "Runtime agent: each task runs in the worker host's runtime, on its own fork"
 };
+
+const READY_CODES = new Set(['ready', 'ready_service_inactive', 'ready_runtime']);
+const PROFILES_UNREADABLE = "The worker host's launch profiles could not be read";
 
 // Remote mode reads only the sender's directory (contract section 7.1).
 const REMOTE_REASONS = {
@@ -69,13 +78,45 @@ export function hintsFrom(attention) {
   return hints;
 }
 
-const verdict = (code, hints = [], { reason = REASONS[code], directoryAt = null } = {}) => ({
-  ready: code === 'ready' || code === 'ready_service_inactive',
+const verdict = (code, hints = [], { reason = REASONS[code], directoryAt = null, runtime = null } = {}) => ({
+  ready: READY_CODES.has(code),
   code,
   reason,
   hints,
-  directoryAt
+  directoryAt,
+  runtime
 });
+
+/** What the console may show of a launch profile: never a path (contract section 3.1). */
+function runtimeSummary(profile) {
+  const value = key => (typeof profile[key] === 'string' || Number.isInteger(profile[key]) ? profile[key] : null);
+  return {
+    fromBranch: value('from_branch'),
+    network: value('network'),
+    cpus: value('cpus'),
+    memoryMib: value('memory_mib'),
+    timeoutSeconds: value('timeout_seconds'),
+    maxRuns: value('max_runs')
+  };
+}
+
+const isRuntimeReport = report => Boolean(report) && typeof report === 'object' && !Array.isArray(report)
+  && !Object.hasOwn(report, 'error');
+
+/**
+ * A runtime agent is ready when its host would start its tasks: the runtime
+ * switch on, a runtime that answers, and a credential (contract section 3.1).
+ */
+async function checkRuntime(peerspan, hostDir, profile, serviceActive, hints) {
+  const runtime = runtimeSummary(profile);
+  const runtimeVerdict = (code, reason) => verdict(code, hints, { runtime, reason });
+  const shown = await peerspan.runtimeSwitch(hostDir);
+  if (shown?.enabled === false) return runtimeVerdict('runtime_disabled');
+  if (shown?.enabled !== true || !isRuntimeReport(shown.runtime)) return runtimeVerdict('runtime_unavailable');
+  if (profile.credential !== true) return runtimeVerdict('runtime_credential_missing');
+  return runtimeVerdict('ready_runtime',
+    REASONS.ready_runtime + (serviceActive ? '' : '; the user service is inactive'));
+}
 
 /** The adapter's own report of its live channel, or null when it cannot be read. */
 async function adapterReport(peerspan, hostDir, adapterId) {
@@ -187,6 +228,16 @@ export async function checkReadiness(connection, peerspan, { refresh = false } =
   if (sender.value.host_id === connection.hostId) return verdict('sender_is_worker', hints);
   const agent = value.agents.find(item => item?.id === connection.agentId);
   if (!agent) return verdict('agent_missing', hints);
+
+  // An agent with a launch profile runs its tasks in the host's runtime, never in a session.
+  if (connection.mode === 'agent') {
+    const profiles = await peerspan.launchProfiles(hostDir);
+    if (profiles.kind === 'invalid') return verdict('status_invalid', hints, { reason: PROFILES_UNREADABLE });
+    const profile = profiles.kind === 'ok'
+      ? profiles.value.find(item => item && typeof item === 'object' && item.agent_id === connection.agentId)
+      : undefined;
+    if (profile) return checkRuntime(peerspan, hostDir, profile, value.service.active, hints);
+  }
 
   const sessions = (Array.isArray(agent.sessions) ? agent.sessions : [])
     .filter(session => session && typeof session.id === 'string' && typeof session.adapter_id === 'string')
