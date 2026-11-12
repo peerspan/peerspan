@@ -38,6 +38,12 @@ check read the worker's status before a change and its adapter after it; that
 two-call view is inherent to file mode, did not occur with the rule, and is
 noted here as a limit.
 
+The fork's CI then failed once in `capacity.mjs` on a timing assumption of the
+suites rather than of the controller: a suite finished a run that was still
+`submitting`, before the fake had written the task's record. The suites now wait
+for that record before writing a remote result; a submission forced to take 1.2
+seconds reproduced the CI error before that change and passes after it.
+
 ### Recipes, comparison and notifications
 
 The console gained three features over the existing routes, with no API or
