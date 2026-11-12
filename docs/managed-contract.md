@@ -1105,7 +1105,9 @@ area, not by revision.
 
 16. Reviewer agents: the `reviewerId` rules at creation and in `PATCH`, including
     one agent on both sides and a switch that clears the reviewer, and
-    `reviewCriteria` limits and trimming; a succeeded run's review task
+    `reviewCriteria` limits and trimming; instructions, criteria and a verdict
+    note containing NUL refused, and a result containing NUL reviewed and
+    reworked with it left out; a succeeded run's review task
     submitted to the reviewer through its sender state with the exact input,
     with and without criteria, and with a long output cut to 65,536 bytes; a
     verdict line accepted with decoration and in lower case, and the reasons
