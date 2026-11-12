@@ -1,5 +1,63 @@
 # Managed operator validation
 
+## Console 0.7 and a revision 6 correction
+
+Validated on 2026-11-12 UTC like revision 6 below, with the same binaries.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The eight suites, cases 1 to 21 | 47/47 passed in about 4 minutes in sequence: acceptance 6/6 (62 s), operations 5/5 (13 s), visibility 6/6 (41 s), remote 4/4 (66 s), schedules 5/5 (13 s), reviewers 8/8 (15 s), runtime-agents 4/4 (10 s), capacity 9/9 (14 s); 5,420 lines with the harness and the fake. |
+| `real-peerspan-smoke.py` | 5/5 passed in 175 seconds. |
+| Console in headless Chrome 157 | Recipes, result comparison and notifications exercised by script on desktop and phone, light and dark; no horizontal overflow and no page errors. |
+
+### A dispatch on stale readiness
+
+After revision 6 was published, a regression run of the suites failed once in
+`acceptance.mjs`: `readinessAndTargetExclusion` saw a run sent to a worker whose
+pinned identity had just changed. Revision 6 dispatched with the readiness each
+connection had last recorded, and its review fix had capped a pass's wait at one
+interval (100 ms in the suites), so a check that had not ended within the wait
+left dispatch with the previous pass's verdict. Dispatch now uses only verdicts
+from checks that ended since its previous decision; a worker whose check is slow
+waits for its own next verdict, so no evidence is older than one check, as
+before revision 6. The contract and MGD-15 say so. The suite author added
+`case21_slowCheck`, which makes one worker's checks slower than a pass, makes it
+unready while a check is in flight and requests a run: it failed twice against
+the code before the fix and passed four times with it. `acceptance.mjs` then
+passed three runs in a row.
+
+### Recipes, comparison and notifications
+
+The console gained three features over the existing routes, with no API or
+contract change: a choice of six recipes when creating a workflow, each filling
+the form for the operator to adapt; a line-by-line comparison of a finished
+result with the workflow's previous one; and opt-in browser notifications of new
+items that need the operator. The comparison uses Myers' algorithm with bounds:
+in 3,000 random trials against an independent reference it reproduced both texts
+with the minimal number of edits, the worst cases within its bounds took 12 to 18
+milliseconds, two 262,144-character results compared in 54 milliseconds, and
+texts too long or too different are declined at once.
+
+The reviewer of revisions 4 to 6 reviewed the batch and confirmed four defects,
+all fixed and then checked again by that reviewer:
+
+- **Medium:** an opened comparison, like the reviewer's answer and the review
+  task's timeline, closed by itself on every live refresh. Opened sections and
+  scrolled text now keep their state across refreshes.
+- **Medium-low:** moving quickly between run pages could leave the page on
+  "Loading…", because a slower load of the page just left replaced the one
+  shown. Loads for a page no longer shown are dropped.
+- **Low:** "Notify me" disappeared, taking focus with it, when the browser's
+  permission prompt was denied. It now stays, disabled, with the reason.
+- **Low:** a truncated result had no comparison and no explanation. It now says
+  so, and a truncated earlier result is skipped for the one before it.
+
+From its other notes, more than three new items now end with an "and N more"
+notification, an item absent for less than two minutes, as during a controller
+restart, does not notify again, and the toggle keeps one label with a pressed
+state. It found no way for text to reach the page as HTML.
+
 ## Revision 6
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
