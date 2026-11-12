@@ -179,7 +179,8 @@ async function fixture(label, {connect = true, config = {}} = {}) {
   });
   f.remote = async (taskId, stateValue, output = null) => {
     const file = path.join(dir, 'remote', taskId + '.json');
-    const remote = JSON.parse(await fs.readFile(file, 'utf8'));
+    // The record exists once the fake sender has received the submission, which can follow the logged call.
+    const remote = await until('fake sender received ' + taskId, async () => JSON.parse(await fs.readFile(file, 'utf8')), 15000);
     const sequence = (remote.status?.last_event ?? 0) + 1;
     if (output === null && ['succeeded', 'failed'].includes(stateValue)) output = 'FAKE ' + stateValue + ' output';
     remote.status = {state: stateValue, last_event: sequence};

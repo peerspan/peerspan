@@ -232,9 +232,7 @@ if (rejectsJson && args.includes('--json')) {
       events: [{sequence: 1, kind: 'queued', state: config.remoteState, message: null,
         output: null, created_at: new Date().toISOString()}]};
       const created = !fs.existsSync(taskPath(id));
-      if (created) {
-        fs.writeFileSync(taskPath(id), JSON.stringify(remote), {mode: 0o600});
-      }
+      if (created) writeRecord(id, remote);   // whole, so a reader never sees half a record
       if (submitMode === 'lost-accepted') fail('FAKE response lost after remote acceptance', 2);
       else emit(publicRecord(JSON.parse(fs.readFileSync(taskPath(id), 'utf8'))));
       if (created && !rejected && script?.state) scriptedWork(id, script);

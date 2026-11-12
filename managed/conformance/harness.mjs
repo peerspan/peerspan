@@ -828,10 +828,13 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
   f.cancelSent = taskId => until(label + ': a task cancel invocation exits 0',
     async () => (await f.taskOutcomes('cancel', taskId)).find(call => call.code === 0));
 
-  // The fake sender daemon's record of a task, driven directly as the remote agent would.
+  // The fake sender daemon's record of a task, driven directly as the remote agent would. The record exists
+  // once the sender has received the submission; a run or review task can already be seen unresolved, still
+  // `submitting`, before then (§4), so the remote agent acts only on a task its sender has received.
   f.remoteFile = taskId => path.join(dir, 'remote', taskId + '.json');
   f.remoteEvent = async (taskId, kind, {message = null, output = null, at = new Date().toISOString()} = {}) => {
-    const remote = JSON.parse(await fs.readFile(f.remoteFile(taskId), 'utf8'));
+    const remote = await until(`${label}: the fake sender has received the submission of ${taskId}`,
+      async () => JSON.parse(await fs.readFile(f.remoteFile(taskId), 'utf8')), 15000);
     const sequence = remote.status.last_event + 1;
     const stateValue = ['accepted', 'progress'].includes(kind) ? 'running' : kind;
     const recorded = {sequence, kind, state: stateValue, message, output, created_at: at};

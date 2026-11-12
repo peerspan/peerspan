@@ -113,8 +113,10 @@ upstream transport compatibility require separate smoke checks.
 invocation and appends its argument array to `calls.jsonl` (with `at`, the wall
 clock, and `mono`, the system monotonic clock in milliseconds), its exit status to
 `outcomes.jsonl`, and a call that is made to hang to `hanging.jsonl`. Task records
-live in `remote/TASK_ID.json`; a suite appends events there as the remote agent
-would. `task submit` takes the input as one `--input=TEXT` argument and refuses a
+live in `remote/TASK_ID.json`, written whole once the sender has received the
+submission; a suite appends events there as the remote agent would, waiting for
+the record first, since a run or review task can be seen `submitting` before it
+exists. `task submit` takes the input as one `--input=TEXT` argument and refuses a
 separate `--input` value with exit 2, as upstream does for a value that begins
 with a hyphen. Configuration keys (all revision 2 keys are optional):
 
