@@ -210,7 +210,8 @@ agent argument against the worker host state: the host's launch profiles, as a
 JSON array. Then:
 
 - An exit 0 with a JSON array that has an entry whose `agent_id` is the pinned
-  agent makes the agent a runtime agent. The check then runs `runtime show` with
+  agent makes the agent a runtime agent, with the first such entry as its
+  launch profile. The check then runs `runtime show` with
   the global `--json` flag against the worker host state, and `code` is the first
   of these that applies: `runtime_disabled` when that command exits 0 with a JSON
   object whose `enabled` is false; `runtime_unavailable` when it exits otherwise,
@@ -223,14 +224,17 @@ JSON array. Then:
   agents), means the agent is not a runtime agent: readiness follows the session
   rows of section 3, as before.
 - Any other outcome is `status_invalid`, with a reason that says the host's
-  launch profiles could not be read.
+  launch profiles could not be read; that includes an exit 2 with `unexpected
+  argument '--json'`, which cannot happen after the same executable's `status`
+  accepted the flag.
 
 The `reason` of `ready_runtime` says that tasks run in the host's runtime; when
 the worker status's `service.active` is false, it also carries the advisory of
 section 3, and the code stays `ready_runtime`. Hints are the worker host's, as
 for any agent-mode connection.
 
-Readiness gains `runtime`, null except for a runtime agent, for which it is
+Readiness gains `runtime`, which is null except with the four codes of this
+section, for which it is
 `{fromBranch,network,cpus,memoryMib,timeoutSeconds,maxRuns}` from its launch
 profile (`from_branch`, `network`, `cpus`, `memory_mib`, `timeout_seconds` and
 `max_runs`), each value as the profile gives it when it is a string or an
