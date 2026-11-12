@@ -8696,12 +8696,14 @@ only late, nor which of the case's two retirement waits failed.
 A separate contract-only author may add ONLY failure diagnostics to
 `retired_expired_helper` in machine_owner_signing. Give it an optional phase,
 default unknown; tag the case's two existing calls `fresh-expiry` and
-`retained-history`. On the original timeout only, report alongside the existing
-`helper_summary` output: that phase; whether any mailbox state or ciphertext
+`retained-history`. On the wait's existing failure path only (its timeout, or a
+layout check it already makes), print one separate public line after the
+unchanged `helper_summary` line: that phase; whether any mailbox state or ciphertext
 category changed between the first and the last snapshot the wait already
-captured (any retirement during the wait, or none); for each mailbox still
-unretired, its seconds past expiry on the host clock, bucketed as at most 2,
-at most 5 or over 5; and whether the host process is still running, from the
+captured (any retirement during the wait, or none); the count of mailboxes
+past expiry that still fail the wait's retirement test, by seconds past expiry
+at the last poll's host clock, bucketed as at most 2, at most 5 or over 5; and
+the host process as running, exited, stopped (no handle) or unknown, from the
 harness's own process handle with no request to the daemon. No identifiers,
 times, paths or raw rows; no new request, probe, action, retry or wait; the
 assertion, the 5 s bound, every call and the verdict stay as they are, and a
