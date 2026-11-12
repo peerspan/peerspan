@@ -21,11 +21,12 @@ import os
 import re
 import shutil
 import sqlite3
+import time
 from datetime import timedelta
 
 from harness import Suite, check, peer, rfc3339, wait_for
 from runtime_common import (FakeRuntime, bind, cancel, has_kind, need, new_task_id, peer_submit, receiver_events,
-                            refused, run_id, setup_network, state)
+                            refused, run_id, run_side_by_side, setup_network, state)
 
 suite = Suite("runtime_agents", __doc__)
 bind(suite)
@@ -839,6 +840,37 @@ def _():
               f"a failed commit: {final['kind']} {final.get('output')!r}")
     finally:
         fake()
+
+
+@suite.case("result_delivery", "agents Verification (Result delivery, RUN-14); runtime Peer events; task-contract "
+                               "polling",
+            known="RUN-14: the sender still polls running tasks on the 1 s to 60 s backoff")
+def _():
+    a, b = need("a", "b")
+    need("ready")
+    ready("codex")
+    # Two tasks side by side (the fake runs two at once), not one: under the backoff schedule how late a single
+    # result is depends on where it falls between two polls, so one can come back in time by chance.
+    tasks = [send("codex", f"sleep 8 ; echo answered {n}") for n in range(2)]
+    took = {}
+
+    def watch(task_id):
+        found = events(task_id)  # held reads of the receiver's events: back as soon as it stores the final one
+        stored = time.monotonic()
+        check(found[-1]["kind"] == "succeeded", f"the receiver ended {task_id} {kinds(found)}")
+        while time.monotonic() - stored <= 10:
+            status, local = b.api("GET", f"/v1/tasks/{a.id}/{task_id}")
+            check(status == 200, f"bob's local record: {status} {local}")
+            if local["status"]["state"] == "succeeded":
+                took[task_id] = time.monotonic() - stored
+                return
+            time.sleep(0.15)
+
+    run_side_by_side(*((watch, (t,), {}) for t in tasks))
+    seen = ", ".join(f"{took[t]:.1f}s" if t in took else "not within 10s" for t in tasks)
+    print(f"  bob's local records showed succeeded after: {seen}", flush=True)
+    check(len(took) == len(tasks) and max(took.values()) <= 2,
+          f"bob's local records showed succeeded {seen} after alice's host stored it; want within 2s")
 
 
 # Persistence (agents, Persistence).
