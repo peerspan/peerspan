@@ -1,12 +1,14 @@
 # Managed operator contract
 
-Revision 2. Revision 1 defined the first local slice: the console, recurring
-dispatch, readiness, recovery and the observation bridge. Revision 2 keeps every
-revision 1 behavior and adds worker discovery, workflow editing and archiving,
+Revision 3. Revision 1 defined the first local slice: the console, recurring
+dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
+revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
-reliability statistics, live updates and an indexed store. Sections 7 to 13 are
-new; sections 1 to 6 mark their additions with "(rev 2)". Fork decisions are
-recorded in [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
+reliability statistics, live updates and an indexed store. Revision 3 keeps every
+revision 2 behavior and adds workers on other machines (section 7.1), wall-clock
+schedules (section 14) and operator review of results (section 15). Additions are
+marked "(rev 2)" or "(rev 3)" where they extend an earlier section. Fork decisions
+are recorded in [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
 
@@ -38,14 +40,27 @@ machine does: the controller keeps using the newest time it has recorded,
 across a restart too, until the system clock passes it. A larger step back is
 taken as a deliberate correction and followed.
 
-(rev 2) The store carries a schema version. Version 2 state is created directly.
-Version 1 state (section 13) is migrated in place, in one transaction, the first
-time a revision 2 command opens it; connections, observations, workflows, runs,
-task IDs, submission payloads and results are retained with their IDs. Before
-it migrates, the command saves a copy of the version 1 database as
-`managed.v1-backup.sqlite` in the state directory, with the same private
-permissions. State written by a newer schema is refused with a nonzero exit and
-is not modified.
+(rev 3) For conformance only, `MANAGED_CLOCK_FILE=PATH` names a file holding a
+whole number of milliseconds, possibly negative, that the controller adds to the
+system clock for every time it uses: recorded times, `nextRunAt`, schedules,
+deadlines and the daily cap's UTC day. The controller reads the file again at
+least every 100 milliseconds; a change takes effect at the next scheduler pass,
+which starts within one second: while the variable is set, passes start at
+least once a second whatever `MANAGED_TICK_MS` says. A missing or unreadable file, or content other
+than an optional `-` and 1 to 15 digits with optional surrounding whitespace,
+means 0. The rule above about steps back applies to the adjusted clock.
+
+(rev 2) The store carries a schema version. (rev 3) The current version is 3, and
+version 3 state is created directly. Version 1 state (section 13) and version 2
+state are migrated in place, in one transaction, the first time a revision 3
+command opens them; connections, observations, workflows, runs, task IDs,
+submission payloads, results and the activity log are retained with their IDs.
+Before it migrates, the command saves a copy of the database as
+`managed.v1-backup.sqlite` or `managed.v2-backup.sqlite` (by the version it
+found) in the state directory, with the same private permissions. Migrated
+workflows have `schedule` null and `review` `none`, and migrated runs need no
+review. State written by a newer schema is refused with a nonzero exit and is not
+modified.
 
 ## 2. HTTP contract
 
@@ -74,7 +89,10 @@ current state does not permit the operation, and 413 for an oversized body.
   maxRunsPerDay,acceptanceMinutes,enabled}`; name 1–100 chars, instructions 1–12000
   chars, interval 1–10080 minutes, cap integer 1–1000, acceptance 1–1440 minutes,
   enabled boolean. Returns 201 with the created workflow object. Paused by
-  default if enabled omitted. Unknown connection is 400.
+  default if enabled omitted. Unknown connection is 400. (rev 3) The body may
+  also have `schedule` (section 14) and `review` (section 15). Exactly one of
+  `intervalMinutes` and a non-null `schedule` is required: both, or neither, is
+  400. At creation, `schedule` null beside `intervalMinutes` means no schedule.
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
@@ -82,7 +100,7 @@ current state does not permit the operation, and 413 for an oversized body.
 - (rev 2) `PATCH /api/workflows/:id`, `POST /api/workflows/:id/archive` and
   `restore`: section 9.
 - (rev 2) `GET /api/runs`, `GET /api/runs/:id`, `POST /api/runs/:id/cancel` and
-  `abandon`: section 10.
+  `abandon`: section 10. (rev 3) `POST /api/runs/:id/review`: section 15.
 - (rev 2) `GET /api/activity`: section 11. `GET /api/events`: section 12.
 - `POST /api/logout`: removes the console session cookie.
 
@@ -110,6 +128,10 @@ the upstream CLI status contract and applies equally to private test hosts.
 sentence for the operator; `code` is stable and is the first row below that
 applies. `since` is when `ready` last changed (the first check after a start
 counts as a change only when the value differs from the one last recorded).
+(rev 3) Readiness also has `directoryAt`, which is null except for remote
+connections. The table and the rules below apply to file and agent mode; a
+remote connection, whose worker host is on another machine, is checked as
+section 7.1 says instead.
 
 | `code` | `ready` | Applies when |
 | --- | --- | --- |
@@ -141,9 +163,9 @@ connection` is invoked only for candidates whose status `connection` is
 the first that is verified.
 
 Until a connection's first check after a start has finished, its readiness is
-`{ready:false,code:"checking",checkedAt:null,hints:[]}` with the `since` last
-recorded (null for a new connection); `checking` raises no attention item and
-records no activity.
+`{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null}` with the
+`since` last recorded (null for a new connection); `checking` raises no attention
+item and records no activity.
 
 `hints` lists at most ten upstream attention items of the worker host's status,
 in the order status reports them, as `{kind,command}`. `kind` is the upstream
@@ -208,6 +230,12 @@ run that ends `cancelled` after the operator requested its cancellation, and an
 `abandoned` run (section 10). Both still schedule the next run after the
 interval, at least one minute later.
 
+(rev 3) A workflow with a `schedule` takes its next run time from its schedule
+instead of an interval, as section 14 says; every other rule of this section,
+the caps and the failure circuit included, applies to it unchanged. An operator's
+review verdict (section 15) never changes the failure count, `nextRunAt` or
+dispatch.
+
 ## 5. Observation bridge
 
 `observe --state DIR --name NAME --directory DIR` registers a private external
@@ -234,6 +262,21 @@ agent_/adapter_/session_ plus 32 hex conventions.
 status that cannot reach its daemon exits 2 and prints `{"daemon":"not running",
 "state":PATH,"service":{...}}`. An executable older than the global flag exits 2
 with `error: unexpected argument '--json' found` on stderr and nothing on stdout.
+
+(rev 3) `agents [--network ID] [--refresh]` with the global `--json` prints the
+sender host's directory, as in the upstream [launch contract](launch-contract.md):
+`{network_id,refreshed_at,reachable,mine,inbound,hosts}`. `reachable` entries are
+`{address,host_id,agent_id,connected,host_state,actions,endpoint,description}`,
+`mine` entries are `{address,host_id,agent_id,connected,endpoint,description}`,
+and `hosts` entries are `{host_id,person_id,person_label,state,refreshed_at,
+error}`, where `state` is `ok`, `error`, `unsupported` or `pending` and
+`refreshed_at` is null or RFC 3339. `connected` is true only when the agent has an
+attached session whose adapter holds a valid lease and whose channel is verified.
+`actions` lists action names such as `message.append` and `task.submit`. A
+directory keeps a host's previous agents when a refresh of that host fails, so
+`connected` can be stale while that host's `state` is `error`. A host in no
+network, or in several when `--network` is omitted, exits 1 with an `error:` line
+on stderr. Other upstream fields may be present.
 
 Submission and inspection return `{peer_host_id,request:{task_id,target_agent_id,
 input,deadline},submit_state:"accepted",status:{state:"running",last_event:2},
@@ -270,9 +313,11 @@ print JSON with the newly registered id; token prints only the token plus newlin
 
 ## 7. Workers and local commands (rev 2)
 
-A connection names one worker agent on a Peerspan host whose state directory is
-on this machine, and the sender host state used to submit to it. Host and agent
-are pinned when connecting; changing either requires a new connection.
+A connection names one worker agent and the sender host state used to submit to
+it. In file and agent mode the worker's Peerspan host has its state directory on
+this machine; (rev 3) in remote mode (section 7.1) it is on another machine and
+only the sender's state is read. Host and agent are pinned when connecting;
+changing either requires a new connection.
 
 `connect --name NAME --worker-state FILE [--sender-state DIR]` is file mode, as
 in revision 1. The worker state JSON contains host_dir, host_id, agent_id,
@@ -296,7 +341,8 @@ worker must be two hosts. A sender whose status cannot be read is accepted, and
 readiness reports it as `sender_unavailable` until it answers.
 
 Both forms print `{id,name,hostId,agentId,mode}` with `mode` `file` or `agent`.
-NAME is 1 to 100 characters after trimming.
+NAME is 1 to 100 characters after trimming. (rev 3) Exactly one of
+`--worker-state`, `--agent` and `--remote` (section 7.1) is required.
 
 `disconnect --id ID` removes a connection. It is refused, with a nonzero exit and
 nothing changed, while a workflow that is not archived uses the connection or one
@@ -320,6 +366,75 @@ start.
 Every local command prints errors on stderr as one line, with exit 1; a second
 writer refused by the process lock exits 73.
 
+### 7.1 Workers on other machines (rev 3)
+
+`connect --name NAME --remote AGENT [--network ID] [--sender-state DIR]` is
+remote mode (MGD-7). It registers a worker agent whose host is on another
+machine, using only what the sender host knows: its directory of reachable
+agents. Nothing of the worker host is read. `--host-state` is not valid with
+`--remote`, and `--network` is valid only with it.
+
+Upstream `agents` lists only agents whose names are addressable (lowercase ASCII
+letters, digits, `.`, `_` and `-`, as `attach` creates them), so only such an
+agent can be registered or checked in remote mode.
+
+Registration reads the sender's `status` and runs `agents --refresh`, with
+`--network ID` when given, both against the sender state. The status must exit 0
+or 1 with valid status JSON (section 3), and `agents` must exit 0 with the
+directory JSON of section 6; otherwise the command fails and registers nothing.
+AGENT matches each `reachable` and `mine` entry whose `address` or `agent_id`
+equals it exactly; entries with the same `host_id` and `agent_id` are one match.
+A directory without the arrays of section 6 is refused. No match is an error that tells the operator to run
+`peerspan agents` and pass an address or agent ID it lists; more than one match
+is an error that asks for the agent ID; a match on the sender's own host (its
+`host_id` is the sender status `host_id`) is refused, as in agent mode, because
+sender and worker must be two hosts. The registration pins the entry's
+`host_id` and `agent_id` and the directory's `network_id`, and prints
+`{id,name,hostId,agentId,mode}` with `mode` `remote`.
+
+A check of a remote connection reads the sender's `status` and runs `agents
+--network NETWORK_ID` with the pinned network, both against the sender state and
+together. The connection's first check after a start passes `--refresh` to
+`agents`, and so does any check that begins at least 60 seconds after the start
+of that connection's previous check that passed it; no other check passes it.
+A connection registered while the controller serves gets its first check, which
+passes `--refresh`, at the next scheduler tick. The 60 seconds have passed when
+either the elapsed time or the controller's clock of section 1 has advanced by
+60 seconds, so that a step back of the clock never suspends refreshes.
+`code` is the first row that applies:
+
+| `code` | `ready` | Applies when |
+| --- | --- | --- |
+| `peerspan_unavailable` | false | The Peerspan executable cannot be started. |
+| `peerspan_incompatible` | false | Either invocation exits 2 with `unexpected argument '--json'` on stderr. |
+| `sender_unavailable` | false | The sender's status cannot be read, as in section 3. |
+| `sender_is_worker` | false | The sender status `host_id` is the pinned worker host. |
+| `directory_unavailable` | false | `agents` exits other than 0, or its output is not JSON whose `network_id` is the pinned network and whose `reachable`, `mine` and `hosts` are arrays. |
+| `agent_missing` | false | No `reachable` or `mine` entry has the pinned `host_id` and `agent_id`. |
+| `host_unreachable` | false | `hosts` has no entry for the pinned host, or that entry's `state` is not `ok`: the sender could not reach the worker host when it last tried. |
+| `not_authorized` | false | The matching entry is in `reachable` and its `actions` does not contain `task.submit`. A `mine` entry is another host of the sender's own person, which reaches every agent. |
+| `session_not_ready` | false | The matching entry's `connected` is not true. |
+| `ready` | true | All of the above hold. |
+
+When a `reachable` and a `mine` entry both match, the `reachable` entry is used.
+`directoryAt` is the `refreshed_at` of the pinned host's `hosts` entry in the
+directory of the pinned network that the check read, whatever the `code`,
+written as an RFC 3339 UTC time; it is null when there is no such entry or no
+such directory, or when that value is not an RFC 3339 time.
+`reason` for `session_not_ready` and `ready` says that the evidence is the
+sender's directory as of that time. `hints` are the sender host's attention
+items, by the rules of section 3, because the worker host's status is not
+available on this machine; they are empty when the sender's status could not be
+read.
+
+Remote readiness is weaker evidence than file or agent mode: a directory entry
+is the sender's latest view, which upstream refreshes when the worker host
+announces a presence change, every 5 minutes, and on demand. A task sent to an
+agent whose session has just gone waits at the worker host until it is accepted
+or its acceptance deadline passes. Dispatch, recovery, cancellation, `abandon` and
+`disconnect` work for remote connections exactly as for the other modes, with the
+same `task` commands against the sender state.
+
 ## 8. Snapshot (rev 2)
 
 `GET /api/snapshot` returns the following. No response of any route contains a
@@ -327,25 +442,36 @@ filesystem path, the access token, a session cookie value, a state directory
 location, or upstream attention `detail` or `subject` text.
 
 - `connections`: `{id,name,hostId,agentId,mode,readiness}` for each connection
-  that is not removed, oldest first.
+  that is not removed, oldest first. (rev 3) `mode` is `file`, `agent` or
+  `remote`.
 - `workflows`: every workflow that is not archived, oldest first, as
   `{id,name,connectionId,instructions,intervalMinutes,maxRunsPerDay,
   acceptanceMinutes,enabled,nextRunAt,failureStreak,blockedReason,createdAt,
-  updatedAt,pausedBy,recent,stats}`. `pausedBy` is null while enabled, and
-  otherwise `operator` (created paused, paused, or restored) or `failures` (the
-  failure circuit). `recent` is the workflow's latest 20 runs, newest first, as
-  `{id,state,createdAt,finishedAt}`.
+  updatedAt,pausedBy,recent,stats}`, (rev 3) with `schedule` and `review`
+  (sections 14 and 15). `intervalMinutes` is null for a workflow with a schedule,
+  and `schedule` is null for one with an interval. `pausedBy` is null while
+  enabled, and otherwise `operator` (created paused, paused, or restored) or
+  `failures` (the failure circuit). `recent` is the workflow's latest 20 runs,
+  newest first, as `{id,state,createdAt,finishedAt}`, (rev 3) with the run's
+  `review`.
 - `stats` covers the trailing 7 days (168 hours): `{windowDays:7,runs,succeeded,
-  failed,successRate,averageSeconds,interventions,unattendedRuns}`. `runs` counts
+  failed,successRate,averageSeconds,interventions,unattendedRuns}`, (rev 3) with
+  `awaitingReview`. `runs` counts
   runs created in the window. `succeeded` and `failed` count runs that finished
   in the window, `failed` being every terminal state other than `succeeded`,
-  except the two operator results of section 4. `successRate` is
+  except the two operator results of section 4. (rev 3) A `succeeded` run whose
+  `review` is `pending` is in neither count, and one whose `review` is
+  `rejected` counts as `failed`. `successRate` is
   succeeded/(succeeded+failed), or null when that sum is 0. `averageSeconds` is
-  the mean of finishedAt minus createdAt over the window's succeeded runs, in
+  the mean of finishedAt minus createdAt over the window's runs that count as
+  succeeded, in
   whole seconds, or null. `interventions` counts the window's operator activity
-  entries for the workflow other than `workflow.created`. `unattendedRuns` counts
+  entries for the workflow other than `workflow.created` (rev 3) and
+  `run.reviewed`, because reviewing a result is the expected work of a reviewed
+  workflow, not a correction. `unattendedRuns` counts
   the workflow's terminal runs, of all time, that finished after its latest such
-  intervention (after its creation when there is none).
+  intervention (after its creation when there is none). (rev 3) `awaitingReview`
+  counts the workflow's runs, of all time, whose `review` is `pending`.
 - `runs`: the newest 100 runs of all workflows, archived ones included, newest
   first, as `{id,workflowId,workflowName,taskId,state,output,outputTruncated,
   error,reason,progress,cancelRequestedAt,createdAt,updatedAt,startedAt,
@@ -361,7 +487,8 @@ location, or upstream attention `detail` or `subject` text.
   that event is retained, kept between the run's `createdAt` and the time the
   controller observed it, because that event carries another host's clock.
   `finishedAt` is null until the run is terminal, and is then the time the
-  controller retained the terminal result.
+  controller retained the terminal result. (rev 3) Runs also have `review`,
+  `reviewedAt` and `reviewNote` (section 15).
 - `observed`: section 6.
 - `attention`: what needs the operator, as `{kind,severity,subject:{type,id,name},
   message,since}`; `severity` is `action`, `warning` or `info`, and entries are
@@ -378,6 +505,7 @@ location, or upstream attention `detail` or `subject` text.
   | `observed_unavailable` | `warning` | `observation` | An observed entry has `available` false. |
   | `observed_problem` | `warning` | `observation` | An available observed entry has a non-null `error`. |
   | `daily_limit_reached` | `info` | `workflow` | An enabled workflow is blocked only by its daily cap. |
+  | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending`. One item per workflow; `message` gives the number of such runs and `since` is the earliest of their `finishedAt`. |
 
 - `activity`: the newest 30 activity entries (section 11), newest first.
 - `archived`: `{id,name,archivedAt}` for each archived workflow, newest first.
@@ -391,12 +519,24 @@ location, or upstream attention `detail` or `subject` text.
 
 `PATCH /api/workflows/:id` accepts a JSON object with at least one of `name`,
 `connectionId`, `instructions`, `intervalMinutes`, `maxRunsPerDay` and
-`acceptanceMinutes`, validated as at creation; any other field, `enabled`
+`acceptanceMinutes`, (rev 3) `schedule` and `review`, validated as at creation;
+any other field, `enabled`
 included, is 400. It returns the workflow. An edit never changes a run that was
 already reserved: its submission payload is immutable. When `intervalMinutes`
 changes and the workflow has a terminal run, `nextRunAt` becomes its latest
 terminal run's `finishedAt` plus the new interval; otherwise `nextRunAt` is
 unchanged.
+
+(rev 3) A body with both `intervalMinutes` and `schedule`, or with `schedule`
+null, is 400. Setting `intervalMinutes` on a workflow that has a schedule
+switches it to that interval (its `schedule` becomes null) by the rule above;
+setting `schedule` switches it to the schedule (its `intervalMinutes` becomes
+null) by the rule of section 14. Such a switch changes both values, so its
+`workflow.edited` entry lists both `intervalMinutes` and `schedule`. A
+`schedule` is compared after normalization (section 14), so one that lists the
+same days in another order equals the current one. Changing `review` applies to
+runs reserved afterwards; a run keeps the review requirement it was reserved
+with.
 
 `pause` and `resume` do not change `nextRunAt`: a resumed workflow runs when its
 schedule says so, or when the operator also sends `run`. Every accepted `pause`,
@@ -472,6 +612,7 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `operator` | `workflow.created`, `workflow.paused`, `workflow.resumed`, `workflow.run_requested`, `workflow.archived`, `workflow.restored` | null |
 | `operator` | `workflow.edited` | `{fields}`: the names of the fields whose values changed, sorted. An edit that changes no value records nothing. |
 | `operator` | `run.cancel_requested`, `run.abandoned` | null. A repeated cancel request records nothing. |
+| `operator` | `run.reviewed` | (rev 3) `{verdict}`: `accepted` or `rejected`. |
 | `operator` | `connection.added`, `connection.removed`, `observation.added`, `observation.removed` | null |
 | `system` | `run.dispatched` | null |
 | `system` | `run.finished` | `{state}` |
@@ -523,7 +664,73 @@ restart. A disabled migrated workflow whose `failureStreak` is 3 or more has
 `pausedBy` `failures`; any other disabled one has `operator`. Migration records
 no activity entries for the past.
 
-## 14. Independent conformance cases
+## 14. Schedules (rev 3)
+
+A workflow runs either every `intervalMinutes` (section 4) or on a `schedule`
+(MGD-8), which is `{timeZone,days,times}`:
+
+- `timeZone` is a time zone name the runtime knows, of 1 to 64 characters,
+  starting with a letter, such as `UTC`, `Europe/London` or `America/New_York`;
+  another value, a bare offset such as `+05:30` included, is 400. A canonical
+  name is returned unchanged.
+- `days` is an array of 1 to 7 distinct names from `mon`, `tue`, `wed`, `thu`,
+  `fri`, `sat` and `sun`, returned in that order.
+- `times` is an array of 1 to 24 distinct local times written `HH:MM` with two
+  digits each, from `00:00` to `23:59`, returned in ascending order.
+- A missing field, or any other field, is 400.
+
+A schedule's slots are the instants at which the local time in `timeZone` is one
+of `times` on a date whose weekday in that zone is one of `days`. A local time
+that a date skips, because the clocks move forward past it, takes place later by
+the length of the change: in a zone that moves from 02:00 to 03:00, 02:30 takes
+place at 03:30. A local time that occurs twice, because the clocks move back,
+takes place at its first occurrence. Two times that fall on one instant make one
+slot.
+
+A scheduled workflow's `nextRunAt` is:
+
+- at creation, and when a `PATCH` changes `schedule` (switching an interval
+  workflow to a schedule included): the first slot after the time of the
+  request. A `PATCH` whose `schedule` equals the current one changes nothing,
+  as section 11 says of edits that change no value;
+- when one of its runs becomes terminal, `abandoned` included: the first slot at
+  least one minute after that run's `finishedAt`;
+- after `run`: now, as for an interval workflow (section 9).
+
+Nothing else changes it: not `pause`, `resume` or `restore`, not another field's
+edit, and not a review verdict. Slots that pass while the workflow has an
+unresolved run, is paused, is blocked by readiness or its daily cap, or while the
+controller is stopped, are not made up one by one. A workflow whose `nextRunAt`
+has passed is due; it runs once when it can be dispatched, and its next slot
+follows that run's finish. The daily cap still counts the UTC day (section 4).
+Clients compare times as instants, not as strings.
+
+## 15. Reviewing results (rev 3)
+
+A workflow's `review` is `none`, the default, or `operator`. With `operator`, each
+of its runs that ends `succeeded` waits for the operator's verdict before it
+counts as a success (MGD-9). A run keeps the review requirement that its workflow
+had when the run was reserved.
+
+A run's `review` is null while it is unresolved, when it ends in any state other
+than `succeeded`, and when it needs no review. A run that needs review and ends
+`succeeded` has `review` `pending` until the operator's verdict, and then
+`accepted` or `rejected`. `reviewedAt` is null or the time of the verdict, and
+`reviewNote` is null or the verdict's note.
+
+`POST /api/runs/:id/review` accepts `{verdict}` or `{verdict,note}`. `verdict` is
+`accepted` or `rejected`; `note` is a string of at most 2,000 characters as sent,
+stored trimmed, and an empty trimmed note is stored as null. Any other field or value is
+400. An unknown run is 404, and a run whose `review` is not `pending` is 409: a
+verdict is final. The response is the run. Each verdict records `run.reviewed`
+(section 11).
+
+A verdict changes only the run's review fields and what sections 8 and 11 derive
+from them. It never changes the run's `state`, the failure count, `nextRunAt` or
+dispatch: a pending review does not hold back the workflow's next run, and a
+rejected result is not sent back to the agent.
+
+## 16. Independent conformance cases
 
 A separate author reads this contract only and implements bounded black-box
 suites under `managed/conformance/` using an explicitly named fake Peerspan binary
@@ -580,6 +787,38 @@ area, not by revision.
     within 5 seconds with a hanging call, version 1 state migrated with a
     retained unresolved run reconciled under its task ID, and a newer schema
     refused unmodified.
+
+`remote.mjs` (revision 3 workers):
+
+13. Remote workers: registration by address and by agent ID, from `reachable`
+    and from `mine`, with `--network` passed through; the no-match,
+    several-match, sender's own host, unreadable sender status and failing
+    directory refusals; the pinned network in every check; `--refresh` on the
+    first check after a start and not again within 60 seconds; every remote
+    readiness `code` a fake can produce, `directoryAt`, sender hints and no
+    `detail` text; a dispatched run's submission, inspection and completion
+    through the sender state with no argument naming a worker host's state;
+    and a restart reconciling a remote run under its task ID.
+
+`schedules.mjs` (revision 3 scheduling and review):
+
+14. Schedules, with `MANAGED_CLOCK_FILE`: validation and normalization of
+    `schedule`, the exactly-one rule at creation and in `PATCH`, `nextRunAt` at
+    creation in at least three time zones, a skipped and a repeated local time
+    across a daylight-saving change, dispatch at a slot, the next slot after a
+    completion at least one minute later, missed slots run once, switching
+    between interval and schedule by `PATCH`, and the daily cap on the UTC day.
+15. Review: a reviewed workflow's succeeded run `pending` and its failed run
+    null, the verdict route's 400, 404 and 409 rules, the stored note,
+    `run.reviewed` activity, the statistics (`awaitingReview`, a rejected run
+    counted as failed, a pending one in neither count, `interventions`
+    unchanged by verdicts), the `review_pending` item, dispatch not held back
+    by a pending review, and a run reserved before a `PATCH` of `review`
+    keeping its requirement.
+
+Version 2 state is not described by this contract, so its migration to version 3
+is checked by the implementer against a copy of real version 2 state and
+recorded with the validation results, not by these suites.
 
 Real Peerspan compatibility is a separate local smoke check. Do not claim a fake
 adapter test validates model execution or the upstream transport.

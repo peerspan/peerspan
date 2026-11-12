@@ -106,3 +106,69 @@ stays [managed-contract.md](managed-contract.md).
   senders must not hold one agent either, and (a) would still allow it. Without
   the sender there is no path to canonicalize.
 - **Contract.** Section 4.
+
+## MGD-7. Workers on other machines (2026-11-12)
+
+- **Question.** Revisions 1 and 2 read the worker host's own `status` and
+  `adapter connection`, so the worker host's state directory had to be on the
+  operator's machine. How can the operator use an agent on another machine?
+- **Options.**
+  - (a) Copy or mount the worker host's state, or run a helper on the worker
+    machine that reports to the operator.
+  - (b) Use what the sender host already knows: its directory of reachable
+    agents, with `connected`, the host's last refresh state and the actions the
+    worker's owner granted.
+  - (c) Dispatch without readiness and let the acceptance deadline catch
+    unreachable workers.
+- **Chosen.** (b), with the directory refreshed on the connection's first check
+  and at most once a minute after that.
+- **Reason.** The directory is the upstream answer to "which agents can I reach";
+  its `connected` is true only for a leased adapter with a verified channel, the
+  same evidence that file and agent mode require, seen from the other side. It
+  needs no access to another person's machine, which (a) does, and it keeps the
+  rule that unready workers get no new work, which (c) drops. It is a view as of
+  the sender's last refresh, not a live read, so the console shows its time and
+  the contract says what happens when it is stale: the task waits at the worker
+  host until it is accepted or its acceptance deadline passes. Refreshing on
+  every ten-second check would query every member of the network that often.
+- **Contract.** Sections 3 and 7.1.
+
+## MGD-8. Wall-clock schedules (2026-11-12)
+
+- **Question.** Interval workflows drift: a daily run that finished at 09:40
+  runs next at 09:40 the next day. How does an operator say "weekdays at 09:00"?
+- **Options.**
+  - (a) Cron expressions.
+  - (b) A small structure: a time zone, weekdays and local times.
+  - (c) Run every missed slot after a pause or an outage.
+- **Chosen.** (b), with missed slots run once, not one by one.
+- **Reason.** Weekdays and times cover the recurring work this preview serves
+  and validate to clear messages; cron's month and step fields add syntax
+  without a use yet, and a later revision can add them. One run per workflow at
+  a time already means a slot can pass during a run; running the backlog after
+  an outage would send an agent the same assignment several times in a row for
+  no new information. Daylight-saving gaps and repeats follow the common
+  calendar rule (later by the gap, the first of two), so a slot is never lost
+  or doubled. The daily cap stays on the UTC day so that a cap means the same in
+  every schedule.
+- **Contract.** Section 14.
+
+## MGD-9. Operator review of results (2026-11-12)
+
+- **Question.** A succeeded run is the agent's own report. How does an operator
+  say whether results were actually good, and what does a rejection do?
+- **Options.**
+  - (a) A per-workflow review setting: succeeded runs wait for a verdict, and
+    only accepted ones count as successes.
+  - (b) As (a), and hold the next run until the previous result is reviewed.
+  - (c) As (a), and send a rejected result back to the agent.
+- **Chosen.** (a).
+- **Reason.** The reliability figures should not count unchecked reports as
+  successes when the operator has asked to check them. Holding the schedule (b)
+  would turn every unanswered review into a stopped workflow, which is the
+  operator's choice to make with `pause`, not a side effect. Sending results
+  back (c) is a new assignment with its own instructions and belongs with
+  reviewer agents, which a later revision can add. Verdicts are final so that
+  the figures do not change under a reader, and they are not counted as
+  interventions, because reviewing is the work a reviewed workflow asks for.
+- **Contract.** Sections 8 and 15.
