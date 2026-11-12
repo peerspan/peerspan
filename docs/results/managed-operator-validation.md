@@ -1,5 +1,62 @@
 # Managed operator validation
 
+## Revision 7
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
+against host binaries rebuilt from this branch after merging upstream `main`
+through `048b9506`, which adds Claude Code as a second runtime harness and an
+image per launch profile. The store is still version 4.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The eight suites, cases 1 to 21 | 47/47 passed in about 4 minutes in sequence: acceptance 6/6 (65 s), operations 5/5 (15 s), visibility 6/6 (41 s), remote 4/4 (65 s), schedules 5/5 (9 s), reviewers 8/8 (12 s), runtime-agents 4/4 (10 s), capacity 9/9 (17 s); 5,482 lines with the harness and the fake. |
+| `real-peerspan-smoke.py` against the rebuilt binaries | 5/5 passed in 138 seconds; the runtime case now also runs Claude Code on an image. |
+
+A runtime agent's readiness summary now carries its `harness` (`codex` or
+`claude`) and `image`, and the Workers page names the agent program and its
+image. The real-transport runtime case switches its agent's launch profile to
+the `claude` harness on `python:3.12-slim`, checks that readiness reports both,
+and runs a task on a fork with it, through upstream's fake runtime.
+
+### Equal times on a held clock
+
+While running the suites under heavy load, the suite author saw
+`case21_slowCheck` send one run on readiness from a check that began before the
+run was requested, which the rule above forbids. That run coincided with a
+2.45-second step back of the system clock. During a step back the controller
+keeps its newest time, so the check's start and the operator's request could
+record the same time, and the comparison let the tie through. A first fix made
+the clock strictly increasing; the independent reviewer showed that it then ran
+ahead of the wall clock under bursts of calls (11 seconds after 10,000 calls in a
+row, and back by 10 minutes after enough of them), so it was replaced: the clock
+keeps its newest time as before, and a check whose recorded start equals a due
+time no longer counts as having begun after it, so a held clock only delays
+dispatch until it moves on. The reviewer also found that work due before a
+deliberate correction of the clock (a step back of more than ten minutes) waited
+silently until the corrected clock reached its old due time; such a time now
+counts as the moment of the correction, which the clock records. The contract
+says both, in sections 1 and 4. The case was also made harder, with a round in which the change comes
+just after the in-flight check reported ready, and the fake now logs when each
+delayed call wakes, so a failure says which side of the change the check read.
+
+### Independent review of revision 7
+
+The reviewer of the earlier revisions read the due-time rule, the clock changes
+and revision 7, and probed them with real controllers and the clock file. Besides
+the two findings above, it confirmed one more, fixed before publishing: a check
+that began before a deliberate correction carries a start time from the old,
+later clock, so it could pass as newer than work requested after the correction
+(3 of 3 runs of its probe sent a run that way). A verdict recorded later than the
+current time now reserves nothing until a check begun after the correction has
+ended. It also confirmed that every way a workflow becomes due still dispatches
+within a pass or two (creation, an elapsed interval, a schedule slot, `run`,
+`resume` and `restore`), that slow checks and repeated edits never starve a run
+or a review, that a check held at the same recorded time as a run request sends
+nothing, and that the clock stays within milliseconds of the wall clock under
+2,000 concurrent requests. While a step back holds the clock, newly requested
+work waits until it moves on, up to the length of the step back.
+
 ## Console 0.7 and a revision 6 correction
 
 Validated on 2026-11-12 UTC like revision 6 below, with the same binaries.
