@@ -57,7 +57,7 @@ const CLAUDE_SCRIPT: &str = r#"if [ ! -e /lib64/ld-linux-x86-64.so.2 ]; then
   echo 'the image has no glibc, which Claude Code needs'
   exit 127
 fi
-export HOME=/root IS_SANDBOX=1
+export HOME=/root IS_SANDBOX=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ANTHROPIC_API_KEY=$(cat /run/secrets/anthropic_api_key) || exit 1
 export ANTHROPIC_API_KEY
 cd /workspace || exit 1

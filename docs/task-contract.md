@@ -127,9 +127,10 @@ Each subject is the other host ID and the task ID.
 - an agent-initiated `delegate_task` through a route, with `task_update` events back to the originating session;
 - migration from version 8 to version 9.
 
-The slim `work` suite now holds these cases. For RUN-14 it adds: an accepted task that its agent
-completes 8 seconds after accepting it reaches the submitter's local record within 2 seconds of
-completion, where the backoff schedule alone would leave it about 7 seconds late. The 3-poll limit
+The slim `work` suite now holds these cases. For RUN-14 it adds: three accepted tasks that their agent
+each completes 8 seconds after the submitter shows it `running` reach the submitter's local record
+within 2 seconds of completion. On the backoff schedule alone they often arrive several seconds
+late; more than one task keeps a lucky poll from passing the case. The 3-poll limit
 and the fallback for a receiver that ignores `wait` are not suite cases.
 
 [Task artifacts](artifact-contract.md) extend tasks with input and result files (milestone 6 slice 3).

@@ -142,8 +142,7 @@ TRIALS = 3  # running together: at most 3 held polls run at once (task-contract 
 
 
 @suite.case("result_reaches_submitter_promptly", "task-contract polling: a running task polled with wait=10 "
-                                                 "and again at once (RUN-14); Verification",
-            known="RUN-14: the sender still polls running tasks on the 1 s to 60 s backoff")
+                                                 "and again at once (RUN-14); Verification")
 def _():
     (bert,) = need("bert")
     # Three tasks at once, not one: under the backoff schedule how late a single result is depends on where the

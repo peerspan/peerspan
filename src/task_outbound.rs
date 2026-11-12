@@ -42,6 +42,12 @@ const DEFAULT_DEADLINE: TimeDelta = TimeDelta::hours(1);
 /// Event polls back off from 1 second to 60 seconds.
 const POLL_FIRST: Duration = Duration::from_secs(1);
 const POLL_MAX: Duration = Duration::from_secs(60);
+/// At most this many held polls of running tasks at once, so one of the
+/// 4 slots stays free for other work (task contract, polling; RUN-14).
+const HELD_POLLS: usize = 3;
+/// A held response with no events sooner than this came from a receiver
+/// that ignores `wait`: the task's next poll follows the backoff schedule.
+const HELD_EARLY: Duration = Duration::from_secs(5);
 /// Events fetched per request while catching up.
 const EVENT_PAGE: i64 = 1000;
 /// A runtime task's events per request: 32 full output chunks (16,384
@@ -1569,7 +1575,17 @@ impl Store {
     }
     /// Tasks whose events are still to be polled, or whose cancellation
     /// request is still to be sent.
+    #[cfg(test)]
     fn pollable_tasks(&self) -> Result<Vec<(String, String)>, Error> {
+        Ok(self
+            .pollable_states()?
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect())
+    }
+
+    /// Pollable tasks, each with whether its newest status is `running`.
+    fn pollable_states(&self) -> Result<Vec<(TaskKey, bool)>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT record FROM outbound_tasks WHERE json_extract(record, '$.submit_state') = 'accepted' ORDER BY rowid",
@@ -1578,7 +1594,8 @@ impl Store {
         for record in statement.query_map([], |r| r.get::<_, String>(0))? {
             let out: OutboundTask = serde_json::from_str(&record?)?;
             if out.pollable() || out.cancel_state.as_deref() == Some("unknown") {
-                result.push((out.peer_host_id, out.request.task_id));
+                let running = out.status.as_ref().is_some_and(|s| s.state == "running");
+                result.push(((out.peer_host_id, out.request.task_id), running));
             }
         }
         Ok(result)
@@ -1931,9 +1948,15 @@ async fn send_cancel(store: &Arc<Store>, out: OutboundTask) -> Result<OutboundTa
 
 /// One poll: resends a pending cancellation, then fetches the status and any
 /// events after the stored cursor. Returns whether anything new was stored.
-/// Polls one task's events. Returns whether it progressed, and whether it
-/// is a running runtime task, which is polled again at once.
-async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bool, bool)> {
+/// Polls one task's events, held with `wait` when it is running and `hold`
+/// allows. Returns whether it progressed, and whether it was held: a held
+/// task is polled again at once.
+async fn poll(
+    store: Arc<Store>,
+    peer: String,
+    id: String,
+    hold: bool,
+) -> anyhow::Result<(bool, bool)> {
     let (p, i) = (peer.clone(), id.clone());
     let mut out = blocking(store.clone(), move |s| s.outbound_task(&p, &i)).await?;
     if out.submit_state != "accepted" {
@@ -1948,9 +1971,9 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bo
     let status = fetch_status(&store, &out).await?;
     let mut after = out.events_after;
     let mut progressed = false;
-    // A running runtime task's events are waited for (runtime task
-    // contract, Peer events).
-    let held = out.request.is_runtime() && status.state == "running";
+    // A running task's events are waited for (task contract, polling;
+    // RUN-14).
+    let mut held = hold && status.state == "running";
     let page_size = if out.request.is_runtime() {
         RUNTIME_EVENT_PAGE
     } else {
@@ -1961,12 +1984,18 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bo
         if status.last_event > after || held {
             let mut path = format!("/peer/v1/tasks/{id}/events?after={after}&limit={page_size}");
             let mut bound = REQUEST_BOUND;
-            if held && status.last_event <= after {
+            let waited = held && status.last_event <= after;
+            if waited {
                 path.push_str(&format!("&wait={EVENT_WAIT_MAX}"));
                 bound += Duration::from_secs(EVENT_WAIT_MAX);
             }
+            let asked = Instant::now();
             let (code, body) =
                 peer_request_within(&store, &peer, "GET", path, Vec::new(), bound).await?;
+            if waited && body_is_empty_list(&body) && asked.elapsed() < HELD_EARLY {
+                // The receiver did not hold the request: back off instead.
+                held = false;
+            }
             if code != 200 {
                 anyhow::bail!("peer returned HTTP {code}");
             }
@@ -1992,8 +2021,14 @@ async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<(bo
     Ok((progressed, held))
 }
 
+fn body_is_empty_list(body: &[u8]) -> bool {
+    serde_json::from_slice::<Vec<serde_json::Value>>(body).is_ok_and(|v| v.is_empty())
+}
+
+/// A task's peer host and ID.
+type TaskKey = (String, String);
 /// Per task: when its next poll is due, and the current backoff interval.
-type PollPlan = HashMap<(String, String), (Instant, Duration)>;
+type PollPlan = HashMap<TaskKey, (Instant, Duration)>;
 /// Runs task submission retries, event polls, and cancellation resends,
 /// at most 4 at once, until shutdown.
 pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
@@ -2013,6 +2048,8 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     // served first, so held runtime polls, due again at once, rotate with
     // other work instead of keeping every slot.
     let mut served: HashMap<(String, String), Instant> = HashMap::new();
+    // Held polls in flight, at most HELD_POLLS.
+    let holding = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
@@ -2023,10 +2060,20 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
         {
             jobs.extend(due.into_iter().map(|k| (k, false)));
         }
-        if let Ok(pollable) = blocking(store.clone(), |s| s.pollable_tasks()).await
+        let mut running: std::collections::HashSet<(String, String)> = Default::default();
+        if let Ok(states) = blocking(store.clone(), |s| s.pollable_states()).await
             && let Ok(mut plan) = schedule.lock()
         {
             let now = Instant::now();
+            let pollable: Vec<(String, String)> = states
+                .into_iter()
+                .map(|(k, r)| {
+                    if r {
+                        running.insert(k.clone());
+                    }
+                    k
+                })
+                .collect();
             plan.retain(|k, _| pollable.contains(k));
             for key in pollable {
                 let (due, _) = *plan.entry(key.clone()).or_insert((now, POLL_FIRST));
@@ -2081,11 +2128,29 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
         }
         served.retain(|k, _| keys.contains(k));
         keys.sort_by_key(|k| served.get(k).copied());
+        // Running tasks take turns for the held polls, least recently
+        // served first; the rest wait for one to end.
+        let mut free = HELD_POLLS.saturating_sub(holding.load(std::sync::atomic::Ordering::SeqCst));
+        keys.retain(|k| {
+            if !(polls.get(k).copied().unwrap_or(false) && running.contains(k)) {
+                return true;
+            }
+            if free == 0 {
+                return false;
+            }
+            free -= 1;
+            true
+        });
         for claim in dispatcher.claim(keys) {
             served.insert(claim.key().clone(), Instant::now());
             let store = store.clone();
             let key = claim.key().clone();
             let is_poll = polls.get(&key).copied().unwrap_or(false);
+            let hold = is_poll && running.contains(&key);
+            if hold {
+                holding.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            let holding = holding.clone();
             let call = calls.get(&key).copied();
             let fetch = fetches.remove(&key);
             let schedule = schedule.clone();
@@ -2123,7 +2188,8 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                         }
                     }
                 } else if is_poll {
-                    let (progressed, held) = poll(store, peer, id).await.unwrap_or((false, false));
+                    let (progressed, held) =
+                        poll(store, peer, id, hold).await.unwrap_or((false, false));
                     if let Ok(mut plan) = schedule.lock() {
                         let interval = match plan.get(&key) {
                             _ if held => Duration::ZERO,
@@ -2135,6 +2201,9 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                     }
                 } else {
                     retry(store, peer, id).await;
+                }
+                if hold {
+                    holding.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 drop(claim);
             });

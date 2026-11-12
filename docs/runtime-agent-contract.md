@@ -328,8 +328,9 @@ The suite covers:
   run, failing the task with `the runtime restarted`. The daemon restarted after dispatch but
   before `started`, with the profile replaced and then cleared meanwhile: the resent request is
   byte-identical to the first one, and the task finishes.
-- **Result delivery (RUN-14):** a task whose prompt sleeps 8 seconds before answering reaches
-  the sender's local record as `succeeded` within 2 seconds of the receiver storing it.
+- **Result delivery (RUN-14):** two tasks at once whose prompts sleep 8 seconds before
+  answering each reach the sender's local record as `succeeded` within 2 seconds of the receiver
+  storing it.
   The RUN-15 variable is not a suite case: the script's text is the host release's.
 - **A failed commit:** with the fake runtime told to fail commits, a command that exits 0
   ending `failed` with its message and the `not committed:` trailer.
