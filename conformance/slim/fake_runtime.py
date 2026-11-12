@@ -32,6 +32,26 @@ answers 429 `busy` for a workspace one of its runs holds, 422 `unavailable` for 
 none, and fails a run on a name it was not given before `started`. `GET /v1/runs/{id}/events` takes `limit`
 (1 to 1,000; without it, all).
 
+Runtime agents (docs/runtime-agent-contract.md, "The runtime's local API" and Verification) add optional fields to
+`POST /v1/runs`, each checked as that contract says: `network` (`none`, the default, or `internet`; 422 `too_large`
+above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`, `peerfs_fork_from`, `peerfs_agent`,
+`peerfs_commit` and `peerfs_commit_message`.
+- `secrets` files are read when the run starts; one that cannot be read, or is over 65,536 bytes, fails the run
+  before `started` with an `error` naming the secret. Their contents stay in memory and are never logged.
+- With `harness` set the fake ignores `argv` and acts as the agent: it fails the run before `started`, with an
+  `error` naming the secret, unless `secrets.openai_api_key` names a readable file, and then reads its stdin, the
+  prompt, as steps (words split on whitespace, `;` separating steps), so `write PATH TEXT ; echo done` changes the
+  workspace and answers `done`.
+- `peerfs_fork_from` copies that workspace (one given with `--peerfs-workspace` or an earlier fork) to a new one
+  named `peerfs_workspace` before `started`, refusing an existing name or a missing `from`, which fails the run
+  before `started`, changing nothing. Forks are kept under `--dir` across restarts of the fake.
+- With `peerfs_commit` true, once the run has ended and been snapshotted, the commit's ID is `01` followed by the
+  lowercase hex SHA-256 of the workspace's sorted paths and contents and the commit message, or null when nothing
+  changed since the fork (or since the run started, without a fork). `--fail-commits 1` makes every commit fail:
+  `commit` null and `error` set. The `exited` result carries `commit` for every run.
+- `--requests FILE` appends one JSON line per `POST /v1/runs`, `{at, status, body}`, with `body` the request's raw
+  text: its fields, `secrets` paths included but never their contents, so a suite can compare resends byte for byte.
+
 Standalone, standard library only. Every request and run step is appended to `--log` as one JSON line, which the
 suite reads as its oracle (what was started, resent, cancelled, and whether a command ran).
 """
@@ -61,6 +81,13 @@ ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 RUN_FIELDS = ("run_id", "argv", "cwd", "env", "resources", "workspace_archive", "peerfs_workspace", "results")
 PEERFS_NAME_BYTES = 255
 RESOURCE_FIELDS = ("cpus", "memory_mib", "timeout_seconds")
+# runtime-agent-contract, The runtime's local API: optional fields and the value each takes when omitted.
+AGENT_DEFAULTS = {"network": "none", "stdin": None, "harness": None, "secrets": None, "peerfs_fork_from": None,
+                  "peerfs_agent": "peerspan-runtime", "peerfs_commit": False, "peerfs_commit_message": None}
+SECRET_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+SECRET_BYTES = 65536
+STDIN_BYTES = 65536
 
 
 def now_text():
@@ -101,11 +128,15 @@ class Run:
         self.dir = tempfile.mkdtemp(prefix=self.run_id[:16] + "-", dir=runtime.root)
         os.chmod(self.dir, 0o700)
         self.peerfs = request["peerfs_workspace"]
+        self.fork_from = request.get("peerfs_fork_from")
         if self.peerfs is None:
             self.workspace = os.path.join(self.dir, "workspace")
             os.mkdir(self.workspace, 0o700)
+        elif self.fork_from is not None:
+            self.workspace = None  # made by the fork, before started
         else:
             self.workspace = runtime.peerfs.get(self.peerfs)  # None: a name it was not given
+        self.secrets = {}  # name -> content, in memory only
         self.stdout = open(os.path.join(self.dir, "stdout.log"), "wb")
         self.stderr = open(os.path.join(self.dir, "stderr.log"), "wb")
         self.stdout_bytes = self.stderr_bytes = 0
@@ -146,13 +177,16 @@ class Run:
         exit_code = sig = None
         timed_out = False
         started = False
-        snapshot = None
+        snapshot = commit = None
         try:
             delay = self.runtime.start_delay
             if delay > 0 and self.cancel.wait(delay):
                 raise Stop(sig=9)
             if self.cancel.is_set():
                 raise Stop(sig=9)
+            self.read_secrets()
+            if self.fork_from is not None:
+                self.workspace = self.runtime.fork(self.fork_from, self.peerfs)
             if self.peerfs is not None and self.workspace is None:
                 raise RefusedEntry(f"no peerfs workspace named {self.peerfs!r}")
             self.unpack()
@@ -180,9 +214,15 @@ class Run:
         if started and self.peerfs is not None:
             after = self.peerfs_digest()
             snapshot = None if after == self.before_digest else "01" + after
+            if self.request.get("peerfs_commit") and after != self.before_digest:
+                if self.runtime.args.fail_commits:
+                    error = error or "the commit failed: refused by --fail-commits"
+                else:
+                    message = self.request["peerfs_commit_message"]
+                    commit = "01" + self.peerfs_digest(message)
         result = {"exit_code": exit_code if started else None, "signal": sig, "timed_out": timed_out,
                   "duration_ms": duration, "stdout_bytes": self.stdout_bytes, "stderr_bytes": self.stderr_bytes,
-                  "snapshot": snapshot, "error": error}
+                  "snapshot": snapshot, "error": error, "commit": commit}
         if not started and sig is None and error is None:
             result["error"] = "the run did not start"
         self.stdout.close()
@@ -196,6 +236,24 @@ class Run:
             self.state = "exited"
         self.emit("exited", result=result)
         self.emit("results", artifacts=artifacts)
+
+    def read_secrets(self):
+        """runtime-agent-contract: each secret file is read when the run starts; one that cannot be fails it."""
+        secrets = self.request.get("secrets") or {}
+        if self.request.get("harness") is not None and "openai_api_key" not in secrets:
+            raise RefusedEntry("the secret openai_api_key is missing")
+        for name, path in secrets.items():
+            try:
+                with open(path, "rb") as f:
+                    data = f.read(SECRET_BYTES + 1)
+            except OSError as failure:
+                raise RefusedEntry(f"the secret {name} cannot be read: {failure.strerror}") from None
+            if len(data) > SECRET_BYTES:
+                raise RefusedEntry(f"the secret {name} is over {SECRET_BYTES} bytes")
+            self.secrets[name] = data
+        harness = self.request.get("harness")
+        if harness is not None and not os.path.isdir(harness):
+            raise RefusedEntry(f"the harness {harness!r} is not a readable directory")
 
     def unpack(self):
         archive = self.request["workspace_archive"]
@@ -263,8 +321,9 @@ class Run:
                         files[rel] = hashlib.sha256(f.read()).hexdigest()
         return files, links
 
-    def peerfs_digest(self):
-        """SHA-256 of the workspace's sorted paths and contents (a symbolic link's content is its target)."""
+    def peerfs_digest(self, message=None):
+        """SHA-256 of the workspace's sorted paths and contents (a symbolic link's content is its target), and of
+        MESSAGE when given (a commit's ID)."""
         entries = []
         for base, dirs, names in os.walk(self.workspace):
             for name in names + [d for d in dirs if os.path.islink(os.path.join(base, d))]:
@@ -278,10 +337,18 @@ class Run:
         digest = hashlib.sha256()
         for rel, data in sorted(entries):
             digest.update(rel.encode() + b"\0" + str(len(data)).encode() + b"\0" + data)
+        if message is not None:
+            digest.update(b"commit\0" + message.encode())
         return digest.hexdigest()
 
     def steps(self):
         argv = self.request["argv"]
+        if self.request.get("harness") is not None:
+            # runtime-agent-contract, Verification: with a harness the fake is the agent; argv is ignored and the
+            # prompt on stdin is run as steps.
+            stdin = self.request.get("stdin")
+            prompt = base64.b64decode(stdin).decode("utf-8", "replace") if stdin else ""
+            argv = prompt.split()
         program, current = [], []
         for word in argv:
             if word == ";":
@@ -398,10 +465,17 @@ class Runtime:
         self.root = tempfile.mkdtemp(prefix="fake-runtime-", dir=args.dir)
         self.start_delay = args.start_delay
         self.peerfs = {}
+        self.peerfs_root = os.path.join(args.dir or tempfile.gettempdir(), "peerfs")
         for name in args.peerfs_workspace:
-            path = os.path.join(args.dir or tempfile.gettempdir(), "peerfs", name)
+            path = os.path.join(self.peerfs_root, name)
             os.makedirs(path, mode=0o700, exist_ok=True)
             self.peerfs[name] = path
+        # Forks made by earlier runs (runtime-agent-contract), kept across restarts while a peerfs space is served.
+        self.forks_file = os.path.join(self.peerfs_root, ".forks.json")
+        if self.peerfs and os.path.exists(self.forks_file):
+            with open(self.forks_file) as f:
+                for name in json.load(f):
+                    self.peerfs.setdefault(name, os.path.join(self.peerfs_root, name))
         self.runs = {}
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
@@ -414,18 +488,43 @@ class Runtime:
         with self.log_lock, open(self.args.log, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
+    def record_request(self, status, raw):
+        """`--requests`: the raw body of each POST /v1/runs (secret paths only; contents are never read here)."""
+        if not self.args.requests:
+            return
+        entry = {"at": time.time(), "status": status, "body": raw.decode("utf-8", "replace")}
+        with self.log_lock, open(self.args.requests, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def fork(self, source, name):
+        """runtime-agent-contract: a new workspace NAME at SOURCE's head; an existing NAME or a missing SOURCE fails
+        the run before started, changing nothing."""
+        with self.lock:
+            path = os.path.join(self.peerfs_root, name)
+            if name in self.peerfs or os.path.lexists(path):
+                raise RefusedEntry(f"a workspace or branch named {name!r} exists already")
+            if source not in self.peerfs:
+                raise RefusedEntry(f"no branch named {source!r} to fork from")
+            shutil.copytree(self.peerfs[source], path, symlinks=True)
+            self.peerfs[name] = path
+            forks = sorted(n for n in self.peerfs if n not in self.args.peerfs_workspace)
+            with open(self.forks_file + ".new", "w") as f:
+                json.dump(forks, f)
+            os.replace(self.forks_file + ".new", self.forks_file)
+        return path
+
     def report(self):
         with self.lock:
             running = sum(1 for r in self.runs.values() if r.state != "exited")
         return {"version": "fake-runtime-1", "image": "fake", "max_cpus": self.args.max_cpus,
                 "max_memory_mib": self.args.max_memory_mib, "max_seconds": self.args.max_seconds,
                 "max_concurrent_runs": self.args.max_concurrent_runs, "running": running,
-                "peerfs": bool(self.peerfs)}
+                "peerfs": bool(self.args.peerfs_workspace), "max_network": self.args.max_network}
 
     def validate(self, body):
         if not isinstance(body, dict):
             raise ApiError(400, "invalid", "the body is not a JSON object")
-        unknown = sorted(set(body) - set(RUN_FIELDS))
+        unknown = sorted(set(body) - set(RUN_FIELDS) - set(AGENT_DEFAULTS))
         if unknown:
             raise ApiError(400, "invalid", f"unknown field {unknown[0]}")
         for field in RUN_FIELDS:
@@ -465,6 +564,50 @@ class Runtime:
             raise ApiError(400, "invalid", "results")
         if name is not None and body["results"] == "changes":
             raise ApiError(400, "invalid", "results changes on a peerfs workspace")
+        self.validate_agent_fields(body)
+
+    @staticmethod
+    def validate_agent_fields(body):
+        """runtime-agent-contract, The runtime's local API: the optional fields (400 invalid naming the field)."""
+        for field, default in AGENT_DEFAULTS.items():
+            body.setdefault(field, default)
+        if body["network"] not in ("none", "internet"):
+            raise ApiError(400, "invalid", "network")
+        stdin = body["stdin"]
+        if stdin is not None:
+            try:
+                data = base64.b64decode(stdin, validate=True) if isinstance(stdin, str) else None
+            except ValueError:
+                data = None
+            if data is None or len(data) > STDIN_BYTES:
+                raise ApiError(400, "invalid", "stdin")
+        harness = body["harness"]
+        if harness is not None and (not isinstance(harness, str) or not harness.startswith("/") or "\0" in harness):
+            raise ApiError(400, "invalid", "harness")
+        secrets = body["secrets"]
+        if secrets is not None and (
+                not isinstance(secrets, dict) or len(secrets) > 16
+                or not all(SECRET_NAME.match(k) and k not in (".", "..") and isinstance(v, str) and v.startswith("/")
+                           and "\0" not in v for k, v in secrets.items())):
+            raise ApiError(400, "invalid", "secrets")
+        workspace = body["peerfs_workspace"]
+        source = body["peerfs_fork_from"]
+        if source is not None and (workspace is None or not isinstance(source, str)
+                                   or not 1 <= len(source.encode()) <= PEERFS_NAME_BYTES
+                                   or source in (".", "..") or "/" in source or "\0" in source):
+            raise ApiError(400, "invalid", "peerfs_fork_from")
+        agent = body["peerfs_agent"]
+        if agent != AGENT_DEFAULTS["peerfs_agent"] and (
+                workspace is None or not isinstance(agent, str) or not AGENT_NAME.match(agent)):
+            raise ApiError(400, "invalid", "peerfs_agent")
+        commit = body["peerfs_commit"]
+        if not isinstance(commit, bool) or (commit and workspace is None):
+            raise ApiError(400, "invalid", "peerfs_commit")
+        message = body["peerfs_commit_message"]
+        if message is not None and (not isinstance(message, str) or not 1 <= len(message.encode()) <= 4096):
+            raise ApiError(400, "invalid", "peerfs_commit_message")
+        if commit and message is None:
+            raise ApiError(400, "invalid", "peerfs_commit_message is required with peerfs_commit")
 
     def start(self, body):
         self.validate(body)
@@ -479,7 +622,9 @@ class Runtime:
             if (resources["cpus"] > self.args.max_cpus or resources["memory_mib"] > self.args.max_memory_mib
                     or resources["timeout_seconds"] > self.args.max_seconds):
                 raise ApiError(422, "too_large", "resources exceed the runtime's maximums")
-            if body["peerfs_workspace"] is not None and not self.peerfs:
+            if body["network"] == "internet" and self.args.max_network != "internet":
+                raise ApiError(422, "too_large", "network internet is above the runtime's maximum")
+            if body["peerfs_workspace"] is not None and not self.args.peerfs_workspace:
                 raise ApiError(422, "unavailable", "this runtime serves no peerfs space")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
                 raise ApiError(429, "busy", "every run slot is busy")
@@ -581,12 +726,15 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["v1", "runtime"] and method == "GET":
                 status, value = 200, runtime.report()
             elif parts == ["v1", "runs"] and method == "POST":
+                sent = json.loads(raw) if isinstance(body, dict) else body  # as sent, before defaults are filled
                 try:
                     status, value = runtime.start(body)
-                    runtime.log(event="post", run_id=body.get("run_id"), status=status, request=body)
+                    runtime.log(event="post", run_id=body.get("run_id"), status=status, request=sent)
+                    runtime.record_request(status, raw)
                 except ApiError as refused:
                     runtime.log(event="post", run_id=(body or {}).get("run_id") if isinstance(body, dict) else None,
-                                status=refused.status, request=body)
+                                status=refused.status, request=sent)
+                    runtime.record_request(refused.status, raw)
                     raise
             elif len(parts) == 4 and parts[:2] == ["v1", "runs"] and parts[3] == "events" and method == "GET":
                 unknown = sorted(set(params) - {"after", "wait", "limit"})
@@ -652,6 +800,12 @@ def main():
     parser.add_argument("--start-delay", type=float, default=0.0, help="seconds each run is held before started")
     parser.add_argument("--peerfs-workspace", action="append", default=[],
                         help="a peerfs workspace name (repeatable); with none, peerfs is false")
+    parser.add_argument("--max-network", choices=("none", "internet"), default="internet",
+                        help="the most network a run may ask for (runtime agents)")
+    parser.add_argument("--fail-commits", type=int, choices=(0, 1), default=0,
+                        help="1: every commit fails, with commit null and error set (runtime agents)")
+    parser.add_argument("--requests", default=None,
+                        help="append each POST /v1/runs body, as sent, as one JSON line (secret paths, no contents)")
     args = parser.parse_args()
     runtime = Runtime(args)
     if os.path.exists(args.socket):

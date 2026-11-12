@@ -34,9 +34,9 @@ RESULT_KEYS = ["exit_code", "signal", "timed_out", "duration_ms", "stdout_bytes"
 # runtime, Policy body: each rule has exactly these keys in this order (`peerfs_workspaces` from RUN-6).
 RULE_KEYS = ["host", "principals", "max_cpus", "max_memory_mib", "max_seconds", "max_output_bytes",
              "max_artifact_bytes", "peerfs_workspaces", "allow_disconnected"]
-# runtime, The runtime's local API: GET /v1/runtime.
+# runtime, The runtime's local API: GET /v1/runtime (`max_network` from the runtime agent contract).
 REPORT_KEYS = {"version", "image", "max_cpus", "max_memory_mib", "max_seconds", "max_concurrent_runs", "running",
-               "peerfs"}
+               "peerfs", "max_network"}
 DEFAULTS = {"max_cpus": 2, "max_memory_mib": 2048, "max_seconds": 3600, "max_output_bytes": 1048576,
             "max_artifact_bytes": 104857600}
 
