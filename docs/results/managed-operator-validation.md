@@ -41,6 +41,22 @@ that the next run is the next scheduled slot, and then stops the adapter's lease
 renewal: the controller's once-a-minute directory refresh reports
 `session_not_ready` about a minute later. No model is called.
 
+### Upstream 0.2.1 and the repository README
+
+After revision 3, upstream `main` (`67e20797`, release 0.2.1) was merged into
+this work without conflicts or changes under `managed/`, and the host binaries
+were rebuilt from the merged tree (`peerspan-host 0.2.1-dev`). Against them the
+real-transport smoke passed 3/3 in 129 seconds. In one earlier run its third case failed
+before any managed code ran: upstream's own join helper, in the third join of
+that run, got `link admit --network` exiting 1 with `error: host daemon:
+invalid`. The same case then passed in two reruns and in the full run above.
+
+The fork's CI showed that upstream's `conversations_tools` suite failed its
+`help` case on this branch: it requires `README.md` to list the conversation
+commands, and the fork had replaced `README.md` with its own page. `README.md` is
+upstream's text again, with one section about `managed/`; `help` passes against
+the 0.2.1 binaries.
+
 ### Independent review of revision 3
 
 A reviewer who had not written the code read revision 3 against the contract,
