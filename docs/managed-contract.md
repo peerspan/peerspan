@@ -294,10 +294,13 @@ workflow stays the rule whatever the capacity.
 (rev 6) **Slow Peerspan calls.** A scheduler pass waits at most 2 seconds, or one
 scheduler interval when that is shorter, for the readiness checks,
 reconciliations and submissions it starts itself, and never for one still
-running from an earlier pass. It then dispatches with the readiness each
-connection last recorded, and a check or reconciliation still running goes on
-beside later passes; no second one for the same connection or task starts until
-it has ended. A slow or hanging Peerspan call therefore delays only its own
+running from an earlier pass. It then dispatches, but only to workers whose
+readiness comes from a check that ended since the previous dispatch decision,
+so that evidence is never older than one check, as when every pass waited for
+its checks; a worker whose check is still running gets no new task, and keeps
+its blocked reason, until one has ended. A check or reconciliation still running
+goes on beside later passes; no second one for the same connection or task
+starts until it has ended. A slow or hanging Peerspan call therefore delays only its own
 connection or task, however many such calls there are: never another
 connection's readiness, another task's reconciliation, a cancellation, or
 dispatch to a ready worker. Each pass starts one interval after the previous

@@ -458,7 +458,8 @@ export class Model {
 
   /**
    * Decides, for every workflow, whether it may dispatch now, and reserves a run
-   * for each one that may. `readiness` maps connection IDs to `{ready, reason, capacity}`.
+   * for each one that may. `readiness` maps connection IDs to `{ready, current, reason, capacity}`, where
+   * `current` says whether the verdict came from a check that ended since the previous decision.
    * Returns the reserved tasks; nothing has been sent for them yet.
    */
   planDispatch(now, readiness) {
@@ -470,6 +471,8 @@ export class Model {
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
       const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities);
+      // A ready worker without a current verdict is decided by a later pass; its reason stays.
+      if (reason === undefined) continue;
       if (reason === null) {
         reserved.push(this.reserve(workflow, connection, now, this.freeTarget(connection, capacities)));
       } else if (reason !== workflow.blocked_reason) {
@@ -485,6 +488,7 @@ export class Model {
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
+    if (state.current === false) return undefined;
     if (!this.freeTarget(connection, capacities)) {
       const capacity = capacities.get(targetOf(connection)) ?? 1;
       return capacity > 1 ? `Worker is at its capacity of ${capacity} tasks` : 'Worker is busy with another managed task';
@@ -540,7 +544,7 @@ export class Model {
         this.fallBack(run, 'reviewer_removed', now);
         continue;
       }
-      if (!readiness[reviewer.id]?.ready) continue;
+      if (!readiness[reviewer.id]?.ready || readiness[reviewer.id].current === false) continue;
       const target = this.freeTarget(reviewer, capacities);
       if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }

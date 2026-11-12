@@ -329,3 +329,12 @@ stays [managed-contract.md](managed-contract.md).
   never runs twice at once, so a hanging host gets one call in flight, not one
   per pass.
 - **Contract.** Section 4.
+
+Note to MGD-15 (2026-11-12, revision 6.1): the first form of (b) dispatched
+with the readiness each connection had last recorded. Once the wait was also
+capped at one interval, so that passes keep their pace, a check that had not
+ended within the wait left dispatch with the previous pass's verdict, and the
+acceptance suite caught a run sent to a worker whose pinned identity had just
+changed. Dispatch now uses only verdicts from checks that ended since its
+previous decision: a worker with a slow check waits for its own next verdict,
+and no evidence is older than one check, as before revision 6.
