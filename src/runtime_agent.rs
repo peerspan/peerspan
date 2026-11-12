@@ -163,23 +163,34 @@ fn credential_text(value: &str) -> Result<&str, Error> {
     Ok(value)
 }
 
-/// Writes a private (0600) file atomically.
+/// Writes a private (0600) file atomically, through a temporary file of this write's own, so
+/// concurrent writes of one path never share a temporary file: the last rename wins whole.
 fn write_private(path: &Path, raw: &[u8]) -> Result<(), Error> {
-    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    use std::{
+        io::Write,
+        os::unix::fs::OpenOptionsExt,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+    static WRITES: AtomicU64 = AtomicU64::new(0);
     let mut partial = path.as_os_str().to_owned();
-    partial.push(".partial");
+    partial.push(format!(
+        ".partial-{}-{}",
+        std::process::id(),
+        WRITES.fetch_add(1, Ordering::Relaxed)
+    ));
     let partial = PathBuf::from(partial);
-    let mut file = std::fs::OpenOptions::new()
+    let written = std::fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
         .open(&partial)
-        .map_err(|e| Error::Internal(e.into()))?;
-    file.write_all(raw)
-        .and_then(|()| file.sync_all())
-        .map_err(|e| Error::Internal(e.into()))?;
-    std::fs::rename(&partial, path).map_err(|e| Error::Internal(e.into()))
+        .and_then(|mut file| file.write_all(raw).and_then(|()| file.sync_all()))
+        .and_then(|()| std::fs::rename(&partial, path));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&partial);
+        return Err(Error::Internal(e.into()));
+    }
+    Ok(())
 }
 fn remove(path: &Path) -> Result<bool, Error> {
     match std::fs::remove_file(path) {
