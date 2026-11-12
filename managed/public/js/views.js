@@ -403,7 +403,7 @@ export function runPage(ctx, id) {
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Result'),
           run.outputTruncated && h('span.section-note', null, 'Truncated at 262,144 characters')),
-        run.output ? h('pre.output', { tabindex: '0' }, run.output)
+        run.output ? h('pre.output', { tabindex: '0', 'data-key': `result:${run.id}` }, run.output)
           : h('div.panel.empty', null, open ? ['No result yet.', run.progress && [' Latest update: ', run.progress]] : 'This run reported no output.'),
         comparePanel(run, detail.previous),
         reviewPanel(ctx, run, rework),
@@ -443,7 +443,8 @@ function comparePanel(run, previous) {
   const key = run.id + '/' + previous.id;
   if (compared.key !== key) compared = { key, ops: diffLines(previous.output, run.output) };
   const { ops } = compared;
-  const earlier = [h('a', { href: `#/runs/${previous.id}` }, previous.attempt > 1 ? `attempt ${previous.attempt}` : 'the previous result'),
+  const earlier = [h('a', { href: `#/runs/${previous.id}` }, previous.skipped ? 'an earlier result'
+    : previous.attempt > 1 ? `attempt ${previous.attempt}` : 'the previous result'),
     ' from ', timeAgo(previous.createdAt)];
   if (ops === null) return h('p.help.compare', null, 'Compared with ', earlier, ': too long or too different to compare line by line.');
   const added = ops.filter(([op]) => op === '+').length;
@@ -542,9 +543,9 @@ function reviewTaskPanel(ctx, run, events = []) {
         button('Release…', { kind: 'small danger', onclick: () => ctx.actions.abandonReview(run), key: 'review:abandon',
           title: 'Give up on a review task that can no longer be resolved' })),
       task.output && h('details', { 'data-key': `review-answer:${run.id}` },
-        h('summary', null, 'The reviewer\'s full answer'), h('pre.output', null, task.output)),
+        h('summary', null, 'The reviewer\'s full answer'), h('pre.output', { 'data-key': `review-answer-text:${run.id}` }, task.output)),
       task.input && h('details', { 'data-key': `review-input:${run.id}` },
-        h('summary', null, 'What the reviewer was asked'), h('pre.output', null, task.input)),
+        h('summary', null, 'What the reviewer was asked'), h('pre.output', { 'data-key': `review-input-text:${run.id}` }, task.input)),
       events.length > 0 && h('details', { 'data-key': `review-timeline:${run.id}` }, h('summary', null, 'Timeline'),
         h('ol.timeline', null, events.map(event =>
           h('li', { class: event.kind },

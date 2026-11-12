@@ -125,10 +125,10 @@ async function previousResult(run) {
       .filter(item => (item.state === 'succeeded' || item.state === 'failed') && item.output !== null)
       .slice(0, COMPARE_LOOKBACK);
     // A truncated earlier result is skipped for the one before it.
-    for (const item of earlier) {
+    for (const [position, item] of earlier.entries()) {
       const { run: full } = await request('/api/runs/' + item.id);
       if (typeof full.output === 'string' && !full.outputTruncated) {
-        return { id: full.id, createdAt: full.createdAt, attempt: full.attempt, output: full.output };
+        return { id: full.id, createdAt: full.createdAt, attempt: full.attempt, output: full.output, skipped: position > 0 };
       }
     }
     return null;
@@ -482,7 +482,8 @@ $('logout').addEventListener('click', async () => {
 
 // ----- notifications ------------------------------------------------------------------------
 
-// When this page last saw each action item, by kind and subject; null until the first snapshot.
+// The action items of the last snapshot this page received, and since when others have been absent;
+// null until the first snapshot.
 let seenAttention = null;
 
 function storedNotify() {
@@ -525,11 +526,21 @@ function notifyAttention(attention) {
   const now = Date.now();
   const items = new Map(attention.filter(item => item.severity === 'action')
     .map(item => [`${item.kind}:${item.subject.type}:${item.subject.id}`, item]));
-  const first = seenAttention === null;
-  seenAttention ??= new Map();
-  const fresh = [...items].filter(([key]) => !first && !(now - (seenAttention.get(key) ?? -Infinity) < NOTIFY_GRACE_MS));
-  for (const key of items.keys()) seenAttention.set(key, now);
-  for (const [key, at] of seenAttention) if (now - at >= NOTIFY_GRACE_MS) seenAttention.delete(key);
+  if (seenAttention === null) {
+    // The first snapshot this page receives is what already needed the operator: nothing is new.
+    seenAttention = { present: new Set(items.keys()), absentSince: new Map() };
+    return;
+  }
+  const { present, absentSince } = seenAttention;
+  // New: not in the previous snapshot received, and either never seen or seen absent for the grace
+  // period. Time between snapshots, such as while the computer slept, never makes an item new.
+  const fresh = [...items].filter(([key]) => !present.has(key)
+    && (!absentSince.has(key) || now - absentSince.get(key) >= NOTIFY_GRACE_MS));
+  for (const key of present) if (!items.has(key) && !absentSince.has(key)) absentSince.set(key, now);
+  for (const key of items.keys()) absentSince.delete(key);
+  // Long gone items are forgotten; if one returns it is new, as after the grace period.
+  for (const [key, at] of absentSince) if (now - at >= NOTIFY_GRACE_MS) absentSince.delete(key);
+  seenAttention = { present: new Set(items.keys()), absentSince };
   if (!fresh.length || !storedNotify() || !notificationsGranted() || (!document.hidden && document.hasFocus())) return;
   const show = (title, body, tag) => {
     try {
@@ -546,7 +557,7 @@ function notifyAttention(attention) {
     show(item.subject.type === 'controller' ? 'Peerspan Managed' : item.subject.name, item.message, key);
   }
   const more = fresh.length - NOTIFY_AT_ONCE;
-  if (more > 0) show('Peerspan Managed', `${more} more item${more === 1 ? '' : 's'} need you; open the console to see them.`, 'more');
+  if (more > 0) show('Peerspan Managed', `${more} more item${more === 1 ? ' needs' : 's need'} you; open the console to see them.`, 'more');
 }
 
 $('notify').addEventListener('click', async () => {
@@ -560,7 +571,11 @@ $('notify').addEventListener('click', async () => {
   }
   showNotifyButton();
   if (next) toast('This browser will be notified when something new needs you, while this page is open.');
-  else if (!on && Notification.permission === 'denied') toast(BLOCKED + '.', 'error');
+  else if (!on && Notification.permission === 'denied') {
+    toast(BLOCKED + '.', 'error');
+    // The disabled button cannot keep keyboard focus; the page takes it.
+    $('view').focus({ preventScroll: true });
+  }
 });
 
 showNotifyButton();
