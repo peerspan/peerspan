@@ -587,3 +587,6 @@ dialog::backdrop { background: rgb(8 20 15 / 45%); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* The notification toggle keeps its label; a check mark shows that it is on. */
+#notify[aria-pressed="true"]::before { content: "\2713\00a0"; color: var(--ok); }

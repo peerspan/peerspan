@@ -90,34 +90,48 @@ async function loadLog({ more = false } = {}) {
 }
 
 async function loadRun(id) {
+  // A load for a run page the operator has already left must not replace the page now shown.
+  const stillShown = () => app.route.name === 'runs' && app.route.id === id;
   try {
     const detail = await request('/api/runs/' + id);
     const previous = app.runDetail.id === id && app.runDetail.previous !== undefined
       ? app.runDetail.previous : await previousResult(detail.run);
+    if (!stillShown()) return;
     app.runDetail = { id, run: detail.run, events: detail.events, reviewEvents: detail.reviewEvents ?? [], previous, error: null };
   } catch (error) {
+    if (!stillShown()) return;
     app.runDetail = { id, run: null, events: [], reviewEvents: [], previous: null, error: error.message };
   }
 }
 
+// At most this many earlier runs are fetched to find one whose whole result can be compared.
+const COMPARE_LOOKBACK = 5;
+
 /**
- * The workflow's previous run with a result, in full, for comparing results:
- * `{id, createdAt, attempt, output}`, null when there is none to compare, or
- * undefined while the run has no final result yet. A found answer is kept per
- * run page, so live refreshes do not fetch it again.
+ * The workflow's previous run with a whole result, for comparing results:
+ * `{id, createdAt, attempt, output}`; `{unavailable}` with the reason when this
+ * result cannot be compared; null when there is nothing earlier to compare
+ * with; or undefined while the run has no final result yet. A found answer is
+ * kept per run page, so live refreshes do not fetch it again.
  */
 async function previousResult(run) {
   if (run.state !== 'succeeded' && run.state !== 'failed') return undefined;
-  if (typeof run.output !== 'string' || run.outputTruncated) return null;
+  if (typeof run.output !== 'string') return null;
+  if (run.outputTruncated) return { unavailable: 'this result was truncated' };
   try {
     const page = await request(`/api/runs?workflowId=${encodeURIComponent(run.workflowId)}&limit=200`);
     const index = page.runs.findIndex(item => item.id === run.id);
-    const earlier = index < 0 ? null : page.runs.slice(index + 1)
-      .find(item => (item.state === 'succeeded' || item.state === 'failed') && item.output !== null);
-    if (!earlier) return null;
-    const { run: full } = await request('/api/runs/' + earlier.id);
-    if (typeof full.output !== 'string' || full.outputTruncated) return null;
-    return { id: full.id, createdAt: full.createdAt, attempt: full.attempt, output: full.output };
+    const earlier = index < 0 ? [] : page.runs.slice(index + 1)
+      .filter(item => (item.state === 'succeeded' || item.state === 'failed') && item.output !== null)
+      .slice(0, COMPARE_LOOKBACK);
+    // A truncated earlier result is skipped for the one before it.
+    for (const item of earlier) {
+      const { run: full } = await request('/api/runs/' + item.id);
+      if (typeof full.output === 'string' && !full.outputTruncated) {
+        return { id: full.id, createdAt: full.createdAt, attempt: full.attempt, output: full.output };
+      }
+    }
+    return null;
   } catch {
     // The comparison is a convenience; the page works without it.
     return null;
@@ -203,10 +217,23 @@ function render() {
   const selection = focused && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
   const drafts = [...view.querySelectorAll('textarea[data-key], input[type="text"][data-key]')]
     .filter(field => field.value).map(field => [field.dataset.key, field.value]);
+  // Opened sections and scrolled text stay as the operator left them.
+  const opened = [...view.querySelectorAll('details[data-key]')].map(section => [section.dataset.key, section.open]);
+  const scrolled = [...view.querySelectorAll('[data-key]')].filter(element => element.scrollTop > 0)
+    .map(element => [element.dataset.key, element.scrollTop]);
   view.replaceChildren(...page().flat().filter(Boolean));
+  const keyed = key => view.querySelector(`[data-key="${CSS.escape(key)}"]`);
   for (const [key, value] of drafts) {
-    const field = view.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    const field = keyed(key);
     if (field && !field.value) field.value = value;
+  }
+  for (const [key, open] of opened) {
+    const section = keyed(key);
+    if (section) section.open = open;
+  }
+  for (const [key, top] of scrolled) {
+    const element = keyed(key);
+    if (element) element.scrollTop = top;
   }
   if (focused) {
     const field = view.querySelector(`[data-key="${CSS.escape(focused)}"]`);
@@ -455,7 +482,7 @@ $('logout').addEventListener('click', async () => {
 
 // ----- notifications ------------------------------------------------------------------------
 
-// Attention items already seen by this page, by kind and subject; null until the first snapshot.
+// When this page last saw each action item, by kind and subject; null until the first snapshot.
 let seenAttention = null;
 
 function storedNotify() {
@@ -468,15 +495,26 @@ function storedNotify() {
 
 const notificationsGranted = () => 'Notification' in window && Notification.permission === 'granted';
 
+const BLOCKED = 'Notifications are blocked for this console in the browser\'s site settings';
+
+/** The toggle keeps one label; `aria-pressed` and a check mark say whether it is on. */
 function showNotifyButton() {
   const button = $('notify');
-  // Browsers without notifications, or where the operator blocked them, get no button.
-  button.hidden = !('Notification' in window) || Notification.permission === 'denied';
-  const on = storedNotify() && notificationsGranted();
-  button.textContent = on ? 'Notifications on' : 'Notify me';
+  // Browsers without notifications get no button.
+  button.hidden = !('Notification' in window);
+  if (button.hidden) return;
+  const blocked = Notification.permission === 'denied';
+  const on = !blocked && storedNotify() && notificationsGranted();
+  button.disabled = blocked;
   button.setAttribute('aria-pressed', on ? 'true' : 'false');
-  button.title = on ? 'Stop notifying this browser' : 'Notify this browser when something new needs you, while this page is open';
+  button.title = blocked ? BLOCKED : on ? 'Stop notifying this browser'
+    : 'Notify this browser when something new needs you, while this page is open';
 }
+
+// An item that disappears for less than this, as while a restarted controller checks its
+// workers again, is not new when it returns.
+const NOTIFY_GRACE_MS = 120_000;
+const NOTIFY_AT_ONCE = 3;
 
 /**
  * Notifies this browser, while the page is open but not in view, of each new
@@ -484,23 +522,31 @@ function showNotifyButton() {
  * the browser shows the notification itself.
  */
 function notifyAttention(attention) {
-  const keys = new Map(attention.filter(item => item.severity === 'action')
+  const now = Date.now();
+  const items = new Map(attention.filter(item => item.severity === 'action')
     .map(item => [`${item.kind}:${item.subject.type}:${item.subject.id}`, item]));
-  const fresh = seenAttention === null ? [] : [...keys].filter(([key]) => !seenAttention.has(key));
-  seenAttention = new Set(keys.keys());
+  const first = seenAttention === null;
+  seenAttention ??= new Map();
+  const fresh = [...items].filter(([key]) => !first && !(now - (seenAttention.get(key) ?? -Infinity) < NOTIFY_GRACE_MS));
+  for (const key of items.keys()) seenAttention.set(key, now);
+  for (const [key, at] of seenAttention) if (now - at >= NOTIFY_GRACE_MS) seenAttention.delete(key);
   if (!fresh.length || !storedNotify() || !notificationsGranted() || (!document.hidden && document.hasFocus())) return;
-  for (const [key, item] of fresh.slice(0, 3)) {
-    const title = item.subject.type === 'controller' ? 'Peerspan Managed' : item.subject.name;
+  const show = (title, body, tag) => {
     try {
-      const note = new Notification(title, { body: item.message, tag: key });
+      const note = new Notification(title, { body, tag });
       note.onclick = () => {
         window.focus();
         note.close();
       };
     } catch {
-      // Some browsers only notify through a service worker; the console still shows the item.
+      // Some browsers only notify through a service worker; the console still shows the items.
     }
+  };
+  for (const [key, item] of fresh.slice(0, NOTIFY_AT_ONCE)) {
+    show(item.subject.type === 'controller' ? 'Peerspan Managed' : item.subject.name, item.message, key);
   }
+  const more = fresh.length - NOTIFY_AT_ONCE;
+  if (more > 0) show('Peerspan Managed', `${more} more item${more === 1 ? '' : 's'} need you; open the console to see them.`, 'more');
 }
 
 $('notify').addEventListener('click', async () => {
@@ -514,6 +560,7 @@ $('notify').addEventListener('click', async () => {
   }
   showNotifyButton();
   if (next) toast('This browser will be notified when something new needs you, while this page is open.');
+  else if (!on && Notification.permission === 'denied') toast(BLOCKED + '.', 'error');
 });
 
 showNotifyButton();

@@ -438,6 +438,7 @@ let compared = { key: null, ops: null };
 
 /** What changed in this result since the workflow's previous one, line by line. */
 function comparePanel(run, previous) {
+  if (previous?.unavailable) return h('p.help.compare', null, `Not compared with the previous result: ${previous.unavailable}.`);
   if (!previous || typeof run.output !== 'string') return null;
   const key = run.id + '/' + previous.id;
   if (compared.key !== key) compared = { key, ops: diffLines(previous.output, run.output) };
@@ -451,10 +452,10 @@ function comparePanel(run, previous) {
   const line = ([op, text]) => (op === '…'
     ? h('span.diff-fold', null, `… ${text} unchanged line${text === 1 ? '' : 's'}`)
     : h('span', { class: { '+': 'diff-add', '-': 'diff-del', '=': 'diff-same' }[op] }, `${op === '=' ? ' ' : op} ${text}`));
-  return h('details.compare', null,
+  return h('details.compare', { 'data-key': `compare:${key}` },
     h('summary', null, `Changes since the previous result: ${added} line${added === 1 ? '' : 's'} added, ${removed} removed`),
     h('p.help', null, 'Compared with ', earlier, '.'),
-    h('pre.output.diff', { tabindex: '0' }, foldUnchanged(ops).map(line)));
+    h('pre.output.diff', { tabindex: '0', 'data-key': `compare:${key}:text` }, foldUnchanged(ops).map(line)));
 }
 
 const BRANCH_OUTCOMES = {
@@ -540,9 +541,11 @@ function reviewTaskPanel(ctx, run, events = []) {
           title: task.cancelRequestedAt ? 'Cancellation was already requested' : 'Ask the reviewer to stop' }),
         button('Release…', { kind: 'small danger', onclick: () => ctx.actions.abandonReview(run), key: 'review:abandon',
           title: 'Give up on a review task that can no longer be resolved' })),
-      task.output && h('details', null, h('summary', null, 'The reviewer\'s full answer'), h('pre.output', null, task.output)),
-      task.input && h('details', null, h('summary', null, 'What the reviewer was asked'), h('pre.output', null, task.input)),
-      events.length > 0 && h('details', null, h('summary', null, 'Timeline'),
+      task.output && h('details', { 'data-key': `review-answer:${run.id}` },
+        h('summary', null, 'The reviewer\'s full answer'), h('pre.output', null, task.output)),
+      task.input && h('details', { 'data-key': `review-input:${run.id}` },
+        h('summary', null, 'What the reviewer was asked'), h('pre.output', null, task.input)),
+      events.length > 0 && h('details', { 'data-key': `review-timeline:${run.id}` }, h('summary', null, 'Timeline'),
         h('ol.timeline', null, events.map(event =>
           h('li', { class: event.kind },
             h('div', null, h('div.kind', null, event.kind.replaceAll('_', ' ')), event.message && h('div.message', null, event.message)),
@@ -592,7 +595,7 @@ function workerPanel(ctx, connection) {
     readiness.hints.length > 0 && h('div.hints', null,
       h('p.card-meta', null, remote ? 'The sender host reports:' : 'The worker host reports:'),
       readiness.hints.map(hint => h('div.hint-item', null, hintText(hint.kind), hint.command && commandLine(hint.command)))),
-    h('details', null,
+    h('details', { 'data-key': `remove-worker:${connection.id}` },
       h('summary.card-meta', null, 'Remove this worker'),
       h('p.help', null, 'Archive its workflows or give them another worker and reviewer first, then run:'),
       commandLine(`${CLI} disconnect --id ${connection.id}`)));
