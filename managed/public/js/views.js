@@ -6,6 +6,8 @@ import {
 } from './labels.js';
 
 const CLI = 'node managed/cli.mjs';
+// Readiness codes that only an agent without a launch profile reaches (contract sections 3 and 3.1).
+const SESSION_CODES = ['ready', 'ready_service_inactive', 'session_not_ready', 'channel_unverified'];
 
 const badge = ([label, tone], live = false) => h('span.badge', { class: [tone, live && 'live'].filter(Boolean).join(' ') }, label);
 const isOpen = run => OPEN_STATES.includes(run.state);
@@ -543,8 +545,10 @@ function workerPanel(ctx, connection) {
       fact('Where', remote ? 'Another machine, seen through the sender host\'s directory' : 'A Peerspan host on this machine'),
       fact('Follows', remote ? 'Whether the directory shows the agent connected, its host reachable and task submission allowed'
         : readiness.runtime ? 'Its launch profile and the host\'s runtime: each task runs in its own microVM on a fork'
-          // Until a check reaches the launch profiles, the agent may be either kind.
-          : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified, or, for a runtime agent, its launch profile and the host\'s runtime'
+          : connection.mode === 'agent'
+            ? 'Whichever session of this agent is attached and verified'
+              // Until a check reaches the launch profiles, the agent may be either kind.
+              + (SESSION_CODES.includes(readiness.code) ? '' : ', or, for a runtime agent, its launch profile and the host\'s runtime')
             : 'The session named by its worker state file'),
       readiness.runtime && fact('Runtime', runtimeText(readiness.runtime) || 'Launch profile without details'),
       fact('Workflows', assigned.length ? links(assigned) : 'None'),
