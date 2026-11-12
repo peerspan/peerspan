@@ -128,35 +128,72 @@ def runtime_api(method, path):
     return r.status, json.loads(data) if data.strip() else None
 
 
-def tap(run_id, sink):
-    """Copies a run's events from the runtime until it exits, for tokens (the host keeps no stderr)."""
-    after = 0
-    deadline = time.time() + 3600
-    while time.time() < deadline:
-        try:
-            status, events = runtime_api("GET", f"/v1/runs/{run_id}/events?after={after}&wait=20")
-        except OSError:
-            time.sleep(1)
-            continue
-        if status == 404:
-            if after:
-                return
-            time.sleep(0.5)
-            continue
-        for e in events or []:
-            after = e["sequence"]
-            sink.append(e)
-            if e["kind"] in ("exited", "results"):
-                if e["kind"] == "results":
-                    return
-        time.sleep(0.1)
+class Recorder:
+    """A proxy on its own Unix socket between alice's host and the runtime: it forwards every request and keeps
+    every event of every run as the host reads it, so nothing is lost when the host deletes a finished run."""
+
+    def __init__(self, upstream, path):
+        import http.client
+        import http.server
+        import socketserver
+
+        recorder = self
+        self.events = {}  # run ID -> {sequence: event}
+        self.lock = threading.Lock()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_):
+                pass
+
+            def address_string(self):
+                return "host"
+
+            def forward(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else None
+                conn = UnixHTTPConnection(upstream, timeout=60)
+                try:
+                    headers = {k: v for k, v in self.headers.items() if k.lower() in ("content-type",)}
+                    conn.request(self.command, self.path, body=body, headers=headers)
+                    r = conn.getresponse()
+                    data = r.read()
+                finally:
+                    conn.close()
+                m = re.match(r"^/v1/runs/(run_[0-9a-f]{64})/events", self.path)
+                if m and r.status == 200:
+                    with recorder.lock:
+                        kept = recorder.events.setdefault(m.group(1), {})
+                        for e in json.loads(data or b"[]"):
+                            kept[e["sequence"]] = e
+                self.send_response(r.status)
+                self.send_header("Content-Type", r.getheader("Content-Type") or "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = do_PUT = do_DELETE = forward
+
+        class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+            daemon_threads = True
+
+        Path(path).unlink(missing_ok=True)
+        self.path = str(path)
+        self.server = Server(self.path, Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def of(self, run_id):
+        with self.lock:
+            return [e for _, e in sorted(self.events.get(run_id, {}).items())]
 
 
 @suite.case("setup", "two of alice's machines, a real runtime, a runtime agent `codex` with a real key")
 def _():
     setup_network(second_machine=True)
     a, a2, rt = need("a", "a2", "rt")
-    status, body = a.api("PUT", "/v1/runtime", {"socket": str(rt.socket)})
+    state["recorder"] = Recorder(str(rt.socket), suite.work / "recorder.sock")
+    status, body = a.api("PUT", "/v1/runtime", {"socket": state["recorder"].path})
     check(status == 200 and body.get("peerfs") is True, f"the runtime switch: {status} {body}")
     status, agent = a.api("POST", "/v1/agents", {"name": "codex", "owner": "alice"})
     check(status in (200, 201), f"register codex: {status} {agent}")
@@ -177,11 +214,10 @@ def _():
         body = {"peer_host_id": a.id, "target_agent_id": state["codex"], "input": PROMPT, "task_id": new_task_id()}
         status, record = a2.api("POST", "/v1/tasks", body)
         check(status in (200, 201), f"submit: {status} {record}")
-        tasks.append({"id": body["task_id"], "sent": time.time(), "events": []})
+        tasks.append({"id": body["task_id"], "sent": time.time()})
     state["tasks"] = tasks
     for t in tasks:
         t["run_id"] = runtime_common.run_id(a2, t["id"])
-        threading.Thread(target=tap, args=(t["run_id"], t["events"]), daemon=True).start()
     running_max = 0
     deadline = time.time() + 3600
     while time.time() < deadline:
@@ -202,7 +238,8 @@ def _():
         m = re.search(r"Branch: (\S+) at commit ([0-9a-f]{66})$", t["output"])
         t["branch"], t["commit"] = (m.group(1), m.group(2)) if m else (None, None)
         # stderr chunks are not line-aligned (runtime task contract, The runtime's local API): join them first.
-        stderr = b"".join(base64.b64decode(e["data"]) for e in t["events"] if e["kind"] == "stderr")
+        stderr = b"".join(base64.b64decode(e["data"]) for e in state["recorder"].of(t["run_id"])
+                          if e["kind"] == "stderr")
         usage = []
         for line in stderr.decode(errors="replace").splitlines():
             if '"turn.completed"' in line:
