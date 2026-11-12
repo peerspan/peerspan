@@ -35,11 +35,17 @@ none, and fails a run on a name it was not given before `started`. `GET /v1/runs
 Runtime agents (docs/runtime-agent-contract.md, "The runtime's local API" and Verification) add optional fields to
 `POST /v1/runs`, each checked as that contract says: `network` (`none`, the default, or `internet`; 422 `too_large`
 above `--max-network`, reported as `max_network`), `stdin`, `harness`, `secrets`, `peerfs_fork_from`, `peerfs_agent`,
-`peerfs_commit` and `peerfs_commit_message`.
+`peerfs_commit`, `peerfs_commit_message` and `image` (RUN-12).
+- `image` is 1 to 1,024 bytes of printable ASCII without whitespace (otherwise 400 `invalid`). `GET /v1/runtime` reports
+  `images` true unless started with `--images 0`; such a fake answers a run naming an `image` 422 `unavailable`. An
+  image named with `--unpullable-image REF` (repeatable) fails the run before `started`, with an `error` saying the
+  image cannot be pulled; any other image is "pulled" and the run goes on as on the fake's own image. The request
+  file records `image` with the rest of the body.
 - `secrets` files are read when the run starts; one that cannot be read, or is over 65,536 bytes, fails the run
   before `started` with an `error` naming the secret. Their contents stay in memory and are never logged.
 - With `harness` set the fake ignores `argv` and acts as the agent: it fails the run before `started`, with an
-  `error` naming the secret, unless `secrets.openai_api_key` names a readable file, and then reads its stdin, the
+  `error` naming the secret, unless exactly one of `secrets.openai_api_key` and `secrets.anthropic_api_key` is given
+  (and its file is readable, as for every secret), and then reads its stdin, the
   prompt, as steps (words split on whitespace, `;` separating steps), so `write PATH TEXT ; echo done` changes the
   workspace and answers `done`.
 - `peerfs_fork_from` copies that workspace (one given with `--peerfs-workspace` or an earlier fork) to a new one
@@ -83,7 +89,10 @@ PEERFS_NAME_BYTES = 255
 RESOURCE_FIELDS = ("cpus", "memory_mib", "timeout_seconds")
 # runtime-agent-contract, The runtime's local API: optional fields and the value each takes when omitted.
 AGENT_DEFAULTS = {"network": "none", "stdin": None, "harness": None, "secrets": None, "peerfs_fork_from": None,
-                  "peerfs_agent": "peerspan-runtime", "peerfs_commit": False, "peerfs_commit_message": None}
+                  "peerfs_agent": "peerspan-runtime", "peerfs_commit": False, "peerfs_commit_message": None,
+                  "image": None}
+HARNESS_SECRETS = ("openai_api_key", "anthropic_api_key")  # runtime-agent-contract: one per harness
+IMAGE = re.compile(r"^[\x21-\x7e]{1,1024}$")  # printable ASCII without whitespace
 SECRET_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 SECRET_BYTES = 65536
@@ -184,6 +193,7 @@ class Run:
                 raise Stop(sig=9)
             if self.cancel.is_set():
                 raise Stop(sig=9)
+            self.pull()
             self.read_secrets()
             if self.fork_from is not None:
                 self.workspace = self.runtime.fork(self.fork_from, self.peerfs)
@@ -237,11 +247,22 @@ class Run:
         self.emit("exited", result=result)
         self.emit("results", artifacts=artifacts)
 
+    def pull(self):
+        """runtime-agent-contract: an image the runtime cannot pull fails the run before started."""
+        image = self.request.get("image")
+        if image is not None and image in self.runtime.args.unpullable_image:
+            raise RefusedEntry(f"the image {image} cannot be pulled: refused by --unpullable-image")
+
     def read_secrets(self):
         """runtime-agent-contract: each secret file is read when the run starts; one that cannot be fails it."""
         secrets = self.request.get("secrets") or {}
-        if self.request.get("harness") is not None and "openai_api_key" not in secrets:
-            raise RefusedEntry("the secret openai_api_key is missing")
+        if self.request.get("harness") is not None:
+            given = [name for name in HARNESS_SECRETS if name in secrets]
+            if not given:
+                raise RefusedEntry("the secret openai_api_key or anthropic_api_key is missing")
+            if len(given) > 1:
+                raise RefusedEntry("the secrets openai_api_key and anthropic_api_key are both given; a harness "
+                                   "takes exactly one")
         for name, path in secrets.items():
             try:
                 with open(path, "rb") as f:
@@ -519,7 +540,8 @@ class Runtime:
         return {"version": "fake-runtime-1", "image": "fake", "max_cpus": self.args.max_cpus,
                 "max_memory_mib": self.args.max_memory_mib, "max_seconds": self.args.max_seconds,
                 "max_concurrent_runs": self.args.max_concurrent_runs, "running": running,
-                "peerfs": bool(self.args.peerfs_workspace), "max_network": self.args.max_network}
+                "peerfs": bool(self.args.peerfs_workspace), "max_network": self.args.max_network,
+                "images": bool(self.args.images)}
 
     def validate(self, body):
         if not isinstance(body, dict):
@@ -608,6 +630,9 @@ class Runtime:
             raise ApiError(400, "invalid", "peerfs_commit_message")
         if commit and message is None:
             raise ApiError(400, "invalid", "peerfs_commit_message is required with peerfs_commit")
+        image = body["image"]
+        if image is not None and (not isinstance(image, str) or not IMAGE.match(image)):
+            raise ApiError(400, "invalid", "image")
 
     def start(self, body):
         self.validate(body)
@@ -626,6 +651,8 @@ class Runtime:
                 raise ApiError(422, "too_large", "network internet is above the runtime's maximum")
             if body["peerfs_workspace"] is not None and not self.args.peerfs_workspace:
                 raise ApiError(422, "unavailable", "this runtime serves no peerfs space")
+            if body["image"] is not None and not self.args.images:
+                raise ApiError(422, "unavailable", "this runtime boots only its own image")
             if sum(1 for r in self.runs.values() if r.state != "exited") >= self.args.max_concurrent_runs:
                 raise ApiError(429, "busy", "every run slot is busy")
             if body["peerfs_workspace"] is not None and any(
@@ -804,6 +831,10 @@ def main():
                         help="the most network a run may ask for (runtime agents)")
     parser.add_argument("--fail-commits", type=int, choices=(0, 1), default=0,
                         help="1: every commit fails, with commit null and error set (runtime agents)")
+    parser.add_argument("--images", type=int, choices=(0, 1), default=1,
+                        help="0: GET /v1/runtime reports images false and runs may not name an image (RUN-12)")
+    parser.add_argument("--unpullable-image", action="append", default=[],
+                        help="an image reference it cannot pull (repeatable): such runs fail before started")
     parser.add_argument("--requests", default=None,
                         help="append each POST /v1/runs body, as sent, as one JSON line (secret paths, no contents)")
     args = parser.parse_args()

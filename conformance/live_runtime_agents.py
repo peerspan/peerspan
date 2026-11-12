@@ -5,8 +5,8 @@
 
 alice's host is the "server": it serves through the real peerspan-runtime (KVM microVMs) with a real peerfs
 space whose `main` holds a small repository with a slow function. alice2 is the "laptop": it sends three tasks
-for one performance fix to alice's runtime agent `codex`, with no session attached anywhere. Codex runs headless
-in three VMs at once, each on its own fork, with a real OpenAI key. Then the best branch is merged into `main`
+for one performance fix to alice's runtime agent (`codex` or `claude`), with no session attached anywhere. It runs headless
+in three VMs at once, each on its own fork, with a real provider key. Then the best branch is merged into `main`
 on the server, and the others are left alone. Records memory per VM, wall time and tokens per task.
 
 A manual check, not a suite (AGENTS.md: live runs with real models are separate): it needs root, /dev/kvm, a
@@ -15,10 +15,15 @@ spends a few cents of model usage. Both hosts run on this machine, as the slim s
 full acceptance uses an installed release on two machines.
 
     PEERSPAN_RUNTIME=.../peerspan-runtime PEERSPAN_PEERFS=.../peerfs PEERSPAN_LIBKRUN=.../libkrun.so.2 \
-    PEERSPAN_RUNTIME_GUEST=.../guest CODEX_DIR=.../codex-release/bin OPENAI_KEY_FILE=... \
+    PEERSPAN_RUNTIME_GUEST=.../guest HARNESS_DIR=.../bin KEY_FILE=... [HARNESS=claude PROFILE_IMAGE=REF] \
     LIVE_OUT=DIR python3 conformance/live_runtime_agents.py --bin target/debug
 
-CODEX_DIR holds the Codex release's `codex` and `codex-code-mode-host`. The report is LIVE_OUT/report.json.
+HARNESS is `codex` (the default) or `claude`, and is also the agent's name. HARNESS_DIR holds the Codex release's
+`codex` and `codex-code-mode-host`, or Claude Code's Linux `claude` binary. KEY_FILE holds that harness's provider
+key (OpenAI or Anthropic). PROFILE_IMAGE, if set, is the profile's own image (RUN-12): Claude Code needs glibc, so
+for `claude` use one such as `python:3.12-slim`, while the runtime itself boots `python:3.12-alpine`. Token usage
+is read from Codex's event stream; Claude's text output carries none, so it is recorded as null for `claude`. The
+report is LIVE_OUT/report.json.
 """
 import base64
 import json
@@ -46,8 +51,12 @@ def required(name):
 
 RUNTIME = required("PEERSPAN_RUNTIME")
 PEERFS = required("PEERSPAN_PEERFS")
-CODEX_DIR = required("CODEX_DIR")
-KEY = required("OPENAI_KEY_FILE")
+HARNESS = os.environ.get("HARNESS", "codex")
+if HARNESS not in ("codex", "claude"):
+    sys.exit("live_runtime_agents: HARNESS is codex or claude")
+HARNESS_DIR = required("HARNESS_DIR")
+KEY = required("KEY_FILE")
+PROFILE_IMAGE = os.environ.get("PROFILE_IMAGE")
 ENV = {name: required(name) for name in ("PEERSPAN_LIBKRUN", "PEERSPAN_RUNTIME_GUEST")}
 OUT = Path(required("LIVE_OUT"))
 PROMPT = ("count_primes in primes.py is far too slow: `python3 -m unittest -v` fails test_speed. Make it fast "
@@ -188,22 +197,23 @@ class Recorder:
             return [e for _, e in sorted(self.events.get(run_id, {}).items())]
 
 
-@suite.case("setup", "two of alice's machines, a real runtime, a runtime agent `codex` with a real key")
+@suite.case("setup", "two of alice's machines, a real runtime, a runtime agent with a real key")
 def _():
     setup_network(second_machine=True)
     a, a2, rt = need("a", "a2", "rt")
     state["recorder"] = Recorder(str(rt.socket), suite.work / "recorder.sock")
     status, body = a.api("PUT", "/v1/runtime", {"socket": state["recorder"].path})
     check(status == 200 and body.get("peerfs") is True, f"the runtime switch: {status} {body}")
-    status, agent = a.api("POST", "/v1/agents", {"name": "codex", "owner": "alice"})
-    check(status in (200, 201), f"register codex: {status} {agent}")
-    state["codex"] = agent["id"]
-    r = a.cli("--json", "agent", "runtime", "set", "codex", "--harness-dir", CODEX_DIR, "--max-runs", "3")
+    status, agent = a.api("POST", "/v1/agents", {"name": HARNESS, "owner": "alice"})
+    check(status in (200, 201), f"register {HARNESS}: {status} {agent}")
+    state["agent"] = agent["id"]
+    flags = ["--harness", HARNESS] + (["--image", PROFILE_IMAGE] if PROFILE_IMAGE else [])
+    r = a.cli("--json", "agent", "runtime", "set", HARNESS, "--harness-dir", HARNESS_DIR, "--max-runs", "3", *flags)
     check(r.ok, f"agent runtime set: {r.code} {r.stderr[-300:]}")
-    r = a.cli("--json", "agent", "credential", "set", "codex", "--from-file", KEY)
+    r = a.cli("--json", "agent", "credential", "set", HARNESS, "--from-file", KEY)
     check(r.ok and r.json.get("credential") is True, f"agent credential set: {r.code} {r.stderr[-300:]}")
     sessions = a.api("GET", f"/v1/sessions?agent_id={agent['id']}")[1]
-    check(not sessions, f"no session is attached to codex: {sessions}")
+    check(not sessions, f"no session is attached to {HARNESS}: {sessions}")
 
 
 @suite.case("three_tasks", "three tasks for one fix, from alice2, run concurrently on three forks")
@@ -211,7 +221,7 @@ def _():
     a, a2 = need("a", "a2")
     tasks = []
     for _ in range(3):
-        body = {"peer_host_id": a.id, "target_agent_id": state["codex"], "input": PROMPT, "task_id": new_task_id()}
+        body = {"peer_host_id": a.id, "target_agent_id": state["agent"], "input": PROMPT, "task_id": new_task_id()}
         status, record = a2.api("POST", "/v1/tasks", body)
         check(status in (200, 201), f"submit: {status} {record}")
         tasks.append({"id": body["task_id"], "sent": time.time()})
@@ -247,7 +257,7 @@ def _():
                     usage.append(json.loads(line).get("usage"))
                 except json.JSONDecodeError:
                     pass
-        t["usage"] = [u for u in usage if u]
+        t["usage"] = [u for u in usage if u] if HARNESS == "codex" else None
     check(running_max == 3, f"three VMs at once: the runtime reported at most {running_max} running")
     check(all(t["state"] == "succeeded" for t in tasks), f"states {[t['state'] for t in tasks]}")
     check(all(t["branch"] and t["commit"] for t in tasks), f"outputs {[t['output'][-200:] for t in tasks]}")
@@ -259,7 +269,7 @@ def _():
     for t in state["tasks"]:
         log = pf("log", "--branch", t["branch"])
         t["log"] = log
-        check(t["commit"] in log and "codex" in log, f"{t['branch']} log: {log[:400]}")
+        check(t["commit"] in log and HARNESS in log, f"{t['branch']} log: {log[:400]}")
         out = suite.work / f"export-{t['branch']}"
         pf("export", str(out), "--branch", t["branch"])
         start = time.monotonic()
@@ -318,7 +328,7 @@ def _():
     check(not leaked and all(secret not in t["output"] for t in state["tasks"]), f"key in {leaked}")
     missing = [t["task"] for t in report["tasks"] if t["memory_peak_mib"] is None]
     check(not missing, f"no memory measurement for {missing}")
-    check(all(t["usage"] for t in report["tasks"]), f"no token usage for {[t['task'] for t in report['tasks'] if not t['usage']]}")
+    check(HARNESS != "codex" or all(t["usage"] for t in report["tasks"]), f"no token usage for {[t['task'] for t in report['tasks'] if not t['usage']]}")
 
 
 suite.finish()

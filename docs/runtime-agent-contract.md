@@ -15,10 +15,11 @@ Where it doesn't say otherwise, those contracts apply. It changes nothing for se
 peer routes, the authorization of `task.submit`, the status record and the events are as in the
 task contract.
 
-The only harness is **Codex** (`codex exec`), with an OpenAI API key.
+There are two harnesses, each with its provider's API key:
+- **Codex** (`codex exec`), with an OpenAI API key;
+- **Claude** (Claude Code's `claude -p`), with an Anthropic API key (RUN-12, RUN-13).
 
 Not in this contract:
-- choosing a guest image per profile;
 - input artifacts on a runtime agent's tasks (refused, below) and result artifacts;
 - talking to a running agent (messages, progress, delegation from inside the VM);
 - per-tool-call snapshots;
@@ -35,8 +36,9 @@ policy rules for `task.submit`.
 | Field | Rules | Default |
 | --- | --- | --- |
 | `agent_id` | A registered agent of this host whose name is addressable (1 to 64 characters of lowercase ASCII letters, digits, `.`, `_` and `-`, starting with a letter or digit). | Required |
-| `harness` | `codex`. | `codex` |
-| `harness_dir` | An absolute path to a directory holding the Codex release's `codex` and `codex-code-mode-host` binaries, readable by the runtime. The owner installs it. | Required |
+| `harness` | `codex` or `claude`. | `codex` |
+| `harness_dir` | An absolute path to a directory readable by the runtime, which the owner installs. For `codex` it holds the Codex release's `codex` and `codex-code-mode-host` binaries. For `claude` it holds Claude Code's Linux x64 `claude` binary. | Required |
+| `image` | An OCI image reference to boot, such as `python:3.12-slim`: 1 to 1,024 bytes of printable ASCII without whitespace. Null boots the runtime's own image. Claude Code's binary needs glibc, so a `claude` profile needs a glibc image; Codex's is static and runs on any. | null |
 | `from_branch` | A peerfs branch name of the runtime's space: 1 to 255 bytes of UTF-8, not `.` or `..`, without `/` or NUL. | `main` |
 | `network` | `none` or `internet`. | `internet` |
 | `cpus` | 1 to 64. | 2 |
@@ -44,14 +46,15 @@ policy rules for `task.submit`.
 | `timeout_seconds` | 1 to 86,400. | 3,600 |
 | `max_runs` | 1 to 64: how many of this agent's tasks may be dispatched or running at once. | 3 |
 
-The agent's **credential**, its OpenAI API key, is stored apart from the profile in
+The agent's **credential**, its harness's API key (OpenAI for `codex`, Anthropic for `claude`), is
+stored apart from the profile in
 `credentials/AGENT_ID` (mode 0600) in the state directory. It is 1 to 4,096 bytes of printable
 ASCII with no whitespace; a trailing newline in the input is dropped. It is never written to
 policy, a task record, an event, activity, a log or any response.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `agent runtime set AGENT --harness-dir DIR [--from-branch BRANCH] [--network none\|internet] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-runs N]` | `PUT /v1/agents/{agent_id}/runtime` with the profile's fields but `agent_id` | Creates or replaces the profile. `AGENT` is an agent ID or a local agent's name. It needs the runtime switch on and a runtime that reports `peerfs` true (otherwise 409 `runtime_unavailable`). The resources and `network` may not exceed what the runtime reports, `max_network` included (otherwise 422 `too_large`). An agent whose name is not addressable is 400 `invalid`. `--timeout` takes a duration as `task run --timeout` does. An omitted field takes its default, not its previous value. Returns the profile, with `agent_id` and without `credential`. Activity `runtime.agent_set`. |
+| `agent runtime set AGENT --harness-dir DIR [--harness codex\|claude] [--image REF] [--from-branch BRANCH] [--network none\|internet] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-runs N]` | `PUT /v1/agents/{agent_id}/runtime` with the profile's fields but `agent_id` | Creates or replaces the profile. `AGENT` is an agent ID or a local agent's name. It needs the runtime switch on and a runtime that reports `peerfs` true (otherwise 409 `runtime_unavailable`). The resources and `network` may not exceed what the runtime reports, `max_network` included (otherwise 422 `too_large`). An `image` needs a runtime that reports `images` true (otherwise 409 `runtime_unavailable`); whether the image exists is found out at the first run. An agent whose name is not addressable is 400 `invalid`. `--timeout` takes a duration as `task run --timeout` does. An omitted field takes its default, not its previous value. Returns the profile, with `agent_id`, `image` (null when it is not set) and without `credential`. Activity `runtime.agent_set`. |
 | `agent runtime show [AGENT] [--json]` | `GET /v1/agents/{agent_id}/runtime`, `GET /v1/agents/runtime` | One profile, or a JSON array of all profiles in agent ID order, each with `credential: true\|false` added. 404 for an agent without a profile. |
 | `agent runtime clear AGENT` | `DELETE /v1/agents/{agent_id}/runtime` | Removes the profile, and returns `{}`. Tasks already dispatched or running finish; queued ones are rejected at start. Activity `runtime.agent_cleared`. |
 | `agent credential set AGENT --from-file PATH` | `PUT /v1/agents/{agent_id}/credential` with `{value}` | Stores the key, replacing any earlier one. Returns `{agent_id, credential: true}`. Activity `runtime.credential_set`, without the key. |
@@ -122,7 +125,9 @@ the reason.
   `TASK_ID from SENDER_HOST_ID`;
 - `stdin` the task's `input`;
 - `harness` the profile's `harness_dir`;
-- `secrets` `{"openai_api_key": PATH}`, the path of the agent's credential file.
+- `image` the profile's `image`, left out when it is null;
+- `secrets` `{SECRET: PATH}`, the path of the agent's credential file, where SECRET is
+  `openai_api_key` for `codex` and `anthropic_api_key` for `claude`.
 
 The **fork's name** is the agent's name, `.`, and the task ID: for example
 `codex.task_0123456789abcdef0123456789abcdef`. A sender that reuses another sender's task ID
@@ -139,7 +144,23 @@ onto an existing name. It never reaches the other task's fork.
 
 So the run's stdout is Codex's final message, and its stderr is Codex's event stream and logs.
 The VM is the sandbox, so Codex's own sandbox is off. `HOME` lives in the VM's throwaway root,
-so Codex's session state ends with the VM. The script's text is fixed by the host release, not
+so Codex's session state ends with the VM.
+
+**The harness command** for Claude is `["/bin/sh", "-c", SCRIPT]`, where SCRIPT:
+1. exits 127, writing `the image has no glibc, which Claude Code needs` to stdout, when
+   `/lib64/ld-linux-x86-64.so.2` does not exist;
+2. sets `HOME` to `/root`, and `IS_SANDBOX` to `1`;
+3. sets `ANTHROPIC_API_KEY` from `/run/secrets/anthropic_api_key`;
+4. runs `/opt/peerspan/harness/claude -p --dangerously-skip-permissions --output-format text
+   --no-session-persistence` in `/workspace`, with the prompt on its stdin, and exits with its
+   status.
+
+Its stdout is Claude's final message, or its error, such as an invalid key; its stderr is Claude's
+logs. As for Codex, the VM is the sandbox, so Claude's permission checks are off. Claude Code
+refuses to skip them as root unless `IS_SANDBOX` is set, and the command runs as root in its own
+VM (RUN-13). On an image without glibc the shell starts but Claude Code cannot, so the run
+starts and the task ends `failed`. Its output is the message of step 1 and the branch line of a
+run that started, `Branch: NAME, unchanged from FROM`. The script's text is fixed by the host release, not
 by this contract.
 
 **Transitions.** They are those of a runtime task, with the run result replaced by the
@@ -211,13 +232,15 @@ runtime tasks never set them. The runtime refuses anything else with 400.
 | `peerfs_agent` | An addressable agent name, with `peerfs_workspace` set: the agent recorded on the run's snapshots and commit. Default `peerspan-runtime`. |
 | `peerfs_commit` | `true` or `false` (the default), with `peerfs_workspace` set. With `true`, once the run has ended and been snapshotted, the runtime commits the workspace to its branch: one commit, with the message `peerfs_commit_message`. |
 | `peerfs_commit_message` | 1 to 4,096 bytes of UTF-8. Required with `peerfs_commit` true. |
+| `image` | An OCI image reference, as for a profile, or null (the default). The run boots it in place of the runtime's own image, with the image's environment merged under `env` as for the runtime's own. The runtime pulls an image it does not have into its image cache when the run starts. A reference it cannot parse is 400, and one it cannot pull fails the run before `started`, with `error` saying why. A runtime that reports `images` false answers a run naming one with 422 `unavailable`. |
 
 The `exited` event's result gains `commit`: the commit's peerfs object ID, or null when there
 was no commit to make (nothing changed, the run never started, or `peerfs_commit` was false). A
 commit that fails sets `error` and leaves `commit` null. The task's run result for runtime
 tasks (runtime task contract, The run result) does not gain it.
 
-`GET /v1/runtime` gains `max_network`, `none` or `internet`.
+`GET /v1/runtime` gains `max_network`, `none` or `internet`, and `images`: true when runs may
+name an `image`.
 
 With these fields, the runtime task contract's guarantee "the guest has no network" holds when
 `network` is `none`.
@@ -248,10 +271,12 @@ runtime suites.
 
 **The fake runtime** gains the new fields:
 - It checks each one as above, and reports `max_network` (`internet` unless told otherwise on
-  its command line).
+  its command line) and `images` (true unless told otherwise).
+- It records `image` with the rest of the request, and fails the run before `started` for an
+  image named on its command line as one it cannot pull.
 - With `harness` set, it ignores `argv` and acts as the agent. It reads its stdin, the prompt,
-  and fails the run before `started`, with an `error` naming the secret, if
-  `secrets.openai_api_key` is missing or its file is unreadable.
+  and fails the run before `started`, with an `error` naming the secret, unless exactly one of
+  `secrets.openai_api_key` and `secrets.anthropic_api_key` is given and its file is readable.
 - It then runs the prompt as steps, in the same language that `argv` uses for runtime tasks, so
   `write PATH TEXT ; echo done` changes the fork and answers `done`.
 - `peerfs_fork_from` copies the named workspace directory of its command line, or an earlier
@@ -265,8 +290,9 @@ runtime suites.
 The suite covers:
 - **Profiles:** `agent runtime set` with defaults and with every option; replacing a profile;
   `show` with and without a credential; `clear`; refusal with the runtime switch off, for a
-  runtime reporting `peerfs` false, for resources over the runtime's maximums, and for an
-  agent whose name is not addressable. `agent credential set` and `clear`, with the key never
+  runtime reporting `peerfs` false, for resources over the runtime's maximums, for an
+  `image` on a runtime reporting `images` false, and for an agent whose name is not
+  addressable. `agent credential set` and `clear`, with the key never
   appearing in any response, task record, event, activity or log.
 - **Receiving:** a task to a runtime agent, sent by the owner's other host (citing `self`) and by
   another person's host under a grant, never offered to an attached session of the agent. A task
@@ -275,7 +301,12 @@ The suite covers:
 - **Running:** the request the host sends. It has the harness `argv` beginning `/bin/sh -c`, the
   task's `input` as `stdin`, the profile's resources and network, and the fork name
   `NAME.TASK_ID` from `from_branch`. It has `peerfs_agent`, `peerfs_commit` true with the message `TASK_ID from SENDER_HOST_ID`, the harness
-  directory, and a secret path whose file holds the stored key.
+  directory, and a secret path whose file holds the stored key. A `claude` profile with an
+  `image`: the `argv` runs `claude -p`, the secret is `anthropic_api_key`, and `image` is the
+  profile's; a profile without one sends no `image`.
+- **An image that cannot be pulled:** the task fails before `started`, with `Branch: none`.
+  (A `claude` profile on an image without glibc fails after `started`. That is a live check, not
+  a suite case, since the fake runtime runs no shell.)
 - **Lifecycle:** queued, accepted, then succeeded with the output `MESSAGE\n\nBranch: NAME at
   commit ID`. The fork holds the agent's write, and `from_branch` is unchanged.
 - **Failure and empty output:** a failing exit with its message and branch line. An empty message
@@ -305,5 +336,7 @@ server, with no open session there, run concurrently on three forks. Each return
 a branch, and the owner merges one. With per-run snapshots (RUN-10), each branch's history holds
 the before and after snapshots and the commit, all attributed to the agent, rather than one
 snapshot per tool call. The run also records memory per agent VM, wall time and tokens per task.
+The same run with a `claude` profile on a glibc image, and a real Anthropic key, is the
+acceptance for the second harness.
 `conformance/live_runtime_agents.py` runs this on one machine, with both hosts there: a manual check that
 needs KVM, a Codex release and a real key.

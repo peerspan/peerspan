@@ -27,8 +27,6 @@ use std::{
 
 const PROFILES_FILE: &str = "runtime-agents.json";
 const CREDENTIALS: &str = "credentials";
-/// The secret's name in the run, at `/run/secrets/openai_api_key`.
-const SECRET: &str = "openai_api_key";
 /// The most a final event's `output` holds (task contract).
 const MAX_OUTPUT: usize = crate::task::MAX_TEXT;
 /// The longest error a `not committed:` trailer carries.
@@ -51,6 +49,30 @@ cat "$last" 2>/dev/null
 exit $status
 "#;
 
+/// The Claude harness command's script (RUN-13): it runs as root with
+/// `IS_SANDBOX=1`, the prompt arrives on stdin, Claude's final message goes
+/// to stdout and its logs to stderr. Claude Code needs glibc, so an image
+/// without it gets a message saying so rather than a loader error.
+const CLAUDE_SCRIPT: &str = r#"if [ ! -e /lib64/ld-linux-x86-64.so.2 ]; then
+  echo 'the image has no glibc, which Claude Code needs'
+  exit 127
+fi
+export HOME=/root IS_SANDBOX=1
+ANTHROPIC_API_KEY=$(cat /run/secrets/anthropic_api_key) || exit 1
+export ANTHROPIC_API_KEY
+cd /workspace || exit 1
+exec /opt/peerspan/harness/claude -p --dangerously-skip-permissions --output-format text --no-session-persistence
+"#;
+
+/// The harness command's script and the run's secret name, at
+/// `/run/secrets/NAME`, for a profile's `harness`.
+fn harness_command(harness: &str) -> (&'static str, &'static str) {
+    match harness {
+        "claude" => (CLAUDE_SCRIPT, "anthropic_api_key"),
+        _ => (CODEX_SCRIPT, "openai_api_key"),
+    }
+}
+
 /// A launch profile, as stored and returned (without `credential`).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -58,6 +80,10 @@ pub struct Profile {
     pub agent_id: String,
     pub harness: String,
     pub harness_dir: String,
+    /// The OCI image each run boots, or null for the runtime's own. Older
+    /// profiles have none stored.
+    #[serde(default)]
+    pub image: Option<String>,
     pub from_branch: String,
     pub network: String,
     pub cpus: i64,
@@ -74,6 +100,8 @@ struct ProfileRequest {
     #[serde(default)]
     harness: Option<String>,
     harness_dir: String,
+    #[serde(default)]
+    image: Option<String>,
     #[serde(default)]
     from_branch: Option<String>,
     #[serde(default)]
@@ -114,6 +142,7 @@ impl ProfileRequest {
             agent_id: agent_id.into(),
             harness: self.harness.unwrap_or_else(|| "codex".into()),
             harness_dir: self.harness_dir,
+            image: self.image,
             from_branch: self.from_branch.unwrap_or_else(|| "main".into()),
             network: self.network.unwrap_or_else(|| "internet".into()),
             cpus: self.cpus.unwrap_or(2),
@@ -121,8 +150,13 @@ impl ProfileRequest {
             timeout_seconds: self.timeout_seconds.unwrap_or(3600),
             max_runs: self.max_runs.unwrap_or(3),
         };
-        if profile.harness != "codex" {
+        if !matches!(profile.harness.as_str(), "codex" | "claude") {
             return Err(invalid("harness"));
+        }
+        if profile.image.as_ref().is_some_and(|image| {
+            image.is_empty() || image.len() > 1024 || !image.bytes().all(|b| b.is_ascii_graphic())
+        }) {
+            return Err(invalid("image"));
         }
         if !profile.harness_dir.starts_with('/')
             || profile.harness_dir.len() > 4096
@@ -286,9 +320,10 @@ pub(crate) fn run_body(
     request: &TaskRequest,
 ) -> Result<Value, Error> {
     let secret = store.credential_path(&profile.agent_id)?;
-    Ok(json!({
+    let (script, name) = harness_command(&profile.harness);
+    let mut body = json!({
         "run_id": run_id,
-        "argv": ["/bin/sh", "-c", CODEX_SCRIPT],
+        "argv": ["/bin/sh", "-c", script],
         "cwd": "/workspace",
         "env": {},
         "resources": {
@@ -306,8 +341,12 @@ pub(crate) fn run_body(
         "peerfs_commit_message": format!("{} from {sender}", request.task_id),
         "stdin": STANDARD.encode(request.input.as_bytes()),
         "harness": profile.harness_dir,
-        "secrets": { SECRET: secret },
-    }))
+        "secrets": { name: secret },
+    });
+    if let Some(image) = &profile.image {
+        body["image"] = image.as_str().into();
+    }
+    Ok(body)
 }
 
 /// How a runtime agent's run ended, for its output text.
@@ -467,6 +506,13 @@ async fn set(
         .map_err(|_| unavailable())?;
     if report["peerfs"] != Value::Bool(true) {
         return Err(unavailable());
+    }
+    if profile.image.is_some() && report["images"] != Value::Bool(true) {
+        return Err(coded(
+            409,
+            "runtime_unavailable",
+            "an image needs a runtime that reports images true",
+        ));
     }
     for (field, value, most) in [
         ("cpus", profile.cpus, "max_cpus"),

@@ -291,8 +291,16 @@ def _():
         status, view = b.api("GET", f"/v1/conversations/{x}")
         raise AssertionError(f"bob's X after its sync: {status} state {view.get('state')} version "
                              f"{view.get('roster_version')}, want closed at {version}") from None
-    ids = [m["message_id"] for m in show(b, x)["messages"]]
-    check(sent["x"][0] in ids, f"bob's X lists {ids}, want alice's message from before the close")
+    # A sync stores the roster first (C4 Conversation sync, step 1) and fetches the messages after it (step 2), so
+    # bob may hold X closed a moment before he lists the message from before the close.
+    def listed():
+        ids = [m["message_id"] for m in show(b, x)["messages"]]
+        return ids if sent["x"][0] in ids else None
+    try:
+        wait_for(listed, timeout=20, interval=0.5, message="bob to list alice's message")
+    except AssertionError:
+        ids = [m["message_id"] for m in show(b, x)["messages"]]
+        raise AssertionError(f"bob's X lists {ids}, want alice's message from before the close") from None
     wait_state(a, x, sent["x"][0], bob_p, "delivered")
     _, hosts = sync(a, x)
     check(hosts.get(b.id, {}).get("state") in ("synced", "complete"), f"alice's first sync of X: {hosts}")

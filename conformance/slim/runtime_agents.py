@@ -4,10 +4,13 @@
 alice creates a coordinator-free network, bob joins as another person and alice links a second machine, alice2.
 alice's host serves through conformance/slim/fake_runtime.py, started with the peerfs workspaces `main` and `dev`,
 two run slots and `--requests`, so the suite sees each `POST /v1/runs` body as the host sent it. alice registers
-the agents `codex`, `codex2` and `late`; bob sends them tasks under `task.submit` grants and alice2 under self
+the agents `codex`, `codex2`, `late` and `claude`; bob sends them tasks under `task.submit` grants and alice2 under self
 access. With `harness` set the fake ignores `argv` and runs the task's input, the prompt, as steps, so a prompt
 `write notes.txt hello ; echo done` changes the fork and answers `done`. The rest of the runtime is the other
 runtime_* suites; the shared fixtures are runtime_common.py.
+
+The second harness and per-profile images (RUN-12, RUN-13): `claude` gets its own harness directory and an Anthropic
+key, and the fake is also started with `--unpullable-image`, naming one image it cannot pull.
 
 Written from docs/runtime-agent-contract.md only (cited as "agents <section>"), with the runtime task, task and
 launch contracts it builds on. No VM, no KVM, no peerfs, no model calls.
@@ -28,8 +31,10 @@ suite = Suite("runtime_agents", __doc__)
 bind(suite)
 COMMIT = re.compile(r"^[0-9a-f]{66}$")  # a peerfs object ID (agents, The output)
 MAIN_SCHEMA = 30  # the schema version on main when this suite was written; the contract adds the next one
+MISSING_IMAGE = "registry.invalid/peerspan/missing:1"  # the fake cannot pull it
+GLIBC_IMAGE = "python:3.12-slim"
 FAKE = {"peerfs_workspace": ["main", "dev"], "max_concurrent_runs": 2, "max_cpus": 4, "max_memory_mib": 8192,
-        "max_seconds": 7200}
+        "max_seconds": 7200, "unpullable_image": [MISSING_IMAGE]}
 DEFAULTS = {"harness": "codex", "from_branch": "main", "network": "internet", "cpus": 2, "memory_mib": 2048,
             "timeout_seconds": 3600, "max_runs": 3}
 
@@ -49,10 +54,10 @@ def agent_id(name):
     return state["agents"][name]["id"]
 
 
-def profile(name, *flags):
+def profile(name, *flags, harness=None):
     """`agent runtime set NAME --harness-dir DIR FLAGS...` on alice's host; returns the profile."""
     a, = need("a")
-    result = a.cli("--json", "agent", "runtime", "set", name, "--harness-dir", str(state["harness"]), *flags)
+    result = a.cli("--json", "agent", "runtime", "set", name, "--harness-dir", str(harness or state["harness"]), *flags)
     check(result.ok and isinstance(result.json, dict),
           f"agent runtime set {name} {' '.join(flags)}: exit {result.code} {tail(result.stderr)}")
     return result.json
@@ -71,6 +76,11 @@ def ready(name, *flags):
     value = profile(name, *flags)
     credential(name)
     return value
+
+
+def bare(value):
+    """A profile without `image` (RUN-12), so the cases written before it hold whether or not the host reports it."""
+    return {k: v for k, v in value.items() if k != "image"} if isinstance(value, dict) else value
 
 
 def clear(*args):
@@ -162,16 +172,16 @@ def activity_kinds():
     return [entry["kind"] for entry in body]
 
 
-def key_nowhere(*answers):
+def key_nowhere(*answers, key=None, key_file=None):
     """The key appears in none of ANSWERS, no file of the hosts' homes and states (logs, databases, records)
     but alice's credentials/ directory, and none of the fake runtime's logs (agents, The launch profile)."""
-    key = state["key"]
+    key, key_file = key or state["key"], key_file or state["key_file"]
     for answer in answers:
         check(key not in str(answer), f"the key appears in a response: {str(answer)[:200]}")
     leaks = []
     credentials = state["a"].state / "credentials"
     for path in suite.work.rglob("*"):  # every host's home and state, and the fake runtime's files and logs
-        if path == state["key_file"] or credentials in path.parents or not path.is_file():
+        if path == key_file or credentials in path.parents or not path.is_file():
             continue
         try:
             if key.encode() in path.read_bytes():
@@ -201,12 +211,20 @@ def _():
     state["key"] = "sk-test-" + os.urandom(24).hex()
     key_file = owner / "openai.key"
     key_file.write_text(state["key"] + "\n")  # a trailing newline in the input is dropped
-    state.update(harness=harness, key_file=key_file, agents={}, grants={})
-    for name in ("codex", "codex2", "late", "Bad Name"):
+    claude = owner / "claude-release"  # Claude Code's single Linux x64 binary (RUN-12)
+    claude.mkdir()
+    (claude / "claude").write_text("#!/bin/sh\nexit 0\n")
+    (claude / "claude").chmod(0o755)
+    state["anthropic_key"] = "sk-ant-test-" + os.urandom(24).hex()
+    anthropic_file = owner / "anthropic.key"
+    anthropic_file.write_text(state["anthropic_key"] + "\n")
+    state.update(harness=harness, key_file=key_file, agents={}, grants={}, claude_harness=claude,
+                 anthropic_file=anthropic_file)
+    for name in ("codex", "codex2", "late", "claude", "Bad Name"):
         status, agent = a.api("POST", "/v1/agents", {"name": name, "owner": "alice"})
         check(status in (200, 201), f"register {name}: {status} {agent}")
         state["agents"][name] = agent
-    for name in ("codex", "codex2", "late"):
+    for name in ("codex", "codex2", "late", "claude"):
         grant = a.ok("grant", "create", "--peer", b.id, "--agent", agent_id(name), "--action", "task.submit",
                      "--expires-at", rfc3339(a.now() + timedelta(hours=6)))
         state["grants"][name] = grant["id"]
@@ -256,6 +274,49 @@ def _():
     check(state["key"] not in state["requests"].read_text() + rt.log.read_text(), "the fake logged the key")
 
 
+@suite.case("fake_runtime_images", "agents Verification (the fake runtime: images, image, the two harness secrets); "
+                                   "The runtime's local API (image)")
+def _():
+    rt, = need("rt")
+    status, report = rt.api("GET", "/v1/runtime")
+    check(status == 200 and report.get("images") is True, f"images: {report}")
+    base = {"argv": ["ignored"], "cwd": "/workspace", "env": {}, "resources": {"cpus": 1, "memory_mib": 128,
+            "timeout_seconds": 60}, "workspace_archive": None, "results": "none", "harness": str(state["harness"]),
+            "peerfs_fork_from": "main", "stdin": base64.b64encode(b"echo done").decode()}
+
+    def run(**fields):
+        body = {**base, "run_id": "run_" + os.urandom(32).hex(), "peerfs_workspace": "fixture." + os.urandom(4).hex(),
+                **fields}
+        status, answer = rt.api("POST", "/v1/runs", body)
+        if status != 201:
+            return status, answer
+        return status, wait_for(lambda: rt.entries("exited", body["run_id"]), timeout=10, message="the run")[-1]
+    anthropic = {"anthropic_api_key": str(state["anthropic_file"])}
+    for image in ("", "a b", "x" * 1025, "caf\u00e9", 3):
+        status, answer = run(image=image, secrets=anthropic)
+        check(status == 400 and answer["code"] == "invalid", f"image {str(image)[:20]!r}: {status} {answer}")
+    status, done = run(image=GLIBC_IMAGE, secrets=anthropic)
+    check(status == 201 and done["started"] and done["result"]["error"] is None, f"an anthropic key alone: {done}")
+    status, done = run(image=MISSING_IMAGE, secrets=anthropic)
+    check(status == 201 and not done["started"] and MISSING_IMAGE in (done["result"]["error"] or ""),
+          f"an image it cannot pull: {done}")
+    status, done = run(secrets={**anthropic, "openai_api_key": str(state["key_file"])})
+    error = done["result"]["error"] or ""
+    check(status == 201 and not done["started"] and "openai_api_key" in error and "anthropic_api_key" in error,
+          f"both harness secrets: {done}")
+    sent = [json.loads(json.loads(line)["body"]) for line in state["requests"].read_text().splitlines()]
+    check(any(b.get("image") == GLIBC_IMAGE for b in sent), "the fake did not record image")
+    check(state["anthropic_key"] not in state["requests"].read_text() + rt.log.read_text(), "the fake logged the key")
+    fake(images=0)
+    try:
+        status, report = rt.api("GET", "/v1/runtime")
+        check(report.get("images") is False, f"--images 0: {report}")
+        status, answer = run(image=GLIBC_IMAGE, secrets=anthropic)
+        check(status == 422, f"an image on a runtime reporting images false: {status} {answer}")
+    finally:
+        fake()
+
+
 # Profiles (agents, The launch profile).
 
 @suite.case("profile_set_show_clear", "agents The launch profile: set (defaults, every option, replacement), show, "
@@ -265,7 +326,7 @@ def _():
     need("ready")
     codex = agent_id("codex")
     value = profile("codex")
-    check(value == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS},
+    check(bare(value) == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS},
           f"a profile with defaults: {value}")
     stored = a.state / "runtime-agents.json"
     check(stored.is_file() and stored.stat().st_mode & 0o777 == 0o600, "runtime-agents.json (0600) missing")
@@ -273,14 +334,15 @@ def _():
              "max_runs": 2}
     value = profile(codex, "--from-branch", "dev", "--network", "none", "--cpus", "3", "--memory-mib", "3072",
                     "--timeout", "300s", "--max-runs", "2")
-    check(value == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS, **every},
+    check(bare(value) == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS, **every},
           f"every option, by agent ID: {value}")
     value = profile("codex")
     check(value["from_branch"] == "main" and value["cpus"] == 2 and value["max_runs"] == 3,
           f"a replacement takes defaults, not the previous values: {value}")
     status, body = a.api("PUT", f"/v1/agents/{codex}/runtime",
                          {"harness": "codex", "harness_dir": str(state["harness"]), **every})
-    check(status == 200 and body == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS, **every},
+    check(status == 200 and bare(body) == {"agent_id": codex, "harness_dir": str(state["harness"]), **DEFAULTS,
+                                           **every},
           f"PUT /v1/agents/{{id}}/runtime: {status} {body}")
     status, body = a.api("GET", f"/v1/agents/{codex}/runtime")
     check(status == 200 and body.get("credential") is False and body.get("max_runs") == 2,
@@ -332,6 +394,65 @@ def _():
           f"a profile for an agent whose name is not addressable: {status} {answer}")
     result = a.cli("agent", "runtime", "set", "Bad Name", "--harness-dir", str(state["harness"]))
     check(not result.ok, "agent runtime set for a name that is not addressable succeeded")
+
+
+@suite.case("profile_claude_image", "agents The launch profile: harness claude, image (default null, --image, "
+                                    "replacement)")
+def _():
+    a, = need("a")
+    need("ready")
+    claude = agent_id("claude")
+    value = profile("claude")
+    check(value == {"agent_id": claude, "harness_dir": str(state["harness"]), "image": None, **DEFAULTS},
+          f"a profile with defaults has image null: {value}")
+    every = {"harness": "claude", "image": GLIBC_IMAGE, "from_branch": "dev", "network": "none", "cpus": 3,
+             "memory_mib": 3072, "timeout_seconds": 300, "max_runs": 2}
+    value = profile("claude", "--harness", "claude", "--image", GLIBC_IMAGE, "--from-branch", "dev", "--network",
+                    "none", "--cpus", "3", "--memory-mib", "3072", "--timeout", "300s", "--max-runs", "2",
+                    harness=state["claude_harness"])
+    check(value == {"agent_id": claude, "harness_dir": str(state["claude_harness"]), **DEFAULTS, **every},
+          f"every option, harness claude and an image: {value}")
+    status, body = a.api("GET", f"/v1/agents/{claude}/runtime")
+    check(status == 200 and body == {**value, "credential": False}, f"show: {status} {body}")
+    value = profile("claude")
+    check(value["harness"] == "codex" and value["image"] is None,
+          f"a replacement takes defaults (codex, image null), not the previous values: {value}")
+    status, body = a.api("PUT", f"/v1/agents/{claude}/runtime", {"harness": "claude", "image": GLIBC_IMAGE,
+                                                                 "harness_dir": str(state["claude_harness"])})
+    check(status == 200 and body.get("harness") == "claude" and body.get("image") == GLIBC_IMAGE,
+          f"PUT with harness claude and image: {status} {body}")
+    for bad in ("", "a b", "x" * 1025):
+        status, body = a.api("PUT", f"/v1/agents/{claude}/runtime", {"harness_dir": str(state["harness"]),
+                                                                     "image": bad})
+        check(400 <= status < 500, f"image {bad[:20]!r}: {status} {body}")
+    status, body = a.api("PUT", f"/v1/agents/{claude}/runtime", {"harness_dir": str(state["harness"]),
+                                                                 "harness": "gemini"})
+    check(400 <= status < 500, f"harness gemini: {status} {body}")
+    check(clear("agent", "runtime", "clear", "claude") == {}, "agent runtime clear")
+
+
+@suite.case("profile_image_refused", "agents The launch profile: an image on a runtime reporting images false is 409 "
+                                     "runtime_unavailable")
+def _():
+    a, rt = need("a", "rt")
+    need("ready")
+    path = f"/v1/agents/{agent_id('codex2')}/runtime"
+    fake(images=0)
+    try:
+        check(rt.api("GET", "/v1/runtime")[1].get("images") is False, "the fake reports images true")
+        value = profile("codex2", "--cpus", "1")  # control: without an image the profile is set
+        result = a.cli("--json", "agent", "runtime", "set", "codex2", "--harness-dir", str(state["harness"]),
+                       "--image", GLIBC_IMAGE)
+        check(not result.ok, f"agent runtime set --image on a runtime without images: {result.json}")
+        status, answer = a.api("PUT", path, {"harness": "codex", "harness_dir": str(state["harness"]),
+                                             "image": GLIBC_IMAGE})
+        refused(status, answer, 409, "runtime_unavailable")
+        status, answer = a.api("GET", path)
+        check(status == 200 and answer.get("cpus") == 1 and answer.get("image") is None
+              and bare(answer) == {**bare(value), "credential": answer.get("credential")},
+              f"a refusal changed the profile: {status} {answer}")
+    finally:
+        fake()
 
 
 @suite.case("credential_set_clear", "agents The launch profile: credential set and clear, credentials/AGENT_ID "
@@ -445,6 +566,47 @@ def _():
     key_nowhere()
 
 
+@suite.case("run_request_no_image", "agents Running (image left out when the profile's is null)")
+def _():
+    task_id, _ = need("lifecycle")[0]
+    sent = posts(task_id)
+    check(sent and "image" not in sent[0][2], f"a profile without an image sent one: {sent[0][2].get('image')!r}")
+
+
+@suite.case("run_claude_image", "agents Running (the Claude harness command, secret anthropic_api_key, image); "
+                                "The output")
+def _():
+    b, = need("b")
+    need("ready")
+    profile("claude", "--harness", "claude", "--image", GLIBC_IMAGE, harness=state["claude_harness"])
+    credential("claude", state["anthropic_file"])
+    prompt = "write claude.txt hi ; echo done"
+    task_id = send("claude", prompt)
+    found = events(task_id)
+    sent = posts(task_id)
+    check(sent and sent[0][0] == 201, f"the runtime saw no start for {task_id}")
+    body = sent[0][2]
+    argv = body["argv"]
+    check(argv[:2] == ["/bin/sh", "-c"] and len(argv) == 3 and re.search(r"\bclaude -p\b", argv[2]),
+          f"argv does not run claude -p: {argv}")
+    want = {"image": GLIBC_IMAGE, "harness": str(state["claude_harness"]), "peerfs_workspace": fork(task_id, "claude"),
+            "peerfs_fork_from": "main", "peerfs_agent": "claude", "peerfs_commit": True,
+            "peerfs_commit_message": f"{task_id} from {b.id}", "stdin": base64.b64encode(prompt.encode()).decode(),
+            "cwd": "/workspace", "env": {}, "network": "internet", "workspace_archive": None, "results": "none"}
+    wrong = {k: body.get(k) for k, v in want.items() if body.get(k) != v}
+    check(not wrong, f"the request differs from the contract: {wrong}")
+    secrets = body.get("secrets") or {}
+    check(list(secrets) == ["anthropic_api_key"] and os.path.isabs(secrets["anthropic_api_key"]),
+          f"secrets {secrets}")
+    with open(secrets["anthropic_api_key"]) as f:
+        check(f.read() == state["anthropic_key"], "the secret's file does not hold the stored Anthropic key")
+    check(kinds(found) == ["queued", "accepted", "succeeded"], f"events {kinds(found)}")
+    commit = exited(task_id)["commit"]
+    check(found[-1]["output"] == f"done\n\nBranch: {fork(task_id, 'claude')} at commit {commit}",
+          f"output {found[-1]['output']!r}")
+    key_nowhere(key=state["anthropic_key"], key_file=state["anthropic_file"])
+
+
 @suite.case("lifecycle_succeeded", "agents Transitions; The output (Branch: NAME at commit ID); The branch")
 def _():
     task_id, found = need("lifecycle")[0]
@@ -513,6 +675,26 @@ def _():
     finally:
         fake()
         credential("codex")
+
+
+@suite.case("image_cannot_be_pulled", "agents The runtime's local API (image); Transitions (queued to failed); "
+                                      "The output (Branch: none)")
+def _():
+    need("ready")
+    try:
+        ready("codex2", "--image", MISSING_IMAGE)
+        task_id = send("codex2", "write never.txt x ; echo never")
+        found = events(task_id)
+        sent = posts(task_id)
+        check(sent and sent[0][2].get("image") == MISSING_IMAGE, f"the request's image: {sent and sent[0][2]}")
+        result = exited(task_id)
+        message, trailer = split(found[-1])
+        check(kinds(found) == ["queued", "failed"] and trailer == "Branch: none" and at("started", task_id) is None
+              and message == result["error"] and MISSING_IMAGE in message,
+              f"an image that cannot be pulled: {kinds(found)} {found[-1].get('output')!r}")
+        check(not workspace(fork(task_id, "codex2")).exists(), "the fork was made for a run that never started")
+    finally:
+        clear("agent", "runtime", "clear", "codex2")
 
 
 @suite.case("concurrency", "agents Running: max_runs 1 runs one after the other; two agents side by side")
