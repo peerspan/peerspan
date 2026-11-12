@@ -843,8 +843,7 @@ def _():
 
 
 @suite.case("result_delivery", "agents Verification (Result delivery, RUN-14); runtime Peer events; task-contract "
-                               "polling",
-            known="RUN-14: the sender still polls running tasks on the 1 s to 60 s backoff")
+                               "polling")
 def _():
     a, b = need("a", "b")
     need("ready")
