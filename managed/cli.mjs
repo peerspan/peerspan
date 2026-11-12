@@ -8,7 +8,7 @@ import { seedClock, stamp } from './lib/clock.mjs';
 import { runDoctor } from './lib/doctor.mjs';
 import { Engine } from './lib/engine.mjs';
 import { Peerspan } from './lib/peerspan.mjs';
-import { checkSender, readWorkerState, resolveAgent } from './lib/readiness.mjs';
+import { checkSender, readWorkerState, resolveAgent, resolveRemote } from './lib/readiness.mjs';
 import { startServer } from './lib/server.mjs';
 import { buildSnapshot } from './lib/snapshot.mjs';
 import { acquireLock, defaultState, prepareState } from './lib/state.mjs';
@@ -23,6 +23,7 @@ node managed/cli.mjs token [--state DIR]
 node managed/cli.mjs status [--state DIR]
 node managed/cli.mjs connect --name NAME --agent AGENT [--host-state DIR] [--sender-state DIR] [--state DIR]
 node managed/cli.mjs connect --name NAME --worker-state FILE [--sender-state DIR] [--state DIR]
+node managed/cli.mjs connect --name NAME --remote AGENT [--network ID] [--sender-state DIR] [--state DIR]
 node managed/cli.mjs disconnect --id ID [--state DIR]
 node managed/cli.mjs observe --name NAME --directory DIR [--state DIR]
 node managed/cli.mjs unobserve --id ID [--state DIR]
@@ -35,7 +36,7 @@ const OPTIONS = {
   serve: ['state', 'port'],
   token: ['state'],
   status: ['state'],
-  connect: ['state', 'name', 'agent', 'host-state', 'worker-state', 'sender-state'],
+  connect: ['state', 'name', 'agent', 'host-state', 'worker-state', 'sender-state', 'remote', 'network'],
   disconnect: ['state', 'id'],
   observe: ['state', 'name', 'directory'],
   unobserve: ['state', 'id'],
@@ -74,10 +75,19 @@ async function version() {
 async function connect(store, options) {
   const name = requireName(options);
   const senderState = options['sender-state'] ? resolve(options['sender-state']) : null;
-  if (Boolean(options.agent) === Boolean(options['worker-state'])) {
-    throw new Error('Pass exactly one of --agent and --worker-state');
-  }
+  const forms = ['agent', 'worker-state', 'remote'].filter(form => options[form]);
+  if (forms.length !== 1) throw new Error('Pass exactly one of --agent, --worker-state and --remote');
+  if (options.network !== undefined && !options.remote) throw new Error('--network is valid only with --remote');
   let connection;
+  if (options.remote) {
+    if (options['host-state']) throw new Error('--host-state is valid only with --agent');
+    // Only the sender's view of the worker is used: its host is on another machine (contract section 7.1).
+    const remote = await resolveRemote(new Peerspan(), senderState, options.remote, options.network ?? null);
+    const added = await store.addConnection({
+      id: randomUUID(), name, senderState, mode: 'remote', workerState: null, hostDir: null, ...remote
+    }, stamp());
+    return added;
+  }
   if (options.agent) {
     const hostDir = options['host-state'] ? resolve(options['host-state']) : null;
     const { hostId, agentId } = await resolveAgent(new Peerspan(), hostDir, options.agent);
@@ -101,8 +111,10 @@ async function connect(store, options) {
 async function serve(store, { token, options }) {
   const port = Number(options.port || 4310);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Port must be an integer from 1024 to 65535');
-  const tickMs = Number(process.env.MANAGED_TICK_MS || 10_000);
+  let tickMs = Number(process.env.MANAGED_TICK_MS || 10_000);
   if (!Number.isFinite(tickMs) || tickMs < 100) throw new Error('Invalid polling interval');
+  // With the conformance clock, a moved clock must reach a scheduler pass within one second (contract section 1).
+  if (process.env.MANAGED_CLOCK_FILE) tickMs = Math.min(tickMs, 1000);
 
   const abort = new AbortController();
   const engine = new Engine(store, new Peerspan({ signal: abort.signal }), { tickMs });

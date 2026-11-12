@@ -1,5 +1,6 @@
-// Request validation (contract sections 2, 9 and 10). Unknown fields and
-// invalid values are refused with 400 before anything is stored.
+// Request validation (contract sections 2, 9, 10, 14 and 15). Unknown fields
+// and invalid values are refused with 400 before anything is stored.
+import { normalizeSchedule } from './schedule.mjs';
 
 const TEXT_LIMITS = { name: 100, instructions: 12_000 };
 const INTEGER_RANGES = {
@@ -7,8 +8,12 @@ const INTEGER_RANGES = {
   maxRunsPerDay: [1, 1000],
   acceptanceMinutes: [1, 1440]
 };
-const EDITABLE = ['name', 'connectionId', 'instructions', 'intervalMinutes', 'maxRunsPerDay', 'acceptanceMinutes'];
+const REQUIRED = ['name', 'connectionId', 'instructions', 'maxRunsPerDay', 'acceptanceMinutes'];
+const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review'];
 const CREATABLE = [...EDITABLE, 'enabled'];
+const REVIEWS = ['none', 'operator'];
+const VERDICTS = ['accepted', 'rejected'];
+const NOTE_LIMIT = 2000;
 // The store decides whether an ID exists; this only bounds its shape.
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -18,7 +23,7 @@ export function invalid(message) {
   return error;
 }
 
-function checkFields(body, allowed, required) {
+function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw invalid('Expected a JSON object');
   const unknown = Object.keys(body).find(key => !allowed.includes(key));
   if (unknown !== undefined) throw invalid('Unexpected workflow fields');
@@ -42,15 +47,32 @@ function checkFields(body, allowed, required) {
     } else if (key === 'enabled') {
       if (typeof value !== 'boolean') throw invalid('Invalid enabled flag');
       fields[key] = value;
+    } else if (key === 'schedule') {
+      // At creation a null schedule is no schedule. In an edit it is refused: setting
+      // intervalMinutes is how a schedule is removed.
+      if (value === null) {
+        if (!nullSchedule) throw invalid('Give a schedule, or set intervalMinutes instead');
+        continue;
+      }
+      fields[key] = normalizeSchedule(value);
+    } else if (key === 'review') {
+      if (!REVIEWS.includes(value)) throw invalid('Invalid review; use none or operator');
+      fields[key] = value;
     }
+  }
+  if (fields.intervalMinutes !== undefined && fields.schedule !== undefined) {
+    throw invalid('Give either intervalMinutes or schedule, not both');
   }
   return fields;
 }
 
 /** A complete workflow definition; paused unless `enabled` is true. */
 export function newWorkflow(body) {
-  const fields = checkFields(body, CREATABLE, EDITABLE);
-  return { ...fields, enabled: fields.enabled ?? false };
+  const fields = checkFields(body, CREATABLE, REQUIRED, { nullSchedule: true });
+  if (fields.intervalMinutes === undefined && fields.schedule === undefined) {
+    throw invalid('Give intervalMinutes or a schedule');
+  }
+  return { review: 'none', ...fields, enabled: fields.enabled ?? false };
 }
 
 /** At least one editable field; `enabled` is changed by pause and resume only. */
@@ -58,6 +80,18 @@ export function workflowPatch(body) {
   const fields = checkFields(body, EDITABLE, []);
   if (!Object.keys(fields).length) throw invalid('Nothing to change');
   return fields;
+}
+
+/** `{verdict}` or `{verdict, note}`; the note is stored trimmed, an empty one as null. */
+export function reviewVerdict(body) {
+  if (Object.keys(body).some(key => key !== 'verdict' && key !== 'note')) throw invalid('Unexpected review fields');
+  if (!VERDICTS.includes(body.verdict)) throw invalid('Verdict is accepted or rejected');
+  let note = null;
+  if (body.note !== undefined) {
+    if (typeof body.note !== 'string' || body.note.length > NOTE_LIMIT) throw invalid('Note is at most 2,000 characters');
+    note = body.note.trim() || null;
+  }
+  return { verdict: body.verdict, note };
 }
 
 export function emptyBody(body) {

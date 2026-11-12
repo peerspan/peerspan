@@ -24,6 +24,17 @@ const REASONS = {
   channel_unverified: 'Waiting for a verified worker channel'
 };
 
+// Remote mode reads only the sender's directory (contract section 7.1).
+const REMOTE_REASONS = {
+  ...REASONS,
+  directory_unavailable: "The sender host's directory of agents could not be read",
+  agent_missing: "The agent is not in the sender host's directory",
+  host_unreachable: 'The sender could not reach the worker host when it last tried',
+  not_authorized: "The worker's owner does not allow this sender to submit tasks to the agent"
+};
+
+const asOf = at => (at ? ` as of ${at.slice(0, 19).replace('T', ' ')} UTC` : '');
+
 export const isIdentifier = (kind, value) =>
   typeof value === 'string' && new RegExp(`^${kind}_[a-f0-9]{${kind === 'host' ? 64 : 32}}$`).test(value);
 
@@ -58,11 +69,12 @@ export function hintsFrom(attention) {
   return hints;
 }
 
-const verdict = (code, hints = []) => ({
+const verdict = (code, hints = [], { reason = REASONS[code], directoryAt = null } = {}) => ({
   ready: code === 'ready' || code === 'ready_service_inactive',
   code,
-  reason: REASONS[code],
-  hints
+  reason,
+  hints,
+  directoryAt
 });
 
 /** The adapter's own report of its live channel, or null when it cannot be read. */
@@ -80,8 +92,67 @@ const isVerified = (report, session) =>
   && report.state === 'ready' && report.channel === 'verified'
   && typeof report.channel_verified_at === 'string' && report.channel_verified_at.length > 0;
 
-/** Evaluates one connection. Resolves `{ready, code, reason, hints}`. */
-export async function checkReadiness(connection, peerspan) {
+// Upstream text never passes through: a time is re-written in UTC, and anything else is no time.
+function time(value) {
+  const ms = typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(value) ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/** Directory entries for one host and agent: a `reachable` entry first, then a `mine` entry. */
+function directoryEntry(directory, hostId, agentId) {
+  const matches = entry => entry && entry.host_id === hostId && entry.agent_id === agentId;
+  const reachable = directory.reachable.find(matches);
+  if (reachable) return { entry: reachable, mine: false };
+  const mine = directory.mine.find(matches);
+  return mine ? { entry: mine, mine: true } : null;
+}
+
+/**
+ * A remote connection: the sender's status and its directory, read together
+ * (contract section 7.1). The worker host itself is never read.
+ */
+async function checkRemote(connection, peerspan, refresh) {
+  const [sender, directory] = await Promise.all([
+    peerspan.status(connection.senderState),
+    peerspan.agents(connection.senderState, { network: connection.networkId, refresh })
+  ]);
+  // Only a directory of the pinned network is evidence; its time goes with every verdict of this check.
+  const listing = directory.kind === 'ok' && directory.value.network_id === connection.networkId ? directory.value : null;
+  const host = listing?.hosts.find(item => item?.host_id === connection.hostId);
+  const directoryAt = time(host?.refreshed_at);
+  const remote = (code, hints = []) => verdict(code, hints, { reason: REMOTE_REASONS[code], directoryAt });
+  for (const code of ['peerspan_unavailable', 'peerspan_incompatible']) {
+    if (sender.kind === code || directory.kind === code) return remote(code);
+  }
+  if (sender.kind !== 'ok') return remote('sender_unavailable');
+  // The worker host's attention is not visible here, so the sender's is the advice the operator can act on.
+  const hints = hintsFrom(sender.value.attention);
+  if (sender.value.host_id === connection.hostId) return remote('sender_is_worker', hints);
+  if (!listing) return remote('directory_unavailable', hints);
+  const found = directoryEntry(listing, connection.hostId, connection.agentId);
+  if (!found) return remote('agent_missing', hints);
+  if (host?.state !== 'ok') return remote('host_unreachable', hints);
+  if (!found.mine && !(Array.isArray(found.entry.actions) && found.entry.actions.includes('task.submit'))) {
+    return remote('not_authorized', hints);
+  }
+  if (found.entry.connected !== true) {
+    return verdict('session_not_ready', hints, {
+      reason: "The sender's directory shows no connected, verified session for this agent" + asOf(directoryAt),
+      directoryAt
+    });
+  }
+  return verdict('ready', hints, {
+    reason: 'Connected with a verified channel, according to the sender\'s directory' + asOf(directoryAt),
+    directoryAt
+  });
+}
+
+/**
+ * Evaluates one connection. Resolves `{ready, code, reason, hints, directoryAt}`.
+ * `refresh` asks a remote connection's sender to refresh its directory first.
+ */
+export async function checkReadiness(connection, peerspan, { refresh = false } = {}) {
+  if (connection.mode === 'remote') return checkRemote(connection, peerspan, refresh);
   let hostDir = connection.hostDir;
   let named = null;
   let namedReport = null;
@@ -159,4 +230,46 @@ export async function resolveAgent(peerspan, hostDir, wanted) {
     throw new Error('More than one agent has that name on the worker host; pass the agent ID instead');
   }
   return { hostId: status.value.host_id, agentId: matches[0].id };
+}
+
+/**
+ * Resolves an agent for `connect --remote` from the sender's refreshed
+ * directory (contract section 7.1): an exact match on address or agent ID, in
+ * `reachable` or `mine`, on another host than the sender itself.
+ */
+export async function resolveRemote(peerspan, senderState, wanted, network) {
+  const [sender, directory] = await Promise.all([
+    peerspan.status(senderState),
+    peerspan.agents(senderState, { network, refresh: true })
+  ]);
+  if (sender.kind !== 'ok') throw new Error(`Cannot read the sender host status: ${REASONS[sender.kind]}`);
+  if (directory.kind === 'peerspan_unavailable' || directory.kind === 'peerspan_incompatible') {
+    throw new Error(REASONS[directory.kind]);
+  }
+  if (directory.kind !== 'ok') {
+    // The upstream error names the problem, such as a host in several networks without --network.
+    const detail = (directory.stderr ?? '').trim().split('\n')[0].replace(/^error:\s*/, '').slice(0, 200);
+    throw new Error("Cannot read the sender host's directory of agents" + (detail ? `: ${detail}` : ''));
+  }
+  const { value } = directory;
+  if (!/^[\x21-\x7e]{1,128}$/.test(value.network_id)) throw new Error('The sender reported an invalid network ID');
+  const candidates = new Map();
+  for (const entry of [...value.reachable, ...value.mine]) {
+    if (!entry || !isIdentifier('host', entry.host_id) || !isIdentifier('agent', entry.agent_id)) continue;
+    if (entry.address !== wanted && entry.agent_id !== wanted) continue;
+    // One agent may be listed in both lists; it is still one match.
+    candidates.set(entry.host_id + '/' + entry.agent_id, entry);
+  }
+  const matches = [...candidates.values()];
+  if (!matches.length) {
+    throw new Error("No agent with that address or ID in the sender's directory, which lists only agents its "
+      + 'owner lets this sender reach and whose names are addressable (lowercase); '
+      + 'run peerspan agents for the sender host and pass an address or agent ID it lists');
+  }
+  if (matches.length > 1) throw new Error('More than one agent matches; pass the agent ID instead');
+  if (matches[0].host_id === sender.value.host_id) {
+    throw new Error('Sender and worker are the same Peerspan host, and a host cannot send tasks to itself; '
+      + 'register this agent with --agent and pass --sender-state for another local host');
+  }
+  return { hostId: matches[0].host_id, agentId: matches[0].agent_id, networkId: value.network_id };
 }

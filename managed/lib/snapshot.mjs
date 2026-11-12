@@ -18,7 +18,7 @@ function orderAttention(items) {
   });
 }
 
-function attentionFor({ engine, workflows, connections, problems, observed }) {
+function attentionFor({ engine, workflows, connections, problems, reviews, observed }) {
   const items = [];
   const add = (kind, severity, type, subject, message, since) =>
     items.push({ kind, severity, subject: { type, id: subject.id, name: subject.name }, message, since: since ?? null });
@@ -31,6 +31,10 @@ function attentionFor({ engine, workflows, connections, problems, observed }) {
       add('workflow_auto_paused', 'action', 'workflow', workflow,
         'Paused after three consecutive failed runs; review the results, then resume', workflow.pausedAt);
     }
+  }
+  for (const review of reviews) {
+    add('review_pending', 'action', 'workflow', review, review.waiting === 1
+      ? '1 result waits for your review' : `${review.waiting} results wait for your review`, review.since);
   }
   for (const connection of connections) {
     const { readiness } = connection;
@@ -63,7 +67,14 @@ export async function buildSnapshot({ store, engine, version }) {
     mode: connection.mode,
     readiness: engine.readinessOf(connection)
   }));
-  const attention = attentionFor({ engine, workflows: data.workflows, connections, problems: data.problems, observed });
+  const attention = attentionFor({
+    engine,
+    workflows: data.workflows,
+    connections,
+    problems: data.problems,
+    reviews: data.reviews,
+    observed
+  });
   return {
     connections,
     workflows: data.workflows.map(({ dailyLimitReached, pausedAt, latestRunAt, ...workflow }) => workflow),

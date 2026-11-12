@@ -1,6 +1,6 @@
 // Console views. Each takes the app context and returns the nodes of one page.
 import { absoluteTime, commandLine, copyable, duration, h, icon, secondsBetween, shortId, timeAgo } from './dom.js';
-import { OPEN_STATES, activityText, hintText, runState, schedule, workflowStatus } from './labels.js';
+import { OPEN_STATES, activityText, hintText, reviewState, runState, schedule, workflowStatus } from './labels.js';
 
 const CLI = 'node managed/cli.mjs';
 
@@ -55,12 +55,13 @@ function attentionList(ctx) {
 function runStrip(workflow) {
   const recent = [...workflow.recent].reverse();
   if (!recent.length) return h('div.strip', null, h('span.strip-label', null, 'No runs yet'));
+  const label = run => [runState(run.state)[0], reviewState(run.review)?.[0]].filter(Boolean).join(', ');
   return h('div.strip', { 'aria-label': 'Latest runs, oldest first' },
     recent.map(run => h('a', {
-      class: run.state,
+      class: [run.state, run.review && 'review-' + run.review].filter(Boolean).join(' '),
       href: `#/runs/${run.id}`,
-      title: `${runState(run.state)[0]} · ${absoluteTime(run.createdAt)}`,
-      'aria-label': `${runState(run.state)[0]} run from ${absoluteTime(run.createdAt)}`
+      title: `${label(run)} · ${absoluteTime(run.createdAt)}`,
+      'aria-label': `${label(run)} run from ${absoluteTime(run.createdAt)}`
     })),
     h('span.strip-label', null, `last ${plural(recent.length, 'run')}`));
 }
@@ -134,8 +135,9 @@ function runRow(run, { named = true } = {}) {
   const seconds = secondsBetween(run.createdAt, run.finishedAt);
   const summary = run.error ?? run.progress ?? run.reason ?? run.output?.split('\n', 1)[0]
     ?? (isOpen(run) ? 'No result yet' : 'No output reported');
+  const review = reviewState(run.review);
   return h('a.row', { href: `#/runs/${run.id}` },
-    h('span.row-state', null, badge(runState(run.state), run.state === 'running')),
+    h('span.row-state', null, badge(review && run.review !== 'accepted' ? review : runState(run.state), run.state === 'running')),
     h('div.row-main', null,
       named ? [h('div.row-title', null, run.workflowName), h('div.row-sub', null, summary)] : h('div.row-title.plain', null, summary)),
     h('div.row-side', null, timeAgo(run.createdAt), seconds !== null && ` · ${duration(seconds)}`));
@@ -161,13 +163,20 @@ function activityRow(ctx, entry, names) {
 
 function connectHelp() {
   return h('div.panel.pad', null,
-    h('p', null, 'Workers are registered from a terminal on this machine, never from the browser. Name the agent as ',
-      h('code', null, 'peerspan agents'), ' shows it, or pass its agent ID:'),
+    h('p', null, 'Workers are registered from a terminal on this machine, never from the browser. Sender and worker must be two Peerspan hosts: a host cannot send tasks to itself.'),
     h('div.dialog-body', null,
+      h('h3', null, 'An agent whose host runs on this machine'),
       commandLine(`${CLI} connect --name "Repository maintainer" --agent AGENT`),
-      h('p.help', null, 'Add ', h('code', null, '--host-state DIR'), ' when the worker host does not use the default Peerspan state, and ',
-        h('code', null, '--sender-state DIR'), ' when tasks are submitted from a host other than the default. Sender and worker must be two Peerspan hosts: a host cannot send tasks to itself. Check the setup with ',
-        h('code', null, `${CLI} doctor`), '.')));
+      h('p.help', null, 'Name the agent as ', h('code', null, 'peerspan agents'), ' shows it, or pass its agent ID. Add ',
+        h('code', null, '--host-state DIR'), ' when the worker host does not use the default Peerspan state, and ',
+        h('code', null, '--sender-state DIR'), ' when tasks are submitted from a host other than the default.'),
+      h('h3', null, 'An agent on another machine'),
+      commandLine(`${CLI} connect --name "Research agent" --remote PERSON/AGENT`),
+      h('p.help', null, 'Pass the address or agent ID that ', h('code', null, 'peerspan agents'),
+        ' lists for the sender host. Readiness then comes from the sender\'s directory: whether the agent is connected, ',
+        'whether its host answered, and whether its owner lets you submit tasks. Add ', h('code', null, '--network ID'),
+        ' when the sender is in several networks.'),
+      h('p.help', null, 'Check the setup with ', h('code', null, `${CLI} doctor`), '.')));
 }
 
 // ----- pages ------------------------------------------------------------------------------
@@ -192,8 +201,10 @@ export function overview(ctx) {
       ? empty('Create your first recurring assignment',
         'Pick a worker, describe a bounded assignment, and set how often it may run.',
         h('p.empty-action', null, button('New workflow', { iconName: 'plus', kind: 'primary', onclick: ctx.actions.newWorkflow })))
-      : empty('Connect a worker to begin', 'A worker is an agent session that is already attached to Peerspan on this machine.',
+      : empty('Connect a worker to begin', 'A worker is an agent already attached to Peerspan, on this machine or on one your sender host can reach.',
         h('p.empty-action', null, h('a.button.primary', { href: '#/workers' }, 'How to connect a worker')));
+  // Oldest first: the result that has waited longest is reviewed first.
+  const waiting = runs.filter(run => run.review === 'pending').reverse();
 
   return [
     pageHead('Overview', 'Keep recurring work moving, and see what needs you.',
@@ -201,6 +212,8 @@ export function overview(ctx) {
         title: connections.length ? null : 'Connect a worker first' })),
     attentionList(ctx),
     h('div.section', null, tiles),
+    waiting.length > 0 && section('Waiting for your review', h('div.panel.rows', null, waiting.slice(0, 8).map(run => runRow(run))),
+      { note: waiting.length > 8 ? `The oldest 8 of ${waiting.length} recent results` : 'Results count as successes once you accept them.' }),
     section('Workflows', workflowList, { more: workflows.length ? { href: '#/workflows', label: 'All workflows' } : null }),
     observed.length > 0 && section('Followed programs', h('div.cards', null, observed.map(observedCard)),
       { note: 'Read only. Each keeps its own controller and history.' }),
@@ -286,7 +299,9 @@ export function workflowPage(ctx, id) {
       tile('Success rate, 7 days', percent(stats.successRate), null, `${stats.succeeded} succeeded · ${stats.failed} failed`),
       tile('Runs, 7 days', stats.runs, null, `Limit ${workflow.maxRunsPerDay} a day`),
       tile('Average duration', duration(stats.averageSeconds), null, 'Succeeded runs, 7 days'),
-      tile('Operator actions', stats.interventions, null, 'In the last 7 days'),
+      (workflow.review === 'operator' || stats.awaitingReview > 0)
+        ? tile('Awaiting review', stats.awaitingReview, null, stats.awaitingReview ? 'Not counted until you decide' : 'All results reviewed')
+        : tile('Operator actions', stats.interventions, null, 'In the last 7 days'),
       tile('Unattended runs', stats.unattendedRuns, null, 'Since you last stepped in')),
     h('div.section.two-col', null,
       h('div', null,
@@ -298,7 +313,11 @@ export function workflowPage(ctx, id) {
         h('div.section-head.section', null, h('h2', null, 'Schedule')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Worker', worker ? h('a', { href: '#/workers' }, worker.name) : 'Not connected'),
-          fact('Repeats', schedule(workflow) + ', counted from the end of the previous run'),
+          fact('Repeats', workflow.schedule
+            ? `${schedule(workflow, { zone: false })}, ${workflow.schedule.timeZone} time; a slot missed while busy or paused runs once`
+            : schedule(workflow) + ', counted from the end of the previous run'),
+          fact('Results', workflow.review === 'operator'
+            ? 'Each success waits for your verdict before it counts' : 'Counted as the worker reports them'),
           fact('Daily limit', `${plural(workflow.maxRunsPerDay, 'dispatch', 'dispatches')} per UTC day`),
           fact('Acceptance window', `${plural(workflow.acceptanceMinutes, 'minute')} for the worker to accept`),
           fact('Next run', nextLine(workflow, openRun)),
@@ -332,7 +351,8 @@ export function runPage(ctx, id) {
   const open = isOpen(run);
   const seconds = secondsBetween(run.startedAt ?? run.createdAt, run.finishedAt);
   return [
-    pageHead(['Run of ', run.workflowName, ' ', badge(runState(run.state), run.state === 'running')], null, open && [
+    pageHead(['Run of ', run.workflowName, ' ', badge(runState(run.state), run.state === 'running'),
+      reviewState(run.review) && [' ', badge(reviewState(run.review))]], null, open && [
       button('Cancel run', { iconName: 'stop', kind: 'small', onclick: () => ctx.actions.cancelRun(run), key: 'run:cancel',
         disabled: Boolean(run.cancelRequestedAt), title: run.cancelRequestedAt ? 'Cancellation was already requested' : 'Ask the worker to stop' }),
       button('Release…', { kind: 'small danger', onclick: () => ctx.actions.abandonRun(run), key: 'run:abandon',
@@ -350,7 +370,7 @@ export function runPage(ctx, id) {
           run.outputTruncated && h('span.section-note', null, 'Truncated at 262,144 characters')),
         run.output ? h('pre.output', { tabindex: '0' }, run.output)
           : h('div.panel.empty', null, open ? ['No result yet.', run.progress && [' Latest update: ', run.progress]] : 'This run reported no output.'),
-        run.state === 'succeeded' && h('p.help', null, 'A succeeded run is the worker\'s own report. Nothing here has checked its output.'),
+        reviewPanel(ctx, run),
         h('div.section-head.section', null, h('h2', null, 'Instructions sent')),
         h('div.panel.pad', null, h('p.prose', null, run.instructions))),
       h('div', null,
@@ -372,11 +392,42 @@ export function runPage(ctx, id) {
   ];
 }
 
+/** The operator's verdict on a result, or the form to give one. */
+function reviewPanel(ctx, run) {
+  if (run.state !== 'succeeded') return null;
+  if (run.review === null) {
+    return h('p.help', null, 'A succeeded run is the worker\'s own report. This workflow does not ask you to review results.');
+  }
+  if (run.review !== 'pending') {
+    const accepted = run.review === 'accepted';
+    return h('div.callout', { class: accepted ? 'ok' : 'danger' }, icon(accepted ? 'check' : 'alert'),
+      h('div', null,
+        h('strong', null, accepted ? 'You accepted this result' : 'You rejected this result'), ' ', timeAgo(run.reviewedAt), '.',
+        run.reviewNote && h('p.review-note', null, run.reviewNote)));
+  }
+  const next = [...ctx.data.runs].reverse().find(other => other.review === 'pending' && other.id !== run.id);
+  // Keyed by run, so that a draft note survives refreshes but never follows the operator to the next result.
+  const note = h('textarea', { id: 'review-note', maxlength: '2000', rows: '2', placeholder: 'Optional note: what was right or wrong',
+    'data-key': `review:note:${run.id}` });
+  const decide = verdict => () => ctx.actions.reviewRun(run, verdict, note.value, next);
+  return h('div.panel.pad.review', null,
+    h('h3', null, 'Does this result count?'),
+    h('p.help', null, 'It is the worker\'s own report. It counts as a success once you accept it; a rejection counts as a failure. ',
+      'Your verdict is final and does not change the schedule.'),
+    h('label.sr-only', { for: 'review-note' }, 'Note'),
+    note,
+    h('div.review-actions', null,
+      button('Accept', { iconName: 'check', kind: 'primary', onclick: decide('accepted'), key: 'review:accept' }),
+      button('Reject', { iconName: 'close', kind: 'danger', onclick: decide('rejected'), key: 'review:reject' }),
+      next && h('span.help', null, 'Then opens the next result waiting for review.')));
+}
+
 function workerPanel(ctx, connection) {
   const { readiness } = connection;
   const tone = readiness.ready ? 'ok' : readiness.code === 'checking' ? '' : 'warn';
   const label = readiness.ready ? 'Ready' : readiness.code === 'checking' ? 'Checking' : 'Not ready';
   const assigned = ctx.data.workflows.filter(workflow => workflow.connectionId === connection.id);
+  const remote = connection.mode === 'remote';
   return h('article.panel.worker', null,
     h('div.worker-top', null,
       h('div', null,
@@ -386,13 +437,16 @@ function workerPanel(ctx, connection) {
     h('dl.facts', null,
       fact('Agent', copyable(connection.agentId, shortId(connection.agentId))),
       fact('Host', copyable(connection.hostId, shortId(connection.hostId))),
-      fact('Follows', connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
+      fact('Where', remote ? 'Another machine, seen through the sender host\'s directory' : 'A Peerspan host on this machine'),
+      fact('Follows', remote ? 'Whether the directory shows the agent connected, its host reachable and task submission allowed'
+        : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
       fact('Workflows', assigned.length
         ? assigned.map((workflow, index) => [index > 0 && ', ', h('a', { href: `#/workflows/${workflow.id}` }, workflow.name)])
         : 'None'),
-      fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet'))),
+      fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet')),
+      remote && fact('Directory as of', timeAgo(readiness.directoryAt, 'Unknown'))),
     readiness.hints.length > 0 && h('div.hints', null,
-      h('p.card-meta', null, 'The worker host reports:'),
+      h('p.card-meta', null, remote ? 'The sender host reports:' : 'The worker host reports:'),
       readiness.hints.map(hint => h('div.hint-item', null, hintText(hint.kind), hint.command && commandLine(hint.command)))),
     h('details', null,
       h('summary.card-meta', null, 'Remove this worker'),
@@ -403,9 +457,9 @@ function workerPanel(ctx, connection) {
 export function workersPage(ctx) {
   const { connections } = ctx.data;
   return [
-    pageHead('Workers', 'Agent sessions this console may assign work to. Readiness is checked on every pass.'),
+    pageHead('Workers', 'Agents this console may assign work to. Readiness is checked on every pass.'),
     connections.length ? h('div.cards', null, connections.map(connection => workerPanel(ctx, connection)))
-      : empty('No workers connected', 'Connect an agent that is already attached to Peerspan on this machine.'),
+      : empty('No workers connected', 'Connect an agent that is already attached to Peerspan, here or on another machine.'),
     section('Connect a worker', connectHelp()),
     h('p.help.section', null, 'Model usage is billed by your provider. Daily limits here count dispatches, not dollars.')
   ];

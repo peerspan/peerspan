@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { stamp } from './clock.mjs';
 import { buildSnapshot } from './snapshot.mjs';
-import { emptyBody, invalid, newWorkflow, pageQuery, workflowPatch } from './validate.mjs';
+import { emptyBody, invalid, newWorkflow, pageQuery, reviewVerdict, workflowPatch } from './validate.mjs';
 
 const MAX_BODY_BYTES = 65_536;
 const SESSION_MS = 12 * 60 * 60 * 1000;
@@ -41,7 +41,7 @@ const ID = '[A-Za-z0-9_-]{1,64}';
 const WORKFLOW_ACTION = new RegExp(`^/api/workflows/(${ID})/(pause|resume|run|archive|restore)$`);
 const WORKFLOW = new RegExp(`^/api/workflows/(${ID})$`);
 const RUN = new RegExp(`^/api/runs/(${ID})$`);
-const RUN_ACTION = new RegExp(`^/api/runs/(${ID})/(cancel|abandon)$`);
+const RUN_ACTION = new RegExp(`^/api/runs/(${ID})/(cancel|abandon|review)$`);
 
 function sameText(a, b) {
   return typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b)
@@ -187,6 +187,9 @@ export async function startServer({ engine, store, token, port, version }) {
       if (match[2] === 'cancel') {
         emptyBody(body);
         run = await store.requestCancel(match[1], now());
+      } else if (match[2] === 'review') {
+        const { verdict, note } = reviewVerdict(body);
+        run = await store.reviewRun(match[1], verdict, note, now());
       } else {
         if (Object.keys(body).some(key => key !== 'confirm') || typeof body.confirm !== 'string') {
           throw invalid('Confirm with the exact task ID of this run');

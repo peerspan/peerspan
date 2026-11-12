@@ -100,6 +100,35 @@ export class Peerspan {
     return valid ? { kind: 'ok', value } : { kind: 'status_invalid' };
   }
 
+  /**
+   * Reads the sender host's directory of reachable agents (contract section 7.1).
+   * Resolves `{kind: 'ok', value}` or `{kind}` with the readiness code that
+   * explains why it could not be read. `network` may be null only at registration.
+   */
+  async agents(stateDir, { network = null, refresh = false } = {}) {
+    let result;
+    try {
+      result = await this.exec(stateDir,
+        ['agents', ...(network ? ['--network', network] : []), ...(refresh ? ['--refresh'] : [])]);
+    } catch (error) {
+      if (error.aborted) throw error;
+      return { kind: error.unavailable ? 'peerspan_unavailable' : 'directory_unavailable' };
+    }
+    if (result.code === 2 && result.stderr.includes("unexpected argument '--json'")) {
+      return { kind: 'peerspan_incompatible' };
+    }
+    if (result.code !== 0) return { kind: 'directory_unavailable', stderr: result.stderr };
+    let value;
+    try {
+      value = parse(result.stdout);
+    } catch {
+      return { kind: 'directory_unavailable' };
+    }
+    const valid = value && typeof value.network_id === 'string' && Array.isArray(value.reachable)
+      && Array.isArray(value.mine) && Array.isArray(value.hosts);
+    return valid ? { kind: 'ok', value } : { kind: 'directory_unavailable' };
+  }
+
   adapterConnection(hostDir, adapterId) {
     return this.json(hostDir, ['adapter', 'connection', adapterId]);
   }

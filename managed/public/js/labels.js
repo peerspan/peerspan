@@ -31,12 +31,39 @@ export function workflowStatus(workflow, runs) {
   return ['Waiting for worker', 'warn'];
 }
 
-export function schedule(workflow) {
+export const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+
+const listOf = items => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+
+function dayText(days) {
+  const key = days.join(',');
+  if (days.length === 7) return 'Every day';
+  if (key === 'mon,tue,wed,thu,fri') return 'Weekdays';
+  if (key === 'sat,sun') return 'Weekends';
+  return listOf(days.map(day => DAYS.find(([value]) => value === day)[1]));
+}
+
+/** "Every 6 hours", or "Weekdays at 09:00 (Europe/London)". */
+export function schedule(workflow, { zone = true } = {}) {
+  if (workflow.schedule) {
+    const { days, times, timeZone } = workflow.schedule;
+    const at = times.length > 4 ? `${times.length} times a day` : `at ${listOf(times)}`;
+    return `${dayText(days)} ${at}` + (zone ? ` (${timeZone})` : '');
+  }
   const minutes = workflow.intervalMinutes;
   const every = minutes % 1440 === 0 ? `${minutes / 1440} day${minutes === 1440 ? '' : 's'}`
     : minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}`
       : `${minutes} minute${minutes === 1 ? '' : 's'}`;
   return `Every ${every}`;
+}
+
+/** `[label, tone]` for a result's review, or null when it needs none. */
+export function reviewState(review) {
+  return {
+    pending: ['Awaiting review', 'warn'],
+    accepted: ['Accepted', 'ok'],
+    rejected: ['Rejected by you', 'danger']
+  }[review] ?? null;
 }
 
 // The upstream status attention kinds, in the host's own words where they matter here.
@@ -67,7 +94,7 @@ const HINTS = {
   peer_delivery_failing: 'Deliveries to a peer host have been failing for a while.'
 };
 
-export const hintText = kind => HINTS[kind] ?? `The worker host reports: ${kind.replaceAll('_', ' ')}.`;
+export const hintText = kind => HINTS[kind] ?? `Peerspan reports: ${kind.replaceAll('_', ' ')}.`;
 
 const READINESS_CODES = {
   worker_state_invalid: 'worker state file missing or invalid',
@@ -80,7 +107,10 @@ const READINESS_CODES = {
   sender_is_worker: 'sender and worker are the same host',
   agent_missing: 'agent no longer registered',
   session_not_ready: 'no ready session',
-  channel_unverified: 'channel not verified'
+  channel_unverified: 'channel not verified',
+  directory_unavailable: "sender's directory unreadable",
+  host_unreachable: 'worker host unreachable',
+  not_authorized: 'sender not allowed to submit tasks'
 };
 
 /** One sentence for an activity entry; `names` resolves IDs to current names. */
@@ -102,6 +132,7 @@ export function activityText(entry, names) {
     case 'run.recovered': return `regained contact with a run of ${workflow}`;
     case 'run.cancel_requested': return `asked to cancel a run of ${workflow}`;
     case 'run.abandoned': return `released a run of ${workflow}`;
+    case 'run.reviewed': return `${entry.data?.verdict === 'rejected' ? 'rejected' : 'accepted'} a result of ${workflow}`;
     case 'connection.added': return `connected ${connection}`;
     case 'connection.removed': return `disconnected ${connection}`;
     case 'observation.added': return 'started following an external program';

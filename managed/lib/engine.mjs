@@ -15,6 +15,9 @@ const POKE_DELAY_MS = 20;
 const EVENT_FETCH_WINDOW = 50;
 const MESSAGE_LIMIT = 2000;
 
+// A remote connection's directory is refreshed on its first check and at most this often after (MGD-7).
+const DIRECTORY_REFRESH_MS = 60_000;
+
 const PROBLEM = 'Delivery or status uncertain; retaining this task identity';
 const CONTROLLER_PROBLEM = 'Controller check failed; inspect local service logs';
 
@@ -67,6 +70,8 @@ export class Engine {
     this.peerspan = peerspan;
     this.tickMs = tickMs;
     this.readiness = new Map();
+    // When each remote connection's last check that refreshed the sender's directory began.
+    this.refreshedAt = new Map();
     this.listeners = new Set();
     this.bootId = Date.now().toString(36);
     this.changes = 0;
@@ -198,7 +203,10 @@ export class Engine {
       pool(connections, CONCURRENCY, connection => this.refreshReadiness(connection))
     ]);
     for (const id of this.readiness.keys()) {
-      if (!connections.some(connection => connection.id === id)) this.readiness.delete(id);
+      if (!connections.some(connection => connection.id === id)) {
+        this.readiness.delete(id);
+        this.refreshedAt.delete(id);
+      }
     }
 
     await this.dispatch();
@@ -215,21 +223,38 @@ export class Engine {
   }
 
   async refreshReadiness(connection) {
-    const checkedAt = stamp();
+    const started = nowMs();
+    const checkedAt = new Date(started).toISOString();
+    let refresh = false;
+    if (connection.mode === 'remote') {
+      // Elapsed time or the controller's clock, whichever has advanced 60 seconds first: a held or
+      // corrected step back of the clock must not suspend refreshes (contract section 7.1).
+      const elapsed = performance.now();
+      const last = this.refreshedAt.get(connection.id);
+      refresh = last === undefined || elapsed - last.elapsed >= DIRECTORY_REFRESH_MS
+        || started - last.clock >= DIRECTORY_REFRESH_MS;
+      if (refresh) this.refreshedAt.set(connection.id, { elapsed, clock: started });
+    }
     let result;
     try {
-      result = await checkReadiness(connection, this.peerspan);
+      result = await checkReadiness(connection, this.peerspan, { refresh });
     } catch (error) {
       if (error.aborted) throw error;
       // One connection that cannot be evaluated must not fail the pass for the others.
       console.error('Readiness check failed: ' + error.message);
-      result = { ready: false, code: 'status_invalid', reason: 'Worker host status could not be read', hints: [] };
+      result = {
+        ready: false,
+        code: 'status_invalid',
+        reason: 'Worker host status could not be read',
+        hints: [],
+        directoryAt: null
+      };
     }
     const since = await this.store.recordReadiness(connection.id, result.ready, result.code, checkedAt);
     const previous = this.readiness.get(connection.id);
     this.readiness.set(connection.id, { ...result, checkedAt, since });
-    const same = previous && previous.code === result.code
-      && JSON.stringify(previous.hints) === JSON.stringify(result.hints);
+    const same = previous && previous.code === result.code && previous.reason === result.reason
+      && previous.directoryAt === result.directoryAt && JSON.stringify(previous.hints) === JSON.stringify(result.hints);
     if (!same) this.touch();
   }
 
@@ -241,7 +266,8 @@ export class Engine {
       reason: 'Checking connection',
       checkedAt: null,
       since: connection.readySince,
-      hints: []
+      hints: [],
+      directoryAt: null
     };
   }
 

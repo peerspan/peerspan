@@ -3,46 +3,47 @@
 // Version 1 (contract section 13) was one `records(kind, id, body)` table with
 // `PRAGMA user_version` 0. Version 2 is relational, so that the two exclusion
 // rules of contract section 4 are constraints of the store itself and history
-// is read through indexes instead of whole-table scans.
+// is read through indexes instead of whole-table scans. Version 3 adds remote
+// connections, schedules and result review (contract sections 7.1, 14, 15).
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-export const SCHEMA_VERSION = 2;
-export const BACKUP_NAME = 'managed.v1-backup.sqlite';
+export const SCHEMA_VERSION = 3;
+const backupName = version => `managed.v${version}-backup.sqlite`;
 
 // States in which a task still reserves its target and its run its workflow.
 export const OPEN_STATES = ['submitting', 'queued', 'running'];
 
-const DDL = `
+const CONNECTIONS = `
 CREATE TABLE connections (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('file', 'agent')),
+  mode TEXT NOT NULL CHECK (mode IN ('file', 'agent', 'remote')),
   worker_state TEXT,
   host_dir TEXT,
   host_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   sender_state TEXT,
+  -- Remote mode: the sender's network whose directory lists the worker.
+  network_id TEXT,
   ready INTEGER,
   ready_since TEXT,
   created_at TEXT NOT NULL,
   removed_at TEXT
 );
+`;
 
-CREATE TABLE observations (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  directory TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
+const WORKFLOWS = `
 CREATE TABLE workflows (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   connection_id TEXT NOT NULL,
   instructions TEXT NOT NULL,
-  interval_minutes INTEGER NOT NULL,
+  -- Exactly one of an interval and a schedule (JSON) is set.
+  interval_minutes INTEGER,
+  schedule TEXT,
+  review TEXT NOT NULL DEFAULT 'none' CHECK (review IN ('none', 'operator')),
   max_runs_per_day INTEGER NOT NULL,
   acceptance_minutes INTEGER NOT NULL,
   enabled INTEGER NOT NULL,
@@ -55,7 +56,24 @@ CREATE TABLE workflows (
   unattended_runs INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  archived_at TEXT
+  archived_at TEXT,
+  CHECK ((interval_minutes IS NULL) <> (schedule IS NULL))
+);
+`;
+
+const CONNECTION_COLUMNS = `id, name, mode, worker_state, host_dir, host_id, agent_id, sender_state, ready, ready_since,
+  created_at, removed_at`;
+const WORKFLOW_COLUMNS = `id, name, connection_id, instructions, interval_minutes, max_runs_per_day, acceptance_minutes,
+  enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason, unattended_runs, created_at, updated_at,
+  archived_at`;
+
+const DDL = CONNECTIONS + WORKFLOWS + `
+
+CREATE TABLE observations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  directory TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 -- One durable Peerspan submission. Its identity and payload are written
@@ -99,13 +117,19 @@ CREATE TABLE runs (
   workflow_id TEXT NOT NULL,
   task_id TEXT NOT NULL UNIQUE,
   open INTEGER NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- Whether the workflow required review when this run was reserved, and the verdict.
+  review_required INTEGER NOT NULL DEFAULT 0,
+  review TEXT CHECK (review IN ('pending', 'accepted', 'rejected')),
+  reviewed_at TEXT,
+  review_note TEXT
 );
 -- One unresolved run per workflow (contract section 4).
 CREATE UNIQUE INDEX runs_open_workflow ON runs(workflow_id) WHERE open = 1;
 CREATE INDEX runs_workflow ON runs(workflow_id, seq);
 CREATE INDEX runs_workflow_created ON runs(workflow_id, created_at);
 CREATE INDEX runs_created ON runs(created_at);
+CREATE INDEX runs_review ON runs(workflow_id) WHERE review = 'pending';
 
 CREATE TABLE task_events (
   task_id TEXT NOT NULL,
@@ -144,7 +168,27 @@ function parseBody(row) {
   return body;
 }
 
-// Version 1 to version 2, inside the caller's transaction.
+// Version 2 to version 3, inside the caller's transaction. SQLite cannot change a
+// column's constraints in place, so the two changed tables are rebuilt with their
+// rows and row order.
+function migrateFromV2(db) {
+  db.exec(`ALTER TABLE connections RENAME TO connections_v2;
+    ALTER TABLE workflows RENAME TO workflows_v2;
+    ${CONNECTIONS} ${WORKFLOWS}
+    INSERT INTO connections (rowid, ${CONNECTION_COLUMNS})
+      SELECT rowid, ${CONNECTION_COLUMNS} FROM connections_v2 ORDER BY rowid;
+    INSERT INTO workflows (rowid, ${WORKFLOW_COLUMNS})
+      SELECT rowid, ${WORKFLOW_COLUMNS} FROM workflows_v2 ORDER BY rowid;
+    DROP TABLE connections_v2;
+    DROP TABLE workflows_v2;
+    ALTER TABLE runs ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE runs ADD COLUMN review TEXT CHECK (review IN ('pending', 'accepted', 'rejected'));
+    ALTER TABLE runs ADD COLUMN reviewed_at TEXT;
+    ALTER TABLE runs ADD COLUMN review_note TEXT;
+    CREATE INDEX runs_review ON runs(workflow_id) WHERE review = 'pending';`);
+}
+
+// Version 1 to the current version, inside the caller's transaction.
 function migrateFromV1(db, now) {
   db.exec(DDL);
   const rows = kind => db.prepare('SELECT id, body FROM records WHERE kind = ? ORDER BY rowid').all(kind).map(parseBody);
@@ -215,9 +259,10 @@ export function openDatabase(file) {
       throw new Error(`State was written by a newer Peerspan Managed (schema ${version}); this version reads schema ${SCHEMA_VERSION}`);
     }
     db.exec('PRAGMA busy_timeout = 5000');
-    const isV1 = version === 0 && tableExists(db, 'records');
-    if (isV1) {
-      const backup = join(dirname(file), BACKUP_NAME);
+    // Existing state of an older schema is copied aside before it is migrated.
+    const found = version === 0 ? (tableExists(db, 'records') ? 1 : null) : version;
+    if (found !== null && found < SCHEMA_VERSION) {
+      const backup = join(dirname(file), backupName(found));
       if (!existsSync(backup)) {
         db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
         chmodSync(backup, 0o600);
@@ -228,8 +273,10 @@ export function openDatabase(file) {
       db.exec('BEGIN IMMEDIATE');
       try {
         // Another process may have migrated while this one waited for the lock.
-        if (userVersion(db) < SCHEMA_VERSION) {
-          if (tableExists(db, 'records')) migrateFromV1(db, new Date().toISOString());
+        const current = userVersion(db);
+        if (current < SCHEMA_VERSION) {
+          if (current === 2) migrateFromV2(db);
+          else if (tableExists(db, 'records')) migrateFromV1(db, new Date().toISOString());
           else db.exec(DDL);
           db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         }

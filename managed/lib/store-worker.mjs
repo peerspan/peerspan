@@ -32,7 +32,8 @@ const OPERATIONS = new Map(Object.entries({
   applyTask: 'write',
   taskProblem: 'write',
   requestCancel: 'write',
-  abandonRun: 'write'
+  abandonRun: 'write',
+  reviewRun: 'write'
 }));
 
 let db;

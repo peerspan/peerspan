@@ -170,10 +170,22 @@ function render() {
   if (!app.data) return;
   renderNav();
   const view = $('view');
-  // Keep keyboard focus on the same control across a refresh.
-  const focused = document.activeElement?.dataset?.key;
+  // Keep keyboard focus, and anything typed into a text field, across a refresh.
+  const active = document.activeElement;
+  const focused = active?.dataset?.key;
+  const selection = focused && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
+  const drafts = [...view.querySelectorAll('textarea[data-key], input[type="text"][data-key]')]
+    .filter(field => field.value).map(field => [field.dataset.key, field.value]);
   view.replaceChildren(...page().flat().filter(Boolean));
-  if (focused) view.querySelector(`[data-key="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  for (const [key, value] of drafts) {
+    const field = view.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (field && !field.value) field.value = value;
+  }
+  if (focused) {
+    const field = view.querySelector(`[data-key="${CSS.escape(focused)}"]`);
+    field?.focus({ preventScroll: true });
+    if (field && selection && 'setSelectionRange' in field) field.setSelectionRange(...selection);
+  }
 }
 
 function setLive(on) {
@@ -269,7 +281,8 @@ const actions = {
       workflow,
       connections: app.data.connections,
       submit(fields) {
-        const patch = Object.fromEntries(Object.entries(fields).filter(([key, value]) => workflow[key] !== value));
+        const patch = Object.fromEntries(Object.entries(fields)
+          .filter(([key, value]) => JSON.stringify(workflow[key]) !== JSON.stringify(value)));
         return Object.keys(patch).length ? request(`/api/workflows/${workflow.id}`, { method: 'PATCH', body: patch }) : null;
       }
     });
@@ -302,6 +315,20 @@ const actions = {
     if (await abandonDialog(run)) {
       await perform(() => post(`/api/runs/${run.id}/abandon`, { confirm: run.taskId }), 'Run released.');
     }
+  },
+
+  /** Records a final verdict, then opens `next`, the next result waiting for review, if there is one. */
+  async reviewRun(run, verdict, note, next) {
+    const body = note.trim() ? { verdict, note } : { verdict };
+    try {
+      await post(`/api/runs/${run.id}/review`, body);
+    } catch (error) {
+      toast(error.message, 'error');
+      return;
+    }
+    toast(verdict === 'accepted' ? 'Accepted. It counts as a success.' : 'Rejected. It counts as a failure.');
+    if (next) location.hash = `#/runs/${next.id}`;
+    else await refresh();
   },
 
   async moreRuns() {

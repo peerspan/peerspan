@@ -4,6 +4,7 @@
 // performs I/O other than SQLite, and every external effect elsewhere is
 // preceded by one of these writes (contract section 4).
 import { randomBytes, randomUUID } from 'node:crypto';
+import { nextSlot } from './schedule.mjs';
 
 const MINUTE = 60_000;
 const WINDOW_DAYS = 7;
@@ -29,6 +30,19 @@ export class Refusal extends Error {
 
 const iso = ms => new Date(ms).toISOString();
 
+const scheduleOf = row => (row.schedule === null ? null : JSON.parse(row.schedule));
+
+/** When a workflow next runs after one of its runs finished at `finishedAt` (contract sections 4 and 14). */
+function nextAfterFinish(workflow, finishedAt, succeeded) {
+  const finished = Date.parse(finishedAt);
+  const schedule = scheduleOf(workflow);
+  if (schedule) return iso(nextSlot(schedule, finished + MINUTE, { inclusive: true }));
+  return iso(finished + Math.max(workflow.interval_minutes * MINUTE, succeeded ? 0 : MINUTE));
+}
+
+// Reviewing results is the expected work of a reviewed workflow, not an intervention (contract section 8).
+const isIntervention = (actor, kind) => actor === 'operator' && kind !== 'workflow.created' && kind !== 'run.reviewed';
+
 // A worker agent takes one assignment at a time, whichever sender submits it (MGD-6).
 export const targetOf = connection => JSON.stringify([connection.host_id, connection.agent_id]);
 
@@ -45,7 +59,8 @@ function connectionRecord(row) {
     hostDir: row.host_dir,
     hostId: row.host_id,
     agentId: row.agent_id,
-    senderState: row.sender_state
+    senderState: row.sender_state,
+    networkId: row.network_id
   };
 }
 
@@ -74,6 +89,8 @@ function workflowView(row) {
     connectionId: row.connection_id,
     instructions: row.instructions,
     intervalMinutes: row.interval_minutes,
+    schedule: scheduleOf(row),
+    review: row.review,
     maxRunsPerDay: row.max_runs_per_day,
     acceptanceMinutes: row.acceptance_minutes,
     enabled: row.enabled === 1,
@@ -88,7 +105,7 @@ function workflowView(row) {
 
 const RUN_COLUMNS = `r.seq, r.id, r.workflow_id, w.name AS workflow_name, t.task_id, t.state,
   t.output_truncated, t.error, t.problem_since, t.reason, t.progress, t.cancel_requested_at,
-  r.created_at, t.updated_at, t.started_at, t.finished_at`;
+  r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note`;
 const RUN_SOURCE = `runs r JOIN tasks t ON t.task_id = r.task_id LEFT JOIN workflows w ON w.id = r.workflow_id`;
 const RUN_PREVIEW = `SELECT ${RUN_COLUMNS}, substr(t.output, 1, ${PREVIEW_CHARS}) AS output,
   length(t.output) > ${PREVIEW_CHARS} AS output_longer FROM ${RUN_SOURCE}`;
@@ -110,7 +127,10 @@ function runView(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,
-    finishedAt: row.finished_at
+    finishedAt: row.finished_at,
+    review: row.review,
+    reviewedAt: row.reviewed_at,
+    reviewNote: row.review_note
   };
 }
 
@@ -162,8 +182,8 @@ export class Model {
       now, actor, kind, workflowId, runId, connectionId, data === null ? null : JSON.stringify(data));
     const seq = Number(lastInsertRowid);
     if (seq % 100 === 0) this.run('DELETE FROM activity WHERE seq <= ?', seq - ACTIVITY_LIMIT);
-    // Every operator action on a workflow after its creation is an intervention.
-    if (actor === 'operator' && workflowId && kind !== 'workflow.created') {
+    // Every operator action on a workflow after its creation, other than a review verdict, is an intervention.
+    if (workflowId && isIntervention(actor, kind)) {
       this.run('UPDATE workflows SET unattended_runs = 0 WHERE id = ?', workflowId);
     }
   }
@@ -183,10 +203,10 @@ export class Model {
 
   addConnection(connection, now) {
     this.run(`INSERT INTO connections
-      (id, name, mode, worker_state, host_dir, host_id, agent_id, sender_state, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, name, mode, worker_state, host_dir, host_id, agent_id, sender_state, network_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     connection.id, connection.name, connection.mode, connection.workerState, connection.hostDir,
-    connection.hostId, connection.agentId, connection.senderState, now);
+    connection.hostId, connection.agentId, connection.senderState, connection.networkId ?? null, now);
     this.log(now, 'operator', 'connection.added', { connectionId: connection.id });
     return {
       id: connection.id,
@@ -273,13 +293,18 @@ export class Model {
     if (!this.hasConnection(fields.connectionId)) throw new Refusal(400, 'Unknown worker connection');
     const id = randomUUID();
     const enabled = fields.enabled ? 1 : 0;
+    const schedule = fields.schedule ?? null;
+    // An interval workflow is due at once; a scheduled one at its first slot (contract section 14).
+    const nextRunAt = schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
     this.run(`INSERT INTO workflows
-      (id, name, connection_id, instructions, interval_minutes, max_runs_per_day, acceptance_minutes,
-       enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-    id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes,
-    fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
-    enabled ? null : now, now, enabled ? null : PAUSED_BY_OPERATOR, now, now);
+      (id, name, connection_id, instructions, interval_minutes, schedule, review, max_runs_per_day,
+       acceptance_minutes, enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason,
+       created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+    id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes ?? null,
+    schedule ? JSON.stringify(schedule) : null, fields.review ?? 'none', fields.maxRunsPerDay,
+    fields.acceptanceMinutes, enabled, enabled ? null : 'operator', enabled ? null : now, nextRunAt,
+    enabled ? null : PAUSED_BY_OPERATOR, now, now);
     this.log(now, 'operator', 'workflow.created', { workflowId: id });
     return this.workflowDetail(id, now);
   }
@@ -294,21 +319,32 @@ export class Model {
       connectionId: 'connection_id',
       instructions: 'instructions',
       intervalMinutes: 'interval_minutes',
+      schedule: 'schedule',
+      review: 'review',
       maxRunsPerDay: 'max_runs_per_day',
       acceptanceMinutes: 'acceptance_minutes'
     };
-    const changed = Object.keys(patch).filter(key => patch[key] !== row[columns[key]]).sort();
+    const current = Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, row[column]]));
+    const next = { ...current };
+    for (const [key, value] of Object.entries(patch)) next[key] = key === 'schedule' ? JSON.stringify(value) : value;
+    // A workflow has an interval or a schedule: setting one clears the other.
+    if (patch.schedule !== undefined) next.intervalMinutes = null;
+    if (patch.intervalMinutes !== undefined) next.schedule = null;
+    const changed = Object.keys(next).filter(key => next[key] !== current[key]).sort();
     if (!changed.length) return this.workflowDetail(id, now);
-    for (const key of changed) this.run(`UPDATE workflows SET ${columns[key]} = ? WHERE id = ?`, patch[key], id);
-    if (changed.includes('intervalMinutes')) {
+    // One statement, so that the store never sees both or neither of interval and schedule.
+    this.run(`UPDATE workflows SET ${changed.map(key => columns[key] + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`,
+      ...changed.map(key => next[key]), now, id);
+    if (changed.includes('schedule') && next.schedule !== null) {
+      this.run('UPDATE workflows SET next_run_at = ? WHERE id = ?', iso(nextSlot(patch.schedule, Date.parse(now))), id);
+    } else if (changed.includes('intervalMinutes') && next.intervalMinutes !== null) {
       const latest = this.one(`SELECT t.finished_at FROM runs r JOIN tasks t ON t.task_id = r.task_id
         WHERE r.workflow_id = ? AND t.open = 0 ORDER BY r.seq DESC LIMIT 1`, id);
       if (latest?.finished_at) {
         this.run('UPDATE workflows SET next_run_at = ? WHERE id = ?',
-          iso(Date.parse(latest.finished_at) + patch.intervalMinutes * MINUTE), id);
+          iso(Date.parse(latest.finished_at) + next.intervalMinutes * MINUTE), id);
       }
     }
-    this.run('UPDATE workflows SET updated_at = ? WHERE id = ?', now, id);
     this.log(now, 'operator', 'workflow.edited', { workflowId: id, data: { fields: changed } });
     return this.workflowDetail(id, now);
   }
@@ -401,8 +437,9 @@ export class Model {
       VALUES (?, ?, 'work', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
     taskId, runId, connection.id, targetOf(connection), connection.host_id, connection.agent_id,
     connection.sender_state, workflow.instructions, deadline, now, now);
-    this.run('INSERT INTO runs (id, workflow_id, task_id, open, created_at) VALUES (?, ?, ?, 1, ?)',
-      runId, workflow.id, taskId, now);
+    // The run keeps the review requirement its workflow has now (contract section 15).
+    this.run('INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required) VALUES (?, ?, ?, 1, ?, ?)',
+      runId, workflow.id, taskId, now, workflow.review === 'operator' ? 1 : 0);
     this.run("UPDATE workflows SET blocked_reason = 'Assignment in progress' WHERE id = ?", workflow.id);
     this.log(now, 'system', 'run.dispatched', { workflowId: workflow.id, runId });
     return taskRecord(this.one('SELECT * FROM tasks WHERE task_id = ?', taskId));
@@ -478,15 +515,16 @@ export class Model {
    * it does not count as unattended.
    */
   close(task, run, now, { released = false } = {}) {
+    const succeeded = task.state === 'succeeded';
     this.run('UPDATE runs SET open = 0 WHERE id = ?', run.id);
+    // A success of a reviewed workflow waits for the operator's verdict before it counts.
+    if (succeeded) this.run("UPDATE runs SET review = 'pending' WHERE id = ? AND review_required = 1", run.id);
     this.log(now, 'system', 'run.finished', { workflowId: run.workflow_id, runId: run.id, data: { state: task.state } });
     const workflow = this.one('SELECT * FROM workflows WHERE id = ?', run.workflow_id);
     if (!workflow) return;
-    const succeeded = task.state === 'succeeded';
     const streak = succeeded ? 0 : isOperatorResult(task) ? workflow.failure_streak : workflow.failure_streak + 1;
-    const delay = Math.max(workflow.interval_minutes * MINUTE, succeeded ? 0 : MINUTE);
     this.run(`UPDATE workflows SET failure_streak = ?, next_run_at = ?, unattended_runs = unattended_runs + ?
-      WHERE id = ?`, streak, iso(Date.parse(now) + delay), released ? 0 : 1, workflow.id);
+      WHERE id = ?`, streak, nextAfterFinish(workflow, now, succeeded), released ? 0 : 1, workflow.id);
     if (streak >= FAILURE_LIMIT && workflow.enabled === 1) {
       this.run(`UPDATE workflows SET enabled = 0, paused_by = 'failures', paused_at = ?, blocked_reason = ?
         WHERE id = ?`, now, PAUSED_BY_FAILURES, workflow.id);
@@ -539,6 +577,18 @@ export class Model {
     return this.runPreview(runId);
   }
 
+  /** The operator's final verdict on a result that waits for review (contract section 15). */
+  reviewRun(runId, verdict, note, now) {
+    const row = this.one('SELECT id, workflow_id, review FROM runs WHERE id = ?', runId);
+    if (!row) throw new Refusal(404, 'Run not found');
+    if (row.review !== 'pending') {
+      throw new Refusal(409, row.review === null ? 'This run has no result waiting for review' : 'This result was already reviewed');
+    }
+    this.run('UPDATE runs SET review = ?, reviewed_at = ?, review_note = ? WHERE id = ?', verdict, now, note, runId);
+    this.log(now, 'operator', 'run.reviewed', { workflowId: row.workflow_id, runId, data: { verdict } });
+    return this.runPreview(runId);
+  }
+
   // ----- views ---------------------------------------------------------------------------
 
   runPreview(runId) {
@@ -575,18 +625,24 @@ export class Model {
   statistics(since) {
     const stats = new Map();
     const entry = id => {
-      if (!stats.has(id)) stats.set(id, { runs: 0, succeeded: 0, failed: 0, averageSeconds: null, interventions: 0 });
+      if (!stats.has(id)) {
+        stats.set(id, { runs: 0, succeeded: 0, failed: 0, averageSeconds: null, interventions: 0, awaitingReview: 0 });
+      }
       return stats.get(id);
     };
     for (const row of this.all(
       'SELECT workflow_id, COUNT(*) AS runs FROM runs WHERE created_at >= ? GROUP BY workflow_id', since)) {
       entry(row.workflow_id).runs = row.runs;
     }
+    // A success counts once it needs no review or was accepted; a rejected one counts as a failure.
+    // `IS` rather than `=` for the nullable review, so that no term is NULL and every sum is a count.
+    const counted = "t.state = 'succeeded' AND (r.review IS NULL OR r.review IS 'accepted')";
     for (const row of this.all(`SELECT r.workflow_id,
-        SUM(t.state = 'succeeded') AS succeeded,
-        SUM(t.state <> 'succeeded' AND t.state <> 'abandoned'
-          AND NOT (t.state = 'cancelled' AND t.cancel_requested_at IS NOT NULL)) AS failed,
-        AVG(CASE WHEN t.state = 'succeeded'
+        TOTAL(${counted}) AS succeeded,
+        TOTAL((t.state <> 'succeeded' AND t.state <> 'abandoned'
+          AND NOT (t.state = 'cancelled' AND t.cancel_requested_at IS NOT NULL))
+          OR (t.state = 'succeeded' AND r.review IS 'rejected')) AS failed,
+        AVG(CASE WHEN ${counted}
           THEN (julianday(t.finished_at) - julianday(r.created_at)) * 86400.0 END) AS average_seconds
       FROM tasks t JOIN runs r ON r.task_id = t.task_id
       WHERE t.open = 0 AND t.finished_at >= ? GROUP BY r.workflow_id`, since)) {
@@ -596,21 +652,33 @@ export class Model {
       item.averageSeconds = row.average_seconds === null ? null : Math.max(0, Math.round(row.average_seconds));
     }
     for (const row of this.all(`SELECT workflow_id, COUNT(*) AS interventions FROM activity
-      WHERE at >= ? AND actor = 'operator' AND kind <> 'workflow.created' AND workflow_id IS NOT NULL
+      WHERE at >= ? AND actor = 'operator' AND kind NOT IN ('workflow.created', 'run.reviewed')
+        AND workflow_id IS NOT NULL
       GROUP BY workflow_id`, since)) {
       entry(row.workflow_id).interventions = row.interventions;
+    }
+    for (const row of this.all(
+      "SELECT workflow_id, COUNT(*) AS waiting FROM runs WHERE review = 'pending' GROUP BY workflow_id")) {
+      entry(row.workflow_id).awaitingReview = row.waiting;
     }
     return stats;
   }
 
   decorate(row, statistics) {
-    const stats = statistics.get(row.id) ?? { runs: 0, succeeded: 0, failed: 0, averageSeconds: null, interventions: 0 };
+    const stats = statistics.get(row.id)
+      ?? { runs: 0, succeeded: 0, failed: 0, averageSeconds: null, interventions: 0, awaitingReview: 0 };
     const judged = stats.succeeded + stats.failed;
-    const recent = this.all(`SELECT r.id, t.state, r.created_at, t.finished_at FROM runs r
+    const recent = this.all(`SELECT r.id, t.state, r.created_at, t.finished_at, r.review FROM runs r
       JOIN tasks t ON t.task_id = r.task_id WHERE r.workflow_id = ? ORDER BY r.seq DESC LIMIT 20`, row.id);
     return {
       ...workflowView(row),
-      recent: recent.map(r => ({ id: r.id, state: r.state, createdAt: r.created_at, finishedAt: r.finished_at })),
+      recent: recent.map(r => ({
+        id: r.id,
+        state: r.state,
+        createdAt: r.created_at,
+        finishedAt: r.finished_at,
+        review: r.review
+      })),
       stats: {
         windowDays: WINDOW_DAYS,
         runs: stats.runs,
@@ -619,7 +687,8 @@ export class Model {
         successRate: judged ? stats.succeeded / judged : null,
         averageSeconds: stats.averageSeconds,
         interventions: stats.interventions,
-        unattendedRuns: row.unattended_runs
+        unattendedRuns: row.unattended_runs,
+        awaitingReview: stats.awaitingReview
       }
     };
   }
@@ -650,6 +719,11 @@ export class Model {
     const problems = this.all(`SELECT r.id, w.name AS workflow_name, t.error, t.problem_since FROM tasks t
       JOIN runs r ON r.task_id = t.task_id LEFT JOIN workflows w ON w.id = r.workflow_id
       WHERE t.open = 1 AND t.error IS NOT NULL ORDER BY t.problem_since`);
+    // Results waiting for a verdict, per workflow, archived ones included.
+    const reviews = this.all(`SELECT r.workflow_id, w.name AS workflow_name, COUNT(*) AS waiting,
+        MIN(t.finished_at) AS since
+      FROM runs r JOIN tasks t ON t.task_id = r.task_id LEFT JOIN workflows w ON w.id = r.workflow_id
+      WHERE r.review = 'pending' GROUP BY r.workflow_id ORDER BY since`);
     return {
       connections,
       workflows,
@@ -659,6 +733,12 @@ export class Model {
         name: row.workflow_name ?? 'Workflow',
         message: row.error,
         since: row.problem_since
+      })),
+      reviews: reviews.map(row => ({
+        id: row.workflow_id,
+        name: row.workflow_name ?? 'Workflow',
+        waiting: row.waiting,
+        since: row.since
       })),
       archived: this.all('SELECT id, name, archived_at FROM workflows WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, rowid DESC')
         .map(row => ({ id: row.id, name: row.name, archivedAt: row.archived_at })),
