@@ -51,8 +51,8 @@ policy, a task record, an event, activity, a log or any response.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `agent runtime set AGENT --harness-dir DIR [--from-branch BRANCH] [--network none\|internet] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-runs N]` | `PUT /v1/agents/{agent_id}/runtime` with the profile's fields but `agent_id` | Creates or replaces the profile. `AGENT` is an agent ID or a local agent's name. It needs the runtime switch on and a runtime that reports `peerfs` true (otherwise 409 `runtime_unavailable`). The resources may not exceed what the runtime reports (otherwise 422). An omitted field takes its default, not its previous value. Returns the profile. Activity `runtime.agent_set`. |
-| `agent runtime show [AGENT] [--json]` | `GET /v1/agents/{agent_id}/runtime`, `GET /v1/agents/runtime` | One profile, or all profiles in agent ID order, each with `credential: true\|false` added. 404 for an agent without a profile. |
+| `agent runtime set AGENT --harness-dir DIR [--from-branch BRANCH] [--network none\|internet] [--cpus N] [--memory-mib N] [--timeout DURATION] [--max-runs N]` | `PUT /v1/agents/{agent_id}/runtime` with the profile's fields but `agent_id` | Creates or replaces the profile. `AGENT` is an agent ID or a local agent's name. It needs the runtime switch on and a runtime that reports `peerfs` true (otherwise 409 `runtime_unavailable`). The resources and `network` may not exceed what the runtime reports, `max_network` included (otherwise 422 `too_large`). An agent whose name is not addressable is 400 `invalid`. `--timeout` takes a duration as `task run --timeout` does. An omitted field takes its default, not its previous value. Returns the profile, with `agent_id` and without `credential`. Activity `runtime.agent_set`. |
+| `agent runtime show [AGENT] [--json]` | `GET /v1/agents/{agent_id}/runtime`, `GET /v1/agents/runtime` | One profile, or a JSON array of all profiles in agent ID order, each with `credential: true\|false` added. 404 for an agent without a profile. |
 | `agent runtime clear AGENT` | `DELETE /v1/agents/{agent_id}/runtime` | Removes the profile, and returns `{}`. Tasks already dispatched or running finish; queued ones are rejected at start. Activity `runtime.agent_cleared`. |
 | `agent credential set AGENT --from-file PATH` | `PUT /v1/agents/{agent_id}/credential` with `{value}` | Stores the key, replacing any earlier one. Returns `{agent_id, credential: true}`. Activity `runtime.credential_set`, without the key. |
 | `agent credential clear AGENT` | `DELETE /v1/agents/{agent_id}/credential` | Removes the key. Returns `{agent_id, credential: false}`. Activity `runtime.credential_cleared`. |
@@ -83,7 +83,8 @@ A queued task of a runtime agent starts when all of these hold:
 - fewer than the profile's `max_runs` of that agent's tasks are dispatched or running.
 
 Tasks start in `created_at` order, across all runtime agents and runtime tasks. Before the start
-the host rechecks the task's authorization, as at adapter handoff. A recoverable failure (503
+the host rechecks the task's authorization, as at adapter handoff, and then makes the checks
+below in their order. A recoverable failure (503
 for messages) leaves the task queued. A final failure records `rejected` with the reason
 `authorization lapsed before acceptance`, as the task contract specifies.
 
@@ -179,6 +180,10 @@ naming the branch (RUN-11).
   The trailer is chosen in that order of precedence: a result with `error` never reports a
   commit or `unchanged`, so an error stays visible even when the message is not empty.
 
+A run the runtime lost (runtime task contract, restarts) has the empty-message rule's `error`,
+so its output is `the runtime restarted`, a blank line, and `Branch: NAME, not committed: the
+runtime restarted`; what the command wrote stays in the workspace `NAME`.
+
 The stdout and stderr logs are not attached and not served. The output of a `cancelled` task
 follows the same rules. A task cancelled before dispatch has `output` null, as in the runtime
 task contract.
@@ -263,7 +268,7 @@ The suite covers:
   runtime reporting `peerfs` false, for resources over the runtime's maximums, and for an
   agent whose name is not addressable. `agent credential set` and `clear`, with the key never
   appearing in any response, task record, event, activity or log.
-- **Receiving:** a task to a runtime agent, sent by the owner's other host under policy and by
+- **Receiving:** a task to a runtime agent, sent by the owner's other host (citing `self`) and by
   another person's host under a grant, never offered to an attached session of the agent. A task
   received before the profile was set stays with the adapter path. A task with an input artifact
   refused with 400 naming `artifacts`, and nothing persisted.
