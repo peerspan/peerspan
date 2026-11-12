@@ -13,12 +13,7 @@ use crate::{
 use ed25519_dalek::{Signer, SigningKey};
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use std::{
-    fs::OpenOptions,
-    io::Read,
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
-    time::Instant,
-};
+use std::time::Instant;
 
 type HostResult<T> = std::result::Result<T, HostError>;
 #[derive(PartialEq, Eq)]
@@ -232,31 +227,8 @@ pub(super) fn original_signer(
         .map_err(|_| unavailable())?
         .clone()
         .ok_or_else(unavailable)?;
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
-        .open(path)
-        .map_err(|_| unavailable())?;
-    let meta = file.metadata().map_err(|_| unavailable())?;
-    // O_NONBLOCK prevents a configured FIFO from blocking before fstat.
-    if !meta.is_file()
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.mode() & 0o077 != 0
-        || meta.len() > 16384
-    {
-        return Err(unavailable());
-    }
-    let mut bytes = Vec::new();
-    file.take(16385)
-        .read_to_end(&mut bytes)
-        .map_err(|_| unavailable())?;
-    if bytes.len() > 16384 {
-        return Err(unavailable());
-    }
-    let text = std::str::from_utf8(&bytes).map_err(|_| unavailable())?;
-    let signer = PersonSigner::File(
-        crate::persons::parse_openssh_private_key(text).map_err(|_| unavailable())?,
-    );
+    let signer =
+        PersonSigner::File(crate::persons::read_owner_key_file(&path).ok_or_else(unavailable)?);
     if signer.public_key() != key {
         return Err(unavailable());
     }

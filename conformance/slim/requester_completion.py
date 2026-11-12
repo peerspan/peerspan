@@ -44,7 +44,7 @@ from pathlib import Path
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, commit,
                      create_network, finalize, link_view, parse_time, pull_until,
                      rfc3339, select, ssh_key, ssh_public_base64, wait_for, wait_linked)
-from counted_peer import configure_terminal_peers, exchange_current_contacts, peer_address
+from counted_peer import configure_terminal_peers, exchange_current_contacts, peer_address, refresh_owed_directories, sync_networks
 
 suite = Suite("requester_completion", __doc__)
 BASE = "/v1/onboarding/join-flows"
@@ -1590,7 +1590,12 @@ def _():
     wait_linked(a, f['rid'], timeout=25)
     terminal_delivery_baseline(h, a, f['network']['id'],
                                (f['view']['expires_at'], approved['commit']['review']['not_after']))
-    a.stop(); terminal_cleanup(f); a.relay.mode = h.relay.mode = 'drop'; quiet(f)
+    a.stop(); terminal_cleanup(f); a.relay.mode = h.relay.mode = 'drop'
+    # SYNC-1 then DIR-1: one explicit sync and one whole-network refresh after the
+    # last terminal setup change;
+    # detach and pure replays below change no map or stored policy.
+    sync_networks((h,), (f['network']['id'],))  # SYNC-1; the stopped issuer costs at most 5 s
+    refresh_owed_directories((h,), (f['network']['id'],)); quiet(f)
     check(terminal_transport_retired(h), 'ordinary cleanup did not retire short contact handoffs, request frames/read-cap or delivery work')
     check(not (h.home / '.config/peerspan/person_ed25519').exists() and not (h.root / 'absent-agent.sock').exists(),
           'external original unexpectedly installed in requester daemon or agent')

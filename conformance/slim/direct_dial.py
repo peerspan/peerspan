@@ -5,8 +5,9 @@ Two people on two hosts (dana creates, eli joins through an invite). Each host's
 advertises its real first-contact listener and three QUIC addresses, in the file's sorted order: a black hole on
 `127.0.0.10` (a UDP socket this suite binds, which reads and discards every datagram, so a QUIC handshake there
 never completes and nothing is refused; as text it sorts before every `127.0.0.1` address), then `127.0.0.1:1`,
-where nothing listens and which sorts before every other `127.0.0.1` port, then its real peer listener. No
-rendezvous or relay helper is configured. After both owners allow each other, each host must still reach the
+where nothing listens and which sorts before every other `127.0.0.1` port, then an opaque counted UDP carrier
+that forwards QUIC bytes unchanged to its real peer listener (`counted_peer.CountedUDP`). No rendezvous or relay
+helper is configured. After both owners allow each other, each host must still reach the
 other directly: the directory lists the agent, a message is accepted and delivered, and a task is accepted, each
 within the 8-second request bound, with no delivery attention for the peer in status. Policy changes must cross
 the black hole as fast as without it: when one owner denies, then allows, the other, the other's non-refreshing
@@ -15,19 +16,25 @@ command returning. The same must hold when the hosts went more than 300 seconds 
 each holds only the other's expired signed contact: both daemons stop while the shared debug test clock moves past
 a contact's lifetime, then start, and the first policy change after that (an allow, and after a second such
 offline period a deny) must still reach the other's directory within 10 seconds. Both daemons restart before each
-direction so no connection from the setup is reused. Written
+direction so no connection from the setup is reused. DIR-1: after the other host stores an owner's deny, one
+whole-network `POST /v1/directory/refresh` counts as the refresh owed for it, so nothing more reaches the owner's
+counted carrier or black hole for the following 10 seconds (every earlier task is first made final, so no task
+polling runs); the allow after that refresh is still reflected within
+10 seconds. Written
 from docs/decentralized-runtime-contract.md section 9 (several signed QUIC addresses, all dialed together, for
 every request including record delivery and catalog sync: a silently dropping address costs no request more
 time) and its section 10 verification bullet, with docs/decentralized-spec.md section 10 (new outgoing records are
 tried at once; 9.1, contacts valid at most 300 seconds), docs/developer-guide.md (the test clock),
 docs/peer-messaging-contract.md (the 8-second request bound) and docs/launch-contract.md (agents,
-send, task, allow, deny, and the directory's 10-second bound after a stored policy changes).
+send, task, allow, deny, the directory's 10-second bound after a stored policy changes, and DIR-1 with its
+Discovery verification bullet).
 """
 import json
 import socket
 import threading
 import time
 
+from counted_peer import CountedUDP
 from harness import Suite, check, create_network, join_new_person, ssh_key, wait_for, with_json
 
 suite = Suite("direct_dial", __doc__)
@@ -39,6 +46,7 @@ CONTACT_LIFETIME = 300  # decentralized-spec 9.1: a signed contact is valid at m
 DIRECTORY_BOUND = 10.0  # launch contract directory "When:"; runtime contract 10: as with no unreachable address
 DIAGNOSTIC_WATCH = 20.0  # past the bound, only to report the real delay of a failure
 POLL = 0.25  # one poll of access-versions plus GET /v1/directory
+SYNC_FLOOR = 50.0  # decentralized-spec 10: background sync every 60 s with up to 10 s of jitter
 state = {}
 
 
@@ -66,9 +74,10 @@ class BlackHole:
 
 def transport(host):
     hole = host.hole = BlackHole()
-    quic = sorted([UNREACHABLE, hole.address, host.peer_address])
-    check(quic == [hole.address, UNREACHABLE, host.peer_address],
-          f"want the black hole, then {UNREACHABLE}, then the real listener; sorted: {quic}")
+    counted = host.counted = CountedUDP(("127.0.0.1", host.peer_port))  # opaque: forwards to the real listener
+    quic = sorted([UNREACHABLE, hole.address, counted.address])
+    check(quic == [hole.address, UNREACHABLE, counted.address],
+          f"want the black hole, then {UNREACHABLE}, then the counted real listener; sorted: {quic}")
     path = host.root / "transport.json"
     path.write_text(json.dumps({"format": 1, "advertise_bootstrap": [f"127.0.0.1:{host.bootstrap_port}"],
                                 "advertise_quic": quic, "rendezvous": [], "relays": [], "publish_contacts": False}))
@@ -302,6 +311,87 @@ def _():
     key = state.get("eli_key")
     expired_direction(e, d, "eli/ezra", state.get("ezra"), ["dana", "--person-key", key],
                      ["dana", "--person-key", key])
+
+
+def toward(owner):
+    """Every count of UDP addressed to OWNER: both directions of its counted carrier, and its black hole."""
+    return owner.counted.counts() + (owner.hole.received,)
+
+
+FINAL = {"rejected", "expired", "succeeded", "failed", "cancelled"}  # task contract states
+
+
+def tasks_final():
+    """Every task either host submitted ends final, with all its events stored, so neither polls the other.
+
+    The task contract polls the receiver for each accepted task that is not final; the direction cases leave a
+    claimed but queued task each way. Its claiming session rejects it (queued -> rejected, an ordinary adapter
+    transition), then the submitter's polling stores the final state and stops."""
+    for submitter in (d, e):
+        status, listed = submitter.api("GET", "/v1/tasks?limit=100")
+        check(status == 200, f"{submitter.name}: task list: {status} {listed}")
+        for row in listed:
+            record = row["task"]
+            if record["submit_state"] != "accepted" or (record["status"] or {}).get("state") in FINAL:
+                continue
+            task_id = record["request"]["task_id"]
+            agent = next(a for a in (state["dot"], state["ezra"]) if a.id == record["request"]["target_agent_id"])
+            status, body = agent.post(f"/adapter/v1/tasks/{task_id}/reject", {"reason": "DIR-1 case: no pending work"})
+            check(status == 200 and body["state"] in FINAL, f"{agent.name}: reject {task_id}: {status} {body}")
+
+            def stored(submitter=submitter, task_id=task_id):
+                code, local = submitter.api("GET", f"/v1/tasks/{record['peer_host_id']}/{task_id}")
+                check(code == 200, f"{submitter.name}: task {task_id}: {code} {local}")
+                done = local["status"] or {}
+                return done.get("state") in FINAL and local["events_after"] == done.get("last_event")
+            wait_for(stored, timeout=20, interval=0.25, message=f"{submitter.name} to store task {task_id} as final")
+
+
+def refresh_counts_for_earlier_change(owner, viewer, address, agent, deny_args, allow_args):
+    """DIR-1: OWNER denies VIEWER; once VIEWER's host stores that policy, one whole-network on-demand refresh is the
+    refresh owed for it, so VIEWER sends OWNER no further query for 10 seconds (nothing reaches OWNER's counted
+    carrier or black hole). OWNER's allow after that refresh is still reflected within 10 seconds."""
+    need("setup")
+    restart_both(owner, viewer, offline=False)  # fresh daemons: the next background sync is SYNC_FLOOR away
+    started = time.monotonic()
+    tasks_final()  # no task polling in the window (task contract: polling stops once final)
+    wait_for(lambda: lists(viewer, address, agent), timeout=30, interval=0.25,
+             message=f"{viewer.name}'s directory to list {address} after the restart")
+    version = policy_version(owner, owner) + 1
+    change(owner, viewer, "deny", deny_args)
+    check(policy_version(owner, owner) >= version, f"{owner.name}'s deny stored no new policy version")
+    wait_for(lambda: policy_version(viewer, owner) >= version, timeout=20, interval=0.05,
+             message=f"{viewer.name}'s host to store {owner.name}'s deny")
+    # The change is stored before the refresh starts, so this refresh counts for it.
+    status, view = viewer.api("POST", f"/v1/directory/refresh?network={state['net']}", {}, timeout=12)
+    returned = time.monotonic()
+    check(status == 200 and view.get("network_id") == state["net"], f"{viewer.name}: refresh: {status} {view}")
+    check(not any(e["address"] == address and e["authorizations"] for e in view["agents"]),
+          f"{viewer.name}'s refresh after storing the deny still lists {address}")
+    # Only the refresh's own trailing datagrams (its last ACKs) may still arrive: the carrier must settle at once.
+    previous, since = toward(owner), time.monotonic()
+    while time.monotonic() - since < 0.3:
+        check(time.monotonic() - returned < 2, f"{owner.name}'s carrier did not settle after {viewer.name}'s refresh")
+        time.sleep(0.05)
+        if toward(owner) != previous:
+            previous, since = toward(owner), time.monotonic()
+    while time.monotonic() - returned < DIRECTORY_BOUND + POLL:
+        time.sleep(POLL)
+        now = toward(owner)
+        check(now == previous, f"{viewer.name} queried {owner.name} again {time.monotonic() - returned:.1f}s after "
+              f"its on-demand refresh, which counts for the earlier deny (DIR-1): carrier "
+              f"(in datagrams, in bytes, back datagrams, back bytes, black hole) {previous} -> {now}")
+    check(time.monotonic() - started < SYNC_FLOOR,
+          f"the quiet window ended {time.monotonic() - started:.0f}s after the restart, past the first background sync")
+    print(f"  no datagram toward {owner.name} for {DIRECTORY_BOUND:.0f}s after {viewer.name}'s refresh", flush=True)
+    returned = change(owner, viewer, "allow", allow_args)
+    follows(owner, viewer, address, agent, True, f"{owner.name} allow {viewer.name} after the refresh", returned)
+
+
+@suite.case("on_demand_refresh_counts_for_earlier_change", "launch contract directory When: and Discovery "
+            "verification (DIR-1)")
+def _():
+    refresh_counts_for_earlier_change(d, e, "dana/dot", state.get("dot"), ["eli"], ["eli"])
 
 
 @suite.case("black_holes_were_dialed", "runtime contract 9: every currently signed QUIC address is dialed")

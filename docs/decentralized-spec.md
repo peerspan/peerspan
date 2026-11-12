@@ -467,7 +467,8 @@ expires.
    **existing person**, the owner approves with `link approve REQUEST_ID` on one
    of that person's machines. The inviter's status shows
    `link_request_waiting`, naming whose step comes next and where (section 16).
-   The admin then runs the exact `link admit` command that status gives.
+   The admin then runs the `link admit` command that status gives, which reads
+   the request's owner offer and selection itself (ML-6).
 6. **Commit.** The new machine shows everything it is about to accept and asks
    once: `Commit this exact machine link? [y/N]`.
 7. **Apply.** Each participant checks the complete request and applies it.
@@ -635,6 +636,9 @@ adds no authority, and a failed path leaves the request intact for another.
 - A host serves the same mailbox routes as a helper. A participant may host it.
 - The mailbox's lifetime equals the request window (DEC-Q1). At expiry or
   `DELETE` all ciphertext is erased and a small tombstone is kept for 24 hours.
+  The host erases an expired mailbox within 2 seconds of its expiry on the
+  host's clock, without waiting for a request, and that erasure is the host's
+  own maintenance, not part of any request ([MBX-1](decision-log.md)).
 - Limits: 64 frames per mailbox, 32 MiB ciphertext per mailbox, 4 active
   mailboxes per client host, 2 writes per second (burst 8), 1 read per second
   (burst 4).
@@ -720,7 +724,11 @@ helper is valid: then only direct paths are used.
   jitter. New outgoing records are tried at once and then every 2 seconds,
   backing off to 60 seconds. `POST /v2/networks/{id}/sync` (`peerspan network
   sync`) contacts known peers, 4 at a time, 5 seconds each, 30 seconds in total,
-  and returns what it learned and which peers were unreachable.
+  and returns what it learned and which peers were unreachable. It also
+  restarts that network's background interval: the next background sync of the
+  network comes at least 60 seconds after the explicit one, and other networks
+  keep their own schedule. Other syncs the daemon starts itself, such as a
+  send's contact-learning sync, do not count ([SYNC-1](decision-log.md#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10)).
 - **Repair.** A host whose grants lapsed can still fetch records from a peer
   that once admitted it and has not revoked it, on `peerspan-state-repair/1`,
   `GET /repair/v1/networks/{id}/catalog`, at most 1 request per second (burst
@@ -930,13 +938,20 @@ as legacy history.
   `link_request_waiting`. Each gives the network, the cause and the
   command to run. `link_request_waiting` names whose step comes next and on
   which machine, and gives a command only when that step runs on this host:
-  - a new person's request without an owner offer: waiting for the joining
-    person's approval on their own machine, with no command here;
-  - an existing person's request without an owner offer: `peerspan link approve
-    REQUEST_ID --network NETWORK_ID`, on a machine of that person;
-  - with the owner offer and the requester's selection: the complete `peerspan
-    link admit` command for this request, with every argument it needs, when
-    this host can admit. A clock rollback tells the user to fix the clock or wait;
+  - on a host that can admit: `peerspan link admit REQUEST_ID --network
+    NETWORK_ID`, run as given. Until the request's owner offer and selection
+    arrive, the cause says it waits on the joining machine. An administrator
+    does not read the request's carriers before it acts (guided session
+    contract sections 20 to 22), so status cannot tell when they have arrived;
+    `link admit REQUEST_ID` reads them (an explicit `link resume` of such a
+    request reads its carriers) and takes the person, owner offer and
+    selection from the request. They travel through the request's carriers, so
+    they arrive a few seconds after the joiner approves. Before they arrive it
+    says whose step remains, changes nothing and exits nonzero (ML-6);
+  - an existing person's request without an owner offer, on a machine of that
+    person: `peerspan link approve REQUEST_ID --network NETWORK_ID`;
+  - otherwise the cause names whose step it is, with no command here. A clock
+    rollback tells the user to fix the clock or wait;
   there is no command to lower the stored time.
 - **Errors** are `{code,error,details:{network_id,context_id,request_id,stage,
   required_ids,conflict_ids,next}}` with the status codes in the appendix.
@@ -1166,10 +1181,13 @@ named, with no change to stored state other than the stored decision time.
     the inviter nor the joiner ever needs a request ID it was not shown.
 29. The request reaches the inviter without a code over a direct address, and
     through a helper when the inviter has no reachable address; the inviter's
-    status shows `link_request_waiting`. For a new person it first says the
-    request waits on the joining machine, with no command for the inviter.
-    After the joiner approves, it gives a `link admit` command that, run as
-    given, admits the request.
+    status shows `link_request_waiting`. For a new person it says the
+    request waits on the joining machine and gives `peerspan link admit
+    REQUEST_ID --network NETWORK_ID`. Run before the joiner approves, that
+    command says the request still waits on the joining machine, admits
+    nothing and exits nonzero, as it does in the few seconds the owner offer
+    and selection take to arrive; run as given after they arrive, it admits
+    the request (ML-6).
     With neither path, `join` prints a `psl2-` code within about 30 seconds and
     the manual path completes.
 30. An invite used 30 minutes after issue, whose contacts are past their own
@@ -1227,6 +1245,10 @@ named, with no change to stored state other than the stored decision time.
 47. A received catalog cannot erase a known ban, fork or high-water mark.
 48. A former member with expired grants fetches records on the repair ALPN; an
     unknown or revoked key gets nothing; repair grants nothing.
+48a. After `POST /v2/networks/{id}/sync`, the host sends no background sync of
+    that network for at least 50 seconds, counted on an opaque UDP carrier
+    while nothing else is owed (SYNC-1). Without another explicit sync,
+    background sync of that network resumes within the following 30 seconds.
 
 **Signing plans**
 

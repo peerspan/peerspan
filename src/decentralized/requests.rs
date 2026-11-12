@@ -1041,12 +1041,12 @@ pub(crate) fn next_steps(
         "pending" if requester => vec![format!(
             "owner, on a machine of the person: peerspan link approve {id} --network {network}"
         )],
-        "pending" if owner => vec![format!(
-            "owner, on this machine: peerspan link approve {id} --network {network}"
+        // Another host's request: preparing the owner review here adds the
+        // owner role but must not change the view (guided section 42), so
+        // this entry does not depend on that role.
+        "pending" => vec![format!(
+            "owner, on a machine of the person: peerspan link approve {id} --network {network}; for a new person that is the joining machine, where peerspan up --join asks 'Approve this exact machine?'"
         )],
-        "pending" => vec![
-            "owner, on the joining machine: approve this machine there (peerspan up --join asks 'Approve this exact machine?')".into(),
-        ],
         "needs_selection" if requester => vec![format!(
             "requester, on this machine: select the owner offer with peerspan link resume {id}"
         )],

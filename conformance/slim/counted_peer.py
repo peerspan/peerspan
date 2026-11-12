@@ -6,10 +6,14 @@ construction. The daemon alone signs each contact and verifies its import.
 import atexit
 import base64
 import json
+import os
 import select
 import socket
 import subprocess
+import sys
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from harness import b64url_json, check, parse_time, rfc3339
@@ -79,6 +83,77 @@ class CountedUDP:
         self.socket.close()
         for upstream in self.routes.values():
             upstream.close()
+
+
+_LOADED = time.monotonic()  # SLIM_TRACE timestamps only
+
+
+def refresh_owed_directories(hosts, network_ids):
+    """DIR-1: one whole-network on-demand refresh per running host and network.
+
+    The launch contract counts it as the refresh owed for every change made
+    before it started, so a later quiet wait cannot be followed by a background
+    refresh owed for an earlier step. Callers pass every network their fixture
+    participants are in, and still wait for quiet afterwards; no counter or
+    carrier is filtered. Only the directory refresh is called: no network view,
+    which would also observe provider state.
+    """
+    def refresh(local):
+        for network_id in network_ids:
+            began = time.monotonic()
+            status, view = local.api('POST', '/v1/directory/refresh?network=' + network_id, {}, timeout=12)
+            if os.environ.get('SLIM_TRACE'):
+                print(f'  [{local.name}] DIR-1 refresh {time.monotonic() - began:.2f}s at +{began - _LOADED:.1f}s', file=sys.stderr, flush=True)
+            check(status == 200 and isinstance(view, dict) and view.get('network_id') == network_id,
+                  'DIR-1 whole-network on-demand directory refresh')
+    _each_running(hosts, refresh)  # a stopped host owes none
+
+
+def _each_running(hosts, action):
+    """Run ACTION(host) for every running host side by side; a stopped host is skipped."""
+    running = [local for local in hosts if getattr(local, 'process', None) is not None]
+    with ThreadPoolExecutor(max_workers=max(1, len(running))) as pool:
+        for done in [pool.submit(action, local) for local in running]:
+            done.result()
+
+
+def sync_networks(hosts, network_ids):
+    """SYNC-1: one explicit POST /v2/networks/{id}/sync per running host and network.
+
+    The spec (section 10, Timing) restarts that network's background interval,
+    so its next background sync is at least 60 s later. The sync's own bound
+    is 30 s; a stopped peer costs at most 5 s of it."""
+    def sync(local):
+        for network_id in network_ids:
+            began = time.monotonic()
+            status, body = local.api('POST', '/v2/networks/' + network_id + '/sync', {}, timeout=35)
+            if os.environ.get('SLIM_TRACE'):
+                print(f'  [{local.name}] SYNC-1 sync {time.monotonic() - began:.2f}s at +{began - _LOADED:.1f}s', file=sys.stderr, flush=True)
+            check(status == 200 and isinstance(body, dict), 'SYNC-1 explicit network sync')
+    _each_running(hosts, sync)
+
+
+def refresh_then_quiet(hosts, network_ids, quiet, state, attempts=3, sync=True):
+    """Precondition of a measured no-traffic step: one explicit sync (SYNC-1)
+    and then one whole-network directory refresh (DIR-1) per running host,
+    then the suite's unchanged QUIET. A change stored after the refresh
+    started still owes a refresh (launch contract), so when STATE (the
+    suite's complete participant snapshot) changed across refresh and quiet,
+    repeat the pass; usually the first pass is the only one. SYNC=False
+    leaves out the explicit sync, only for a caller whose daemons just
+    started (their first background sync is a full interval away) and whose
+    step measures retained local corruption that a sync would repair."""
+    for attempt in range(attempts):
+        if sync:
+            sync_networks(hosts, network_ids)
+        before = state()
+        refresh_owed_directories(hosts, network_ids)
+        quiet()
+        if state() == before:
+            return
+        if os.environ.get('SLIM_TRACE'):
+            print(f'  DIR-1 state changed across refresh {attempt + 1}; repeating', file=sys.stderr, flush=True)
+    check(False, 'participant state kept changing across SYNC-1/DIR-1 passes')
 
 
 def peer_address(h):

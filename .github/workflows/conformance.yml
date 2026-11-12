@@ -64,10 +64,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The per-push tier (DEC-OWN15): one suite per spec area, plus the
+        # The per-push tier (DEC-OWN15): one suite per spec area (sync is in the
+        # second tier, see AGENTS.md), plus the
         # owner-local and combined guided onboarding suites. The other guided
         # suites and the installed checks are in conformance-full.yml.
-        suite: [join, join_teammate, renewal, policy, sync, work, capabilities, delivery, root, live, basics, onboarding, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming, direct_dial]
+        suite: [join, join_teammate, renewal, policy, work, capabilities, delivery, root, live, basics, onboarding, guided_machine, conversations, conversations_people, conversations_sync, conversations_context, conversations_tools, conversations_run_fixes, naming, direct_dial]
     steps:
       - uses: actions/checkout@v4
         with:

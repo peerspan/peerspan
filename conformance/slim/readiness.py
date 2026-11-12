@@ -45,7 +45,7 @@ from pathlib import Path
 
 from harness import (Adapter, Clock, Suite, UnixHTTPConnection, check, create_network,
                      join_new_person, parse_time, rfc3339, ssh_key, ssh_public_base64, wait_for)
-from counted_peer import CountedUDP, exchange_current_contacts, peer_address
+from counted_peer import CountedUDP, exchange_current_contacts, peer_address, refresh_then_quiet
 
 suite = Suite("readiness", __doc__)
 BASE = "/v1/onboarding/readiness"
@@ -606,8 +606,8 @@ def pure_start(f):
     remaining = 60 - (time.monotonic() - started)
     check(remaining > 0, "readiness setup exhausted first ordinary periodic-sync window")
     current_contacts(f, remaining)
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     check(time.monotonic() - started < 60, "readiness startup did not settle before first periodic sync")
     return started
 
@@ -736,8 +736,8 @@ def _():
     observe(f, old, status=409, code="review_changed")
     strict(whole(f), before, traffic(f), counters, "detached_restart")
     f["pb"] = project(f["b"], "resumed", old=old, agent={"kind": "existing", "id": old["review"]["agent"]["id"]})
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     before, counters = whole(f), traffic(f)
     first = observe(f)
     for _ in range(3):
@@ -768,8 +768,8 @@ def _():
     invalid.extend([compact({**body, "approve": "PRIVATE_INPUT"}), compact({**body, "network_id": "net_1"}),
                     compact({**body, "person_public_key": "bad"}), compact({**body, "agent_id": "agent_" + "0" * 32}),
                     compact({**body, "context": {**body["context"], "extra": "PRIVATE_INPUT"}})])
-    for local in (f["a"], f["b"]):
-        quiet(f, local, require_retirement=True)
+    refresh_then_quiet((f["a"], f["b"]), (f["net"],), lambda: [quiet(f, local, require_retirement=True) for local in (f["a"], f["b"])],
+                       lambda: tuple(snapshot(local) for local in (f["a"], f["b"])))  # DIR-1
     before, counters = whole(f), traffic(f)
     for number, data in enumerate(invalid):
         status, denied = raw(h, data)

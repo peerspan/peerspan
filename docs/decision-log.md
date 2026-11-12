@@ -11,14 +11,20 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync, `MBX` opaque mailboxes.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
+  - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
+  - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
+  - [SYNC-1: an explicit sync restarts the background interval](#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10) (2026-11-10)
+  - [DIR-1: an on-demand refresh counts for earlier changes](#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10) (2026-11-10)
   - [OUT-1 and OUT-2: readable output by default](#out-1-and-out-2-readable-output-by-default-2026-11-10) (2026-11-10)
   - [STAT-1 and STAT-2: peer delivery failures in status](#stat-1-and-stat-2-peer-delivery-failures-in-status-2026-11-10) (2026-11-10)
   - [MSG-1 and MSG-2: exit status of a refused send](#msg-1-and-msg-2-exit-status-of-a-refused-send-2026-11-10) (2026-11-10)
   - [ML-3 to ML-5: joining a teammate, step by step](#ml-3-to-ml-5-joining-a-teammate-step-by-step-2026-11-10) (2026-11-10)
+  - [INST-12: a stable path to the installed release](#inst-12-a-stable-path-to-the-installed-release-2026-11-10) (2026-11-10)
   - [INST-9 to INST-11: bundled Node.js and our own release verifier](#inst-9-to-inst-11-bundled-nodejs-and-our-own-release-verifier-2026-11-10) (2026-11-10)
   - [INST-8: the first release key](#inst-8-the-first-release-key-2026-11-05) (2026-11-05)
   - [INST-7: no conformance suite for the install scripts](#inst-7-no-conformance-suite-for-the-install-scripts-2026-11-04) (2026-11-04)
@@ -59,6 +65,87 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### CONV-36: a denied `about` start after a synced deny (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** conversations (CONV): the `about` verification's denied start.
+- **Source:** issue [#190](https://github.com/peerspan/peerspan/issues/190) and the owner's go-ahead on 2026-11-11 ("start on #190") for its recommended option. `conversations_tools` case `about` sometimes got 404 `unknown` where it required 201 with a `refused` invite. The verification said "a policy sync does not update that entry", written on 2026-10-30. Since #152 (2026-11-09) the launch contract says the opposite: a policy received by sync is a stored policy, and the directory drops a denying owner's agents within 10 seconds of storing it. So after `deny alice` and the policy wait, the start races that refresh. The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), Verification, `about`.
+
+#### CONV-36. What a denied `about` start answers right after the policy wait
+
+- **Options:**
+  - (1) "Contract states that the background refresh may have run (recommended). The case accepts either answer: 201 with `refused`/`not_authorized` from bob's host, or 404 `unknown`. In both, the agent must not be `joined`. Only the suite changes, written by the contract-only author."
+  - (2) "Contract requires the earlier entry. The suite makes sure no refresh is due before the start, for example by refreshing before `deny` and then starting within the refresh bound. That still depends on timing."
+  - (3) "Daemon change. A received policy change doesn't schedule a directory refresh. Contracts that rely on the current refresh trigger would change."
+- **Chosen:** (1). The verification now follows the launch contract's rule from #152: right after the policy wait the answer is either form, and after `agents --refresh` it is 404 `unknown`. In every form the agent is not `joined`. Option (3) would undo #152, which the launch contract requires.
+- **Reason given:** none beyond the go-ahead.
+
+### MBX-1: expired mailboxes are erased within 2 seconds (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** opaque mailboxes (MBX): when a mailbox host erases an expired mailbox.
+- **Source:** issue [#189](https://github.com/peerspan/peerspan/issues/189) and the owner's go-ahead on 2026-11-11 ("start on #189") for its recommended option. `machine_owner_consent` case 5 (guided session contract section 42, verification 5) failed in 6 of 10 local runs on main before #185 and in 1 of 10 with it. The pure step's whole-database check saw the existing host's `frames` and `mailboxes` tables change with no traffic. The host erases expired mailboxes every second, and the case jumps the test clock past request expiry and then waits only 0.1 s for stable state. The options below are quoted from the issue.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 9.2; [guided-session-contract.md](guided-session-contract.md) GU.impl42f.
+
+#### MBX-1. How purity checks avoid the mailbox expiry sweep
+
+- **Options:**
+  - (1) "Contract and suite allow for the sweep (recommended). The section 42 purity check excludes mailbox-host expiry work, or the suite waits past the sweep interval after a clock jump before it measures. This changes only the suite, written by the separate contract-only author, and needs no daemon change."
+  - (2) "Daemon change. Reads treat expired mailboxes as expired without writing, and the sweep runs less often or on a timer that doesn't fire inside measured steps. This changes shipped behavior to make the test pass, so it isn't recommended."
+- **Chosen:** (1), as settling rather than exclusion. Section 9.2 now states the bound the host already meets: an expired mailbox is erased within 2 seconds of expiry on the host's clock, as the host's own maintenance. A pure step that follows a test-clock change starts at least 2 seconds after the change, then settles as before. The whole-database comparison is unchanged; excluding `frames` and `mailboxes` from it was discarded because it would also hide a pure step that wrote a mailbox.
+- **Reason given:** none beyond the go-ahead.
+
+### ML-6: how the inviter learns the owner offer and selection (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** machine linking (ML): the administrator's step when a new person joins.
+- **Source:** the owner's answer, 2026-11-11, "go with (a)". The ML-3 to ML-5 change (#177) let a waiting administrator read the request's mailbox in the background, so that the inviter's `link_request_waiting` could give the complete `link admit --owner-offer … --selection …` command, and it made every admission read its carriers. The full-tier suites then failed: `incoming_progress` (guided session contract section 22: the administrator holds no owner offer or selection before an explicit progress action), `admission_retained_prefix` (an exact retained preview does no carrier I/O) and `machine_owner_consent` (section 42: preparing the owner review leaves the request view unchanged). The per-push `join_teammate` suite checks the opposite for the inviter's status. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) sections 8.1 step 5 and 16 and verification item 29; [quick-start.md](quick-start.md), "Invite a teammate".
+- **Fixes that need no decision,** recorded with this entry: an admission that already holds the exact requested owner offer and selection does no carrier I/O, as before #177. The request view's `next` for another host's pending request no longer depends on the owner role that preparing the owner review adds.
+- **Options:**
+  - (a) "Keep the no-early-I/O rule (my recommendation). The inviter's status says \"run `peerspan link admit REQUEST_ID`\" without the offer and selection IDs. `link admit` then reads the carriers itself, shows the review and asks to admit. That's an explicit action, so it's allowed. It needs a small CLI change, plus the suite author updating `join_teammate`."
+  - (b) "Keep the background read. Amend the guided-session contracts behind `incoming_progress` and `machine_owner_consent` so a waiting administrator may hold the offer and selection early. The suite author would have to rewrite the cases that check for no early I/O."
+- **Chosen:** (a). The background mailbox read is removed. An explicit `link resume` of a request waiting for its owner offer or selection reads its carriers; `link admit REQUEST_ID --network NETWORK_ID` does that and takes the person, owner offer and selection from the request. Run before they exist, it says whose step remains, changes nothing and exits nonzero, since this machine's step is still to do (ML-3).
+- **Reason given:** none beyond choosing it.
+
+### SYNC-1: an explicit sync restarts the background interval (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** network sync (SYNC): when coordinator-free hosts exchange catalogs.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). With DIR-1 in place, the access purity suites still saw stray traffic in measured steps: the spec's background sync, every 60 seconds with up to 10 seconds of jitter, landed in an `access_consent` "pure lookup" (catalog exchange from bob to alice 64 seconds after bob started). The suites had no way to avoid it. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 10, "Timing", and verification item 48a.
+
+#### SYNC-1. How the purity suites avoid the background sync
+
+- **Options:**
+  - (a) "Explicit sync resets timer (Recommended). Contract and daemon: a network sync (`POST /v2/networks/{id}/sync`, `peerspan network sync`) restarts that network's 60 s background interval, as DIR-1 does for the directory. Before each measured step the suites do one sync and one directory refresh, then wait for quiet. The next background sync is then at least 50 s away. That costs about 0.1–1 s per step, and it also removes a redundant background sync right after a manual one."
+  - (b) "Debug-only switch. A debug-build environment variable turns background sync off, and the purity suites set it. That's cheap and certain, but the suites would no longer test the daemon as shipped, and the debug switch is new test-only surface (like the existing debug test clock)."
+  - (c) "Accept and retry. No product change. A measured step whose window overlapped the sync is re-run once, and the case fails only if traffic appears again. The suites can't tell sync traffic apart on an opaque carrier, so this is a retry policy, and AGENTS.md forbids weakening cases; I don't recommend it."
+- **Chosen:** (a). Each network keeps its own background due time: a background sync sets it 60 seconds plus jitter later, and an explicit sync sets it 60 seconds after the explicit one, so that network gets at least 60 seconds rather than the "at least 50" in the option, and other networks' schedules are unaffected.
+- **Reason given:** none beyond choosing it.
+
+### DIR-1: an on-demand refresh counts for earlier changes (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** agent directory (DIR): when hosts query each other's agents.
+- **Source:** the owner's answer, 2026-11-10, on issue [#155](https://github.com/peerspan/peerspan/issues/155). The access purity suites failed now and then on one stray QUIC exchange during a step that must send no traffic. It was the directory worker's refresh, `GET /peer/v1/networks/{network}/agents`: the worker looks for map and policy changes every 2 seconds and refreshes within the contract's 10 seconds, so a refresh owed for an earlier step could start after the suites' 0.3-second quiet check. The options below are quoted from the question put to the owner.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [launch-contract.md](launch-contract.md), the directory's "When".
+
+#### DIR-1. How the purity suites stop seeing a refresh owed for an earlier change
+
+- **Options:**
+  - (a) "On-demand refresh counts (Recommended). Contract and daemon: an on-demand refresh (POST /v1/directory/refresh, `agents --refresh`) counts as the refresh owed for any change made before it started, so the worker doesn't repeat it. The suites then do one on-demand refresh, wait for quiet, and measure. That costs well under a second per measured step, and it also removes duplicate refreshes after `agents --refresh`."
+  - (b) "Suites wait for the refresh. No daemon change. Before each measured step, the suites wait until each peer's directory `refreshed_at` is newer than the last state change, or until 10 s pass. That adds about 2–10 s per measured step: roughly 30–80 s per suite across about 40 steps, which pushes these second-tier suites further past 2 minutes."
+  - (c) "Tighten the contract bound. The contract states the actual bound (the check runs every 2 s, so a refresh starts within about 3 s of a change), and the suites wait 3 s of quiet before each measured step. That's simple, but it costs about 3 s per step (roughly 40 s per suite) and ties the contract to the worker's polling period."
+- **Chosen:** (a).
+- **Reason given:** none beyond choosing it.
 
 ### OUT-1 and OUT-2: readable output by default (2026-11-10)
 
@@ -166,6 +253,23 @@ Contents:
   - (a) "In this change: a short human summary before each 'Approve/Commit this exact machine?' prompt (person, machine key fingerprint, scope names, expiry), with JSON behind `--json`."
   - (b) "Later, with #158's output pass (recommended). This change stays focused on who does what next; #158 then cleans up the output of every command at once."
 - **Chosen:** (b). The review screens are covered by [#158](https://github.com/peerspan/peerspan/issues/158).
+- **Reason given:** none beyond choosing it.
+
+### INST-12: a stable path to the installed release (2026-11-10)
+
+- **Date:** 2026-11-10.
+- **Area:** install (INST): paths that stay the same across upgrades.
+- **Source:** the owner's answer, 2026-11-10, on issue [#183](https://github.com/peerspan/peerspan/issues/183): "go with the stable path plus detection". The OpenCode plugin entry had to name a file inside one release's directory, which changes on every upgrade, and the installer keeps older releases, so an entry that was not updated silently loaded the previous release's plugin (found in the 0.2.0 four-machine demo, #164). The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [install-contract.md](install-contract.md), `scripts/install-release.sh`, "A stable link to the installed release"; [integrations/opencode/README.md](../integrations/opencode/README.md).
+
+#### INST-12. How the OpenCode plugin entry survives upgrades
+
+- **Options:**
+  - "A stable path. The installer maintains a link that always points at the current release's integrations, for example `~/.local/share/peerspan/current` → the active release. The plugin entry then names `…/peerspan/current/share/peerspan/integrations/opencode/plugin.mjs`. This is the smallest change. The link has to be swapped atomically with the launcher, and an upgrade while OpenCode is running would reload the new plugin only on OpenCode's next reload."
+  - "`peerspan` writes the entry. `peerspan attach opencode`, or a separate command, adds or updates the plugin entry in the OpenCode configuration, preserving comments and other plugins. The integration README currently promises that Peerspan \"changes no … OpenCode configuration\", so this needs an owner decision, and JSONC editing is error-prone."
+  - "Detect a stale entry. `attach opencode` and `session doctor` compare the loaded plugin's version with the daemon's, and print the exact path to use. This doesn't remove the manual step, but it makes the mismatch visible."
+- **Chosen:** the stable path plus detection. Peerspan still writes no OpenCode configuration. Detection compares the file each entry resolves to with the running release's plugin, rather than a version string.
 - **Reason given:** none beyond choosing it.
 
 ### INST-9 to INST-11: bundled Node.js and our own release verifier (2026-11-10)

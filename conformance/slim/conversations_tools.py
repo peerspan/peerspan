@@ -569,16 +569,19 @@ def _():
     deny(wait=True)
     try:
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
-        # A policy sync does not update alice's directory entry: bob's host refuses the invite.
-        check(status == 201, f"a denied start with the earlier directory entry: {status} {body}, want 201")
-        outcome = body["invites"][0]
-        check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
-        denied = body["conversation"]["conversation_id"]
-        check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
-              f"ana is in the denied conversation: {body['conversation']}")
-        status, listed = ana.call("GET", "/adapter/v1/conversations")
-        check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
-              f"ana lists the denied conversation: {status} {listed}")
+        # Alice's directory drops ana within 10 s of storing bob's policy (CONV-36): bob's host
+        # refuses the invite while her entry is the earlier one, or the start is 404 once refreshed.
+        if status == 201:
+            outcome = body["invites"][0]
+            check(outcome["state"] == "refused" and outcome["code"] == "not_authorized", f"invite outcome {outcome}")
+            denied = body["conversation"]["conversation_id"]
+            check(participant(ana) not in {p["id"] for p in view_as(a, denied, state["alice_p"])["participants"]},
+                  f"ana is in the denied conversation: {body['conversation']}")
+            status, listed = ana.call("GET", "/adapter/v1/conversations")
+            check(status == 200 and denied not in {c["conversation_id"] for c in listed["conversations"]},
+                  f"ana lists the denied conversation: {status} {listed}")
+        else:
+            api_error(status, body, 404, "unknown")
         # After a refresh the directory no longer lists the agent.
         a.ok("agents", "--refresh", "--json")
         status, body = a.api("POST", "/v1/conversations", {"participants": ["bob/ana"], "about": about}, timeout=40)
