@@ -182,7 +182,7 @@ Any failure stops publication.
 ### Publication
 
 6. Publish the draft as a full release, not a prerelease ([INST-4](decision-log.md#inst-4-how-latest-is-found)). Clear both flags explicitly, whatever the draft was created with: `gh release edit vVERSION --repo peerspan/peerspan --draft=false --prerelease=false`. The Draft Linux release workflow also stops passing `--prerelease` when it creates the draft.
-7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6. A new bootstrap served before its release is published would find only the previous release.
+7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6. A new bootstrap served before its release is published would find only the previous release. In the same website change, point the install section's source link (`scriptSource` in `app/install-command.tsx`) at `scripts/install.sh` at that tag, so the script people can read before running the one-liner is the one it serves.
 
 ### After publication
 

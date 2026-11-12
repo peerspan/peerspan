@@ -268,9 +268,9 @@ after `after` exists, the receiver holds the request up to `S` seconds until one
 applies to every task. The bound is that of a held call status request, within the peer
 transport's 15-second serve bound.
 
-The submitter polls a runtime task that is `running` with `wait=10`, immediately again after
-each response, using one of its 4 polling slots. Other states keep the task contract's
-schedule.
+The submitter polls every task that is `running` with `wait=10`, immediately again after each
+response, with at most 3 such polls at once ([task contract](task-contract.md), polling;
+RUN-14). Other states keep the task contract's schedule.
 
 ### CLI and local API
 

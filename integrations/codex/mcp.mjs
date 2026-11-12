@@ -15,7 +15,7 @@ if (!values.socket?.startsWith('/') || !values.thread)
   throw new Error('Provide a Peerspan tool socket and the selected Codex thread.');
 // This MCP consumer never reads credentials, owns a lease, or claims a message.
 const server = new Server(
-  { name: 'peerspan', version: '0.2.1' },
+  { name: 'peerspan', version: '0.2.2' },
   { capabilities: { tools: {} }, instructions }
 );
 // The MCP revision negotiated with Codex, sent with each call of the
