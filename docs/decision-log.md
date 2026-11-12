@@ -11,11 +11,12 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync, `MBX` opaque mailboxes.
 
 Contents:
 - [Full entries](#full-entries), with options:
   - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
+  - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
   - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
   - [SYNC-1: an explicit sync restarts the background interval](#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10) (2026-11-10)
   - [DIR-1: an on-demand refresh counts for earlier changes](#dir-1-an-on-demand-refresh-counts-for-earlier-changes-2026-11-10) (2026-11-10)
@@ -80,6 +81,22 @@ Contents:
   - (2) "Contract requires the earlier entry. The suite makes sure no refresh is due before the start, for example by refreshing before `deny` and then starting within the refresh bound. That still depends on timing."
   - (3) "Daemon change. A received policy change doesn't schedule a directory refresh. Contracts that rely on the current refresh trigger would change."
 - **Chosen:** (1). The verification now follows the launch contract's rule from #152: right after the policy wait the answer is either form, and after `agents --refresh` it is 404 `unknown`. In every form the agent is not `joined`. Option (3) would undo #152, which the launch contract requires.
+- **Reason given:** none beyond the go-ahead.
+
+### MBX-1: expired mailboxes are erased within 2 seconds (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** opaque mailboxes (MBX): when a mailbox host erases an expired mailbox.
+- **Source:** issue [#189](https://github.com/peerspan/peerspan/issues/189) and the owner's go-ahead on 2026-11-11 ("start on #189") for its recommended option. `machine_owner_consent` case 5 (guided session contract section 42, verification 5) failed in 6 of 10 local runs on main before #185 and in 1 of 10 with it. The pure step's whole-database check saw the existing host's `frames` and `mailboxes` tables change with no traffic. The host erases expired mailboxes every second, and the case jumps the test clock past request expiry and then waits only 0.1 s for stable state. The options below are quoted from the issue.
+- **Recorded in:** this log and the contracts below.
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) section 9.2; [guided-session-contract.md](guided-session-contract.md) GU.impl42f.
+
+#### MBX-1. How purity checks avoid the mailbox expiry sweep
+
+- **Options:**
+  - (1) "Contract and suite allow for the sweep (recommended). The section 42 purity check excludes mailbox-host expiry work, or the suite waits past the sweep interval after a clock jump before it measures. This changes only the suite, written by the separate contract-only author, and needs no daemon change."
+  - (2) "Daemon change. Reads treat expired mailboxes as expired without writing, and the sweep runs less often or on a timer that doesn't fire inside measured steps. This changes shipped behavior to make the test pass, so it isn't recommended."
+- **Chosen:** (1), as settling rather than exclusion. Section 9.2 now states the bound the host already meets: an expired mailbox is erased within 2 seconds of expiry on the host's clock, as the host's own maintenance. A pure step that follows a test-clock change starts at least 2 seconds after the change, then settles as before. The whole-database comparison is unchanged; excluding `frames` and `mailboxes` from it was discarded because it would also hide a pure step that wrote a mailbox.
 - **Reason given:** none beyond the go-ahead.
 
 ### ML-6: how the inviter learns the owner offer and selection (2026-11-11)
