@@ -91,9 +91,9 @@ async function loadLog({ more = false } = {}) {
 async function loadRun(id) {
   try {
     const detail = await request('/api/runs/' + id);
-    app.runDetail = { id, run: detail.run, events: detail.events, error: null };
+    app.runDetail = { id, run: detail.run, events: detail.events, reviewEvents: detail.reviewEvents ?? [], error: null };
   } catch (error) {
-    app.runDetail = { id, run: null, events: [], error: error.message };
+    app.runDetail = { id, run: null, events: [], reviewEvents: [], error: error.message };
   }
 }
 
@@ -314,6 +314,25 @@ const actions = {
   async abandonRun(run) {
     if (await abandonDialog(run)) {
       await perform(() => post(`/api/runs/${run.id}/abandon`, { confirm: run.taskId }), 'Run released.');
+    }
+  },
+
+  async cancelReview(run) {
+    const confirmed = await confirmDialog({
+      title: 'Cancel this review task?',
+      body: [h('p', null, 'The reviewer agent is asked to stop. When the review task ends without a verdict, ',
+        'the result waits for yours.')],
+      confirmLabel: 'Cancel review task',
+      danger: true
+    });
+    if (confirmed) await perform(() => post(`/api/runs/${run.id}/review/cancel`), 'Cancellation requested.');
+  },
+
+  async abandonReview(run) {
+    const task = { taskId: run.reviewTask.taskId };
+    if (await abandonDialog(task, { what: 'review task', who: 'reviewer' })) {
+      await perform(() => post(`/api/runs/${run.id}/review/abandon`, { confirm: task.taskId }),
+        'Review task released. The result waits for your verdict.');
     }
   },
 

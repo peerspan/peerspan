@@ -412,7 +412,7 @@ nav .count.alert { background: var(--danger-soft); color: var(--danger); }
 .row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; min-width: 0; }
 a.row:hover { background: var(--surface-2); }
 .row-main { flex: 1; min-width: 0; }
-.row-state { width: 124px; flex: none; }
+.row-state { width: 150px; flex: none; }
 .row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-title.plain { font-weight: 500; }
 .row-sub { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -475,6 +475,13 @@ a.row:hover { background: var(--surface-2); }
 .review textarea { min-height: 64px; margin-top: 10px; }
 .review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .review-actions .help { margin: 0; }
+.review .callout { margin-top: 10px; }
+.review-task { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.review-task-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.review-task .help { margin: 0; }
+.review-task .review-actions { margin-top: 0; }
+.review-task details summary { font-size: 13px; color: var(--muted); }
+.review-task .output { max-height: 320px; }
 .dialog-body h3 { font-size: 13.5px; margin-top: 6px; }
 .callout svg { width: 17px; height: 17px; flex: none; margin-top: 1px; }
 

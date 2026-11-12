@@ -57,14 +57,42 @@ export function schedule(workflow, { zone = true } = {}) {
   return `Every ${every}`;
 }
 
-/** `[label, tone]` for a result's review, or null when it needs none. */
-export function reviewState(review) {
-  return {
-    pending: ['Awaiting review', 'warn'],
-    accepted: ['Accepted', 'ok'],
-    rejected: ['Rejected by you', 'danger']
-  }[review] ?? null;
+/** Whether a result waits for the operator's verdict, rather than for a reviewer agent's or none. */
+export const waitsForOperator = run => run.review === 'pending' && (!run.reviewTask || Boolean(run.reviewFallback));
+
+/**
+ * `[label, tone]` for a result's review, or null when it needs none. `run` may be
+ * a full run or an entry of a workflow's `recent` list, which has `review` only.
+ */
+export function reviewState(run) {
+  const byAgent = run.reviewedBy === 'agent';
+  if (run.review === 'pending') {
+    if (!run.reviewTask || run.reviewFallback) return ['Awaiting your review', 'warn'];
+    return OPEN_STATES.includes(run.reviewTask.state) ? ['Reviewer checking', 'info'] : ['Awaiting reviewer', 'warn'];
+  }
+  if (run.review === 'accepted') return [byAgent ? 'Accepted by reviewer' : 'Accepted', 'ok'];
+  if (run.review === 'rejected') return [byAgent ? 'Rejected by reviewer' : run.reviewedBy ? 'Rejected by you' : 'Rejected', 'danger'];
+  return null;
 }
+
+/** Why a reviewer agent gave no verdict (contract section 15.1). */
+const FALLBACKS = {
+  failed: 'the review task failed',
+  rejected: "the reviewer's host refused the review task",
+  expired: 'the reviewer did not accept the review task in time',
+  cancelled: 'the review task was cancelled',
+  abandoned: 'the review task was released',
+  no_verdict: "the reviewer's answer did not start with a verdict line",
+  reviewer_removed: 'the reviewer was disconnected'
+};
+
+export const fallbackText = cause => FALLBACKS[cause] ?? 'the reviewer gave no verdict';
+
+const REWORK_LIMITS = ['Never sent back', 'Sent back once with the review', 'Sent back up to twice with the review',
+  'Sent back up to three times with the review'];
+
+/** What a rejection does for a workflow. */
+export const reworkText = limit => REWORK_LIMITS[limit] ?? REWORK_LIMITS[0];
 
 // The upstream status attention kinds, in the host's own words where they matter here.
 const HINTS = {
@@ -128,11 +156,21 @@ export function activityText(entry, names) {
     case 'workflow.auto_paused': return `paused ${workflow} after ${entry.data?.failureStreak ?? 3} consecutive failures`;
     case 'run.dispatched': return `dispatched a run of ${workflow}`;
     case 'run.finished': return `a run of ${workflow} ${runState(entry.data?.state)[0].toLowerCase()}`;
-    case 'run.problem': return `lost track of a run of ${workflow}; keeping its task identity`;
-    case 'run.recovered': return `regained contact with a run of ${workflow}`;
+    case 'run.problem': return `lost track of a ${entry.data?.task === 'review' ? 'review task' : 'run'} of ${workflow}; keeping its task identity`;
+    case 'run.recovered': return `regained contact with a ${entry.data?.task === 'review' ? 'review task' : 'run'} of ${workflow}`;
     case 'run.cancel_requested': return `asked to cancel a run of ${workflow}`;
     case 'run.abandoned': return `released a run of ${workflow}`;
-    case 'run.reviewed': return `${entry.data?.verdict === 'rejected' ? 'rejected' : 'accepted'} a result of ${workflow}`;
+    case 'run.reviewed': {
+      const verdict = entry.data?.verdict === 'rejected' ? 'rejected' : 'accepted';
+      return entry.actor === 'system' ? `recorded that the reviewer agent ${verdict} a result of ${workflow}`
+        : `${verdict} a result of ${workflow}`;
+    }
+    case 'review.dispatched': return `asked the reviewer agent to check a result of ${workflow}`;
+    case 'review.finished': return `a review task for ${workflow} ${runState(entry.data?.state)[0].toLowerCase()}`;
+    case 'review.fallback': return `handed a result of ${workflow} to you: ${fallbackText(entry.data?.cause)}`;
+    case 'review.cancel_requested': return `asked to cancel a review task of ${workflow}`;
+    case 'review.abandoned': return `released a review task of ${workflow}`;
+    case 'workflow.rework_due': return `sent a rejected result of ${workflow} back to its worker (attempt ${entry.data?.attempt ?? 2})`;
     case 'connection.added': return `connected ${connection}`;
     case 'connection.removed': return `disconnected ${connection}`;
     case 'observation.added': return 'started following an external program';

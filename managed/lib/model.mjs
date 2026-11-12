@@ -5,6 +5,7 @@
 // preceded by one of these writes (contract section 4).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { nextSlot } from './schedule.mjs';
+import { branchOf, readVerdict, reviewInput, reworkInput } from './review.mjs';
 
 const MINUTE = 60_000;
 const WINDOW_DAYS = 7;
@@ -43,8 +44,14 @@ function nextAfterFinish(workflow, finishedAt, succeeded) {
 // Reviewing results is the expected work of a reviewed workflow, not an intervention (contract section 8).
 const isIntervention = (actor, kind) => actor === 'operator' && kind !== 'workflow.created' && kind !== 'run.reviewed';
 
-// A worker agent takes one assignment at a time, whichever sender submits it (MGD-6).
+// A worker agent takes one assignment at a time, whichever sender submits it (MGD-6),
+// and a review task is such an assignment too (contract section 4).
 export const targetOf = connection => JSON.stringify([connection.host_id, connection.agent_id]);
+
+const newTaskId = () => 'task_' + randomBytes(16).toString('hex');
+
+// A review task's problem is told apart in the activity log (contract section 11).
+const problemData = task => (task.role === 'review' ? { task: 'review' } : null);
 
 // An operator's own decision is not a worker failure (contract section 4).
 const isOperatorResult = task =>
@@ -91,6 +98,10 @@ function workflowView(row) {
     intervalMinutes: row.interval_minutes,
     schedule: scheduleOf(row),
     review: row.review,
+    reviewerId: row.reviewer_id,
+    reviewCriteria: row.review_criteria,
+    reworkLimit: row.rework_limit,
+    reworkPending: row.rework_pending,
     maxRunsPerDay: row.max_runs_per_day,
     acceptanceMinutes: row.acceptance_minutes,
     enabled: row.enabled === 1,
@@ -105,11 +116,32 @@ function workflowView(row) {
 
 const RUN_COLUMNS = `r.seq, r.id, r.workflow_id, w.name AS workflow_name, t.task_id, t.state,
   t.output_truncated, t.error, t.problem_since, t.reason, t.progress, t.cancel_requested_at,
-  r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note`;
-const RUN_SOURCE = `runs r JOIN tasks t ON t.task_id = r.task_id LEFT JOIN workflows w ON w.id = r.workflow_id`;
+  r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note,
+  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch,
+  v.task_id AS review_task_id, v.state AS review_state, v.error AS review_error, v.reason AS review_reason,
+  v.cancel_requested_at AS review_cancel_requested_at, v.created_at AS review_created_at,
+  v.finished_at AS review_finished_at`;
+const RUN_SOURCE = `runs r JOIN tasks t ON t.task_id = r.task_id LEFT JOIN workflows w ON w.id = r.workflow_id
+  LEFT JOIN tasks v ON v.task_id = r.review_task_id`;
 const RUN_PREVIEW = `SELECT ${RUN_COLUMNS}, substr(t.output, 1, ${PREVIEW_CHARS}) AS output,
   length(t.output) > ${PREVIEW_CHARS} AS output_longer FROM ${RUN_SOURCE}`;
-const RUN_FULL = `SELECT ${RUN_COLUMNS}, t.output, t.input, 0 AS output_longer FROM ${RUN_SOURCE}`;
+const RUN_FULL = `SELECT ${RUN_COLUMNS}, t.output, t.input, r.assignment, v.input AS review_input,
+  v.output AS review_output, v.output_truncated AS review_output_truncated, 0 AS output_longer FROM ${RUN_SOURCE}`;
+
+/** The run's agent review, or null when it needs none or has not ended `succeeded` (section 15.1). */
+function reviewTaskView(row) {
+  if (row.reviewer_id === null || row.state !== 'succeeded') return null;
+  return {
+    connectionId: row.reviewer_id,
+    taskId: row.review_task_id ?? null,
+    state: row.review_state ?? null,
+    error: row.review_error ?? null,
+    reason: row.review_reason ?? null,
+    cancelRequestedAt: row.review_cancel_requested_at ?? null,
+    createdAt: row.review_created_at ?? null,
+    finishedAt: row.review_finished_at ?? null
+  };
+}
 
 function runView(row) {
   return {
@@ -130,7 +162,13 @@ function runView(row) {
     finishedAt: row.finished_at,
     review: row.review,
     reviewedAt: row.reviewed_at,
-    reviewNote: row.review_note
+    reviewNote: row.review_note,
+    reviewedBy: row.reviewed_by,
+    reviewTask: reviewTaskView(row),
+    reviewFallback: row.review_fallback,
+    attempt: row.attempt,
+    reworkOf: row.rework_of,
+    branch: row.branch === null ? null : JSON.parse(row.branch)
   };
 }
 
@@ -224,8 +262,11 @@ export class Model {
     if (this.one('SELECT 1 FROM workflows WHERE connection_id = ? AND archived_at IS NULL LIMIT 1', id)) {
       throw new Refusal(409, 'A workflow still uses this connection; archive the workflow or move it to another worker first');
     }
+    if (this.one('SELECT 1 FROM workflows WHERE reviewer_id = ? AND archived_at IS NULL LIMIT 1', id)) {
+      throw new Refusal(409, 'A workflow uses this connection as its reviewer; archive the workflow or choose another reviewer first');
+    }
     if (this.one('SELECT 1 FROM tasks WHERE connection_id = ? AND open = 1 LIMIT 1', id)) {
-      throw new Refusal(409, 'A run on this connection is unresolved');
+      throw new Refusal(409, 'A run or review task on this connection is unresolved');
     }
     this.run('UPDATE connections SET removed_at = ? WHERE id = ?', now, id);
     this.log(now, 'operator', 'connection.removed', { connectionId: id });
@@ -289,22 +330,33 @@ export class Model {
     return this.decorate(row, this.statistics(since));
   }
 
+  /** A reviewer is a connection whose worker agent is not the workflow's own (contract section 15.1). */
+  checkReviewer(connectionId, reviewerId) {
+    const reviewer = this.one('SELECT host_id, agent_id FROM connections WHERE id = ? AND removed_at IS NULL', reviewerId);
+    if (!reviewer) throw new Refusal(400, 'Unknown reviewer connection');
+    const worker = this.one('SELECT host_id, agent_id FROM connections WHERE id = ? AND removed_at IS NULL', connectionId);
+    if (worker && worker.host_id === reviewer.host_id && worker.agent_id === reviewer.agent_id) {
+      throw new Refusal(400, 'The reviewer must be another agent than the worker');
+    }
+  }
+
   createWorkflow(fields, now) {
     if (!this.hasConnection(fields.connectionId)) throw new Refusal(400, 'Unknown worker connection');
+    if (fields.review === 'agent') this.checkReviewer(fields.connectionId, fields.reviewerId);
     const id = randomUUID();
     const enabled = fields.enabled ? 1 : 0;
     const schedule = fields.schedule ?? null;
     // An interval workflow is due at once; a scheduled one at its first slot (contract section 14).
     const nextRunAt = schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
     this.run(`INSERT INTO workflows
-      (id, name, connection_id, instructions, interval_minutes, schedule, review, max_runs_per_day,
-       acceptance_minutes, enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason,
-       created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      (id, name, connection_id, instructions, interval_minutes, schedule, review, reviewer_id, review_criteria,
+       rework_limit, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at, next_run_at,
+       failure_streak, blocked_reason, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes ?? null,
-    schedule ? JSON.stringify(schedule) : null, fields.review ?? 'none', fields.maxRunsPerDay,
-    fields.acceptanceMinutes, enabled, enabled ? null : 'operator', enabled ? null : now, nextRunAt,
-    enabled ? null : PAUSED_BY_OPERATOR, now, now);
+    schedule ? JSON.stringify(schedule) : null, fields.review, fields.reviewerId, fields.reviewCriteria,
+    fields.reworkLimit, fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
+    enabled ? null : now, nextRunAt, enabled ? null : PAUSED_BY_OPERATOR, now, now);
     this.log(now, 'operator', 'workflow.created', { workflowId: id });
     return this.workflowDetail(id, now);
   }
@@ -321,6 +373,9 @@ export class Model {
       intervalMinutes: 'interval_minutes',
       schedule: 'schedule',
       review: 'review',
+      reviewerId: 'reviewer_id',
+      reviewCriteria: 'review_criteria',
+      reworkLimit: 'rework_limit',
       maxRunsPerDay: 'max_runs_per_day',
       acceptanceMinutes: 'acceptance_minutes'
     };
@@ -330,6 +385,18 @@ export class Model {
     // A workflow has an interval or a schedule: setting one clears the other.
     if (patch.schedule !== undefined) next.intervalMinutes = null;
     if (patch.intervalMinutes !== undefined) next.schedule = null;
+    // Only an agent review has a reviewer, so switching to another review clears it (contract section 15.1).
+    if (patch.review !== undefined && patch.review !== 'agent' && (patch.reviewerId ?? null) === null) {
+      next.reviewerId = null;
+    }
+    if (next.review === 'agent' && next.reviewerId === null) throw new Refusal(400, 'Choose the reviewer agent');
+    if (next.review !== 'agent' && next.reviewerId !== null) {
+      throw new Refusal(400, 'Only a workflow reviewed by an agent has a reviewer');
+    }
+    if (next.review === 'agent' && (patch.review !== undefined || patch.reviewerId !== undefined
+      || patch.connectionId !== undefined)) {
+      this.checkReviewer(next.connectionId, next.reviewerId);
+    }
     const changed = Object.keys(next).filter(key => next[key] !== current[key]).sort();
     if (!changed.length) return this.workflowDetail(id, now);
     // One statement, so that the store never sees both or neither of interval and schedule.
@@ -377,8 +444,9 @@ export class Model {
       if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', id)) {
         throw new Refusal(409, 'Workflow has an unresolved run; wait for it, cancel it or release it first');
       }
+      // An archived workflow gets no rework; reviews of its runs go on (contract section 9).
       this.run(`UPDATE workflows SET archived_at = ?, enabled = 0, paused_by = 'operator', paused_at = ?,
-        blocked_reason = ?, updated_at = ? WHERE id = ?`, now, now, PAUSED_BY_OPERATOR, now, id);
+        blocked_reason = ?, rework_pending = NULL, updated_at = ? WHERE id = ?`, now, now, PAUSED_BY_OPERATOR, now, id);
       this.log(now, 'operator', 'workflow.archived', { workflowId: id });
     } else {
       throw new Refusal(404, 'Unknown action');
@@ -395,7 +463,8 @@ export class Model {
    */
   planDispatch(now, readiness) {
     const dayStart = now.slice(0, 10) + 'T00:00:00.000Z';
-    const reserved = [];
+    // Results already produced are checked before new work starts (contract section 4).
+    const reserved = this.planReviews(now, readiness);
     const workflows = this.all('SELECT * FROM workflows WHERE archived_at IS NULL ORDER BY next_run_at, rowid');
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
@@ -415,11 +484,55 @@ export class Model {
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
-    if (this.one('SELECT 1 FROM tasks WHERE peer = ? AND agent = ? AND open = 1', connection.host_id, connection.agent_id)) {
-      return 'Worker is assigned to another managed workflow';
-    }
-    if (workflow.next_run_at > now) return 'Waiting for next scheduled run';
+    if (this.agentBusy(connection)) return 'Worker is busy with another managed task';
+    // A due rework does not wait for the interval or schedule (contract section 15.2).
+    if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
     return null;
+  }
+
+  agentBusy(connection) {
+    return Boolean(this.one('SELECT 1 FROM tasks WHERE peer = ? AND agent = ? AND open = 1',
+      connection.host_id, connection.agent_id));
+  }
+
+  /**
+   * Reserves the review task of each run that waits for its reviewer agent,
+   * oldest result first, while that reviewer is ready and free (section 15.1).
+   */
+  planReviews(now, readiness) {
+    const reserved = [];
+    const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id FROM runs r JOIN tasks t ON t.task_id = r.task_id
+      WHERE r.review = 'pending' AND r.reviewer_id IS NOT NULL AND r.review_task_id IS NULL
+        AND r.review_fallback IS NULL
+      ORDER BY t.finished_at, r.seq`);
+    for (const run of waiting) {
+      const reviewer = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', run.reviewer_id);
+      if (!reviewer) {
+        this.fallBack(run, 'reviewer_removed', now);
+        continue;
+      }
+      if (!readiness[reviewer.id]?.ready || this.agentBusy(reviewer)) continue;
+      reserved.push(this.reserveReview(run, reviewer, now));
+    }
+    return reserved;
+  }
+
+  reserveReview(run, reviewer, now) {
+    const details = this.one(`SELECT r.assignment, t.output, w.review_criteria, w.acceptance_minutes
+      FROM runs r JOIN tasks t ON t.task_id = r.task_id JOIN workflows w ON w.id = r.workflow_id WHERE r.id = ?`, run.id);
+    const taskId = newTaskId();
+    const input = reviewInput({ assignment: details.assignment, criteria: details.review_criteria, output: details.output });
+    const deadline = iso(Date.parse(now) + details.acceptance_minutes * MINUTE);
+    // Persisted before anything is sent, exactly as a run's task is.
+    this.run(`INSERT INTO tasks
+      (task_id, run_id, role, connection_id, target, peer, agent, sender_state, input, deadline, state, open,
+       created_at, updated_at)
+      VALUES (?, ?, 'review', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
+    taskId, run.id, reviewer.id, targetOf(reviewer), reviewer.host_id, reviewer.agent_id, reviewer.sender_state,
+    input, deadline, now, now);
+    this.run('UPDATE runs SET review_task_id = ? WHERE id = ?', taskId, run.id);
+    this.log(now, 'system', 'review.dispatched', { workflowId: run.workflow_id, runId: run.id });
+    return taskRecord(this.one('SELECT * FROM tasks WHERE task_id = ?', taskId));
   }
 
   dispatchedSince(workflowId, dayStart) {
@@ -428,19 +541,35 @@ export class Model {
 
   reserve(workflow, connection, now) {
     const runId = randomUUID();
-    const taskId = 'task_' + randomBytes(16).toString('hex');
+    const taskId = newTaskId();
     const deadline = iso(Date.parse(now) + workflow.acceptance_minutes * MINUTE);
+    // A due rework sends the review and the rejected result back with the instructions (section 15.2).
+    let input = workflow.instructions;
+    let attempt = 1;
+    let reworkOf = null;
+    if (workflow.rework_pending !== null) {
+      const rejected = this.one(`SELECT r.id, r.attempt, r.review_note, t.output FROM runs r
+        JOIN tasks t ON t.task_id = r.task_id WHERE r.id = ?`, workflow.rework_pending);
+      if (rejected) {
+        input = reworkInput({ instructions: workflow.instructions, note: rejected.review_note, output: rejected.output });
+        attempt = rejected.attempt + 1;
+        reworkOf = rejected.id;
+      }
+    }
     // Persist before every external effect. A crash can replay only these bytes.
     this.run(`INSERT INTO tasks
       (task_id, run_id, role, connection_id, target, peer, agent, sender_state, input, deadline, state, open,
        created_at, updated_at)
       VALUES (?, ?, 'work', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
     taskId, runId, connection.id, targetOf(connection), connection.host_id, connection.agent_id,
-    connection.sender_state, workflow.instructions, deadline, now, now);
-    // The run keeps the review requirement its workflow has now (contract section 15).
-    this.run('INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required) VALUES (?, ?, ?, 1, ?, ?)',
-      runId, workflow.id, taskId, now, workflow.review === 'operator' ? 1 : 0);
-    this.run("UPDATE workflows SET blocked_reason = 'Assignment in progress' WHERE id = ?", workflow.id);
+    connection.sender_state, input, deadline, now, now);
+    // The run keeps the review requirement and reviewer its workflow has now (contract sections 15, 15.1).
+    this.run(`INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required, reviewer_id, attempt,
+      rework_of, assignment) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+    runId, workflow.id, taskId, now, workflow.review === 'none' ? 0 : 1,
+    workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, workflow.instructions);
+    this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL WHERE id = ?`,
+      workflow.id);
     this.log(now, 'system', 'run.dispatched', { workflowId: workflow.id, runId });
     return taskRecord(this.one('SELECT * FROM tasks WHERE task_id = ?', taskId));
   }
@@ -495,18 +624,69 @@ export class Model {
       if (observed !== null) startedAt = observed < task.created_at ? task.created_at : observed > now ? now : observed;
     }
     const finishedAt = terminal ? now : null;
+    const output = update.output ?? null;
+    const branch = terminal ? branchOf(update.state, output, Boolean(update.outputTruncated)) : null;
     this.run(`UPDATE tasks SET state = ?, open = ?, output = ?, output_truncated = ?, error = NULL,
       problem_since = NULL, reason = ?, progress = ?, retry_at = NULL, last_event = ?, updated_at = ?,
-      started_at = ?, finished_at = ? WHERE task_id = ?`,
-    update.state, terminal ? 0 : 1, update.output ?? null, update.outputTruncated ? 1 : 0,
-    update.reason ?? task.reason, progress, lastEvent, now, startedAt, finishedAt, taskId);
-    const run = this.one('SELECT id, workflow_id FROM runs WHERE task_id = ?', taskId);
+      started_at = ?, finished_at = ?, branch = ? WHERE task_id = ?`,
+    update.state, terminal ? 0 : 1, output, update.outputTruncated ? 1 : 0,
+    update.reason ?? task.reason, progress, lastEvent, now, startedAt, finishedAt,
+    branch === null ? null : JSON.stringify(branch), taskId);
+    const run = this.one('SELECT id, workflow_id FROM runs WHERE id = ?', task.run_id);
     if (terminal) {
-      this.close({ ...task, state: update.state }, run, now);
+      if (task.role === 'review') this.closeReview({ ...task, state: update.state, output }, run, now);
+      else this.close({ ...task, state: update.state }, run, now);
     } else if (task.error !== null) {
-      this.log(now, 'system', 'run.recovered', { workflowId: run.workflow_id, runId: run.id });
+      this.log(now, 'system', 'run.recovered', { workflowId: run.workflow_id, runId: run.id, data: problemData(task) });
     }
     return true;
+  }
+
+  /**
+   * A review task ended. Unless the operator decided first, its output gives the
+   * verdict, or the run falls back to the operator (contract section 15.1).
+   */
+  closeReview(task, run, now) {
+    this.log(now, 'system', 'review.finished', { workflowId: run.workflow_id, runId: run.id, data: { state: task.state } });
+    const current = this.one('SELECT review, review_task_id FROM runs WHERE id = ?', run.id);
+    if (current.review !== 'pending' || current.review_task_id !== task.task_id) return;
+    if (task.state !== 'succeeded') {
+      this.fallBack(run, task.state, now);
+      return;
+    }
+    const verdict = readVerdict(task.output ?? '');
+    if (verdict) this.decide(run, verdict.verdict, verdict.note, 'agent', now);
+    else this.fallBack(run, 'no_verdict', now);
+  }
+
+  /** The agent gave no verdict: the result now waits for the operator's. */
+  fallBack(run, cause, now) {
+    const { changes } = this.run(`UPDATE runs SET review_fallback = ?
+      WHERE id = ? AND review = 'pending' AND review_fallback IS NULL`, cause, run.id);
+    if (changes) this.log(now, 'system', 'review.fallback', { workflowId: run.workflow_id, runId: run.id, data: { cause } });
+  }
+
+  /** Records a final verdict and, after a rejection, makes a rework due when the workflow asks for one. */
+  decide(run, verdict, note, by, now) {
+    this.run('UPDATE runs SET review = ?, reviewed_at = ?, review_note = ?, reviewed_by = ? WHERE id = ?',
+      verdict, now, note, by, run.id);
+    this.log(now, by === 'agent' ? 'system' : 'operator', 'run.reviewed',
+      { workflowId: run.workflow_id, runId: run.id, data: { verdict } });
+    if (verdict === 'rejected') this.dueRework(run, now);
+  }
+
+  /**
+   * A rejected result is sent back when it is its workflow's latest run, the
+   * workflow is not archived and the run's attempt is within the limit (section 15.2).
+   */
+  dueRework(run, now) {
+    const rejected = this.one('SELECT seq, attempt FROM runs WHERE id = ?', run.id);
+    const workflow = this.one('SELECT rework_limit, archived_at FROM workflows WHERE id = ?', run.workflow_id);
+    if (!workflow || workflow.archived_at !== null || rejected.attempt > workflow.rework_limit) return;
+    if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND seq > ? LIMIT 1', run.workflow_id, rejected.seq)) return;
+    this.run('UPDATE workflows SET rework_pending = ? WHERE id = ?', run.id, run.workflow_id);
+    this.log(now, 'system', 'workflow.rework_due',
+      { workflowId: run.workflow_id, runId: run.id, data: { attempt: rejected.attempt + 1 } });
   }
 
   /**
@@ -534,13 +714,13 @@ export class Model {
 
   /** Records that a task could not be resolved this pass; its identity is retained. */
   taskProblem(taskId, message, retryAt, now) {
-    const task = this.one('SELECT error FROM tasks WHERE task_id = ? AND open = 1', taskId);
+    const task = this.one('SELECT error, run_id, role FROM tasks WHERE task_id = ? AND open = 1', taskId);
     if (!task) return false;
     if (task.error === null) {
-      const run = this.one('SELECT id, workflow_id FROM runs WHERE task_id = ?', taskId);
+      const run = this.one('SELECT id, workflow_id FROM runs WHERE id = ?', task.run_id);
       this.run('UPDATE tasks SET error = ?, problem_since = ?, retry_at = ?, updated_at = ? WHERE task_id = ?',
         message, now, retryAt, now, taskId);
-      this.log(now, 'system', 'run.problem', { workflowId: run.workflow_id, runId: run.id });
+      this.log(now, 'system', 'run.problem', { workflowId: run.workflow_id, runId: run.id, data: problemData(task) });
     } else {
       this.run('UPDATE tasks SET error = ?, retry_at = ? WHERE task_id = ?', message, retryAt, taskId);
     }
@@ -577,15 +757,47 @@ export class Model {
     return this.runPreview(runId);
   }
 
-  /** The operator's final verdict on a result that waits for review (contract section 15). */
+  /**
+   * The operator's final verdict on a result that waits for review (contract
+   * section 15), whether it waits for the operator or for a reviewer agent.
+   */
   reviewRun(runId, verdict, note, now) {
     const row = this.one('SELECT id, workflow_id, review FROM runs WHERE id = ?', runId);
     if (!row) throw new Refusal(404, 'Run not found');
     if (row.review !== 'pending') {
       throw new Refusal(409, row.review === null ? 'This run has no result waiting for review' : 'This result was already reviewed');
     }
-    this.run('UPDATE runs SET review = ?, reviewed_at = ?, review_note = ? WHERE id = ?', verdict, now, note, runId);
-    this.log(now, 'operator', 'run.reviewed', { workflowId: row.workflow_id, runId, data: { verdict } });
+    this.decide(row, verdict, note, 'operator', now);
+    return this.runPreview(runId);
+  }
+
+  /** A run and its unresolved review task, for the operator's actions on that task (section 15.1). */
+  openReview(runId) {
+    const run = this.one('SELECT id, workflow_id, review_task_id FROM runs WHERE id = ?', runId);
+    if (!run) throw new Refusal(404, 'Run not found');
+    const task = run.review_task_id === null ? null
+      : this.one('SELECT * FROM tasks WHERE task_id = ? AND open = 1', run.review_task_id);
+    if (!task) throw new Refusal(409, 'This run has no unresolved review task');
+    return { run, task };
+  }
+
+  requestReviewCancel(runId, now) {
+    const { run, task } = this.openReview(runId);
+    if (task.cancel_requested_at === null) {
+      this.run('UPDATE tasks SET cancel_requested_at = ?, retry_at = NULL, updated_at = ? WHERE task_id = ?',
+        now, now, task.task_id);
+      this.log(now, 'operator', 'review.cancel_requested', { workflowId: run.workflow_id, runId });
+    }
+    return this.runPreview(runId);
+  }
+
+  abandonReview(runId, confirm, now) {
+    const { run, task } = this.openReview(runId);
+    if (confirm !== task.task_id) throw new Refusal(400, 'Confirm with the exact task ID of this review task');
+    this.run(`UPDATE tasks SET state = 'abandoned', open = 0, error = NULL, problem_since = NULL, retry_at = NULL,
+      updated_at = ?, finished_at = ? WHERE task_id = ?`, now, now, task.task_id);
+    this.log(now, 'operator', 'review.abandoned', { workflowId: run.workflow_id, runId });
+    this.closeReview({ ...task, state: 'abandoned' }, run, now);
     return this.runPreview(runId);
   }
 
@@ -598,9 +810,18 @@ export class Model {
   runDetail(runId) {
     const row = this.one(`${RUN_FULL} WHERE r.id = ?`, runId);
     if (!row) throw new Refusal(404, 'Run not found');
-    const events = this.all(
-      'SELECT sequence, kind, state, message, at FROM task_events WHERE task_id = ? ORDER BY sequence', row.task_id);
-    return { run: { ...runView(row), instructions: row.input }, events };
+    const timeline = taskId => (taskId === null ? [] : this.all(
+      'SELECT sequence, kind, state, message, at FROM task_events WHERE task_id = ? ORDER BY sequence', taskId));
+    const run = { ...runView(row), instructions: row.input, assignment: row.assignment };
+    if (run.reviewTask) {
+      run.reviewTask = {
+        ...run.reviewTask,
+        input: row.review_input ?? null,
+        output: row.review_output ?? null,
+        outputTruncated: row.review_output_truncated === 1
+      };
+    }
+    return { run, events: timeline(row.task_id), reviewEvents: timeline(row.review_task_id ?? null) };
   }
 
   listRuns({ workflowId = null, before = null, limit = 50 } = {}) {
@@ -716,24 +937,34 @@ export class Model {
       ready: row.ready === null ? null : row.ready === 1,
       readySince: row.ready_since
     }));
-    const problems = this.all(`SELECT r.id, w.name AS workflow_name, t.error, t.problem_since FROM tasks t
-      JOIN runs r ON r.task_id = t.task_id LEFT JOIN workflows w ON w.id = r.workflow_id
-      WHERE t.open = 1 AND t.error IS NOT NULL ORDER BY t.problem_since`);
-    // Results waiting for a verdict, per workflow, archived ones included.
+    // A run's own task and its review task are never unresolved together; its own task wins if they were.
+    const problems = new Map();
+    for (const row of this.all(`SELECT r.id, w.name AS workflow_name, t.error, t.problem_since, t.role FROM tasks t
+      JOIN runs r ON r.id = t.run_id LEFT JOIN workflows w ON w.id = r.workflow_id
+      WHERE t.open = 1 AND t.error IS NOT NULL ORDER BY t.role = 'review', t.problem_since`)) {
+      if (!problems.has(row.id)) problems.set(row.id, row);
+    }
+    // Results waiting for the operator's verdict, per workflow, archived ones included.
     const reviews = this.all(`SELECT r.workflow_id, w.name AS workflow_name, COUNT(*) AS waiting,
         MIN(t.finished_at) AS since
       FROM runs r JOIN tasks t ON t.task_id = r.task_id LEFT JOIN workflows w ON w.id = r.workflow_id
-      WHERE r.review = 'pending' GROUP BY r.workflow_id ORDER BY since`);
+      WHERE r.review = 'pending' AND (r.reviewer_id IS NULL OR r.review_fallback IS NOT NULL)
+      GROUP BY r.workflow_id ORDER BY since`);
+    // Reviewer connections that a result waits for before its review task can be reserved.
+    const awaitedReviewers = this.all(`SELECT DISTINCT reviewer_id FROM runs
+      WHERE review = 'pending' AND reviewer_id IS NOT NULL AND review_task_id IS NULL AND review_fallback IS NULL`)
+      .map(row => row.reviewer_id);
     return {
       connections,
       workflows,
       runs: this.all(`${RUN_PREVIEW} ORDER BY r.seq DESC LIMIT 100`).map(runView),
-      problems: problems.map(row => ({
+      problems: [...problems.values()].sort((a, b) => (a.problem_since < b.problem_since ? -1 : 1)).map(row => ({
         id: row.id,
         name: row.workflow_name ?? 'Workflow',
-        message: row.error,
+        message: row.role === 'review' ? 'Review task: ' + row.error : row.error,
         since: row.problem_since
       })),
+      awaitedReviewers,
       reviews: reviews.map(row => ({
         id: row.workflow_id,
         name: row.workflow_name ?? 'Workflow',

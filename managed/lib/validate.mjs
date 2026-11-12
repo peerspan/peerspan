@@ -1,19 +1,23 @@
-// Request validation (contract sections 2, 9, 10, 14 and 15). Unknown fields
-// and invalid values are refused with 400 before anything is stored.
+// Request validation (contract sections 2, 9, 10, 14, 15, 15.1 and 15.2).
+// Unknown fields and invalid values are refused with 400 before anything is
+// stored. Rules that depend on stored state, such as whether a reviewer is
+// another agent than the worker, are the model's.
 import { normalizeSchedule } from './schedule.mjs';
 
 const TEXT_LIMITS = { name: 100, instructions: 12_000 };
 const INTEGER_RANGES = {
   intervalMinutes: [1, 10_080],
   maxRunsPerDay: [1, 1000],
-  acceptanceMinutes: [1, 1440]
+  acceptanceMinutes: [1, 1440],
+  reworkLimit: [0, 3]
 };
 const REQUIRED = ['name', 'connectionId', 'instructions', 'maxRunsPerDay', 'acceptanceMinutes'];
-const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review'];
+const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review', 'reviewerId', 'reviewCriteria', 'reworkLimit'];
 const CREATABLE = [...EDITABLE, 'enabled'];
-const REVIEWS = ['none', 'operator'];
+const REVIEWS = ['none', 'operator', 'agent'];
 const VERDICTS = ['accepted', 'rejected'];
 const NOTE_LIMIT = 2000;
+const CRITERIA_LIMIT = 2000;
 // The store decides whether an ID exists; this only bounds its shape.
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -56,8 +60,17 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
       }
       fields[key] = normalizeSchedule(value);
     } else if (key === 'review') {
-      if (!REVIEWS.includes(value)) throw invalid('Invalid review; use none or operator');
+      if (!REVIEWS.includes(value)) throw invalid('Invalid review; use none, operator or agent');
       fields[key] = value;
+    } else if (key === 'reviewerId') {
+      if (value !== null && (typeof value !== 'string' || !ID.test(value))) throw invalid('Unknown reviewer connection');
+      fields[key] = value;
+    } else if (key === 'reviewCriteria') {
+      // Stored trimmed, with an empty text stored as no criteria (contract section 15.1).
+      if (value !== null && (typeof value !== 'string' || value.length > CRITERIA_LIMIT)) {
+        throw invalid('Review criteria are at most 2,000 characters');
+      }
+      fields[key] = value === null ? null : value.trim() || null;
     }
   }
   if (fields.intervalMinutes !== undefined && fields.schedule !== undefined) {
@@ -72,7 +85,13 @@ export function newWorkflow(body) {
   if (fields.intervalMinutes === undefined && fields.schedule === undefined) {
     throw invalid('Give intervalMinutes or a schedule');
   }
-  return { review: 'none', ...fields, enabled: fields.enabled ?? false };
+  const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, ...fields };
+  // A reviewer exactly when the review is an agent's (contract section 15.1).
+  if (workflow.review === 'agent' && workflow.reviewerId === null) throw invalid('Choose the reviewer agent');
+  if (workflow.review !== 'agent' && workflow.reviewerId !== null) {
+    throw invalid('Only a workflow reviewed by an agent has a reviewer');
+  }
+  return { ...workflow, enabled: fields.enabled ?? false };
 }
 
 /** At least one editable field; `enabled` is changed by pause and resume only. */

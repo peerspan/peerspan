@@ -5,11 +5,13 @@
 // rules of contract section 4 are constraints of the store itself and history
 // is read through indexes instead of whole-table scans. Version 3 adds remote
 // connections, schedules and result review (contract sections 7.1, 14, 15).
+// Version 4 adds reviewer agents, rework and branches (sections 10.1, 15.1, 15.2).
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { branchOf } from './review.mjs';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 const backupName = version => `managed.v${version}-backup.sqlite`;
 
 // States in which a task still reserves its target and its run its workflow.
@@ -43,7 +45,13 @@ CREATE TABLE workflows (
   -- Exactly one of an interval and a schedule (JSON) is set.
   interval_minutes INTEGER,
   schedule TEXT,
-  review TEXT NOT NULL DEFAULT 'none' CHECK (review IN ('none', 'operator')),
+  review TEXT NOT NULL DEFAULT 'none' CHECK (review IN ('none', 'operator', 'agent')),
+  -- The reviewer agent's connection, exactly when review is 'agent'.
+  reviewer_id TEXT,
+  review_criteria TEXT,
+  rework_limit INTEGER NOT NULL DEFAULT 0 CHECK (rework_limit BETWEEN 0 AND 3),
+  -- The rejected run whose rework is due, if any.
+  rework_pending TEXT,
   max_runs_per_day INTEGER NOT NULL,
   acceptance_minutes INTEGER NOT NULL,
   enabled INTEGER NOT NULL,
@@ -57,15 +65,34 @@ CREATE TABLE workflows (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   archived_at TEXT,
-  CHECK ((interval_minutes IS NULL) <> (schedule IS NULL))
+  CHECK ((interval_minutes IS NULL) <> (schedule IS NULL)),
+  CHECK ((review = 'agent') = (reviewer_id IS NOT NULL))
 );
 `;
 
 const CONNECTION_COLUMNS = `id, name, mode, worker_state, host_dir, host_id, agent_id, sender_state, ready, ready_since,
   created_at, removed_at`;
-const WORKFLOW_COLUMNS = `id, name, connection_id, instructions, interval_minutes, max_runs_per_day, acceptance_minutes,
+const WORKFLOW_COLUMNS_V2 = `id, name, connection_id, instructions, interval_minutes, max_runs_per_day, acceptance_minutes,
   enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason, unattended_runs, created_at, updated_at,
   archived_at`;
+const WORKFLOW_COLUMNS_V3 = `${WORKFLOW_COLUMNS_V2}, schedule, review`;
+
+// Version 3 run columns, then version 4 run and task columns, as added to existing tables.
+const RUN_COLUMNS_V3 = `
+  ALTER TABLE runs ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE runs ADD COLUMN review TEXT CHECK (review IN ('pending', 'accepted', 'rejected'));
+  ALTER TABLE runs ADD COLUMN reviewed_at TEXT;
+  ALTER TABLE runs ADD COLUMN review_note TEXT;
+  CREATE INDEX runs_review ON runs(workflow_id) WHERE review = 'pending';`;
+const RUN_COLUMNS_V4 = `
+  ALTER TABLE runs ADD COLUMN reviewed_by TEXT CHECK (reviewed_by IN ('operator', 'agent'));
+  ALTER TABLE runs ADD COLUMN reviewer_id TEXT;
+  ALTER TABLE runs ADD COLUMN review_task_id TEXT;
+  ALTER TABLE runs ADD COLUMN review_fallback TEXT;
+  ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE runs ADD COLUMN rework_of TEXT;
+  ALTER TABLE runs ADD COLUMN assignment TEXT;
+  ALTER TABLE tasks ADD COLUMN branch TEXT;`;
 
 const DDL = CONNECTIONS + WORKFLOWS + `
 
@@ -104,7 +131,9 @@ CREATE TABLE tasks (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   started_at TEXT,
-  finished_at TEXT
+  finished_at TEXT,
+  -- The branch line of the final output (contract section 10.1), as JSON.
+  branch TEXT
 );
 -- One unresolved task per worker agent, host and agent (contract section 4).
 CREATE UNIQUE INDEX tasks_open_target ON tasks(target) WHERE open = 1;
@@ -122,7 +151,17 @@ CREATE TABLE runs (
   review_required INTEGER NOT NULL DEFAULT 0,
   review TEXT CHECK (review IN ('pending', 'accepted', 'rejected')),
   reviewed_at TEXT,
-  review_note TEXT
+  review_note TEXT,
+  reviewed_by TEXT CHECK (reviewed_by IN ('operator', 'agent')),
+  -- The reviewer agent's connection when the run was reserved for an agent review,
+  -- its review task once reserved, and why the agent gave no verdict.
+  reviewer_id TEXT,
+  review_task_id TEXT,
+  review_fallback TEXT,
+  attempt INTEGER NOT NULL DEFAULT 1,
+  rework_of TEXT,
+  -- The workflow's instructions when the run was reserved.
+  assignment TEXT
 );
 -- One unresolved run per workflow (contract section 4).
 CREATE UNIQUE INDEX runs_open_workflow ON runs(workflow_id) WHERE open = 1;
@@ -168,24 +207,42 @@ function parseBody(row) {
   return body;
 }
 
-// Version 2 to version 3, inside the caller's transaction. SQLite cannot change a
-// column's constraints in place, so the two changed tables are rebuilt with their
-// rows and row order.
+// SQLite cannot change a column's constraints in place, so a table whose
+// constraints changed is rebuilt with its rows and row order. `columns` are the
+// columns the older table has; the others take their defaults.
+function rebuild(db, table, ddl, columns) {
+  db.exec(`ALTER TABLE ${table} RENAME TO ${table}_old;
+    ${ddl}
+    INSERT INTO ${table} (rowid, ${columns}) SELECT rowid, ${columns} FROM ${table}_old ORDER BY rowid;
+    DROP TABLE ${table}_old;`);
+}
+
+// Version 2 to the current version, inside the caller's transaction.
 function migrateFromV2(db) {
-  db.exec(`ALTER TABLE connections RENAME TO connections_v2;
-    ALTER TABLE workflows RENAME TO workflows_v2;
-    ${CONNECTIONS} ${WORKFLOWS}
-    INSERT INTO connections (rowid, ${CONNECTION_COLUMNS})
-      SELECT rowid, ${CONNECTION_COLUMNS} FROM connections_v2 ORDER BY rowid;
-    INSERT INTO workflows (rowid, ${WORKFLOW_COLUMNS})
-      SELECT rowid, ${WORKFLOW_COLUMNS} FROM workflows_v2 ORDER BY rowid;
-    DROP TABLE connections_v2;
-    DROP TABLE workflows_v2;
-    ALTER TABLE runs ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0;
-    ALTER TABLE runs ADD COLUMN review TEXT CHECK (review IN ('pending', 'accepted', 'rejected'));
-    ALTER TABLE runs ADD COLUMN reviewed_at TEXT;
-    ALTER TABLE runs ADD COLUMN review_note TEXT;
-    CREATE INDEX runs_review ON runs(workflow_id) WHERE review = 'pending';`);
+  rebuild(db, 'connections', CONNECTIONS, CONNECTION_COLUMNS);
+  rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V2);
+  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4);
+}
+
+// Version 3 to the current version, inside the caller's transaction.
+function migrateFromV3(db) {
+  rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V3);
+  db.exec(RUN_COLUMNS_V4);
+}
+
+/**
+ * Fills what version 4 derives from retained runs: every earlier run's
+ * assignment was its submitted input, and its branch is read from its output.
+ */
+function deriveV4(db) {
+  db.exec('UPDATE runs SET assignment = (SELECT input FROM tasks WHERE tasks.task_id = runs.task_id) WHERE assignment IS NULL');
+  const setBranch = db.prepare('UPDATE tasks SET branch = ? WHERE task_id = ?');
+  const finished = db.prepare(`SELECT task_id, state, output, output_truncated FROM tasks
+    WHERE state IN ('succeeded', 'failed') AND output IS NOT NULL AND output LIKE '%Branch: %'`);
+  for (const task of finished.iterate()) {
+    const branch = branchOf(task.state, task.output, task.output_truncated === 1);
+    if (branch) setBranch.run(JSON.stringify(branch), task.task_id);
+  }
 }
 
 // Version 1 to the current version, inside the caller's transaction.
@@ -275,9 +332,11 @@ export function openDatabase(file) {
         // Another process may have migrated while this one waited for the lock.
         const current = userVersion(db);
         if (current < SCHEMA_VERSION) {
-          if (current === 2) migrateFromV2(db);
+          if (current === 3) migrateFromV3(db);
+          else if (current === 2) migrateFromV2(db);
           else if (tableExists(db, 'records')) migrateFromV1(db, new Date().toISOString());
           else db.exec(DDL);
+          deriveV4(db);
           db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         }
         db.exec('COMMIT');

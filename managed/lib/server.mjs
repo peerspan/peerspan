@@ -42,6 +42,15 @@ const WORKFLOW_ACTION = new RegExp(`^/api/workflows/(${ID})/(pause|resume|run|ar
 const WORKFLOW = new RegExp(`^/api/workflows/(${ID})$`);
 const RUN = new RegExp(`^/api/runs/(${ID})$`);
 const RUN_ACTION = new RegExp(`^/api/runs/(${ID})/(cancel|abandon|review)$`);
+const REVIEW_ACTION = new RegExp(`^/api/runs/(${ID})/review/(cancel|abandon)$`);
+
+/** `{"confirm": TASK_ID}` and nothing else (contract sections 10 and 15.1). */
+function confirmation(body) {
+  if (Object.keys(body).some(key => key !== 'confirm') || typeof body.confirm !== 'string') {
+    throw invalid('Confirm with the exact task ID');
+  }
+  return body.confirm;
+}
 
 function sameText(a, b) {
   return typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b)
@@ -191,10 +200,20 @@ export async function startServer({ engine, store, token, port, version }) {
         const { verdict, note } = reviewVerdict(body);
         run = await store.reviewRun(match[1], verdict, note, now());
       } else {
-        if (Object.keys(body).some(key => key !== 'confirm') || typeof body.confirm !== 'string') {
-          throw invalid('Confirm with the exact task ID of this run');
-        }
-        run = await store.abandonRun(match[1], body.confirm, now());
+        run = await store.abandonRun(match[1], confirmation(body), now());
+      }
+      engine.poke();
+      return json(200, run);
+    }
+    match = path.match(REVIEW_ACTION);
+    if (match && method === 'POST') {
+      const body = await readBody(req);
+      let run;
+      if (match[2] === 'cancel') {
+        emptyBody(body);
+        run = await store.requestReviewCancel(match[1], now());
+      } else {
+        run = await store.abandonReview(match[1], confirmation(body), now());
       }
       engine.poke();
       return json(200, run);

@@ -18,7 +18,7 @@ function orderAttention(items) {
   });
 }
 
-function attentionFor({ engine, workflows, connections, problems, reviews, observed }) {
+function attentionFor({ engine, workflows, connections, problems, reviews, awaitedReviewers, observed }) {
   const items = [];
   const add = (kind, severity, type, subject, message, since) =>
     items.push({ kind, severity, subject: { type, id: subject.id, name: subject.name }, message, since: since ?? null });
@@ -39,7 +39,10 @@ function attentionFor({ engine, workflows, connections, problems, reviews, obser
   for (const connection of connections) {
     const { readiness } = connection;
     if (readiness.ready || readiness.code === 'checking') continue;
-    const inUse = workflows.some(workflow => workflow.enabled && workflow.connectionId === connection.id);
+    // In use as an enabled workflow's worker or reviewer, or awaited by a result's review (contract section 8).
+    const inUse = workflows.some(workflow => workflow.enabled
+      && (workflow.connectionId === connection.id || workflow.reviewerId === connection.id))
+      || awaitedReviewers.includes(connection.id);
     add('worker_unready', inUse ? 'action' : 'warning', 'connection', connection, readiness.reason, readiness.since);
   }
   for (const problem of problems) add('run_problem', 'warning', 'run', problem, problem.message, problem.since);
@@ -73,6 +76,7 @@ export async function buildSnapshot({ store, engine, version }) {
     connections,
     problems: data.problems,
     reviews: data.reviews,
+    awaitedReviewers: data.awaitedReviewers,
     observed
   });
   return {

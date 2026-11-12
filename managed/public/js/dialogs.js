@@ -2,6 +2,59 @@
 import { h, icon, shortId } from './dom.js';
 import { DAYS } from './labels.js';
 
+const REVIEW_MODES = [['none', 'As reported'], ['operator', 'I check them'], ['agent', 'An agent checks them']];
+const REWORK_CHOICES = ['Count it as a failure', 'Send it back once with the review', 'Send it back up to twice',
+  'Send it back up to three times'];
+
+/** The "Results" part of the workflow form: who checks results, the criteria, and what a rejection does. */
+function resultsPart(workflow, connections, workerSelect) {
+  const mode = workflow?.review ?? 'none';
+  const modes = h('div.segmented', { role: 'radiogroup', 'aria-label': 'Who checks results' },
+    REVIEW_MODES.map(([value, label]) => h('label', null,
+      h('input', { type: 'radio', name: 'review', value, checked: value === mode }), h('span', null, label))));
+  const sameAgent = (a, b) => a && b && a.hostId === b.hostId && a.agentId === b.agentId;
+  const worker = () => connections.find(connection => connection.id === workerSelect.value);
+  const firstOther = connections.find(connection => !sameAgent(connection, worker()));
+  const chosen = workflow?.reviewerId ?? firstOther?.id ?? '';
+  const reviewer = h('select', { id: 'wf-reviewer', name: 'reviewerId' },
+    workflow?.reviewerId && !connections.some(connection => connection.id === workflow.reviewerId)
+      && h('option', { value: workflow.reviewerId, selected: true }, 'Disconnected reviewer (choose another)'),
+    connections.map(connection => h('option', { value: connection.id, selected: connection.id === chosen },
+      connection.name + (connection.readiness.ready ? '' : ' (not ready)'))));
+  // The worker cannot review its own results: its agent is not offered as the reviewer.
+  const syncReviewer = () => {
+    for (const option of reviewer.options) {
+      option.disabled = sameAgent(connections.find(connection => connection.id === option.value), worker());
+    }
+    if (reviewer.selectedOptions[0]?.disabled) reviewer.value = [...reviewer.options].find(option => !option.disabled)?.value ?? '';
+  };
+  workerSelect.addEventListener('change', syncReviewer);
+  syncReviewer();
+  const agentPart = h('div.when-part', null,
+    h('label', { for: 'wf-reviewer' }, 'Reviewer agent'),
+    reviewer,
+    h('p.help', null, 'Another agent than the worker. It is sent the assignment, your criteria and the result, and answers ',
+      'ACCEPT or REJECT with its reasons. When it gives no verdict, the result waits for you.'));
+  const detailsPart = h('div.when-part', null,
+    h('label', { for: 'wf-criteria' }, 'Review criteria'),
+    h('textarea', { id: 'wf-criteria', name: 'reviewCriteria', maxlength: '2000', rows: '3',
+      placeholder: 'What a good result must do, such as: names every changed file and cites at least two sources.' },
+    workflow?.reviewCriteria ?? ''),
+    h('label', { for: 'wf-rework' }, 'When a result is rejected'),
+    h('select', { id: 'wf-rework', name: 'reworkLimit' },
+      REWORK_CHOICES.map((label, limit) => h('option', { value: String(limit), selected: limit === (workflow?.reworkLimit ?? 0) }, label))),
+    h('p.help', null, 'A rejected result counts as a failure. Sending it back runs the assignment again at once with the ',
+      'review and the previous result; each rework counts toward the daily limit.'));
+  const show = () => {
+    const current = modes.querySelector('input:checked').value;
+    agentPart.hidden = current !== 'agent';
+    detailsPart.hidden = current === 'none';
+  };
+  modes.addEventListener('change', show);
+  show();
+  return h('div.when', null, h('span.label', null, 'Results'), modes, agentPart, detailsPart);
+}
+
 const element = () => document.getElementById('dialog');
 
 /**
@@ -35,22 +88,25 @@ export function confirmDialog({ title, body, confirmLabel, danger = false }) {
   ]).then(Boolean);
 }
 
-/** Releasing a run does not stop remote work; the operator must acknowledge that first. */
-export function abandonDialog(run) {
-  return show('Release this run?', close => {
+/**
+ * Releasing a run or a review task does not stop remote work; the operator must
+ * acknowledge that first. `what` and `who` name the task and the agent doing it.
+ */
+export function abandonDialog(run, { what = 'run', who = 'worker' } = {}) {
+  return show(`Release this ${what}?`, close => {
     const acknowledge = h('input', { type: 'checkbox', id: 'abandon-ack' });
-    const confirm = h('button.button.danger.solid', { type: 'button', disabled: true, onclick: () => close(true) }, 'Release run');
+    const confirm = h('button.button.danger.solid', { type: 'button', disabled: true, onclick: () => close(true) }, `Release ${what}`);
     acknowledge.addEventListener('change', () => { confirm.disabled = !acknowledge.checked; });
     return [
       h('div.dialog-body', null,
-        h('p', null, 'Release a run only when it can no longer be resolved, for example because its worker host no longer exists.'),
+        h('p', null, `Release a ${what} only when it can no longer be resolved, for example because its ${who}'s host no longer exists.`),
         h('div.callout.danger', null, icon('alert'),
-          h('span', null, 'Releasing does not stop the worker. If it is still working on task ', h('code', null, shortId(run.taskId)),
-            ', that work continues, its result is not collected, and the next run may reach the same agent while it is busy.')),
-        h('p', null, 'To stop a worker that can still be reached, cancel the run instead.'),
-        h('label.check', { for: 'abandon-ack' }, acknowledge, 'I understand that the worker may still be running this task.')),
+          h('span', null, `Releasing does not stop the ${who}. If it is still working on task `, h('code', null, shortId(run.taskId)),
+            `, that work continues, its result is not collected, and new work may reach the same agent while it is busy.`)),
+        h('p', null, `To stop a ${who} that can still be reached, cancel the ${what} instead.`),
+        h('label.check', { for: 'abandon-ack' }, acknowledge, `I understand that the ${who} may still be running this task.`)),
       h('div.dialog-actions', null,
-        h('button.button', { type: 'button', autofocus: true, onclick: () => close(false) }, 'Keep the run'),
+        h('button.button', { type: 'button', autofocus: true, onclick: () => close(false) }, `Keep the ${what}`),
         confirm)
     ];
   }).then(Boolean);
@@ -133,16 +189,17 @@ export function workflowDialog({ workflow = null, connections, submit }) {
     };
     modes.addEventListener('change', showMode);
     showMode();
+    const workerSelect = h('select', { id: 'wf-connection', name: 'connectionId', required: true },
+      // A workflow whose worker was disconnected keeps it until another one is chosen.
+      editing && !connections.some(connection => connection.id === workflow.connectionId)
+        && h('option', { value: workflow.connectionId, selected: true }, 'Disconnected worker (choose another)'),
+      connections.map(connection => h('option', { value: connection.id, selected: connection.id === workflow?.connectionId },
+        connection.name + (connection.readiness.ready ? '' : ' (not ready)'))));
     const form = h('form', null,
       h('label', { for: 'wf-name' }, 'Name'),
       h('input', { id: 'wf-name', name: 'name', maxlength: '100', required: true, autofocus: true, value: workflow?.name ?? '', placeholder: 'Weekly repository maintenance' }),
       h('label', { for: 'wf-connection' }, 'Worker'),
-      h('select', { id: 'wf-connection', name: 'connectionId', required: true },
-        // A workflow whose worker was disconnected keeps it until another one is chosen.
-        editing && !connections.some(connection => connection.id === workflow.connectionId)
-          && h('option', { value: workflow.connectionId, selected: true }, 'Disconnected worker (choose another)'),
-        connections.map(connection => h('option', { value: connection.id, selected: connection.id === workflow?.connectionId },
-          connection.name + (connection.readiness.ready ? '' : ' (not ready)')))),
+      workerSelect,
       h('p.help', null, 'The worker uses its own workspace and model configuration.'),
       h('label', { for: 'wf-instructions' }, 'Assignment'),
       h('textarea', { id: 'wf-instructions', name: 'instructions', maxlength: '12000', required: true, rows: '6',
@@ -157,10 +214,7 @@ export function workflowDialog({ workflow = null, connections, submit }) {
           h('input', { id: 'wf-acceptance', name: 'acceptanceMinutes', type: 'number', min: '1', max: '1440', required: true, value: String(workflow?.acceptanceMinutes ?? 60) }))),
       h('p.help', null, 'The daily limit counts dispatches per UTC day, not model cost. ',
         'A run the worker has not accepted within the window expires.'),
-      h('label.check', { for: 'wf-review' },
-        h('input', { id: 'wf-review', name: 'review', type: 'checkbox', checked: workflow?.review === 'operator' }),
-        h('span', null, 'Hold each result for my review', h('span.help.block', null,
-          'A succeeded run counts as a success only once you accept it. Reviews never hold back the schedule.'))),
+      resultsPart(workflow, connections, workerSelect),
       !editing && h('label.check', { for: 'wf-enabled' },
         h('input', { id: 'wf-enabled', name: 'enabled', type: 'checkbox' }), 'Start dispatching as soon as it is created'),
       !editing && h('p.help', null, 'Otherwise it is created paused. Three consecutive failed runs pause a workflow automatically.'),
@@ -180,9 +234,14 @@ export function workflowDialog({ workflow = null, connections, submit }) {
         instructions: values.instructions,
         maxRunsPerDay: Number(values.maxRunsPerDay),
         acceptanceMinutes: Number(values.acceptanceMinutes),
-        review: form.elements.review.checked ? 'operator' : 'none'
+        review: values.review,
+        reviewerId: values.review === 'agent' ? values.reviewerId || null : null,
+        // Hidden while results are counted as reported; the stored values are kept then.
+        reviewCriteria: values.review === 'none' ? workflow?.reviewCriteria ?? null : values.reviewCriteria.trim() || null,
+        reworkLimit: values.review === 'none' ? workflow?.reworkLimit ?? 0 : Number(values.reworkLimit)
       };
       error.textContent = '';
+      if (fields.review === 'agent' && !fields.reviewerId) return void (error.textContent = 'Choose another agent as the reviewer.');
       if (values.when === 'schedule') {
         const times = parseTimes(values.times);
         const chosen = data.getAll('day');

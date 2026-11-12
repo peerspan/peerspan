@@ -1,6 +1,9 @@
 // Console views. Each takes the app context and returns the nodes of one page.
 import { absoluteTime, commandLine, copyable, duration, h, icon, secondsBetween, shortId, timeAgo } from './dom.js';
-import { OPEN_STATES, activityText, hintText, reviewState, runState, schedule, workflowStatus } from './labels.js';
+import {
+  OPEN_STATES, activityText, fallbackText, hintText, reviewState, reworkText, runState, schedule, waitsForOperator,
+  workflowStatus
+} from './labels.js';
 
 const CLI = 'node managed/cli.mjs';
 
@@ -55,7 +58,7 @@ function attentionList(ctx) {
 function runStrip(workflow) {
   const recent = [...workflow.recent].reverse();
   if (!recent.length) return h('div.strip', null, h('span.strip-label', null, 'No runs yet'));
-  const label = run => [runState(run.state)[0], reviewState(run.review)?.[0]].filter(Boolean).join(', ');
+  const label = run => [runState(run.state)[0], reviewState(run)?.[0]].filter(Boolean).join(', ');
   return h('div.strip', { 'aria-label': 'Latest runs, oldest first' },
     recent.map(run => h('a', {
       class: [run.state, run.review && 'review-' + run.review].filter(Boolean).join(' '),
@@ -68,7 +71,10 @@ function runStrip(workflow) {
 
 function nextLine(workflow, openRun) {
   if (openRun) return ['Assignment in progress since ', timeAgo(openRun.createdAt)];
-  if (!workflow.enabled) return [workflow.blockedReason || 'Paused'];
+  if (!workflow.enabled) return [workflow.blockedReason || 'Paused', workflow.reworkPending ? '; a rework is due on resume' : ''];
+  if (workflow.reworkPending && (!workflow.blockedReason || workflow.blockedReason === 'Waiting for next scheduled run')) {
+    return ['Rework due now'];
+  }
   if (!workflow.blockedReason || workflow.blockedReason === 'Waiting for next scheduled run') {
     return Date.parse(workflow.nextRunAt) <= Date.now() ? ['Due now'] : ['Next run ', timeAgo(workflow.nextRunAt)];
   }
@@ -96,14 +102,17 @@ function workflowCard(ctx, workflow) {
   const { runs, connections } = ctx.data;
   const openRun = runs.find(run => run.workflowId === workflow.id && isOpen(run));
   const worker = connections.find(connection => connection.id === workflow.connectionId);
+  const reviewer = connections.find(connection => connection.id === workflow.reviewerId);
   const status = workflowStatus(workflow, runs);
+  const checkedBy = workflow.review === 'agent' ? ` · checked by ${reviewer ? reviewer.name : 'a disconnected reviewer'}`
+    : workflow.review === 'operator' ? ' · checked by you' : '';
   return h('article.panel.card', null,
     h('div.card-main', null,
       h('div.card-top', null,
         h('a.card-title', { href: `#/workflows/${workflow.id}` }, workflow.name),
         badge(status, Boolean(openRun) && openRun.state === 'running')),
       h('p.card-meta', null,
-        `${worker ? worker.name : 'No worker'} · ${schedule(workflow)} · up to ${plural(workflow.maxRunsPerDay, 'run')} a day`),
+        `${worker ? worker.name : 'No worker'} · ${schedule(workflow)} · up to ${plural(workflow.maxRunsPerDay, 'run')} a day${checkedBy}`),
       runStrip(workflow),
       openRun?.progress && h('p.card-line', null, h('span', null, 'Now:'), h('span.progress', null, openRun.progress))),
     h('div.card-foot', null,
@@ -135,11 +144,13 @@ function runRow(run, { named = true } = {}) {
   const seconds = secondsBetween(run.createdAt, run.finishedAt);
   const summary = run.error ?? run.progress ?? run.reason ?? run.output?.split('\n', 1)[0]
     ?? (isOpen(run) ? 'No result yet' : 'No output reported');
-  const review = reviewState(run.review);
+  const review = reviewState(run);
+  const title = run.attempt > 1 ? `${run.workflowName} · attempt ${run.attempt}` : run.workflowName;
   return h('a.row', { href: `#/runs/${run.id}` },
     h('span.row-state', null, badge(review && run.review !== 'accepted' ? review : runState(run.state), run.state === 'running')),
     h('div.row-main', null,
-      named ? [h('div.row-title', null, run.workflowName), h('div.row-sub', null, summary)] : h('div.row-title.plain', null, summary)),
+      named ? [h('div.row-title', null, title), h('div.row-sub', null, summary)]
+        : h('div.row-title.plain', null, run.attempt > 1 ? `Attempt ${run.attempt}: ${summary}` : summary)),
     h('div.row-side', null, timeAgo(run.createdAt), seconds !== null && ` · ${duration(seconds)}`));
 }
 
@@ -203,8 +214,9 @@ export function overview(ctx) {
         h('p.empty-action', null, button('New workflow', { iconName: 'plus', kind: 'primary', onclick: ctx.actions.newWorkflow })))
       : empty('Connect a worker to begin', 'A worker is an agent already attached to Peerspan, on this machine or on one your sender host can reach.',
         h('p.empty-action', null, h('a.button.primary', { href: '#/workers' }, 'How to connect a worker')));
-  // Oldest first: the result that has waited longest is reviewed first.
-  const waiting = runs.filter(run => run.review === 'pending').reverse();
+  // Oldest first: the result that has waited longest is reviewed first. Results a reviewer
+  // agent is still checking are not the operator's to decide yet.
+  const waiting = runs.filter(waitsForOperator).reverse();
 
   return [
     pageHead('Overview', 'Keep recurring work moving, and see what needs you.',
@@ -213,7 +225,7 @@ export function overview(ctx) {
     attentionList(ctx),
     h('div.section', null, tiles),
     waiting.length > 0 && section('Waiting for your review', h('div.panel.rows', null, waiting.slice(0, 8).map(run => runRow(run))),
-      { note: waiting.length > 8 ? `The oldest 8 of ${waiting.length} recent results` : 'Results count as successes once you accept them.' }),
+      { note: waiting.length > 8 ? `The oldest 8 of ${waiting.length} recent results` : 'Results count as successes once accepted.' }),
     section('Workflows', workflowList, { more: workflows.length ? { href: '#/workflows', label: 'All workflows' } : null }),
     observed.length > 0 && section('Followed programs', h('div.cards', null, observed.map(observedCard)),
       { note: 'Read only. Each keeps its own controller and history.' }),
@@ -284,8 +296,15 @@ export function workflowPage(ctx, id) {
 
   const openRun = runs.find(run => run.workflowId === id && isOpen(run));
   const worker = connections.find(connection => connection.id === workflow.connectionId);
+  const reviewer = connections.find(connection => connection.id === workflow.reviewerId);
   const { stats } = workflow;
   const status = workflowStatus(workflow, runs);
+  const results = {
+    none: 'Counted as the worker reports them',
+    operator: 'Each success waits for your verdict before it counts',
+    agent: ['Each success is checked by ', reviewer ? h('a', { href: '#/workers' }, reviewer.name) : 'a disconnected reviewer',
+      ' before it counts; when it gives no verdict, you decide']
+  }[workflow.review];
   return [
     pageHead([workflow.name, ' ', badge(status, openRun?.state === 'running')], null, [
       ...workflowActions(ctx, workflow, openRun),
@@ -299,8 +318,9 @@ export function workflowPage(ctx, id) {
       tile('Success rate, 7 days', percent(stats.successRate), null, `${stats.succeeded} succeeded · ${stats.failed} failed`),
       tile('Runs, 7 days', stats.runs, null, `Limit ${workflow.maxRunsPerDay} a day`),
       tile('Average duration', duration(stats.averageSeconds), null, 'Succeeded runs, 7 days'),
-      (workflow.review === 'operator' || stats.awaitingReview > 0)
-        ? tile('Awaiting review', stats.awaitingReview, null, stats.awaitingReview ? 'Not counted until you decide' : 'All results reviewed')
+      (workflow.review !== 'none' || stats.awaitingReview > 0)
+        ? tile('Awaiting review', stats.awaitingReview, null,
+          stats.awaitingReview ? 'Not counted until a verdict' : 'All results reviewed')
         : tile('Operator actions', stats.interventions, null, 'In the last 7 days'),
       tile('Unattended runs', stats.unattendedRuns, null, 'Since you last stepped in')),
     h('div.section.two-col', null,
@@ -310,14 +330,17 @@ export function workflowPage(ctx, id) {
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Assignment')),
         h('div.panel.pad', null, h('p.prose', null, workflow.instructions)),
+        workflow.reviewCriteria && [
+          h('div.section-head.section', null, h('h2', null, 'Review criteria')),
+          h('div.panel.pad', null, h('p.prose', null, workflow.reviewCriteria))],
         h('div.section-head.section', null, h('h2', null, 'Schedule')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Worker', worker ? h('a', { href: '#/workers' }, worker.name) : 'Not connected'),
           fact('Repeats', workflow.schedule
             ? `${schedule(workflow, { zone: false })}, ${workflow.schedule.timeZone} time; a slot missed while busy or paused runs once`
             : schedule(workflow) + ', counted from the end of the previous run'),
-          fact('Results', workflow.review === 'operator'
-            ? 'Each success waits for your verdict before it counts' : 'Counted as the worker reports them'),
+          fact('Results', results),
+          workflow.review !== 'none' && fact('Rejected results', reworkText(workflow.reworkLimit)),
           fact('Daily limit', `${plural(workflow.maxRunsPerDay, 'dispatch', 'dispatches')} per UTC day`),
           fact('Acceptance window', `${plural(workflow.acceptanceMinutes, 'minute')} for the worker to accept`),
           fact('Next run', nextLine(workflow, openRun)),
@@ -350,9 +373,11 @@ export function runPage(ctx, id) {
   const { run, events } = detail;
   const open = isOpen(run);
   const seconds = secondsBetween(run.startedAt ?? run.createdAt, run.finishedAt);
+  const rework = ctx.data.runs.find(other => other.reworkOf === run.id);
   return [
-    pageHead(['Run of ', run.workflowName, ' ', badge(runState(run.state), run.state === 'running'),
-      reviewState(run.review) && [' ', badge(reviewState(run.review))]], null, open && [
+    pageHead(['Run of ', run.workflowName, run.attempt > 1 ? ` · attempt ${run.attempt}` : '', ' ',
+      badge(runState(run.state), run.state === 'running'),
+      reviewState(run) && [' ', badge(reviewState(run))]], null, open && [
       button('Cancel run', { iconName: 'stop', kind: 'small', onclick: () => ctx.actions.cancelRun(run), key: 'run:cancel',
         disabled: Boolean(run.cancelRequestedAt), title: run.cancelRequestedAt ? 'Cancellation was already requested' : 'Ask the worker to stop' }),
       button('Release…', { kind: 'small danger', onclick: () => ctx.actions.abandonRun(run), key: 'run:abandon',
@@ -364,19 +389,27 @@ export function runPage(ctx, id) {
     run.state === 'abandoned' && h('div.callout', null, icon('info'),
       'Released by the operator. The worker was not told to stop, and its result, if any, was not collected.'),
     run.reason && h('div.callout.danger', null, icon('alert'), run.reason),
+    run.reworkOf && h('div.callout.info', null, icon('info'), h('span', null,
+      'A rework: the worker received the review and the result of ', h('a', { href: `#/runs/${run.reworkOf}` }, 'the rejected run'),
+      ' with the assignment.')),
     h('div.section.two-col', null,
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Result'),
           run.outputTruncated && h('span.section-note', null, 'Truncated at 262,144 characters')),
         run.output ? h('pre.output', { tabindex: '0' }, run.output)
           : h('div.panel.empty', null, open ? ['No result yet.', run.progress && [' Latest update: ', run.progress]] : 'This run reported no output.'),
-        reviewPanel(ctx, run),
-        h('div.section-head.section', null, h('h2', null, 'Instructions sent')),
+        reviewPanel(ctx, run, rework),
+        reviewTaskPanel(ctx, run, detail.reviewEvents),
+        h('div.section-head.section', null, h('h2', null, 'Instructions sent'),
+          run.attempt > 1 && h('span.section-note', null, 'The assignment, the review and the previous result')),
         h('div.panel.pad', null, h('p.prose', null, run.instructions))),
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Details')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Workflow', h('a', { href: `#/workflows/${run.workflowId}` }, run.workflowName)),
+          run.attempt > 1 && fact('Attempt', [`${run.attempt}, reworking `, h('a', { href: `#/runs/${run.reworkOf}` }, 'the rejected run')]),
+          rework && fact('Sent back', ['Reworked in ', h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`)]),
+          run.branch && fact('Branch', branchText(run.branch)),
           fact('Task ID', copyable(run.taskId, shortId(run.taskId))),
           fact('Dispatched', timeAgo(run.createdAt)),
           fact('Accepted', timeAgo(run.startedAt, open ? 'Not yet' : '—')),
@@ -392,34 +425,97 @@ export function runPage(ctx, id) {
   ];
 }
 
-/** The operator's verdict on a result, or the form to give one. */
-function reviewPanel(ctx, run) {
+const BRANCH_OUTCOMES = {
+  committed: branch => [h('code', null, branch.name), ' at commit ', copyable(branch.commit, shortId(branch.commit))],
+  unchanged: branch => [h('code', null, branch.name), ', unchanged from ', h('code', null, branch.from)],
+  not_committed: branch => [h('code', null, branch.name), ', not committed: ', branch.error],
+  none: () => ['None: the run never started']
+};
+
+/** The peerfs branch a runtime agent reported working on (contract section 10.1). */
+const branchText = branch => (BRANCH_OUTCOMES[branch.outcome] ?? BRANCH_OUTCOMES.none)(branch);
+
+/** The verdict on a result, who gave it, and what happens next; or the form to give one. */
+function reviewPanel(ctx, run, rework) {
   if (run.state !== 'succeeded') return null;
   if (run.review === null) {
-    return h('p.help', null, 'A succeeded run is the worker\'s own report. This workflow does not ask you to review results.');
+    return h('p.help', null, 'A succeeded run is the worker\'s own report. This workflow does not ask for its results to be reviewed.');
   }
+  const reviewer = run.reviewTask && ctx.data.connections.find(connection => connection.id === run.reviewTask.connectionId);
+  const reviewerName = reviewer ? reviewer.name : 'The reviewer agent';
   if (run.review !== 'pending') {
     const accepted = run.review === 'accepted';
+    const who = run.reviewedBy === 'agent' ? `${reviewerName} ${accepted ? 'accepted' : 'rejected'} this result`
+      : `You ${accepted ? 'accepted' : 'rejected'} this result`;
     return h('div.callout', { class: accepted ? 'ok' : 'danger' }, icon(accepted ? 'check' : 'alert'),
       h('div', null,
-        h('strong', null, accepted ? 'You accepted this result' : 'You rejected this result'), ' ', timeAgo(run.reviewedAt), '.',
-        run.reviewNote && h('p.review-note', null, run.reviewNote)));
+        h('strong', null, who), ' ', timeAgo(run.reviewedAt), '.',
+        run.reviewNote && h('p.review-note', null, run.reviewNote),
+        rework && h('p.review-note', null, 'Sent back to the worker with this review: ',
+          h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`), '.')));
   }
-  const next = [...ctx.data.runs].reverse().find(other => other.review === 'pending' && other.id !== run.id);
+  const operatorTurn = waitsForOperator(run);
+  const next = [...ctx.data.runs].reverse().find(other => waitsForOperator(other) && other.id !== run.id);
   // Keyed by run, so that a draft note survives refreshes but never follows the operator to the next result.
   const note = h('textarea', { id: 'review-note', maxlength: '2000', rows: '2', placeholder: 'Optional note: what was right or wrong',
     'data-key': `review:note:${run.id}` });
   const decide = verdict => () => ctx.actions.reviewRun(run, verdict, note.value, next);
+  let status = null;
+  if (run.reviewTask && run.reviewFallback) {
+    status = h('div.callout', null, icon('alert'),
+      h('span', null, `${reviewerName} gave no verdict: ${fallbackText(run.reviewFallback)}. Your verdict decides.`));
+  } else if (run.reviewTask && run.reviewTask.taskId) {
+    status = h('div.callout.info', null, icon('info'),
+      h('span', null, `${reviewerName} is checking this result. You can still decide now; its answer is then kept but changes nothing.`));
+  } else if (run.reviewTask) {
+    status = h('div.callout.info', null, icon('info'),
+      h('span', null, `Waiting for ${reviewer ? reviewer.name : 'the reviewer agent'}`,
+        reviewer && !reviewer.readiness.ready ? `: ${reviewer.readiness.reason}` : ' to be free',
+        '. You can decide now instead.'));
+  }
   return h('div.panel.pad.review', null,
-    h('h3', null, 'Does this result count?'),
-    h('p.help', null, 'It is the worker\'s own report. It counts as a success once you accept it; a rejection counts as a failure. ',
-      'Your verdict is final and does not change the schedule.'),
+    h('h3', null, operatorTurn ? 'Does this result count?' : 'Decide instead of the reviewer?'),
+    status,
+    h('p.help', null, 'It is the worker\'s own report. It counts as a success once accepted; a rejection counts as a failure. ',
+      'A verdict is final and does not change the schedule.'),
     h('label.sr-only', { for: 'review-note' }, 'Note'),
     note,
     h('div.review-actions', null,
-      button('Accept', { iconName: 'check', kind: 'primary', onclick: decide('accepted'), key: 'review:accept' }),
+      button('Accept', { iconName: 'check', kind: operatorTurn ? 'primary' : '', onclick: decide('accepted'), key: 'review:accept' }),
       button('Reject', { iconName: 'close', kind: 'danger', onclick: decide('rejected'), key: 'review:reject' }),
-      next && h('span.help', null, 'Then opens the next result waiting for review.')));
+      next && h('span.help', null, 'Then opens the next result waiting for you.')));
+}
+
+/** The reviewer agent's task for this result: its state, answer and timeline (contract section 15.1). */
+function reviewTaskPanel(ctx, run, events = []) {
+  const task = run.reviewTask;
+  if (!task?.taskId) return null;
+  const reviewer = ctx.data.connections.find(connection => connection.id === task.connectionId);
+  const open = OPEN_STATES.includes(task.state);
+  return [
+    h('div.section-head.section', null, h('h2', null, 'Review task'),
+      h('span.section-note', null, reviewer ? reviewer.name : 'Disconnected reviewer')),
+    h('div.panel.pad.review-task', null,
+      h('div.review-task-top', null,
+        badge(runState(task.state), task.state === 'running'),
+        h('span.card-meta', null, 'Task ', copyable(task.taskId, shortId(task.taskId)), ' · sent ', timeAgo(task.createdAt),
+          task.finishedAt && [' · ended ', timeAgo(task.finishedAt)])),
+      task.error && h('p.help', null, `${task.error}. The controller keeps checking under the same task ID.`),
+      task.reason && h('p.help', null, task.reason),
+      open && h('div.review-actions', null,
+        button('Cancel review task', { iconName: 'stop', kind: 'small', onclick: () => ctx.actions.cancelReview(run),
+          key: 'review:cancel', disabled: Boolean(task.cancelRequestedAt),
+          title: task.cancelRequestedAt ? 'Cancellation was already requested' : 'Ask the reviewer to stop' }),
+        button('Release…', { kind: 'small danger', onclick: () => ctx.actions.abandonReview(run), key: 'review:abandon',
+          title: 'Give up on a review task that can no longer be resolved' })),
+      task.output && h('details', null, h('summary', null, 'The reviewer\'s full answer'), h('pre.output', null, task.output)),
+      task.input && h('details', null, h('summary', null, 'What the reviewer was asked'), h('pre.output', null, task.input)),
+      events.length > 0 && h('details', null, h('summary', null, 'Timeline'),
+        h('ol.timeline', null, events.map(event =>
+          h('li', { class: event.kind },
+            h('div', null, h('div.kind', null, event.kind.replaceAll('_', ' ')), event.message && h('div.message', null, event.message)),
+            timeAgo(event.at, ''))))))
+  ];
 }
 
 function workerPanel(ctx, connection) {
@@ -427,6 +523,9 @@ function workerPanel(ctx, connection) {
   const tone = readiness.ready ? 'ok' : readiness.code === 'checking' ? '' : 'warn';
   const label = readiness.ready ? 'Ready' : readiness.code === 'checking' ? 'Checking' : 'Not ready';
   const assigned = ctx.data.workflows.filter(workflow => workflow.connectionId === connection.id);
+  const reviewing = ctx.data.workflows.filter(workflow => workflow.reviewerId === connection.id);
+  const links = workflows => workflows.map((workflow, index) =>
+    [index > 0 && ', ', h('a', { href: `#/workflows/${workflow.id}` }, workflow.name)]);
   const remote = connection.mode === 'remote';
   return h('article.panel.worker', null,
     h('div.worker-top', null,
@@ -440,9 +539,8 @@ function workerPanel(ctx, connection) {
       fact('Where', remote ? 'Another machine, seen through the sender host\'s directory' : 'A Peerspan host on this machine'),
       fact('Follows', remote ? 'Whether the directory shows the agent connected, its host reachable and task submission allowed'
         : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
-      fact('Workflows', assigned.length
-        ? assigned.map((workflow, index) => [index > 0 && ', ', h('a', { href: `#/workflows/${workflow.id}` }, workflow.name)])
-        : 'None'),
+      fact('Workflows', assigned.length ? links(assigned) : 'None'),
+      reviewing.length > 0 && fact('Reviews for', links(reviewing)),
       fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet')),
       remote && fact('Directory as of', timeAgo(readiness.directoryAt, 'Unknown'))),
     readiness.hints.length > 0 && h('div.hints', null,
@@ -450,7 +548,7 @@ function workerPanel(ctx, connection) {
       readiness.hints.map(hint => h('div.hint-item', null, hintText(hint.kind), hint.command && commandLine(hint.command)))),
     h('details', null,
       h('summary.card-meta', null, 'Remove this worker'),
-      h('p.help', null, 'Archive or move its workflows first, then run:'),
+      h('p.help', null, 'Archive its workflows or give them another worker and reviewer first, then run:'),
       commandLine(`${CLI} disconnect --id ${connection.id}`)));
 }
 
