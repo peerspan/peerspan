@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
   - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
   - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
   - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
@@ -67,6 +68,35 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-14 and RUN-15: results without poll backoff, and Claude's startup (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** task polling, for every task and for runtime agents' in particular; and the Claude harness script.
+- **Source:** the owner's answers to two questions on 2026-11-12, after the live checks of story 2 took their time apart (docs-internal `docs/runtime.md`, "Where the time goes"). With an agent that only slept 45 s, the server's host had each result within 35 ms of the VM ending, and the sender stored it 20 to 49 s later. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contracts.
+- **Contract section:** [task-contract.md](task-contract.md) (polling), [runtime-task-contract.md](runtime-task-contract.md), Peer events, and [runtime-agent-contract.md](runtime-agent-contract.md), Running.
+- **Implementing PRs:** none yet.
+
+#### RUN-14. How the sender polls a running task
+
+- **Question:** "A task sent to a runtime agent reaches its sender 7–49 s late, because the sender backs off up to 60 s between polls. The receiving host already supports held polls (wait=10) for every task, and the sender only uses them for runtime-executor tasks. Which fix should the task contract take?"
+- **Options:**
+  - (a) Hold all running tasks: "The sender long-polls any running task, not just runtime-executor ones, so results arrive within about 1 s. Session-attended agent tasks get faster too. No wire change. Held polls are limited to 3 of the 4 slots, so submissions and cancels never wait behind them; beyond 3 running tasks, the rest rotate."
+  - (b) Receiver flags runtime agents: "The receiver's task status gains a field saying the task runs in its runtime, and the sender holds only those. Narrower change, but it needs a wire field, and ordinary agent tasks stay up to 60 s late."
+  - (c) Cap the backoff at 5 s: "Running tasks are polled at least every 5 s instead of backing off to 60 s. Smallest code change, but results still arrive up to 5 s late, and it sends more peer requests per running task."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** a receiver that ignores `wait` answers at once, and the sender would then ask again at once. So a held response with no events in under 5 seconds puts that task back on the backoff schedule. This is an implementation choice within RUN-14.
+
+#### RUN-15. Claude Code's nonessential traffic
+
+- **Question:** "Claude Code starts in about 2–2.8 s in a VM, or 1.3–1.5 s with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, which also stops its telemetry and error reports from customer VMs. Should the Claude harness script set it? (It changes the script in the runtime agent contract.)"
+- **Options:**
+  - (a) Set it: "Saves about 1 s per task and keeps customer VMs from sending Claude Code telemetry. Model calls are unaffected."
+  - (b) Leave as is: "Keep the script exactly as merged."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
 
 ### RUN-12 and RUN-13: Claude as the second harness (2026-11-12)
 

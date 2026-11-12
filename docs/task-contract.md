@@ -78,7 +78,7 @@ The **local record** is `{peer_host_id, request, submit_state, status, events_af
 - `adapter_id` and `route_id` are set for agent-initiated tasks;
 - `attempts`, `next_attempt_at`, `error`, and `status_queries` follow the retry schedule for messages. After the deadline, retries become status queries (`GET /peer/v1/tasks/{id}`), and a 200 accepts.
 
-For every accepted task whose status is not final, the daemon polls events from the receiver. It uses at most 4 concurrent polls per daemon, with backoff from 1 second to 60 seconds, and resumes from the last stored sequence after a restart. Polls, retries, and cancel resends share those 4 slots. Events must arrive with contiguous sequences. The daemon stores them, updates `status`, and records one `task.updated` activity per stored event and per change of `submit_state`. Polling stops once a final state and all its events are stored.
+For every accepted task whose status is not final, the daemon polls events from the receiver. It uses at most 4 concurrent polls per daemon, and resumes from the last stored sequence after a restart. Polls, retries, and cancel resends share those 4 slots. A task whose newest status is `running` is polled with `wait=10` ([runtime task contract, Peer events](runtime-task-contract.md#peer-events)), and polled again at once after each response (RUN-14). At most 3 such held polls run at once, so one slot stays free for other work; when more tasks are running, they take turns, least recently polled first. A held response with no events that comes back in under 5 seconds, as from a receiver that ignores `wait`, puts that task on the backoff schedule for its next poll. Tasks in other states are polled with backoff from 1 second to 60 seconds, which restarts at 1 second after any poll that stores something. Events must arrive with contiguous sequences. The daemon stores them, updates `status`, and records one `task.updated` activity per stored event and per change of `submit_state`. Polling stops once a final state and all its events are stored.
 
 Agent-initiated tasks use adapter routes. Routes now carry an `action`, `message.append` (the default) or `task.submit`, set with `adapter route add --action` or in session setup, and shown in route records and destinations. Sending a message through a `task.submit` route, or delegating through a `message.append` route, returns 403. A route's `max_messages` budget counts both.
 
@@ -126,6 +126,11 @@ Each subject is the other host ID and the task ID.
 - status and events from a non-submitter returning 404;
 - an agent-initiated `delegate_task` through a route, with `task_update` events back to the originating session;
 - migration from version 8 to version 9.
+
+The slim `work` suite now holds these cases. For RUN-14 it adds: an accepted task that its agent
+completes 8 seconds after accepting it reaches the submitter's local record within 2 seconds of
+completion, where the backoff schedule alone would leave it about 7 seconds late. The 3-poll limit
+and the fallback for a receiver that ignores `wait` are not suite cases.
 
 [Task artifacts](artifact-contract.md) extend tasks with input and result files (milestone 6 slice 3).
 

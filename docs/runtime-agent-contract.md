@@ -149,7 +149,8 @@ so Codex's session state ends with the VM.
 **The harness command** for Claude is `["/bin/sh", "-c", SCRIPT]`, where SCRIPT:
 1. exits 127, writing `the image has no glibc, which Claude Code needs` to stdout, when
    `/lib64/ld-linux-x86-64.so.2` does not exist;
-2. sets `HOME` to `/root`, and `IS_SANDBOX` to `1`;
+2. sets `HOME` to `/root`, `IS_SANDBOX` to `1`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+   to `1` (RUN-15);
 3. sets `ANTHROPIC_API_KEY` from `/run/secrets/anthropic_api_key`;
 4. runs `/opt/peerspan/harness/claude -p --dangerously-skip-permissions --output-format text
    --no-session-persistence` in `/workspace`, with the prompt on its stdin, and exits with its
@@ -158,7 +159,8 @@ so Codex's session state ends with the VM.
 Its stdout is Claude's final message, or its error, such as an invalid key; its stderr is Claude's
 logs. As for Codex, the VM is the sandbox, so Claude's permission checks are off. Claude Code
 refuses to skip them as root unless `IS_SANDBOX` is set, and the command runs as root in its own
-VM (RUN-13). On an image without glibc the shell starts but Claude Code cannot, so the run
+VM (RUN-13). Without nonessential traffic, Claude Code sends no telemetry or error reports
+from the VM, and starts about 1 s sooner; its model calls are unchanged. On an image without glibc the shell starts but Claude Code cannot, so the run
 starts and the task ends `failed`. Its output is the message of step 1 and the branch line of a
 run that started, `Branch: NAME, unchanged from FROM`. The script's text is fixed by the host release, not
 by this contract.
@@ -326,6 +328,9 @@ The suite covers:
   run, failing the task with `the runtime restarted`. The daemon restarted after dispatch but
   before `started`, with the profile replaced and then cleared meanwhile: the resent request is
   byte-identical to the first one, and the task finishes.
+- **Result delivery (RUN-14):** a task whose prompt sleeps 8 seconds before answering reaches
+  the sender's local record as `succeeded` within 2 seconds of the receiver storing it.
+  The RUN-15 variable is not a suite case: the script's text is the host release's.
 - **A failed commit:** with the fake runtime told to fail commits, a command that exits 0
   ending `failed` with its message and the `not committed:` trailer.
 - **Migration:** opening a database of the previous schema version.
