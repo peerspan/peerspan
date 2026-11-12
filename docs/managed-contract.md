@@ -47,11 +47,7 @@ start under the same task identities (section 4).
 stepped back by less than ten minutes, as a time sync or a resumed virtual
 machine does: the controller keeps using the newest time it has recorded,
 across a restart too, until the system clock passes it. A larger step back is
-taken as a deliberate correction and followed. (rev 7) No two times the
-controller uses are equal: while the system clock has not passed the newest
-time, the controller counts on from it a millisecond at a time. So when section
-4 compares when a check began with when work became due, the order of those two
-events is never lost to a held clock.
+taken as a deliberate correction and followed.
 
 (rev 3) For conformance only, `MANAGED_CLOCK_FILE=PATH` names a file holding a
 whole number of milliseconds, possibly negative, that the controller adds to the
@@ -309,7 +305,13 @@ becoming due, and the operator's latest change of the workflow (creation, edit,
 reserved only on readiness from a check that began after its run finished. A
 change made before a run is requested is therefore always seen, and a worker
 whose check is still running gets no new task, keeping its blocked reason,
-until such a check has ended. A check or reconciliation still running
+until such a check has ended. (rev 7) "Began after" compares recorded times,
+and an equal time is not after: while a step back holds the clock (section 1),
+times recorded meanwhile are equal, so no work is reserved until the clock
+moves on. A due time later than the current time can only have been recorded
+before a deliberate correction of the clock, and counts as the moment of that
+correction, so work due before a correction is not held back until the
+corrected clock reaches its old time. A check or reconciliation still running
 goes on beside later passes; no second one for the same connection or task
 starts until it has ended. A slow or hanging Peerspan call therefore delays only its own
 connection or task, however many such calls there are: never another

@@ -1,7 +1,7 @@
 // The scheduler. It owns timing and every Peerspan call; all state decisions
 // are atomic store operations (model.mjs), so an operator request never waits
 // for a subprocess and no interleaving can break the exclusion rules.
-import { nowMs, stamp } from './clock.mjs';
+import { clockCorrectedAt, nowMs, stamp } from './clock.mjs';
 import { capacityOf, checkReadiness } from './readiness.mjs';
 import { OUTPUT_LIMIT } from './model.mjs';
 
@@ -297,7 +297,7 @@ export class Engine {
     for (const [id, state] of this.readiness) {
       ready[id] = { ready: state.ready, reason: state.reason, capacity: capacityOf(state), checkedAt: state.checkedAt };
     }
-    const reserved = await this.store.planDispatch(stamp(), ready);
+    const reserved = await this.store.planDispatch(stamp(), ready, clockCorrectedAt());
     // Each reserved task is persisted; only now may anything be sent for it.
     await this.runWork(reserved.map(task => ['task:' + task.taskId, () => this.reconcile(task, { fresh: true })]));
   }

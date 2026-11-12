@@ -21,6 +21,14 @@ const TERMINAL = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancell
 const PAUSED_BY_OPERATOR = 'Paused by operator';
 const PAUSED_BY_FAILURES = 'Paused after three consecutive failures';
 
+/**
+ * A due moment as the dispatch rule reads it: a time later than now can only have
+ * been recorded before a deliberate correction of the clock, and counts as the
+ * moment of that correction (contract section 4); without a known correction it
+ * holds nothing back.
+ */
+const notAfter = (time, now, correctedAt) => (time > now ? correctedAt ?? '' : time);
+
 /** A request the current state does not permit; `status` is the HTTP status. */
 export class Refusal extends Error {
   constructor(status, message) {
@@ -462,15 +470,15 @@ export class Model {
    * `checkedAt` being when the check that gave the verdict began.
    * Returns the reserved tasks; nothing has been sent for them yet.
    */
-  planDispatch(now, readiness) {
+  planDispatch(now, readiness, correctedAt = null) {
     const dayStart = now.slice(0, 10) + 'T00:00:00.000Z';
     const capacities = this.capacities(readiness);
     // Results already produced are checked before new work starts (contract section 4).
-    const reserved = this.planReviews(now, readiness, capacities);
+    const reserved = this.planReviews(now, readiness, capacities, correctedAt);
     const workflows = this.all('SELECT * FROM workflows WHERE archived_at IS NULL ORDER BY next_run_at, rowid');
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
-      const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities);
+      const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt);
       // A ready worker whose verdict is older than the work is decided by a later pass; its reason stays.
       if (reason === undefined) continue;
       if (reason === null) {
@@ -482,7 +490,7 @@ export class Model {
     return reserved;
   }
 
-  blockedReason(workflow, connection, readiness, now, dayStart, capacities) {
+  blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt = null) {
     if (workflow.enabled !== 1) return workflow.paused_by === 'failures' ? PAUSED_BY_FAILURES : PAUSED_BY_OPERATOR;
     if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', workflow.id)) return 'Assignment in progress';
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
@@ -496,7 +504,8 @@ export class Model {
     if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
     // The verdict must come from a check that began after the run became due or the operator last
     // changed the workflow, so that a change made before a run is requested is always seen (MGD-15).
-    if (state.checkedAt < this.dueSince(workflow, now)) return undefined;
+    // Equal times, as while a held clock records them, do not count as after.
+    if (state.checkedAt <= notAfter(this.dueSince(workflow, now), now, correctedAt)) return undefined;
     return null;
   }
 
@@ -545,7 +554,7 @@ export class Model {
    * Reserves the review task of each run that waits for its reviewer agent,
    * oldest result first, while that reviewer is ready and free (section 15.1).
    */
-  planReviews(now, readiness, capacities) {
+  planReviews(now, readiness, capacities, correctedAt = null) {
     const reserved = [];
     const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id, t.finished_at FROM runs r JOIN tasks t ON t.task_id = r.task_id
       WHERE r.review = 'pending' AND r.reviewer_id IS NOT NULL AND r.review_task_id IS NULL
@@ -559,7 +568,7 @@ export class Model {
       }
       // As for runs: a verdict from a check that began before the result was ready is not enough.
       const state = readiness[reviewer.id];
-      if (!state?.ready || state.checkedAt < run.finished_at) continue;
+      if (!state?.ready || state.checkedAt <= notAfter(run.finished_at, now, correctedAt)) continue;
       const target = this.freeTarget(reviewer, capacities);
       if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }
