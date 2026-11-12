@@ -1,9 +1,9 @@
-// Shared plumbing for the revision 2 to 5 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs, reviewers.mjs and runtime-agents.mjs). Contract-only and black-box: it launches the
+// Shared plumbing for the revision 2 to 6 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs, runtime-agents.mjs and capacity.mjs). Contract-only and black-box: it launches the
 // documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in throwaway private
 // directories. It never imports or reads the managed implementation or its database. Section numbers (§)
-// refer to docs/managed-contract.md. Shapes are those of revision 5, which keeps every revision 4 behavior and
-// adds readiness for runtime agents (§3.1); the store stays at schema 4 (§1).
+// refer to docs/managed-contract.md. Shapes are those of revision 6, which keeps every revision 5 behavior and
+// adds each connection's capacity and activeTasks (§4, §8); the store stays at schema 4 (§1).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -102,7 +102,10 @@ export const readinessCodes = {worker_state_invalid: false, identity_changed: fa
   ready_service_inactive: true, ready: true};
 // §3.1 (rev 5): the codes of a runtime agent (agent mode only), and the codes that follow sessions.
 export const runtimeCodes = ['runtime_disabled', 'runtime_unavailable', 'runtime_credential_missing', 'ready_runtime'];
-const sessionCodes = ['session_not_ready', 'channel_unverified', 'ready_service_inactive', 'ready'];
+// §4 and §8 (rev 6): the capacity a connection's readiness gives its worker agent.
+export const connectionCapacity = readiness => (readiness?.code === 'ready_runtime' &&
+  Number.isInteger(readiness.runtime?.maxRuns) && readiness.runtime.maxRuns >= 1 && readiness.runtime.maxRuns <= 64
+  ? readiness.runtime.maxRuns : 1);
 // §7.1 (rev 3): the table of a remote connection.
 export const remoteReadinessCodes = {peerspan_unavailable: false, peerspan_incompatible: false,
   sender_unavailable: false, sender_is_worker: false, directory_unavailable: false, agent_missing: false,
@@ -186,12 +189,9 @@ export function checkReadiness(r, {mode} = {}) {
     : mode === undefined ? anyReadinessCode : readinessCodes;
   expect(Object.hasOwn(table, r.code) && r.ready === table[r.code],
     `§3/§3.1/§7.1 readiness code and ready value come from the table of a ${mode ?? 'connection'}`, r);
-  // §3.1: runtime is null except for a runtime agent, whose codes are the runtime ones; an agent whose
-  // sessions are followed, a file-mode and a remote connection have runtime null.
+  // §3.1: runtime is null except with the four runtime codes.
   if (runtimeCodes.includes(r.code)) checkRuntime(r.runtime);
-  else if (sessionCodes.includes(r.code) || mode === 'file' || mode === 'remote') {
-    expect(r.runtime === null, '§3.1 runtime is null except for a runtime agent (file and remote mode, followed sessions)', r);
-  } else if (r.runtime !== null) checkRuntime(r.runtime);
+  else expect(r.runtime === null, '§3.1 runtime is null except with the four runtime codes', r);
   expect(mode === 'remote' || mode === undefined ? nullable(r.directoryAt, isTime) : r.directoryAt === null,
     '§3 directoryAt is null except for remote connections; §7.1 there it is null or a time', r);
   expect(text(r.reason) && r.reason !== '' && isTime(r.checkedAt) && isTime(r.since),
@@ -466,9 +466,15 @@ function checkAttention(s) {
 export function checkSnapshot(s) {
   keys(s, 'connections workflows runs observed attention activity archived meta', '§8 snapshot');
   for (const c of s.connections) {
-    keys(c, 'id name hostId agentId mode readiness', '§8 connection');
+    keys(c, 'id name hostId agentId mode readiness capacity activeTasks', '§8 connection');
     expect(['file', 'agent', 'remote'].includes(c.mode), '§8 mode is file, agent or remote', c.mode);
     if (c.readiness !== null) checkReadiness(c.readiness, {mode: c.mode});
+    expectEqual(c.capacity, connectionCapacity(c.readiness), '§8 (rev 6) capacity is what the connection readiness ' +
+      'gives its worker agent: 1 unless ready_runtime with a runtime.maxRuns from 1 to 64, then that number (§4)');
+    expect(Number.isInteger(c.activeTasks) && c.activeTasks >= 0, '§8 (rev 6) activeTasks counts unresolved tasks', c);
+    const twin = s.connections.find(other => other.hostId === c.hostId && other.agentId === c.agentId);
+    expectEqual(c.activeTasks, twin.activeTasks, '§8 (rev 6) activeTasks is what the worker agent holds, the same ' +
+      'for every connection to that agent');
   }
   s.workflows.forEach(w => checkWorkflow(w, s.connections));
   for (let index = 1; index < s.workflows.length; index++) {

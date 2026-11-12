@@ -77,15 +77,25 @@ const scriptedWork = (id, script) => {
     last_event: sequence};
   writeRecord(id, remote);
 };
-// Revision 2 "a Peerspan call is hanging": log the hang, then do nothing until the configuration
-// stops listing this command, the fixture directory is removed, or hangSeconds (default 60) pass.
+// Revision 6: `hangWhen` makes single calls hang. An entry {command,state,agent,task} matches a call of that
+// command (named as in `hang`) whose --state is `state` ("default" without one), whose agent is `agent` (its
+// --agent, or for a task command the agent its task was submitted to) and that names `task`, for each key given.
+const agentOfCall = () => (args.includes('--agent') ? flag('--agent') : taskArgument() ? submittedTo(taskArgument()) : null);
+const hangs = current => (Array.isArray(current?.hang) && current.hang.includes(invoked)) ||
+  (current?.hangWhen ?? []).some(entry => entry.command === invoked &&
+    (entry.state === undefined || entry.state === stateArgument) && (entry.task === undefined || args.includes(entry.task)) &&
+    (entry.agent === undefined || entry.agent === agentOfCall()));
+// Revision 2 "a Peerspan call is hanging": log the hang (revision 6: with `mono`, as calls.jsonl), then do
+// nothing until the configuration stops making it hang, the fixture directory is removed, or hangSeconds
+// (default 60) pass.
 const hangUntilReleased = () => {
-  append('hanging.jsonl', {at: new Date().toISOString(), pid: process.pid, argv: args});
+  append('hanging.jsonl', {at: new Date().toISOString(), mono: Number(process.hrtime.bigint() / 1000000n),
+    pid: process.pid, argv: args});
   const end = Date.now() + 1000 * (config.hangSeconds ?? 60);
   const timer = setInterval(() => {
     let current = null;
     try { current = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')); } catch { /* fixture removed */ }
-    if (Date.now() < end && Array.isArray(current?.hang) && current.hang.includes(invoked)) return;
+    if (Date.now() < end && hangs(current)) return;
     clearInterval(timer);
     fail('FAKE hang ended without contacting anything', 2);
   }, 200);
@@ -96,7 +106,7 @@ if (rejectsJson && args.includes('--json')) {
   fail("error: unexpected argument '--json' found\n\nUsage: FAKE-peerspan <COMMAND>\n\nFor more information, try '--help'.", 2);
 } else if (!args.includes('--json')) {
   fail('FAKE fixture requires the global --json flag for every Peerspan command', 2);
-} else if (Array.isArray(config.hang) && config.hang.includes(invoked)) {
+} else if (hangs(config)) {
   hangUntilReleased();
 } else if (invoked === 'agents') {
   // Revision 3 (contract section 6): `agents [--network ID] [--refresh]` prints the sender host's directory
@@ -159,7 +169,8 @@ if (rejectsJson && args.includes('--json')) {
     emit({daemon: 'not running', state: args.includes('--state') ? flag('--state') : 'FAKE-default-state',
       service: {active: false}}, 2);
   } else {
-    const status = {host_id: config.hostId, service: {active: config.active},
+    // Revision 6: hostIds maps a worker state directory to another host_id, for a second worker host.
+    const status = {host_id: config.hostIds?.[stateArgument] ?? config.hostId, service: {active: config.active},
       attention: config.attention ?? (config.statusExit === 1 ? [{message: 'FAKE historical attention'}] : []),
       agents: config.agents ?? [{id: config.agentId, name: 'FAKE-CONFORMANCE worker',
         sessions: [{id: config.sessionId, adapter_id: config.adapterId,

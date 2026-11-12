@@ -16,6 +16,7 @@ node managed/conformance/remote.mjs
 node managed/conformance/schedules.mjs
 node managed/conformance/reviewers.mjs
 node managed/conformance/runtime-agents.mjs
+node managed/conformance/capacity.mjs
 ```
 
 On the configured Windows editing machine:
@@ -32,12 +33,15 @@ locks. The suite is bounded to 115 seconds; normal duration is around 70 seconds
 `operations.mjs` (cases 7 to 10) and `visibility.mjs` (cases 11 and 12) are the
 revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
-suite, and `runtime-agents.mjs` (case 19) the revision 5 suite. They are split by
-area to stay near 1,000 lines each
+suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
+(cases 20 and 21) the revision 6 suite. They are split by area to stay near
+1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 5 shapes of
-contract sections 3, 3.1, 7.1, 8, 10, 10.1, 11, 14, 15 and 15.1 (readiness with
-`runtime` and the runtime codes of agent mode), which are checked on
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 6 shapes of
+contract sections 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 15 and 15.1 (readiness with
+`runtime` and the runtime codes of agent mode; each connection's `capacity`,
+derived from its readiness, and `activeTasks`, equal for connections to one
+agent), which are checked on
 every snapshot, run page and run detail any of them fetches: among them the
 attention items derived from the snapshot (`worker_unready` for reviewers,
 `run_problem` for review tasks, `review_pending` only for runs that wait for the
@@ -87,6 +91,15 @@ Every response body is also checked for fixture paths, the access token and
   ceasing to be runtime agents, file and remote mode never reading profiles, a
   run completed with a branch line and the `checking` readiness. Four concurrent
   cases, about 15 seconds.
+- `capacity.mjs`: a runtime agent's capacity (three runs of three workflows at
+  once and a fourth waiting, review tasks counted against a reviewer, capacity 1
+  for a session agent, a `maxRuns` of null, 0, 65 or a string and an agent that
+  is not ready, a falling capacity, one run per workflow, two connections to one
+  agent, `capacity` and `activeTasks`) and slow calls (one connection's `status`,
+  a `runtime show`, one task's `task inspect` or one submission hanging while
+  another connection's workflow is dispatched and reconciled, `checkedAt`
+  advancing, no second call for the hanging connection or task, and shutdown
+  within 5 seconds). Eight concurrent cases, about 15 seconds.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly
@@ -126,6 +139,8 @@ with a hyphen. Configuration keys (all revision 2 keys are optional):
 | `scripts` | Revision 4, scripted agents: a list of `{agent,input,submit,state,output,message,progress}`. The first entry whose `agent` (when given) is the submission's `--agent` and whose `input` (when given) is a substring of its input applies to that submission. `submit` (`lost-accepted`, `lost-missing`, `rejected`) replaces `submitMode` for it; a rejected submission's `error` is `message` when given. On a newly created, accepted task with a `state`, the agent then works at once: `accepted` (not for `expired` or `rejected`), one `progress` event per `progress` message, and a terminal event in `state` with `message`, and with `output` (default `FAKE STATE output`) for `succeeded` and `failed`; a `state` of `running` stops after the progress. |
 | `profiles`, `runtimeShow` | Revision 5: `agent runtime show` prints `profiles` (default `[]`: no runtime agents), the host's launch profiles `{agent_id,harness,harness_dir,from_branch,network,cpus,memory_mib,timeout_seconds,max_runs,credential}`; `runtime show` prints `runtimeShow` (default: switch on, a report and private paths). |
 | `runtimeMode`, `profilesMode`, `profilesExit`, `runtimeShowMode` | Revision 5: `runtimeMode: "older"` makes both commands exit 2 with `error: unrecognized subcommand 'runtime'` and nothing on stdout. `profilesMode` and `runtimeShowMode` make one command fail (`error`: an `error:` line, exiting with `profilesExit` or 1), print output that is not JSON (`malformed`), or, for the profiles, print a JSON object instead of an array (`object`). `hang` takes `agent-runtime` and `runtime`. |
+| `hostIds` | Revision 6: a map from a worker state directory to the `host_id` its `status` reports instead of `hostId`, for a second worker host. |
+| `hangWhen` | Revision 6: single calls that hang as `hang` says, each `{command,state,agent,task}`: a call of that command (`status`, `agent-runtime`, `runtime`, `submit`, `inspect`, ...) whose `--state` is `state` (`"default"` without one), whose agent is `agent` (its `--agent`, or for a task command the agent its task was submitted to) and that names `task`, for each key given. `hanging.jsonl` entries carry `mono`, as `calls.jsonl` does. |
 | `inspectErrorAgents` | Revision 4: agent IDs whose tasks (by the `--agent` of their logged submission) cannot be inspected: `task inspect` exits 2, while other tasks are inspected normally. |
 
 `real-peerspan-smoke.py` is that separate compatibility smoke. It creates two
