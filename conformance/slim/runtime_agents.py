@@ -10,8 +10,7 @@ access. With `harness` set the fake ignores `argv` and runs the task's input, th
 runtime_* suites; the shared fixtures are runtime_common.py.
 
 The second harness and per-profile images (RUN-12, RUN-13): `claude` gets its own harness directory and an Anthropic
-key, and the fake is also started with `--unpullable-image`, naming one image it cannot pull. The cases that need
-the host's `--harness claude` and `--image` are strict expected failures until the host implements them.
+key, and the fake is also started with `--unpullable-image`, naming one image it cannot pull.
 
 Written from docs/runtime-agent-contract.md only (cited as "agents <section>"), with the runtime task, task and
 launch contracts it builds on. No VM, no KVM, no peerfs, no model calls.
@@ -36,7 +35,6 @@ MISSING_IMAGE = "registry.invalid/peerspan/missing:1"  # the fake cannot pull it
 GLIBC_IMAGE = "python:3.12-slim"
 FAKE = {"peerfs_workspace": ["main", "dev"], "max_concurrent_runs": 2, "max_cpus": 4, "max_memory_mib": 8192,
         "max_seconds": 7200, "unpullable_image": [MISSING_IMAGE]}
-CLAUDE_GAP = "Claude harness and images not implemented (runtime-agent-contract.md, RUN-12/RUN-13)"
 DEFAULTS = {"harness": "codex", "from_branch": "main", "network": "internet", "cpus": 2, "memory_mib": 2048,
             "timeout_seconds": 3600, "max_runs": 3}
 
