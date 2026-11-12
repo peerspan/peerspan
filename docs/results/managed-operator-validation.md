@@ -1,5 +1,109 @@
 # Managed operator validation
 
+## Revision 4
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
+against the same Rust host binaries as the 0.2.1 run below (upstream `67e20797`).
+Upstream `main` was merged again (through `d8123611`, the runtime agent contract);
+that merge changed only upstream documents and conformance scripts, not the host.
+The Rust host is unchanged by this work; its checks were not rerun.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| `node managed/conformance/acceptance.mjs` (cases 1 to 6) | 6/6 passed in 67 seconds. |
+| `node managed/conformance/operations.mjs` (cases 7 to 10) | 5/5 passed in 31 seconds. |
+| `node managed/conformance/visibility.mjs` (cases 11 and 12) | 6/6 passed in 42 seconds. |
+| `node managed/conformance/remote.mjs` (case 13) | 4/4 passed in 66 seconds. |
+| `node managed/conformance/schedules.mjs` (cases 14 and 15) | 5/5 passed in 8 seconds, using the conformance clock. |
+| `node managed/conformance/reviewers.mjs` (cases 16 to 18) | 8/8 passed in 10 seconds (new). |
+| `real-peerspan-smoke.py` against built binaries | 4/4 passed in 142 seconds; the fourth case is new. |
+| Version 3 state migrated by revision 4 | Passed; see below. |
+| Console in headless Chrome 157 | Desktop 1440 and 1360 and phone 390 pixels wide, light and dark: no horizontal overflow and no page errors. The workflow form's Results section (with the worker's own agent disabled as reviewer), the reviewer states on run pages (waiting, checking, fallback, verdict, rework), the review task's answer, input and timeline, branches and run strips exercised by script. |
+
+The new suite, `reviewers.mjs`, was written from [the contract](../managed-contract.md)
+by a separate author who did not read `managed/lib/` or `managed/public/`; that
+author also brought the shared checks of `harness.mjs` up to revision 4 and
+taught the fake to script an agent's answers by input. Its ambiguities were
+settled in the contract (`9843e709`): which truncation governs `branch`, the
+order of `review/abandon`'s errors, a reviewer switch with a reviewer in the same
+body, a restored workflow whose reviewer was removed, and the case of the
+verdict line. With the harness and the fake, the six suites are 4,710 lines and
+take about four minutes in sequence.
+
+The suite found one defect, fixed before publishing: a task whose final output
+was an empty string never finished, because the controller waited for a
+non-empty output, and it held its agent meanwhile. Upstream never sends an empty
+output, but an empty review answer must fall back to the operator. It predates
+revision 4.
+
+The real-transport smoke's fourth case, new in revision 4, attaches two scripted
+agents to one worker host, registers one as the worker and the other as its
+reviewer, and creates a workflow reviewed by an agent with one rework allowed.
+The reviewer receives the review task through actual transport with the exact
+input of contract section 15.1 and rejects the result with reasons; the worker
+then receives the rework with the exact input of section 15.2 at once, and the
+reviewer accepts the second attempt. The case checks the verdicts, notes,
+attempt, `reworkOf`, statistics and the upstream record of the review task. No
+model is called.
+
+### Independent review of revision 4
+
+A reviewer who had not written the code read revision 4 against the contract,
+probed it against a scratch fake and against version 2 and 3 state built by the
+earlier controllers, and confirmed four defects, all fixed before publishing:
+
+- **Medium-low:** a NUL character in a worker's result, in review criteria or in
+  a verdict note made the review or rework task impossible to start, because a
+  command-line argument cannot carry it, and the task was retried forever while
+  holding its agent. Results now lose their NUL characters where they are
+  inserted into another task's input, and the API refuses NUL in instructions,
+  criteria and notes; the contract says both.
+- **Low:** the contract required a reviewer to be a connection that is not
+  removed, yet allowed removing the reviewer of an archived workflow and
+  restoring it. The rule now applies when a request sets the reviewer, and the
+  restored workflow's results fall back to the operator.
+- **Low:** the run strip on workflow cards said a result waited for the operator
+  while a reviewer agent was still checking it.
+- **Low:** the activity log said a rejected result was sent back when its rework
+  had only become due.
+
+The reviewer also confirmed with probes that review tasks share the run's
+reconciliation path without one-task-per-run assumptions, hold the reviewer's
+agent, go before new runs and oldest first, survive a restart under their task
+ID, and lose cleanly to the operator's verdict; that the review and rework inputs
+match the contract byte for byte and their 65,536-byte cut is maximal and lands
+on a character boundary; and that 24 branch lines and 18 verdict lines parse as
+sections 10.1 and 15.1 say. Counting the limits of notes and criteria in code
+points, as agents' notes are cut, came from its notes as well.
+
+### Migration from version 3
+
+The live state on the validation machine holds only two observations, so the
+migration was rehearsed on version 3 state built by the revision 3 controller
+itself (with its fake Peerspan): a workflow on a schedule with operator review,
+one result accepted with a note and one still waiting, a result ending with a
+runtime agent's branch line, a workflow with a run left `running`, an edited
+paused workflow and an archived one. Opening it with revision 4 kept every row
+and every compared value, including statistics and verdicts, wrote
+`managed.v3-backup.sqlite` with the same counts, gave workflows no reviewer,
+criteria or rework, kept the earlier verdict as the operator's, read the branch
+line into `branch`, and let the operator decide the waiting result. The run left
+`running` was then completed by the fake and retained by revision 4 under its
+task ID, with one submission in all. The independent reviewer repeated the
+version 2 and 3 migrations with its own state and found them intact.
+
+### Upstream's runtime agents
+
+Upstream specified runtime agents (`docs/runtime-agent-contract.md`, RUN-8 to
+RUN-11) while this revision was in progress: an agent whose tasks the host runs
+itself, each in a microVM on a fork of a peerfs branch, ending its output with a
+`Branch:` line. Revision 4 reads that line (section 10.1) from outputs that
+follow it; the host side is not implemented upstream yet, so no real runtime
+agent was run. How upstream's `status` and `agents` will present an agent that
+runs without an attached session is not yet specified, and the operator's
+readiness for such agents waits for that.
+
 ## Revision 3
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
