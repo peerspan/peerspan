@@ -501,8 +501,8 @@ async function case12_versionOneMigration() {
   db.close();
   await fs.chmod(file, 0o600);
 
-  await f.start();   // the first revision 3 command that opens the state migrates it
-  const snapshot = await f.snapshot();   // meta.schemaVersion 3 is checked on every snapshot
+  await f.start();   // the first revision 4 command that opens the state migrates it
+  const snapshot = await f.snapshot();   // meta.schemaVersion 4 is checked on every snapshot
   const backup = await fs.stat(path.join(f.state, 'managed.v1-backup.sqlite')).catch(() => null);
   expect(backup !== null && backup.size > 0 && (backup.mode & 0o777) === 0o600,
     '§1 before migrating, a copy of the version 1 database is saved as managed.v1-backup.sqlite, private (0600)',
@@ -521,6 +521,13 @@ async function case12_versionOneMigration() {
   expectEqual(snapshot.workflows.map(item => pick(item, 'schedule review')), Array(3).fill({schedule: null, review: 'none'}),
     '§1 (rev 3) migrated workflows have schedule null and review none');
   expectEqual(snapshot.runs.find(run => run.id === done.id)?.review, null, '§1 (rev 3) a migrated succeeded run needs no review');
+  expectEqual(snapshot.workflows.map(item => pick(item, 'reviewerId reviewCriteria reworkLimit reworkPending')),
+    Array(3).fill({reviewerId: null, reviewCriteria: null, reworkLimit: 0, reworkPending: null}),
+    '§1 (rev 4) migrated workflows have reviewerId and reviewCriteria null, reworkLimit 0 and reworkPending null');
+  expectEqual(snapshot.runs.filter(run => [done.id, open.id].includes(run.id))
+    .map(run => pick(run, 'attempt reworkOf reviewTask reviewFallback reviewedBy')),
+  Array(2).fill({attempt: 1, reworkOf: null, reviewTask: null, reviewFallback: null, reviewedBy: null}),
+  '§1 (rev 4) migrated runs have attempt 1 and reworkOf null and need no agent review');
   const runView = row => row && {...pick(row, 'id workflowId taskId state output'), createdAt: moment(row.createdAt),
     finishedAt: moment(row.finishedAt)};
   expectEqual(runView(snapshot.runs.find(run => run.id === done.id)), runView(done),
@@ -559,8 +566,8 @@ async function case12_newerSchemaRefused() {
   await fs.mkdir(f.state, {mode: 0o700});
   const file = path.join(f.state, 'managed.sqlite');
   const db = new DatabaseSync(file);
-  // §1 (rev 3): the current schema version is 3, so a newer one is 4.
-  db.exec("PRAGMA user_version = 4; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
+  // §1 (rev 4): the current schema version is 4, so a newer one is 5.
+  db.exec("PRAGMA user_version = 5; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
     "INSERT INTO fake_future_schema VALUES ('FAKE state written by a newer schema')");
   db.close();
   await fs.chmod(file, 0o600);

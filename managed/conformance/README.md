@@ -14,6 +14,7 @@ node managed/conformance/operations.mjs
 node managed/conformance/visibility.mjs
 node managed/conformance/remote.mjs
 node managed/conformance/schedules.mjs
+node managed/conformance/reviewers.mjs
 ```
 
 On the configured Windows editing machine:
@@ -29,12 +30,17 @@ locks. The suite is bounded to 115 seconds; normal duration is around 70 seconds
 
 `operations.mjs` (cases 7 to 10) and `visibility.mjs` (cases 11 and 12) are the
 revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
-are the revision 3 suites. They are split by area to stay near 1,000 lines each
+are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
+suite. They are split by area to stay near 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 3 shapes of
-contract sections 3, 7.1, 8, 10, 11, 14 and 15, which are checked on every
-snapshot any of them fetches. Every response body is also checked for fixture
-paths, the access token and `PRIVATE-` markers (section 8).
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 4 shapes of
+contract sections 3, 7.1, 8, 10, 10.1, 11, 14, 15 and 15.1, which are checked on
+every snapshot, run page and run detail any of them fetches: among them the
+attention items derived from the snapshot (`worker_unready` for reviewers,
+`run_problem` for review tasks, `review_pending` only for runs that wait for the
+operator) and each complete output's `branch`, read by the forms of section 10.1.
+Every response body is also checked for fixture paths, the access token and
+`PRIVATE-` markers (section 8).
 
 - `operations.mjs`: local commands and worker registration, every readiness code
   and hints, workflow editing/archiving, cancellation, abandon. Five concurrent
@@ -57,8 +63,20 @@ paths, the access token and `PRIVATE-` markers (section 8).
   `{clock: INSTANT}` starts the controller's clock there through
   `MANAGED_CLOCK_FILE`; `f.clockAt(INSTANT)` moves it forward and waits for a
   scheduler pass on it (`meta.lastTickAt`).
+- `reviewers.mjs`: reviewer agents (the `reviewerId` and `reviewCriteria` rules,
+  the exact review input with and without criteria and cut to 65,536 bytes, the
+  verdict line and the note, every fallback, the operator's verdict before and
+  while a review task runs, review tasks holding their agent and served before
+  runs and oldest first, paused and archived workflows, `review/cancel` and
+  `review/abandon`, a review task's problem, a restart, attention and activity),
+  rework (the exact input with and without a note and cut, `attempt`, `reworkOf`,
+  `assignment`, the limit, a later run, archive, pause, `nextRunAt` and the daily
+  cap) and workspace branches (every form of section 10.1 and the null cases).
+  Eight concurrent cases, about 15 seconds; the fake plays the worker and
+  reviewer agents of one worker host, in agent mode through a second sender state.
 
-All are bounded to 115 seconds. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly
+All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
+them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly
 fake temporary directories for diagnosing a failed run. Real Peerspan/model and
 upstream transport compatibility require separate smoke checks.
 
@@ -92,6 +110,8 @@ with a hyphen. Configuration keys (all revision 2 keys are optional):
 | `cancelMode` | `normal`: `task cancel` sets `cancel_requested` and `cancel_state: "sent"` and records a `cancel_requested` event, once, never changing the state. `error`: exit 2, nothing changed. |
 | `recordShape: "rev2"` | New task records carry `cancel_state: null` and `status.cancel_requested: false` from the start. |
 | `hang` | Command names (`status`, `agents`, `adapter`, `submit`, `inspect`, `events`, `cancel`) that hang without doing anything until the key no longer lists them, the fixture directory is removed, or `hangSeconds` (default 60) pass; they then exit 2. |
+| `scripts` | Revision 4, scripted agents: a list of `{agent,input,submit,state,output,message,progress}`. The first entry whose `agent` (when given) is the submission's `--agent` and whose `input` (when given) is a substring of its input applies to that submission. `submit` (`lost-accepted`, `lost-missing`, `rejected`) replaces `submitMode` for it; a rejected submission's `error` is `message` when given. On a newly created, accepted task with a `state`, the agent then works at once: `accepted` (not for `expired` or `rejected`), one `progress` event per `progress` message, and a terminal event in `state` with `message`, and with `output` (default `FAKE STATE output`) for `succeeded` and `failed`; a `state` of `running` stops after the progress. |
+| `inspectErrorAgents` | Revision 4: agent IDs whose tasks (by the `--agent` of their logged submission) cannot be inspected: `task inspect` exits 2, while other tasks are inspected normally. |
 
 `real-peerspan-smoke.py` is that separate compatibility smoke. It creates two
 throwaway actual Peerspan hosts, a network and signed task access, verifies a

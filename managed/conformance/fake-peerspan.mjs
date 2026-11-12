@@ -43,6 +43,38 @@ const publicRecord = remote => {
   const {events, ...record} = remote;
   return record;
 };
+const writeRecord = (id, remote) => {
+  fs.writeFileSync(taskPath(id) + '.new', JSON.stringify(remote), {mode: 0o600});
+  fs.renameSync(taskPath(id) + '.new', taskPath(id));
+};
+const loggedCalls = () => fs.readFileSync(path.join(dir, 'calls.jsonl'), 'utf8')
+  .split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line).argv]; } catch { return []; } });
+// Revision 4: the agent a task ID was submitted to, from this fixture's own log of submissions.
+const submittedTo = id => {
+  const submit = loggedCalls().find(argv => argv.includes('submit') && argv[argv.indexOf('--task') + 1] === id);
+  return submit ? submit[submit.indexOf('--agent') + 1] : null;
+};
+// Revision 4, a scripted agent (README: `scripts`): right after accepting a new task it works on it, as a
+// quick remote agent would. It appends `accepted` (unless the script ends the task as expired or rejected),
+// one `progress` event per message, and a terminal event in the script's `state`.
+const scriptedWork = (id, script) => {
+  const remote = JSON.parse(fs.readFileSync(taskPath(id), 'utf8'));
+  let sequence = remote.status.last_event;
+  const at = new Date().toISOString();
+  const add = (kind, state, message = null, output = null) =>
+    remote.events.push({sequence: ++sequence, kind, state, message, output, created_at: at});
+  const final = ['succeeded', 'failed', 'cancelled', 'rejected', 'expired'].includes(script.state);
+  if (!['expired', 'rejected', 'queued'].includes(script.state)) add('accepted', 'running');
+  for (const message of script.progress ?? []) add('progress', 'running', message);
+  if (final) {
+    const carriesOutput = ['succeeded', 'failed'].includes(script.state);
+    add(script.state, script.state, script.message ?? null,
+      carriesOutput ? script.output ?? `FAKE ${script.state} output` : null);
+  }
+  remote.status = {...remote.status, state: final ? script.state : script.state === 'queued' ? 'queued' : 'running',
+    last_event: sequence};
+  writeRecord(id, remote);
+};
 // Revision 2 "a Peerspan call is hanging": log the hang, then do nothing until the configuration
 // stops listing this command, the fixture directory is removed, or hangSeconds (default 60) pass.
 const hangUntilReleased = () => {
@@ -132,32 +164,45 @@ if (rejectsJson && args.includes('--json')) {
     fail('error: FAKE fixture requires exactly one --input=TEXT argument', 2);
   } else if (!/^task_[a-f0-9]{32}$/.test(id)) {
     fail('FAKE fixture refuses invalid task ID');
-  } else if (config.submitMode === 'lost-missing') {
-    fail('FAKE transport failed before remote acceptance', 2);
   } else {
-    const rejected = config.submitMode === 'rejected';
-    const revision2 = config.recordShape === 'rev2';
-    const remote = {peer_host_id: flag('--peer'), request: {
-      task_id: id, target_agent_id: flag('--agent'), input: inputs[0].slice('--input='.length),
-      deadline: flag('--deadline')},
-    submit_state: rejected ? 'rejected' : 'accepted',
-    status: rejected ? null
-      : {state: config.remoteState, ...(revision2 ? {cancel_requested: false} : {}), last_event: 1},
-    ...(revision2 ? {cancel_state: null} : {}),
-    error: rejected ? 'FAKE upstream rejection' : null,
-    events: [{sequence: 1, kind: 'queued', state: config.remoteState, message: null,
-      output: null, created_at: new Date().toISOString()}]};
-    if (!fs.existsSync(taskPath(id))) {
-      fs.writeFileSync(taskPath(id), JSON.stringify(remote), {mode: 0o600});
+    // Revision 4: the first script whose `agent` and `input` (a substring) match this submission applies;
+    // its `submit` replaces submitMode for it.
+    const input = inputs[0].slice('--input='.length);
+    const script = (config.scripts ?? []).find(entry => (entry.agent === undefined || entry.agent === flag('--agent')) &&
+      (entry.input === undefined || input.includes(entry.input)));
+    const submitMode = script?.submit ?? config.submitMode;
+    if (submitMode === 'lost-missing') {
+      fail('FAKE transport failed before remote acceptance', 2);
+    } else {
+      const rejected = submitMode === 'rejected';
+      const revision2 = config.recordShape === 'rev2';
+      const remote = {peer_host_id: flag('--peer'), request: {
+        task_id: id, target_agent_id: flag('--agent'), input, deadline: flag('--deadline')},
+      submit_state: rejected ? 'rejected' : 'accepted',
+      status: rejected ? null
+        : {state: config.remoteState, ...(revision2 ? {cancel_requested: false} : {}), last_event: 1},
+      ...(revision2 ? {cancel_state: null} : {}),
+      error: rejected ? script?.message ?? 'FAKE upstream rejection' : null,
+      events: [{sequence: 1, kind: 'queued', state: config.remoteState, message: null,
+        output: null, created_at: new Date().toISOString()}]};
+      const created = !fs.existsSync(taskPath(id));
+      if (created) {
+        fs.writeFileSync(taskPath(id), JSON.stringify(remote), {mode: 0o600});
+      }
+      if (submitMode === 'lost-accepted') fail('FAKE response lost after remote acceptance', 2);
+      else emit(publicRecord(JSON.parse(fs.readFileSync(taskPath(id), 'utf8'))));
+      if (created && !rejected && script?.state) scriptedWork(id, script);
     }
-    if (config.submitMode === 'lost-accepted') fail('FAKE response lost after remote acceptance', 2);
-    else emit(publicRecord(JSON.parse(fs.readFileSync(taskPath(id), 'utf8'))));
   }
 } else if (taskIndex >= 0 && command === 'inspect') {
   const id = taskArgument();
-  const priorSubmission = fs.readFileSync(path.join(dir, 'calls.jsonl'), 'utf8')
-    .split('\n').filter(Boolean).map(line => JSON.parse(line)).some(call => call.argv.includes('submit'));
-  if (config.inspectMode === 'error' || (config.inspectMode === 'error-after-submit' && priorSubmission)) {
+  const priorSubmission = () => loggedCalls().some(argv => argv.includes('submit'));
+  // Revision 4: inspectErrorAgents lists agents whose tasks cannot be inspected (exit 2), so one task can
+  // show a problem while the others are inspected normally.
+  const failingAgent = (config.inspectErrorAgents ?? []).length > 0 && id &&
+    config.inspectErrorAgents.includes(submittedTo(id));
+  if (config.inspectMode === 'error' || failingAgent ||
+    (config.inspectMode === 'error-after-submit' && priorSubmission())) {
     fail('FAKE temporary inspection transport failure', 2);
   }
   else if (!id || !fs.existsSync(taskPath(id))) fail('error: host daemon: not found');

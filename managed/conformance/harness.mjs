@@ -1,8 +1,8 @@
-// Shared plumbing for the revision 2 and 3 contract suites (operations.mjs, visibility.mjs, remote.mjs and
-// schedules.mjs). Contract-only and black-box: it launches the documented CLI, speaks HTTP and drives the
-// explicitly fake Peerspan executable in throwaway private directories. It never imports or reads the
-// managed implementation or its database. Section numbers (§) refer to docs/managed-contract.md.
-// Shapes are those of revision 3, which keeps every revision 2 behavior and adds fields (§1: schema 3).
+// Shared plumbing for the revision 2, 3 and 4 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs and reviewers.mjs). Contract-only and black-box: it launches the documented CLI, speaks HTTP
+// and drives the explicitly fake Peerspan executable in throwaway private directories. It never imports or
+// reads the managed implementation or its database. Section numbers (§) refer to docs/managed-contract.md.
+// Shapes are those of revision 4, which keeps every revision 3 behavior and adds fields (§1: schema 4).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -112,12 +112,50 @@ const attentionRows = {controller_error: ['action', 'controller'], workflow_auto
 const activityKinds = {
   operator: ['workflow.created', 'workflow.paused', 'workflow.resumed', 'workflow.run_requested',
     'workflow.archived', 'workflow.restored', 'workflow.edited', 'run.cancel_requested', 'run.abandoned',
-    'run.reviewed', 'connection.added', 'connection.removed', 'observation.added', 'observation.removed'],
+    'run.reviewed', 'connection.added', 'connection.removed', 'observation.added', 'observation.removed',
+    'review.cancel_requested', 'review.abandoned'],
   system: ['run.dispatched', 'run.finished', 'run.problem', 'run.recovered', 'workflow.auto_paused',
-    'worker.ready', 'worker.unready']};
+    'worker.ready', 'worker.unready', 'run.reviewed', 'review.dispatched', 'review.finished', 'review.fallback',
+    'workflow.rework_due']};
 const runFields = 'id workflowId workflowName taskId state output outputTruncated error reason progress ' +
-  'cancelRequestedAt createdAt updatedAt startedAt finishedAt';
+  'cancelRequestedAt createdAt updatedAt startedAt finishedAt review reviewedAt reviewNote ' +
+  'reviewedBy reviewTask reviewFallback attempt reworkOf branch';
+const reviewTaskFields = 'connectionId taskId state error reason cancelRequestedAt createdAt finishedAt';
+// §15.1 (rev 4): the causes of a fallback to the operator.
+export const fallbackCauses = ['failed', 'rejected', 'expired', 'cancelled', 'abandoned', 'no_verdict', 'reviewer_removed'];
 export const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+// §10.1 (rev 4): the branch line of a runtime agent's output, read by the forms of that section in order.
+// NAME and FROM are 1 to 255 characters without `/` or control characters, ERROR 1 to 1,024 characters
+// without control characters; where a form could match in more than one way, NAME is the longest text
+// that makes it match.
+const control = /\p{Cc}/u;
+const nameOk = value => value.length >= 1 && value.length <= 255 && !value.includes('/') && !control.test(value);
+const errorOk = value => value.length >= 1 && value.length <= 1024 && !control.test(value);
+function longestName(rest, separator, rightOk) {
+  for (let at = rest.lastIndexOf(separator); at >= 0; at = at === 0 ? -1 : rest.lastIndexOf(separator, at - 1)) {
+    const [name, right] = [rest.slice(0, at), rest.slice(at + separator.length)];
+    if (nameOk(name) && rightOk(right)) return [name, right];
+  }
+  return null;
+}
+export function parseBranch(output) {
+  const kept = output.replace(/[ \t\n\r\f\v]+$/, '');   // trailing whitespace, ASCII
+  const at = kept.lastIndexOf('\n');
+  if (at < 1 || kept[at - 1] !== '\n') return null;
+  const line = kept.slice(at + 1);
+  if (!line.startsWith('Branch: ')) return null;
+  const rest = line.slice('Branch: '.length);
+  const empty = {name: null, outcome: null, commit: null, from: null, error: null};
+  if (rest === 'none') return {...empty, outcome: 'none'};
+  let parts = longestName(rest, ' at commit ', id => /^[0-9a-f]{66}$/.test(id));
+  if (parts) return {...empty, name: parts[0], outcome: 'committed', commit: parts[1]};
+  parts = longestName(rest, ', unchanged from ', nameOk);
+  if (parts) return {...empty, name: parts[0], outcome: 'unchanged', from: parts[1]};
+  parts = longestName(rest, ', not committed: ', errorOk);
+  if (parts) return {...empty, name: parts[0], outcome: 'not_committed', error: parts[1]};
+  return null;
+}
 
 // `mode` is the connection's (§8): file and agent mode use the §3 table, remote mode the §7.1 table.
 export function checkReadiness(r, {mode} = {}) {
@@ -144,9 +182,77 @@ export function checkReadiness(r, {mode} = {}) {
   }
 }
 
+// §15.1 (rev 4): a run's review task; in the detail (§10) it also has input, output and outputTruncated.
+function checkReviewTask(task, run, detail) {
+  keys(task, reviewTaskFields + (detail ? ' input output outputTruncated' : ''), detail ? '§10 detail reviewTask' : '§15.1 reviewTask');
+  expect(text(task.connectionId) && task.connectionId !== '', '§15.1 reviewTask.connectionId is the reviewer connection', task);
+  if (task.taskId === null) {
+    const none = {state: null, error: null, reason: null, cancelRequestedAt: null, createdAt: null, finishedAt: null,
+      ...(detail ? {input: null, output: null, outputTruncated: false} : {})};
+    expectEqual(pick(task, Object.keys(none).join(' ')), none, '§15.1 the review task fields are null until it is ' +
+      'reserved; §10 input and output are null and outputTruncated false (the rules for a run output) before then');
+    return;
+  }
+  expect(/^task_[0-9a-f]{32}$/.test(task.taskId) && task.taskId !== run.taskId && runStates.includes(task.state),
+    '§15.1 a reserved review task has its own §4 task ID and a task state', pick(task, 'taskId state'));
+  expect(isTime(task.createdAt) && (unresolved.includes(task.state) ? task.finishedAt === null : isTime(task.finishedAt)) &&
+    nullable(task.cancelRequestedAt, isTime) && nullable(task.error, text) &&
+    nullable(task.reason, value => text(value) && value.length <= 2000),
+  '§15.1 review task times, error and reason follow its task as a run fields follow the run task (§8)', task);
+  if (detail) {
+    expect(text(task.input) && task.input !== '' && Buffer.byteLength(task.input) <= 65536 &&
+      nullable(task.output, value => text(value) && value.length <= 262144) && typeof task.outputTruncated === 'boolean' &&
+      (task.output !== null || task.outputTruncated === false),
+    '§10 a reserved review task has its exact input (at most 65,536 bytes, §15.1) and its retained output; output is ' +
+      'null and outputTruncated false until there is an output',
+    {input: task.input?.length, output: task.output?.length, outputTruncated: task.outputTruncated});
+  }
+}
+
 // `detail` is the run of GET /api/runs/:id: full retained output and the submitted instructions (§10).
 export function checkRun(run, {detail = false} = {}) {
-  keys(run, runFields + ' review reviewedAt reviewNote' + (detail ? ' instructions' : ''), detail ? '§10 run detail' : '§8 run');
+  keys(run, runFields + (detail ? ' instructions assignment' : ''), detail ? '§10 run detail' : '§8 run');
+  // §15 and §15.1 (rev 4): who gave the verdict, the review task and the fallback.
+  const decided = ['accepted', 'rejected'].includes(run.review);
+  expect(decided ? ['operator', 'agent'].includes(run.reviewedBy) : run.reviewedBy === null,
+    '§15 reviewedBy is null while review is null or pending, and then operator or agent', pick(run, 'review reviewedBy'));
+  if (run.reviewTask !== null) checkReviewTask(run.reviewTask, run, detail);
+  expect(run.reviewTask === null || (run.state === 'succeeded' && run.review !== null),
+    '§15.1 reviewTask is null while the run is unresolved, when it ends in another state than succeeded, and when ' +
+    'it needs no agent review', pick(run, 'state review reviewTask'));
+  const cause = run.reviewFallback;
+  expect(cause === null || (fallbackCauses.includes(cause) && run.reviewTask !== null &&
+    (cause === 'no_verdict' ? run.reviewTask.state === 'succeeded'
+      : cause === 'reviewer_removed' ? run.reviewTask.taskId === null : run.reviewTask.state === cause)),
+  '§15.1 reviewFallback is null or a cause of the table, agreeing with the review task', pick(run, 'reviewFallback reviewTask'));
+  expect(run.reviewedBy !== 'agent' || (run.reviewTask?.state === 'succeeded' && cause === null),
+    '§15.1 a verdict by the agent comes from a succeeded review task, with no fallback', pick(run, 'reviewedBy reviewTask reviewFallback'));
+  // §15.2 (rev 4): attempt and reworkOf.
+  expect(Number.isInteger(run.attempt) && run.attempt >= 1 && run.attempt <= 4 &&
+    (run.attempt === 1 ? run.reworkOf === null : text(run.reworkOf) && run.reworkOf !== run.id),
+  '§15.2 attempt is 1, or one more than the rejected run for a rework (at most 4 with a limit of 3); reworkOf ' +
+    'names the rejected run exactly for a rework', pick(run, 'id attempt reworkOf'));
+  // §10.1 (rev 4): branch is read from the whole remote output of a succeeded or failed run (the detail's
+  // outputTruncated is false). In a snapshot, outputTruncated false means the whole output is shown, so the
+  // branch is checked against it; a snapshot whose 2,000-character preview is cut keeps the detail's branch,
+  // which reviewers.mjs compares.
+  const finished = ['succeeded', 'failed'].includes(run.state) && run.output !== null;
+  if (run.branch !== null) {
+    keys(run.branch, 'name outcome commit from error', '§10.1 branch');
+    expect(finished, '§10.1 branch is null unless the run is succeeded or failed with a retained output', pick(run, 'state branch'));
+  }
+  if (!run.outputTruncated || !finished) {
+    expectEqual(run.branch, finished ? parseBranch(run.output) : null, '§10.1 branch is the last line of the ' +
+      'complete retained output read by the forms of that section, and null in every other case (run ' + run.id + ')');
+  } else if (detail) {
+    expectEqual(run.branch, null, '§10.1 branch is null when outputTruncated is true (the remote output was longer)');
+  }
+  if (detail) {
+    expect(text(run.assignment) && run.assignment !== '' && (run.attempt === 1 ? run.assignment === run.instructions
+      : run.instructions.startsWith(run.assignment + '\n\nREVISION REQUESTED\n')),
+    '§10 assignment is the instructions when the run was reserved: equal to instructions for attempt 1, without the ' +
+      'revision request for a rework (§15.2)', pick(run, 'attempt assignment instructions'));
+  }
   // §15: review is null unless the run ended succeeded and needs review; reviewedAt and reviewNote come
   // with a verdict, the note trimmed, nonempty and at most 2,000 characters.
   const verdict = ['accepted', 'rejected'].includes(run.review);
@@ -174,22 +280,31 @@ export function checkActivityEntry(entry) {
   keys(entry, 'seq at actor kind workflowId runId connectionId data', '§11 activity entry');
   expect(Number.isInteger(entry.seq) && isTime(entry.at) && activityKinds[entry.actor]?.includes(entry.kind),
     '§11 seq, at, and the kind listed for its actor', entry);
-  const [area] = entry.kind.split('.');
-  const present = {workflow: ['workflowId'], run: ['runId', 'workflowId'], connection: ['connectionId'],
-    worker: ['connectionId'], observation: []}[area];
-  const absent = {workflow: ['runId'], run: [], connection: ['workflowId', 'runId'],
+  // (rev 4) A review.* entry carries the reviewed run and its workflow, as a run.* entry does, and
+  // workflow.rework_due carries the rejected run as its runId.
+  const area = entry.kind === 'workflow.rework_due' ? 'run' : entry.kind.split('.')[0];
+  const present = {workflow: ['workflowId'], run: ['runId', 'workflowId'], review: ['runId', 'workflowId'],
+    connection: ['connectionId'], worker: ['connectionId'], observation: []}[area];
+  const absent = {workflow: ['runId'], run: [], review: [], connection: ['workflowId', 'runId'],
     worker: ['workflowId', 'runId'], observation: ['workflowId', 'runId', 'connectionId']}[area];
   expect(present.every(name => text(entry[name])) && absent.every(name => entry[name] === null),
     '§11 an entry carries the references of its kind; absent references are null', entry);
   const only = (data, name) => data !== null && isDeepStrictEqual(Object.keys(data), [name]);
+  const terminal = state => runStates.includes(state) && !unresolved.includes(state);
+  const reviewTaskProblem = data => data === null || isDeepStrictEqual(data, {task: 'review'});
   const dataRules = {
     'workflow.edited': data => only(data, 'fields') && Array.isArray(data.fields) && data.fields.length > 0 &&
       isDeepStrictEqual(data.fields, [...data.fields].sort()),
-    'run.finished': data => only(data, 'state') && runStates.includes(data.state) && !unresolved.includes(data.state),
+    'run.finished': data => only(data, 'state') && terminal(data.state),
     'workflow.auto_paused': data => only(data, 'failureStreak') && Number.isInteger(data.failureStreak),
     'worker.ready': data => only(data, 'code') && anyReadinessCode[data.code] === true,
     'worker.unready': data => only(data, 'code') && anyReadinessCode[data.code] === false,
-    'run.reviewed': data => only(data, 'verdict') && ['accepted', 'rejected'].includes(data.verdict)};
+    'run.reviewed': data => only(data, 'verdict') && ['accepted', 'rejected'].includes(data.verdict),
+    'run.problem': reviewTaskProblem, 'run.recovered': reviewTaskProblem,
+    'review.finished': data => only(data, 'state') && terminal(data.state),
+    'review.fallback': data => only(data, 'cause') && fallbackCauses.includes(data.cause),
+    'workflow.rework_due': data => only(data, 'attempt') && Number.isInteger(data.attempt) && data.attempt >= 2 &&
+      data.attempt <= 4};
   expect((dataRules[entry.kind] ?? (data => data === null))(entry.data), '§11 data of ' + entry.kind, entry);
 }
 
@@ -203,14 +318,25 @@ export function checkSchedule(schedule) {
   '§14 a schedule is {timeZone,days,times}: distinct days in mon..sun order, 1 to 24 distinct HH:MM times ascending', schedule);
 }
 
-function checkWorkflow(w) {
+function checkWorkflow(w, connections = []) {
   keys(w, 'id name connectionId instructions intervalMinutes maxRunsPerDay acceptanceMinutes enabled ' +
-    'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review', '§8 workflow');
+    'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review ' +
+    'reviewerId reviewCriteria reworkLimit reworkPending', '§8 workflow');
   expect(w.enabled ? w.pausedBy === null : ['operator', 'failures'].includes(w.pausedBy),
     '§8 pausedBy is null while enabled, otherwise operator or failures', pick(w, 'enabled pausedBy'));
-  expect((w.schedule === null) !== (w.intervalMinutes === null) && ['none', 'operator'].includes(w.review),
-    '§8 exactly one of intervalMinutes and schedule is null; §15 review is none or operator',
+  expect((w.schedule === null) !== (w.intervalMinutes === null) && ['none', 'operator', 'agent'].includes(w.review),
+    '§8 exactly one of intervalMinutes and schedule is null; §15 review is none, operator or agent',
     pick(w, 'intervalMinutes schedule review'));
+  // §15.1 and §15.2 (rev 4).
+  expect((w.review === 'agent') === (w.reviewerId !== null) && nullable(w.reviewerId, text),
+    '§15.1 reviewerId is not null exactly when review is agent', pick(w, 'review reviewerId'));
+  const [worker, reviewer] = [w.connectionId, w.reviewerId].map(id => connections.find(c => c.id === id));
+  expect(!worker || !reviewer || worker.hostId !== reviewer.hostId || worker.agentId !== reviewer.agentId,
+    '§15.1 the reviewer worker agent is not the workflow own', {worker, reviewer});
+  expect(nullable(w.reviewCriteria, value => text(value) && value !== '' && value.length <= 2000 && value === value.trim()),
+    '§15.1 reviewCriteria is null or a trimmed nonempty string of at most 2,000 characters', w.reviewCriteria);
+  expect(Number.isInteger(w.reworkLimit) && w.reworkLimit >= 0 && w.reworkLimit <= 3 && nullable(w.reworkPending, text),
+    '§15.2 reworkLimit is an integer from 0 to 3; reworkPending is null or a run ID', pick(w, 'reworkLimit reworkPending'));
   if (w.schedule !== null) checkSchedule(w.schedule);
   expect(Array.isArray(w.recent) && w.recent.length <= 20, '§8 recent is at most 20 runs', w.recent);
   for (const run of w.recent) {
@@ -256,9 +382,13 @@ function checkAttention(s) {
     previous = position;
   }
   const expected = [];
+  // (rev 4) A run waits for a review task on a connection that is not yet reserved.
+  const waitsForReviewer = (run, id) => run.review === 'pending' && run.reviewTask?.connectionId === id &&
+    run.reviewTask.taskId === null && run.reviewFallback === null;
   for (const c of s.connections) {
     if (c.readiness === null || c.readiness.ready || c.readiness.code === 'checking') continue;
-    const inUse = s.workflows.some(w => w.enabled && w.connectionId === c.id);
+    const inUse = s.workflows.some(w => w.enabled && (w.connectionId === c.id || w.reviewerId === c.id)) ||
+      s.runs.some(run => waitsForReviewer(run, c.id));
     expected.push({kind: 'worker_unready', severity: inUse ? 'action' : 'warning',
       subject: {type: 'connection', id: c.id, name: c.name}, message: c.readiness.reason, since: c.readiness.since});
   }
@@ -266,20 +396,26 @@ function checkAttention(s) {
     if (w.pausedBy === 'failures') expected.push({kind: 'workflow_auto_paused', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
   }
   for (const run of s.runs) {
-    if (unresolved.includes(run.state) && run.error !== null) expected.push({kind: 'run_problem', severity: 'warning', subject: {type: 'run', id: run.id, name: run.workflowName}});
+    const task = run.reviewTask;
+    const reviewProblem = task !== null && unresolved.includes(task.state) && task.error !== null;
+    if ((unresolved.includes(run.state) && run.error !== null) || reviewProblem) {
+      expected.push({kind: 'run_problem', severity: 'warning', subject: {type: 'run', id: run.id, name: run.workflowName}});
+    }
   }
   for (const o of s.observed) {
     const kind = !o.available ? 'observed_unavailable' : o.error !== null ? 'observed_problem' : null;
     if (kind) expected.push({kind, severity: 'warning', subject: {type: 'observation', id: o.id, name: o.name}});
   }
-  // review_pending (rev 3): one item per workflow, archived or not, with a pending run. A workflow's
-  // awaitingReview says so; for an archived workflow only its runs among the newest 100 can show it, so an
-  // item for an archived workflow without such a visible run is allowed but not required.
-  const pendingRuns = id => s.runs.filter(run => run.workflowId === id && run.review === 'pending');
-  const reviewed = [...s.workflows.filter(w => w.stats.awaitingReview > 0),
-    ...s.archived.filter(a => pendingRuns(a.id).length > 0)];
+  // review_pending (rev 3, rev 4): one item per workflow, archived or not, with a pending run that waits for
+  // the operator: one that needs no agent review, or whose agent review fell back. Only the newest 100 runs
+  // are in a snapshot, so when it lists 100 an item without such a visible run is allowed but not required.
+  const forOperator = run => run.review === 'pending' && (run.reviewTask === null || run.reviewFallback !== null);
+  const pendingRuns = id => s.runs.filter(run => run.workflowId === id && forOperator(run));
+  const reviewed = [...s.workflows, ...s.archived].filter(w => pendingRuns(w.id).length > 0);
   for (const w of reviewed) expected.push({kind: 'review_pending', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
-  const optional = item => item.kind === 'review_pending' && s.archived.some(a => a.id === item.subject.id);
+  const allRunsVisible = s.runs.length < 100;
+  const optional = item => item.kind === 'review_pending' && !allRunsVisible &&
+    [...s.workflows, ...s.archived].some(w => w.id === item.subject.id);
   const derived = Object.keys(attentionRows).filter(kind => !['controller_error', 'daily_limit_reached'].includes(kind));
   const label = item => item.kind + ' ' + item.subject.id;
   const wanted = expected.map(label);
@@ -291,19 +427,16 @@ function checkAttention(s) {
   }
   const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
   for (const item of s.attention.filter(entry => entry.kind === 'review_pending')) {
-    expect(s.workflows.some(w => w.id === item.subject.id) || optional(item),
+    expect([...s.workflows, ...s.archived].some(w => w.id === item.subject.id),
       '§8 review_pending names a workflow, archived or not', item);
-    const count = s.workflows.find(w => w.id === item.subject.id)?.stats.awaitingReview ?? null;
-    if (count !== null) {
-      expect(new RegExp(`(^|\\D)${count}(\\D|$)`).test(item.message) ||
-        new RegExp(`\\b${words[count] ?? 'NO-WORD'}\\b`, 'i').test(item.message),
-      `§8 review_pending message gives the number of pending runs (${count})`, item.message);
-    }
     const visible = pendingRuns(item.subject.id);
-    if (visible.length > 0 && (count === null || visible.length === count)) {
-      expectEqual(Date.parse(item.since), Math.min(...visible.map(run => Date.parse(run.finishedAt))),
-        '§8 review_pending since is the earliest finishedAt of the pending runs (as instants)');
-    }
+    if (!allRunsVisible) continue;
+    const count = visible.length;
+    expect(new RegExp(`(^|\\D)${count}(\\D|$)`).test(item.message) ||
+      new RegExp(`\\b${words[count] ?? 'NO-WORD'}\\b`, 'i').test(item.message),
+    `§8 review_pending message gives the number of runs that wait for the operator (${count})`, item.message);
+    expectEqual(Date.parse(item.since), Math.min(...visible.map(run => Date.parse(run.finishedAt))),
+      '§8 review_pending since is the earliest finishedAt of the runs that wait for the operator (as instants)');
   }
 }
 
@@ -314,7 +447,7 @@ export function checkSnapshot(s) {
     expect(['file', 'agent', 'remote'].includes(c.mode), '§8 mode is file, agent or remote', c.mode);
     if (c.readiness !== null) checkReadiness(c.readiness, {mode: c.mode});
   }
-  s.workflows.forEach(checkWorkflow);
+  s.workflows.forEach(w => checkWorkflow(w, s.connections));
   for (let index = 1; index < s.workflows.length; index++) {
     expect(Date.parse(s.workflows[index - 1].createdAt) <= Date.parse(s.workflows[index].createdAt),
       '§8 workflows are oldest first', s.workflows.map(w => w.createdAt));
@@ -335,8 +468,8 @@ export function checkSnapshot(s) {
   keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
     'modelCost cloudProvisioning', '§8 meta');
   expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 3, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 schema version 3', s.meta);
+    s.meta.revision !== '' && s.meta.schemaVersion === 4, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 schema version 4', s.meta);
 }
 
 // ---- Process and file plumbing ----
@@ -628,11 +761,24 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
   };
   f.detail = async id => {
     const response = expectStatus(await f.request('GET', '/api/runs/' + id), 200, '§10 GET /api/runs/:id');
-    keys(response.data, 'run events', '§10 run detail response');
+    keys(response.data, 'run events reviewEvents', '§10 run detail response');
     checkRun(response.data.run, {detail: true});
-    for (const item of response.data.events) keys(item, 'sequence kind state message at', '§10 timeline event');
-    expect(response.data.events.every((item, index, all) => index === 0 || all[index - 1].sequence < item.sequence),
-      '§10 events are ascending', response.data.events.map(item => item.sequence));
+    // (rev 4) reviewEvents is the review task's timeline by the same rules, empty without a review task.
+    for (const name of ['events', 'reviewEvents']) {
+      const list = response.data[name];
+      expect(Array.isArray(list) && list.length <= 500, `§10 ${name} is an array of at most 500 events`, list?.length);
+      for (const item of list) {
+        keys(item, 'sequence kind state message at', '§10 timeline event');
+        expect(Number.isInteger(item.sequence) && text(item.kind) && nullable(item.message, value => text(value) &&
+          value.length <= 2000) && isTime(item.at), '§10 a timeline event, message at most 2,000 characters', item);
+      }
+      expect(list.every((item, index, all) => index === 0 || all[index - 1].sequence < item.sequence),
+        `§10 ${name} are ascending`, list.map(item => item.sequence));
+    }
+    const task = response.data.run.reviewTask;
+    if (task === null || task.taskId === null) {
+      expectEqual(response.data.reviewEvents, [], '§10 reviewEvents is an empty array when the run has no review task');
+    }
     return response.data;
   };
 
