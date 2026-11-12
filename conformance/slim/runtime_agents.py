@@ -10,8 +10,7 @@ access. With `harness` set the fake ignores `argv` and runs the task's input, th
 runtime_* suites; the shared fixtures are runtime_common.py.
 
 Written from docs/runtime-agent-contract.md only (cited as "agents <section>"), with the runtime task, task and
-launch contracts it builds on. No VM, no KVM, no peerfs, no model calls. The host does not implement the contract
-yet: every case that needs it is a strict expected failure.
+launch contracts it builds on. No VM, no KVM, no peerfs, no model calls.
 """
 import base64
 import json
@@ -27,7 +26,6 @@ from runtime_common import (FakeRuntime, bind, cancel, has_kind, need, new_task_
 
 suite = Suite("runtime_agents", __doc__)
 bind(suite)
-REASON = "runtime agents not implemented (runtime-agent-contract.md)"
 COMMIT = re.compile(r"^[0-9a-f]{66}$")  # a peerfs object ID (agents, The output)
 MAIN_SCHEMA = 30  # the schema version on main when this suite was written; the contract adds the next one
 FAKE = {"peerfs_workspace": ["main", "dev"], "max_concurrent_runs": 2, "max_cpus": 4, "max_memory_mib": 8192,
@@ -261,7 +259,7 @@ def _():
 # Profiles (agents, The launch profile).
 
 @suite.case("profile_set_show_clear", "agents The launch profile: set (defaults, every option, replacement), show, "
-                                      "clear; runtime-agents.json 0600; activity", known=REASON)
+                                      "clear; runtime-agents.json 0600; activity")
 def _():
     a, = need("a")
     need("ready")
@@ -303,7 +301,7 @@ def _():
 
 
 @suite.case("profile_refusals", "agents The launch profile: 409 runtime_unavailable (switch off, peerfs false), "
-                                "422 over the runtime's maximums, a name that is not addressable", known=REASON)
+                                "422 over the runtime's maximums, a name that is not addressable")
 def _():
     a, rt = need("a", "rt")
     need("ready")
@@ -337,7 +335,7 @@ def _():
 
 
 @suite.case("credential_set_clear", "agents The launch profile: credential set and clear, credentials/AGENT_ID "
-                                    "0600, the key in no response, record, event, activity or log", known=REASON)
+                                    "0600, the key in no response, record, event, activity or log")
 def _():
     a, = need("a")
     need("ready")
@@ -364,7 +362,7 @@ def _():
 # Receiving (agents, Receiving a task).
 
 @suite.case("receive_never_offered_to_sessions", "agents Receiving a task: under a grant and self access, never "
-                                                 "offered to an attached session", known=REASON)
+                                                 "offered to an attached session")
 def _():
     a, a2 = need("a", "a2")
     need("ready")
@@ -383,7 +381,7 @@ def _():
 
 
 @suite.case("receive_before_profile", "agents Receiving a task: one received before the profile stays with the "
-                                      "adapter path", known=REASON)
+                                      "adapter path")
 def _():
     a, a2 = need("a", "a2")
     need("ready")
@@ -401,7 +399,7 @@ def _():
 
 
 @suite.case("receive_artifacts_refused", "agents Receiving a task: a non-empty artifacts manifest is 400 invalid "
-                                         "naming artifacts, nothing persisted", known=REASON)
+                                         "naming artifacts, nothing persisted")
 def _():
     a, b = need("a", "b")
     need("ready")
@@ -421,8 +419,7 @@ def _():
 
 # Running (agents, Running; The output).
 
-@suite.case("run_request", "agents Running (The run, the fork's name, the harness command); The runtime's local API",
-            known=REASON)
+@suite.case("run_request", "agents Running (The run, the fork's name, the harness command); The runtime's local API")
 def _():
     a, b = need("a", "b")
     need("ready")
@@ -448,8 +445,7 @@ def _():
     key_nowhere()
 
 
-@suite.case("lifecycle_succeeded", "agents Transitions; The output (Branch: NAME at commit ID); The branch",
-            known=REASON)
+@suite.case("lifecycle_succeeded", "agents Transitions; The output (Branch: NAME at commit ID); The branch")
 def _():
     task_id, found = need("lifecycle")[0]
     check(kinds(found) == ["queued", "accepted", "succeeded"], f"events {kinds(found)}")
@@ -462,8 +458,7 @@ def _():
           and (workspace("main") / "README").read_text() == "main seed\n", "from_branch changed")
 
 
-@suite.case("failure_and_empty_output", "agents Transitions; The output (a failing exit, exit N, unchanged from FROM)",
-            known=REASON)
+@suite.case("failure_and_empty_output", "agents Transitions; The output (a failing exit, exit N, unchanged from FROM)")
 def _():
     need("ready")
     ready("codex")
@@ -480,7 +475,7 @@ def _():
 
 
 @suite.case("before_the_start", "agents Transitions (queued to failed); The output (Branch: none, the bound); "
-                                "Running (the credential read at each start)", known=REASON)
+                                "Running (the credential read at each start)")
 def _():
     rt, = need("rt")
     need("ready")
@@ -520,8 +515,7 @@ def _():
         credential("codex")
 
 
-@suite.case("concurrency", "agents Running: max_runs 1 runs one after the other; two agents side by side",
-            known=REASON)
+@suite.case("concurrency", "agents Running: max_runs 1 runs one after the other; two agents side by side")
 def _():
     need("ready")
     ready("codex", "--max-runs", "1")
@@ -553,7 +547,7 @@ def held(names, change):
 
 
 @suite.case("checks_at_start", "agents Running: the checks at start (profile, credential, switch) and the "
-                               "authorization recheck, each ending rejected", known=REASON)
+                               "authorization recheck, each ending rejected")
 def _():
     a, rt = need("a", "rt")
     need("ready")
@@ -585,7 +579,7 @@ def _():
 
 
 @suite.case("cancellation", "agents Transitions (cancelled); The output of a cancelled task; before dispatch "
-                            "output null", known=REASON)
+                            "output null")
 def _():
     rt, b = need("rt", "b")
     need("ready")
@@ -609,7 +603,7 @@ def _():
 
 
 @suite.case("restarts", "agents Running (the stored request, resends); runtime The runtime's local API "
-                        "(restarts)", known=REASON)
+                        "(restarts)")
 def _():
     a, = need("a")
     need("ready")
@@ -649,7 +643,7 @@ def _():
 
 
 @suite.case("failed_commit", "agents Transitions (a run result with error fails the task); The output (not "
-                             "committed: ERROR)", known=REASON)
+                             "committed: ERROR)")
 def _():
     need("ready")
     ready("codex")
@@ -668,7 +662,7 @@ def _():
 # Persistence (agents, Persistence).
 
 @suite.case("open_previous_schema", "agents Persistence: the next schema version; a database of the previous one "
-                                    "opens", known=REASON)
+                                    "opens")
 def _():
     a2, = need("a2")
     copy = suite.host("alice2-copy", start=False)
