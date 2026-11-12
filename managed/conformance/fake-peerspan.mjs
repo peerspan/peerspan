@@ -7,7 +7,8 @@ import path from 'node:path';
 const dir = process.env.FAKE_PEERSPAN_FIXTURE;
 if (!dir) throw new Error('FAKE_PEERSPAN_FIXTURE is required: this is not Peerspan');
 const args = process.argv.slice(2);
-const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+const readConfig = () => JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+let config = readConfig();
 const flag = name => args[args.indexOf(name) + 1];
 const emit = (value, code = 0) => {
   process.stdout.write(JSON.stringify(value) + '\n');
@@ -36,7 +37,16 @@ const invoked = args.includes('status') ? 'status'
   : taskIndex >= 0 ? command : null;
 // Revision 3: "default" in senderStates makes a call without --state a call to a sender host.
 const stateArgument = args.includes('--state') ? flag('--state') : 'default';
-const senderState = (config.senderStates ?? [path.join(dir, 'PRIVATE-sender')]).includes(stateArgument);
+// Revision 6.1: `delayWhen` makes calls slow but not hanging. An entry {command,state,ms} matches a call of that
+// command (named as in `hang`) whose --state is `state` (when given); the call waits `ms` milliseconds and then
+// reads the configuration again, so it answers with the state of the host when it answers, as a slow host would.
+const slow = (config.delayWhen ?? []).find(entry => entry.command === invoked &&
+  (entry.state === undefined || entry.state === stateArgument));
+if (slow) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, slow.ms);
+  config = readConfig();
+}
+const senderState =(config.senderStates ?? [path.join(dir, 'PRIVATE-sender')]).includes(stateArgument);
 // rejectJson is true (every command) or, in revision 3, a list of command names.
 const rejectsJson = config.rejectJson === true || (Array.isArray(config.rejectJson) && config.rejectJson.includes(invoked));
 const taskPath = id => path.join(dir, 'remote', id + '.json');

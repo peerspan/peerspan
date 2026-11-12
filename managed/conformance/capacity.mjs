@@ -315,5 +315,51 @@ async function case21_hangingSubmit() {
   await shutdown(f, 'a submission');
 }
 
+// Case 21, a slow check. §4: dispatch uses only readiness from a check that ended since the previous dispatch
+// decision. A worker whose status takes 800 ms, longer than a pass waits, becomes unready while a check of it is in
+// flight (the fake answers as the host is when it answers), and `run` is requested at once: no task is sent on the
+// verdict of the check before, and the worker becomes unready.
+async function case21_slowCheck() {
+  const f = await capacityFixture('slow-check', {connect: true});
+  const slowDir = path.join(f.dir, 'PRIVATE-slow-check-host');
+  const slowHost = hex('host', 5, 64);
+  await f.configure({hostIds: {[slowDir]: slowHost}});
+  const slow = await f.connectAgent(sessionAgent, 'FAKE-CONFORMANCE slowly checked worker', slowDir);
+  await f.configure({delayWhen: [{command: 'status', state: slowDir, ms: 800}]});
+  await f.start();
+  await f.code(slow, 'ready', 'the slowly checked worker is ready', 10000);
+  const workflow = await f.create({name: 'FAKE slowly checked workflow', connectionId: slow, intervalMinutes: 60, enabled: true});
+  await f.finish(await f.newRun(workflow.id, 'queued', 8000), 'succeeded');
+  const sent = async () => (await f.submissions()).filter(call => option(call.argv, '--agent') === sessionAgent.agentId).length;
+  const isSlowStatus = argv => argv.includes('status') && option(argv, '--state') === slowDir;
+  // A status call of the worker that started 250 to 450 ms ago and has not ended: well inside its 800 ms, and after
+  // the pass that started it has made its dispatch decision (one interval is 100 ms).
+  const inFlight = () => until('§4 a slow check of the worker is in flight', async () => {
+    const [calls, outcomes] = [await f.calls(), await f.outcomes()];
+    const started = calls.filter(call => isSlowStatus(call.argv));
+    const age = started.length ? monotonicNow() - started.at(-1).mono : Infinity;
+    return outcomes.filter(call => isSlowStatus(call.argv)).length < started.length && age >= 250 && age <= 450 &&
+      started.length;
+  }, 10000);
+  for (const [code, why, unready, restore] of [
+    ['session_not_ready', 'its session stops being ready', {agents: f.config.agents.map(item => item.id === sessionAgent.agentId
+      ? {...item, sessions: item.sessions.map(session => ({...session, connection: 'disconnected'}))} : item)},
+    {agents: f.config.agents}],
+    ['identity_changed', 'its status reports another host', {hostIds: {[slowDir]: hex('host', 6, 64)}}, {hostIds: {[slowDir]: slowHost}}]]) {
+    const before = await sent();
+    const started = await inFlight();
+    await f.configure(unready);
+    await f.action(workflow.id, 'run');
+    await until('the in-flight check ends', async () => (await f.outcomes()).filter(call => isSlowStatus(call.argv)).length >= started);
+    await delay(1500);
+    expectEqual(await sent(), before, `§4 no task is sent on readiness older than the latest check: the worker became ` +
+      `unready (${why}) while a check of it was in flight`);
+    await f.code(slow, code, `${why}, as the in-flight check reports`, 8000);
+    await f.configure(restore);
+    await f.finish(await f.newRun(workflow.id, 'queued', 10000), 'succeeded');   // ready again: the requested run goes out
+  }
+  await f.stop();
+}
+
 await runCases('capacity', [case20_runtimeCapacity, case20_reviewerCapacity, case20_capacityOfOne, case20_twoConnections,
-  case21_hangingStatus, case21_hangingRuntimeShow, case21_hangingInspect, case21_hangingSubmit]);
+  case21_hangingStatus, case21_hangingRuntimeShow, case21_hangingInspect, case21_hangingSubmit, case21_slowCheck]);
