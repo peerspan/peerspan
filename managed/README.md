@@ -6,7 +6,7 @@ keeps every task identity and result across restarts, and shows what needs you.
 The Peerspan daemon and each owner's access rules stay the authority for
 execution: this application only invokes the owner CLI on this machine.
 
-![The console's overview: attention items, workflows with their latest runs, a followed program, runs and activity](assets/console-overview.png)
+![The console overview: attention items, results waiting for review, reliability figures and workflows on intervals and schedules](assets/console-overview.png)
 
 The picture shows scripted demonstration data, not real agent work.
 
@@ -33,10 +33,13 @@ and `start` and `stop` control the user service described below.
 
 ## Connect a worker
 
-A worker is one agent on a Peerspan host whose state directory is on this
-machine, with a running model session that has acknowledged its Peerspan channel.
-Prepare it with the upstream quick start and grant the sender host task access
-to it. The scheduler never grants access and never starts a model session.
+A worker is one agent attached to Peerspan, with a running model session that
+has acknowledged its Peerspan channel. Its host may run on this machine or on
+another one. Prepare it with the upstream quick start and have its owner grant
+the sender host task access to it. The scheduler never grants access and never
+starts a model session.
+
+### An agent whose host runs on this machine
 
 ```sh
 node managed/cli.mjs connect --name "Repository maintainer" --agent maintainer
@@ -54,18 +57,53 @@ no change here. Options:
   file naming `host_dir`, `host_id`, `agent_id`, `adapter_id` and `session_id`,
   for setups where a supervisor already maintains that file.
 
+### An agent on another machine
+
+```sh
+node managed/cli.mjs connect --name "Research agent" --remote bob/researcher
+```
+
+`--remote` is the agent's address or agent ID as `peerspan agents` lists it for
+the sender host. Nothing of the worker's machine is read: readiness comes from
+the sender's directory, which says whether the agent is connected with a
+verified channel, whether its host answered the sender's last refresh, and
+whether its owner allows this sender to submit tasks. The controller refreshes
+that directory when it starts and at most once a minute after that, and the
+Workers page shows how old the evidence is. Add `--network ID` when the sender
+host is in several networks, and `--sender-state DIR` as above. Only agents with addressable names (lowercase letters, digits, `.`, `_` and
+`-`, which is what `peerspan attach` creates) appear in that directory.
+
+This is weaker evidence than a local worker's own status: a session that has
+just gone away can still look connected until the next refresh, and a task sent
+in that window waits at the worker host until it is accepted or its acceptance
+window passes.
+
+### Shared rules
+
 Use a dedicated agent. The scheduler never puts two of its own runs on one
 agent, but it cannot reserve an agent against other dispatchers.
 
 `disconnect --id ID` removes a worker once no workflow uses it. The Workers page
-shows each worker's readiness with its reason, and what the worker host's own
-`peerspan status` says needs attention, with the command Peerspan suggests.
+shows each worker's readiness with its reason, and what `peerspan status` says
+needs attention, with the command Peerspan suggests: the worker host's for a
+local worker, the sender host's for a remote one.
 
 ## Workflows
 
-Create a workflow in the console: a bounded assignment, the worker, how often it
-repeats, a daily dispatch limit and an acceptance window. New workflows are
-paused unless you enable them.
+Create a workflow in the console: a bounded assignment, the worker, when it
+runs, a daily dispatch limit and an acceptance window. New workflows are paused
+unless you enable them.
+
+- **Interval or schedule.** A workflow repeats after an interval, counted from
+  the end of the previous run, or on chosen weekdays at local times in a time
+  zone, such as weekdays at 09:00 Europe/London. Daylight-saving changes are
+  handled: a skipped local time runs later by the change, a repeated one runs
+  once. A slot that passes while a run is in progress, the workflow is paused or
+  the controller is stopped runs once as soon as it can, not once per slot.
+- **Review.** With "Hold each result for my review", a succeeded run waits for
+  your verdict. Accepted results count as successes, rejected ones as failures,
+  and waiting ones count as neither. Reviews never hold back the schedule, and
+  a verdict is final.
 
 - **Pause and resume.** Pausing stops new dispatch and lets the run in progress
   finish. Resuming does not run at once: the schedule decides, or "Run now".
@@ -76,9 +114,8 @@ paused unless you enable them.
 - **Failure circuit.** Three consecutive failed runs pause the workflow until
   you resume it.
 
-The interval counts from the end of the previous run. Daily limits count
-dispatches per UTC day, including failed ones; they are not cost limits, and
-model usage is billed by your provider.
+Daily limits count dispatches per UTC day, including failed ones; they are not
+cost limits, and model usage is billed by your provider.
 
 ## Runs
 
@@ -93,8 +130,11 @@ included.
   its worker host is gone. It frees the workflow and the worker here and stops
   all further calls for that task. It does not stop the worker.
 
-A succeeded run is the worker's own report. Nothing in this preview checks the
-output, downloads artifacts or approves anything on your behalf.
+A succeeded run is the worker's own report. Unless its workflow asks you to
+review results, nothing in this preview checks the output; it never downloads
+artifacts or approves anything on your behalf. Results waiting for your review
+are listed on the overview, oldest first, and each run page has Accept and
+Reject with an optional note.
 
 ## Recovery
 
@@ -150,10 +190,12 @@ state directory. Nothing here replaces the Peerspan host service.
 ## Upgrading from the first preview
 
 The first command of this version that opens an existing state directory
-migrates it in place, after saving a copy as `managed.v1-backup.sqlite` beside
-it. Connections, observations, workflows, runs, task IDs and results keep their
-IDs; a run that was unresolved is reconciled under its task ID as after any
-restart. Restart the service after updating the checkout.
+migrates it in place, after saving a copy beside it as
+`managed.v1-backup.sqlite` or `managed.v2-backup.sqlite`, by the version it
+found. Connections, observations, workflows, runs, task IDs, results and the
+activity log keep their IDs; a run that was unresolved is reconciled under its
+task ID as after any restart. Existing workflows keep their intervals and do not
+ask for review. Restart the service after updating the checkout.
 
 ## Develop
 
@@ -162,6 +204,8 @@ npm --prefix managed run check                  # syntax check of every source
 node managed/conformance/acceptance.mjs         # contract cases 1 to 6
 node managed/conformance/operations.mjs         # contract cases 7 to 10
 node managed/conformance/visibility.mjs         # contract cases 11 and 12
+node managed/conformance/remote.mjs             # contract case 13
+node managed/conformance/schedules.mjs          # contract cases 14 and 15
 # Actual two-host transport with a scripted adapter, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```

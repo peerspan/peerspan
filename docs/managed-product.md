@@ -12,8 +12,10 @@ Peerspan workers, schedules bounded assignments, persists submission identities
 before delivery, reconciles runs after restart, and exposes an authenticated
 loopback console. Its second revision makes that slice complete enough to run
 unattended: workers registered by agent, editing and archiving, cancellation,
-run timelines, an activity log, and a measure of how often the operator steps in. It does not provision cloud machines, launch model sessions,
-bill customers, or guarantee that an agent's answer is correct. These limits are
+run timelines, an activity log, and a measure of how often the operator steps in. Its third revision reaches agents on other machines through the sender
+host's directory, runs workflows on wall-clock schedules, and lets the operator
+review results before they count. It does not provision cloud machines, launch
+model sessions, bill customers, or guarantee that an agent's answer is correct. These limits are
 visible in the console and documentation.
 
 The original host, peer protocol, grants, adapters and license remain upstream
@@ -37,9 +39,9 @@ manual interventions, repeat weekly use and paid retention.
 1. Local operations: durable queue, recurring schedules, exact worker readiness,
    pause/resume, daily dispatch caps, failure circuit, task history and results.
    Implemented, with editing, archiving, cancellation, timelines, activity and
-   reliability figures ([contract](managed-contract.md) revision 2). Still open
-   in this step: workers on other machines, which need readiness evidence the
-   sender can obtain without the worker host's state, and wall-clock schedules.
+   reliability figures (revision 2), and workers on other machines, wall-clock
+   schedules and operator review of results ([contract](managed-contract.md)
+   revision 3). Still open in this step: results checked by a reviewer agent.
 2. Worker lifecycle: managed dedicated harness sessions, repository workspaces,
    health repair, approvals and independently checked result contracts.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,
@@ -53,8 +55,8 @@ that this preview claims to operate.
 
 ## First release acceptance
 
-An operator can connect an existing local worker through its private attachment
-state, create a bounded recurring assignment, pause and resume dispatch, see why
+An operator can connect an existing worker, local or reachable through the
+sender host's directory, create a bounded recurring assignment, pause and resume dispatch, see why
 dispatch is blocked, and inspect actual remote results. Restarting the controller
 does not create a replacement ID for unresolved work. Unverified workers receive
 no new assignments. Existing external controllers remain observation-only.

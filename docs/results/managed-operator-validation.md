@@ -1,5 +1,104 @@
 # Managed operator validation
 
+## Revision 3
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
+against the same Rust host binaries as revision 2 (upstream `3a19521c`). The Rust
+host is unchanged by this work; its checks were not rerun.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| `node managed/conformance/acceptance.mjs` (cases 1 to 6) | 6/6 passed in 64 seconds. |
+| `node managed/conformance/operations.mjs` (cases 7 to 10) | 5/5 passed in 16 seconds. |
+| `node managed/conformance/visibility.mjs` (cases 11 and 12) | 6/6 passed in 41 seconds. |
+| `node managed/conformance/remote.mjs` (case 13) | 4/4 passed in 65 seconds; one case waits for the second directory refresh, a minute after the first. |
+| `node managed/conformance/schedules.mjs` (cases 14 and 15) | 5/5 passed in 9 seconds, using the conformance clock. |
+| `real-peerspan-smoke.py` against built binaries | 3/3 passed in 114 seconds. |
+| Version 2 state migrated by revision 3 | Passed; see below. |
+| Console in headless Chrome 157 | Desktop 1440 and 1360 and phone 390 pixels wide, light and dark: no horizontal overflow and no page errors. The schedule editor, the review form and its "next result" flow, and the remote worker panel exercised by script; a draft review note kept its text, focus and caret through four live refreshes. |
+
+The two new suites were written from [the contract](../managed-contract.md) by a
+separate author who did not read `managed/lib/` or `managed/public/`. Revision 3
+deliberately changes shapes that the revision 2 suites checked exactly (the
+schema version, new run, workflow and readiness fields, new codes and kinds), so
+that author also brought the shared checks of `harness.mjs` up to the revision 3
+contract; no case was weakened. With the harness and the fake, the suites are
+now 3,583 lines and take about three and a half minutes in sequence.
+
+One acceptance run hit a 403 in `durableRecovery` while a
+reviewer's probe controllers were running on the same machine: the fixture
+chooses a free port before `serve` binds it, and another process can take it in
+between. The case passed in every other run, before and after.
+
+The real-transport smoke's third case, new in revision 3, registers a worker
+with `--remote` from the sender host's directory alone, without naming any
+state of the worker host. It waits for readiness from that directory, creates a
+workflow on a wall-clock schedule with operator review, makes it due with "run
+now", delivers the task through actual transport to a scripted adapter, checks
+that the success waits for review and counts only after it is accepted, checks
+that the next run is the next scheduled slot, and then stops the adapter's lease
+renewal: the controller's once-a-minute directory refresh reports
+`session_not_ready` about a minute later. No model is called.
+
+### Independent review of revision 3
+
+A reviewer who had not written the code read revision 3 against the contract,
+probed it, and confirmed six defects, all fixed before publishing:
+
+- **High:** a workflow whose window held only successes without review reported
+  `stats.failed` as null, because SQL treats a comparison with a null review as
+  null. The suite author found the same defect independently.
+- **Medium:** the console rebuilt the run page on every live update and emptied
+  a review note being typed. Typed text, focus and the caret now survive
+  refreshes; the draft is kept per run, so it never follows the operator to the
+  next result.
+- **Medium:** with `MANAGED_CLOCK_FILE`, a moved clock reached a scheduler pass
+  only at the next tick, up to ten seconds later. Passes now start at least once
+  a second while the variable is set.
+- **Low:** directory refreshes stopped after the controller's clock was stepped
+  back. Sixty seconds now count by elapsed time or by the clock, whichever comes
+  first.
+- **Low:** `directoryAt` passed the upstream text through and the reason labelled
+  a non-UTC time as UTC; it is now rewritten as a UTC time, and a change of it
+  alone counts as a readiness change.
+- **Low:** bare offsets such as `+05:30` passed as time zone names.
+
+The reviewer also checked the schedule arithmetic against an independent
+brute-force reference: 3,840 cases around every 2026 transition in 16 zones,
+including Lord Howe's half-hour change, Chatham, Troll and Casablanca, with no
+mismatch, plus the days Apia and Kiritimati skipped.
+
+### Migration from version 2
+
+The live state on the validation machine had only two observations, so the
+migration was also rehearsed on richer version 2 state built by the revision 2
+controller itself (with its fake Peerspan): one connection, an observation, an
+archived workflow with a finished run and its timeline, a workflow with a run
+left `running`, and an edited, paused workflow. Opening it with revision 3 kept
+every row (connections, observations, workflows, runs, tasks, task events and
+activity) and every compared value, wrote `managed.v2-backup.sqlite` with the
+same counts, gave workflows `schedule` null and `review` `none`, and left runs
+needing no review. The run left `running` was then completed by the fake and
+retained by revision 3 under its task ID, with one submission in all.
+
+### Found against the real CLI
+
+- **Only addressable agents are in the directory.** Upstream `agents` lists an
+  agent only when its name is addressable (lowercase letters, digits, `.`, `_`
+  and `-`); others appear in the directory by ID only and not in `agents`. The
+  first smoke run used an agent named in capitals and could not register it.
+  The contract and README now say so, and the refusal names the rule.
+- **A new policy reaches the sender by sync.** After the worker's owner allows
+  the sender, the sender's directory lists the agent only once that policy has
+  synced to it, a few seconds later. Registration therefore refreshes the
+  directory, and the smoke waits for the listing before it registers.
+- **A lapsed lease can look connected.** In the smoke's throwaway network, the
+  sender's directory still showed the agent `connected` 20 seconds after its
+  adapter stopped renewing, until a refresh. The controller's own refresh, at
+  most once a minute, bounds how stale remote readiness can be, and the console
+  shows the directory's time.
+
 ## Revision 2
 
 Validated on 2026-11-11 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
