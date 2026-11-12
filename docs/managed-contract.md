@@ -47,7 +47,11 @@ start under the same task identities (section 4).
 stepped back by less than ten minutes, as a time sync or a resumed virtual
 machine does: the controller keeps using the newest time it has recorded,
 across a restart too, until the system clock passes it. A larger step back is
-taken as a deliberate correction and followed.
+taken as a deliberate correction and followed. (rev 7) No two times the
+controller uses are equal: while the system clock has not passed the newest
+time, the controller counts on from it a millisecond at a time. So when section
+4 compares when a check began with when work became due, the order of those two
+events is never lost to a held clock.
 
 (rev 3) For conformance only, `MANAGED_CLOCK_FILE=PATH` names a file holding a
 whole number of milliseconds, possibly negative, that the controller adds to the

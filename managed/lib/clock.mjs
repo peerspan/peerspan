@@ -1,7 +1,7 @@
 // The controller's clock. Recorded times order runs and activity, so they must
 // not run backwards when the system clock is stepped back by a time sync or a
-// resumed virtual machine: the controller then keeps the newest time it has
-// used until the system clock passes it. A step back of more than the tolerance
+// resumed virtual machine: the controller then counts on from the newest time it
+// has used until the system clock passes it. A step back of more than the tolerance
 // is taken as a deliberate correction and followed.
 //
 // For conformance only, MANAGED_CLOCK_FILE names a file holding a millisecond
@@ -34,7 +34,10 @@ function systemMs() {
 
 export function nowMs() {
   const system = systemMs();
-  newest = newest - system > TOLERANCE_MS ? system : Math.max(system, newest);
+  // Strictly increasing: while the system clock has not passed the newest time, the controller
+  // counts on from it a millisecond at a time, so no two times it uses are equal and "a check
+  // began after the run became due" is exact even while a step back holds the clock (MGD-15).
+  newest = newest - system > TOLERANCE_MS ? system : Math.max(system, newest + 1);
   return newest;
 }
 
