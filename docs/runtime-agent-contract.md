@@ -117,7 +117,8 @@ the reason.
 - `network` the profile's;
 - `workspace_archive` null, and `results` `none`;
 - `peerfs_workspace` the fork's name, and `peerfs_fork_from` the profile's `from_branch`;
-- `peerfs_agent` the agent's name, and `peerfs_commit` true;
+- `peerfs_agent` the agent's name, `peerfs_commit` true, and `peerfs_commit_message`
+  `TASK_ID from SENDER_HOST_ID`;
 - `stdin` the task's `input`;
 - `harness` the profile's `harness_dir`;
 - `secrets` `{"openai_api_key": PATH}`, the path of the agent's credential file.
@@ -268,7 +269,7 @@ The suite covers:
   refused with 400 naming `artifacts`, and nothing persisted.
 - **Running:** the request the host sends. It has the harness `argv` beginning `/bin/sh -c`, the
   task's `input` as `stdin`, the profile's resources and network, and the fork name
-  `NAME.TASK_ID` from `from_branch`. It has `peerfs_agent` and `peerfs_commit` true, the harness
+  `NAME.TASK_ID` from `from_branch`. It has `peerfs_agent`, `peerfs_commit` true with the message `TASK_ID from SENDER_HOST_ID`, the harness
   directory, and a secret path whose file holds the stored key.
 - **Lifecycle:** queued, accepted, then succeeded with the output `MESSAGE\n\nBranch: NAME at
   commit ID`. The fork holds the agent's write, and `from_branch` is unchanged.
