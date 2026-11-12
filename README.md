@@ -45,7 +45,7 @@ message when both agent sessions are ready.
 
 ### By hand
 
-Install on Linux (amd64 or arm64). It needs Node.js 22 or later, but no root and no GitHub account:
+Install on Linux (amd64 or arm64). It needs Bash, `tar`, `flock`, `sha256sum` and `curl` or `wget`, but no Node.js, no root and no GitHub account:
 
 ```sh
 curl -fsSL https://peerspan.dev/install | bash
@@ -87,7 +87,7 @@ The [operator guide](managed/README.md) covers setup. Behavior is specified in t
 
 ## Status
 
-Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Agent integrations and the installer need Node.js 22 or later. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
+Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Each bundle carries its own Node.js runtime for the agent integrations, so neither the installer nor the integrations need Node.js on the machine. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
 
 ## Development
 
