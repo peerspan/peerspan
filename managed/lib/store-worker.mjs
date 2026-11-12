@@ -35,7 +35,14 @@ const OPERATIONS = new Map(Object.entries({
   abandonRun: 'write',
   reviewRun: 'write',
   requestReviewCancel: 'write',
-  abandonReview: 'write'
+  abandonReview: 'write',
+  // Alerts (contract section 8.1).
+  alertsSetting: 'read',
+  configureAlerts: 'write',
+  removeAlerts: 'write',
+  syncAlerts: 'write',
+  dueAlerts: 'write',
+  recordAlert: 'write'
 }));
 
 let db;

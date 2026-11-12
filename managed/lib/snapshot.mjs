@@ -19,7 +19,7 @@ function orderAttention(items) {
   });
 }
 
-function attentionFor({ engine, workflows, connections, problems, reviews, awaitedReviewers, observed }) {
+function attentionFor({ engine, workflows, connections, problems, reviews, awaitedReviewers, observed, alerts }) {
   const items = [];
   const add = (kind, severity, type, subject, message, since) =>
     items.push({ kind, severity, subject: { type, id: subject.id, name: subject.name }, message, since: since ?? null });
@@ -50,6 +50,10 @@ function attentionFor({ engine, workflows, connections, problems, reviews, await
   for (const source of observed) {
     if (!source.available) add('observed_unavailable', 'warning', 'observation', source, source.error, null);
     else if (source.error) add('observed_problem', 'warning', 'observation', source, source.error, source.lastTickAt);
+  }
+  // (rev 10) Alerts that cannot be delivered show here, never through another alert (section 8.1).
+  if (alerts.failingSince) {
+    add('alerts_failing', 'warning', 'alerts', { id: 'alerts', name: 'Alerts' }, alerts.failure, alerts.failingSince);
   }
   for (const workflow of workflows) {
     if (workflow.dailyLimitReached) {
@@ -84,7 +88,8 @@ export async function buildSnapshot({ store, engine, version }) {
     problems: data.problems,
     reviews: data.reviews,
     awaitedReviewers: data.awaitedReviewers,
-    observed
+    observed,
+    alerts: data.alerts
   });
   return {
     connections,
@@ -105,7 +110,9 @@ export async function buildSnapshot({ store, engine, version }) {
       error: engine.error,
       modelCostAvailable: false,
       modelCost: 'Unavailable; model usage is billed by your provider',
-      cloudProvisioning: false
+      cloudProvisioning: false,
+      // (rev 10) Never the webhook URL: only whether alerts are set, its host, and whether they fail.
+      alerts: { configured: data.alerts.configured, host: data.alerts.host, failing: data.alerts.failingSince !== null }
     }
   };
 }

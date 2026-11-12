@@ -1,5 +1,78 @@
 # Managed operator validation
 
+## Revision 10 (0.11.0)
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node
+24.22.2, against the host binaries of revision 7. The store is version 7.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The eleven suites, cases 1 to 31 | 73/73 passed in about 7 minutes in sequence, at a load average of 33 to 42 from other work: acceptance 6/6 (65 s), operations 5/5 (29 s), visibility 6/6 (42 s), remote 4/4 (66 s), schedules 5/5 (33 s), reviewers 8/8 (31 s), runtime-agents 4/4 (14 s), capacity 11/11 (29 s), checks 6/6 (12 s), handoffs 9/9 (13 s), alerts 9/9 (47 s); 7,746 lines with the harness and the fake. |
+| `real-peerspan-smoke.py` | 5/5 passed in 208 seconds. |
+| Version 6 state built by 0.10.0, opened by 0.11.0 | Every row and compared value kept, among them a pending handoff and a rejection by checks; the backup `managed.v6-backup.sqlite` written; a run left running reconciled with one submission and a rework due before the upgrade sent after it; alerts set on the migrated state. The reviewer also took versions 4 and 5 to 7, and 0.10.0 refuses version 7 unchanged. |
+| A live controller with a local webhook | A worker made unready raised one alert with the exact body; its recovery sent "Resolved"; a receiver answering 500 turned `meta.alerts.failing` and the `alerts_failing` item on; the webhook's secret path and token appeared nowhere in the snapshot, activity, logs or CLI output. |
+
+### Alerts
+
+`node managed/cli.mjs alerts --url URL` (or `--url -` from standard input) sets
+a webhook, and the controller announces each attention item that needs the
+operator when it appears and when it clears (section 8.1, MGD-19). The body
+carries `text` and `content` for chat services and the item itself. Deliveries
+are retried with backoff for a day, keep one item's alerts in order and survive
+restarts without duplicates. A failing webhook shows in the console as
+`alerts_failing`. The URL is a secret: it is set only on the machine and never
+shown beyond its host. The console's sidebar says where alerts go.
+
+The suite author wrote `alerts.mjs` from the contract, with a local receiver
+whose answers are scripted. It has 9 concurrent cases and covers:
+
+- configuration and its refusals, including a refused URL that leaves an older
+  store untouched;
+- privacy of the secret parts of the URL;
+- exact bodies;
+- `info` items never announced;
+- restarts and the `checking` rule;
+- non-2xx, redirect and slow answers;
+- the retry schedule and both 24-hour give-ups, moved with the clock file;
+- order when an item comes back.
+
+### Independent review of revision 10
+
+The reviewer found URL validation and privacy sound in every probe, across 36
+URL forms, redirects, timeouts, logs and errors. It confirmed seven defects,
+all fixed and re-checked with its probes:
+
+- **Quiet controllers.** Attention was read again only when the revision
+  changed, so a source that went stale over time was never announced. It is now
+  also read every 30 seconds; a stale source was announced 29 seconds in.
+- **Order when an item came back.** An item that came back while its cleared
+  alert was being retried was raised again first, so the last word the
+  receiver saw was "Resolved". An alert now waits for an older alert of its
+  item.
+- **A URL changed mid-evaluation.** A URL changed by the CLI during an
+  evaluation could send that start-over's alerts to the old URL and record them
+  as delivered. Each step now names the URL it read and does nothing after a
+  change.
+- **Slow webhooks.** A webhook answering 2xx slowly held each evaluation, so a
+  new item waited behind ten slow deliveries. Deliveries now start only within
+  2 seconds of an evaluation.
+- **Restarts.** An alert delivered just as the controller stopped was sent again
+  after the restart.
+- **Response bodies.** They were read in full: a 1 GB answer took the
+  controller's memory from 48 to 1,134 MB. Now nothing is read.
+- **Refused URLs.** A refused URL still migrated an older store and wrote a
+  backup.
+
+Its second round found the 30 seconds stretching to 35 when reading the
+attention items was slow, now counted from when the read begins. Two suspicions
+were fixed too:
+
+- Alerts waited for a successful scheduler pass, so a controller whose every
+  pass failed never announced `controller_error`.
+- The URL stood in the process list and shell history; `--url -` now reads it
+  from standard input.
+
 ## Revision 9 (0.10.0)
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node

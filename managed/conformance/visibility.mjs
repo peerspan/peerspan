@@ -501,8 +501,8 @@ async function case12_versionOneMigration() {
   db.close();
   await fs.chmod(file, 0o600);
 
-  await f.start();   // the first revision 9 command that opens the state migrates it through to version 6
-  const snapshot = await f.snapshot();   // meta.schemaVersion 6 is checked on every snapshot
+  await f.start();   // the first revision 10 command that opens the state migrates it through to version 7
+  const snapshot = await f.snapshot();   // meta.schemaVersion 7 is checked on every snapshot
   const backup = await fs.stat(path.join(f.state, 'managed.v1-backup.sqlite')).catch(() => null);
   expect(backup !== null && backup.size > 0 && (backup.mode & 0o777) === 0o600,
     '§1 before migrating, a copy of the version 1 database is saved as managed.v1-backup.sqlite, private (0600)',
@@ -534,6 +534,9 @@ async function case12_versionOneMigration() {
   expectEqual([snapshot.workflows.map(item => pick(item, 'after handoffPending')), snapshot.runs.filter(run => [done.id,
     open.id].includes(run.id)).map(run => run.handoffFrom)], [Array(3).fill({after: null, handoffPending: null}), [null, null]],
   '§1 (rev 9) migrated workflows have after and handoffPending null, and migrated runs have handoffFrom null');
+  expectEqual([snapshot.meta.alerts, JSON.parse(await f.checkedCli('alerts'))], [{configured: false, host: null,
+    failing: false}, {configured: false, host: null}], '§1 (rev 10) migrated state has no alerts configured: §8.1 ' +
+    'meta.alerts and the output of alerts alone');
   const runView = row => row && {...pick(row, 'id workflowId taskId state output'), createdAt: moment(row.createdAt),
     finishedAt: moment(row.finishedAt)};
   expectEqual(runView(snapshot.runs.find(run => run.id === done.id)), runView(done),
@@ -572,8 +575,8 @@ async function case12_newerSchemaRefused() {
   await fs.mkdir(f.state, {mode: 0o700});
   const file = path.join(f.state, 'managed.sqlite');
   const db = new DatabaseSync(file);
-  // §1 (rev 9): the current schema version is 6, so a newer one is 7.
-  db.exec("PRAGMA user_version = 7; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
+  // §1 (rev 10): the current schema version is 7, so a newer one is 8.
+  db.exec("PRAGMA user_version = 8; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
     "INSERT INTO fake_future_schema VALUES ('FAKE state written by a newer schema')");
   db.close();
   await fs.chmod(file, 0o600);
@@ -583,16 +586,18 @@ async function case12_newerSchemaRefused() {
   const refused = {
     serve: ['serve', '--port', String(f.port)],
     connect: ['connect', '--name', 'FAKE refused', '--worker-state', f.workerFile, '--sender-state', f.senderDir],
-    observe: ['observe', '--name', 'FAKE refused', '--directory', f.dir]};
+    observe: ['observe', '--name', 'FAKE refused', '--directory', f.dir],
+    // (rev 10) the alerts settings live in the state too (§8.1).
+    'alerts --url': ['alerts', '--url', 'https://hooks.example.invalid/FAKE-newer-schema'], 'alerts --off': ['alerts', '--off']};
   for (const [name, args] of Object.entries(refused)) {
     const result = await f.cli(...args);
     expect(result.code !== 0 && result.code !== null,
       `§1 ${name} refuses state written by a newer schema with a nonzero exit (null: it kept running)`, result);
     await unmodified(name);
   }
-  for (const name of ['status', 'token', 'doctor']) {
-    await f.cli(name);
-    await unmodified(name);
+  for (const args of [['status'], ['token'], ['doctor'], ['alerts']]) {
+    await f.cli(...args);
+    await unmodified(args.join(' '));
   }
 }
 

@@ -40,6 +40,9 @@ export class Refusal extends Error {
 
 const iso = ms => new Date(ms).toISOString();
 
+// One alert follows one attention item: its kind and subject (contract section 8.1).
+export const alertKey = item => JSON.stringify([item.kind, item.subject.type, item.subject.id]);
+
 const scheduleOf = row => (row.schedule === null ? null : JSON.parse(row.schedule));
 
 /** When a workflow next runs after one of its runs finished at `finishedAt` (contract sections 4 and 14). */
@@ -1201,8 +1204,124 @@ export class Model {
         ORDER BY archived_at DESC, rowid DESC`)
         .map(row => ({ id: row.id, name: row.name, archivedAt: row.archived_at,
           after: row.after_workflow_id === null ? null : { workflowId: row.after_workflow_id } })),
-      activity: this.all('SELECT * FROM activity ORDER BY seq DESC LIMIT 30').map(activityView)
+      activity: this.all('SELECT * FROM activity ORDER BY seq DESC LIMIT 30').map(activityView),
+      // (rev 10) Whether alerts are set and failing; never the URL, only its host (section 8.1).
+      alerts: this.alertsView()
     };
+  }
+
+  // ----- alerts (contract section 8.1) ----------------------------------------------
+
+  setting(key) {
+    return this.one('SELECT value FROM settings WHERE key = ?', key)?.value ?? null;
+  }
+
+  /** The webhook URL, a secret for the alerter alone, and the failure state. */
+  alertsSetting() {
+    return { url: this.setting('alerts.url'), failingSince: this.setting('alerts.failing_since'),
+      failure: this.setting('alerts.failure') };
+  }
+
+  alertsView() {
+    const { url, failingSince, failure } = this.alertsSetting();
+    return { configured: url !== null, host: url === null ? null : new URL(url).hostname, failingSince, failure };
+  }
+
+  /** Every alert is forgotten: a new URL, or none, starts over. */
+  resetAlerts() {
+    this.run('DELETE FROM alerts');
+    this.run("DELETE FROM settings WHERE key IN ('alerts.failing_since', 'alerts.failure')");
+  }
+
+  configureAlerts(url, now) {
+    this.run(`INSERT INTO settings (key, value) VALUES ('alerts.url', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`, url);
+    this.resetAlerts();
+    const host = new URL(url).hostname;
+    this.log(now, 'operator', 'alerts.configured', { data: { host } });
+    return { configured: true, host };
+  }
+
+  removeAlerts(now) {
+    this.run("DELETE FROM settings WHERE key = 'alerts.url'");
+    this.resetAlerts();
+    this.log(now, 'operator', 'alerts.removed', {});
+    return { configured: false, host: null };
+  }
+
+  /**
+   * Opens an alert for each announced item that has none, and clears the open alerts whose items
+   * are gone, except those whose state is not known yet (`unknown` item keys).
+   */
+  syncAlerts(url, items, unknown, now) {
+    // Read for another URL than the one now set: the setting changed meanwhile, and starts over.
+    if (this.setting('alerts.url') !== url) return;
+    const present = new Map(items.map(item => [alertKey(item), item]));
+    const waiting = new Set(unknown);
+    const open = this.all('SELECT id, item_key, raised_sent_at, gave_up_at FROM alerts WHERE cleared_at IS NULL');
+    for (const alert of open) {
+      if (present.has(alert.item_key) || waiting.has(alert.item_key)) continue;
+      // A raised alert that was never delivered has no cleared alert to follow it.
+      if (alert.gave_up_at !== null) this.run('DELETE FROM alerts WHERE id = ?', alert.id);
+      else this.run('UPDATE alerts SET cleared_at = ? WHERE id = ?', now, alert.id);
+    }
+    const openKeys = new Set(open.map(alert => alert.item_key));
+    for (const [key, item] of present) {
+      if (!openKeys.has(key)) {
+        this.run('INSERT INTO alerts (item_key, item, raised_at) VALUES (?, ?, ?)', key, JSON.stringify(item), now);
+      }
+    }
+  }
+
+  /**
+   * The alerts to deliver now, oldest first, each `{id, phase, item}`. A raised alert goes before its
+   * cleared one; each is given up 24 hours after its item appeared or cleared (section 8.1).
+   */
+  dueAlerts(url, now) {
+    if (this.setting('alerts.url') !== url) return [];
+    const dayAgo = iso(Date.parse(now) - 24 * 60 * MINUTE);
+    this.run(`UPDATE alerts SET gave_up_at = ? WHERE gave_up_at IS NULL AND raised_sent_at IS NULL AND raised_at < ?`,
+      now, dayAgo);
+    this.run(`DELETE FROM alerts WHERE (gave_up_at IS NOT NULL AND cleared_at IS NOT NULL)
+      OR (raised_sent_at IS NOT NULL AND cleared_sent_at IS NULL AND cleared_at < ?)`, dayAgo);
+    // An alert waits while an older alert of the same item still has something to deliver, so that one
+    // item's alerts always arrive in order, also when it came back while the older one was retried.
+    const pending = `a.gave_up_at IS NULL AND (a.raised_sent_at IS NULL OR (a.cleared_at IS NOT NULL AND a.cleared_sent_at IS NULL))`;
+    return this.all(`SELECT a.id, a.item, a.raised_sent_at FROM alerts a
+      WHERE ${pending} AND (a.next_attempt_at IS NULL OR a.next_attempt_at <= ?)
+        AND NOT EXISTS (SELECT 1 FROM alerts b WHERE b.item_key = a.item_key AND b.id < a.id
+          AND b.gave_up_at IS NULL AND (b.raised_sent_at IS NULL OR (b.cleared_at IS NOT NULL AND b.cleared_sent_at IS NULL)))
+      ORDER BY a.raised_at, a.id`, now)
+      .map(row => ({ id: row.id, phase: row.raised_sent_at === null ? 'raised' : 'cleared', item: JSON.parse(row.item) }));
+  }
+
+  /**
+   * Records one delivery attempt: `failure` is null when it was delivered, or a short reason. A
+   * failed attempt is tried again after 30 seconds, doubling to 30 minutes. Returns whether the
+   * failure state the console shows changed.
+   */
+  recordAlert(url, id, phase, failure, now, host) {
+    // An attempt for a URL that was replaced or removed meanwhile counts for nothing: that start-over
+    // already forgot every alert.
+    if (this.setting('alerts.url') !== url) return false;
+    const alert = this.one('SELECT attempts FROM alerts WHERE id = ?', id);
+    if (!alert) return false;
+    const before = this.alertsSetting();
+    if (failure === null) {
+      if (phase === 'cleared') this.run('DELETE FROM alerts WHERE id = ?', id);
+      else this.run('UPDATE alerts SET raised_sent_at = ?, attempts = 0, next_attempt_at = NULL WHERE id = ?', now, id);
+      this.run("DELETE FROM settings WHERE key IN ('alerts.failing_since', 'alerts.failure')");
+      return before.failingSince !== null;
+    }
+    const delay = Math.min(30_000 * 2 ** alert.attempts, 30 * MINUTE);
+    this.run('UPDATE alerts SET attempts = attempts + 1, next_attempt_at = ? WHERE id = ?', iso(Date.parse(now) + delay), id);
+    const message = `Alerts to ${host} are not being delivered: ${failure}`;
+    if (before.failingSince === null) {
+      this.run("INSERT INTO settings (key, value) VALUES ('alerts.failing_since', ?)", now);
+    }
+    this.run(`INSERT INTO settings (key, value) VALUES ('alerts.failure', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`, message);
+    return before.failingSince === null || before.failure !== message;
   }
 
   /** The newest time recorded anywhere, for the controller's clock to continue from. */

@@ -228,6 +228,8 @@ export function activityText(entry, names) {
     case 'review.abandoned': return `released a review task of ${workflow}`;
     case 'workflow.rework_due': return `made a rework of a rejected result of ${workflow} due (attempt ${entry.data?.attempt ?? 2})`;
     case 'workflow.handoff_due': return `handed an accepted result to ${workflow} as its next input`;
+    case 'alerts.configured': return `set alerts to go to ${entry.data?.host ?? 'a webhook'}`;
+    case 'alerts.removed': return 'turned alerts off';
     case 'connection.added': return `connected ${connection}`;
     case 'connection.removed': return `disconnected ${connection}`;
     case 'observation.added': return 'started following an external program';

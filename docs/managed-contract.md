@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 9. Revision 1 defined the first local slice: the console, recurring
+Revision 10. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -22,8 +22,10 @@ keeps every revision 7.1 behavior and adds result checks, which the controller
 applies to each result itself before any review (section 15.3); its store is
 version 5. Revision 9 keeps every revision 8 behavior and adds handoffs: a
 workflow that runs after another one, on that workflow's latest accepted result
-(section 14.1); its store is version 6. Additions are marked "(rev 2)" to
-"(rev 9)" where they extend an earlier section. Fork decisions are recorded in
+(section 14.1); its store is version 6. Revision 10 keeps every revision 9
+behavior and adds alerts: attention items announced to a webhook (section 8.1);
+its store is version 7. Additions are marked "(rev 2)" to "(rev 10)" where they
+extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -36,7 +38,8 @@ writer to the same state directory. Restart keeps connections, workflows, task
 IDs, immutable submission payloads and results. State permissions are 0700/0600.
 
 The CLI supports `serve`, `token --state DIR`, `status --state DIR`, `connect`,
-`disconnect`, `observe`, `unobserve` and `doctor` (section 7). Connection
+`disconnect`, `observe`, `unobserve` and `doctor` (section 7), (rev 10) and
+`alerts` (section 8.1). Connection
 configuration is operator-local only: no HTTP route registers, changes or removes
 a connection or an observation. Configuration commands may run while the
 controller is serving; a change takes effect at the next scheduler tick without a
@@ -92,6 +95,11 @@ Version 5 state is migrated in place after its backup copy
 `managed.v5-backup.sqlite`, and earlier versions through to version 6 in the
 same transaction. Migrated workflows have `after` and `handoffPending` null,
 and migrated runs have `handoffFrom` null.
+
+(rev 10) The current version is 7, and version 7 state is created directly.
+Version 6 state is migrated in place after its backup copy
+`managed.v6-backup.sqlite`, and earlier versions through to version 7 in the
+same transaction. Migrated state has no alerts configured.
 
 ## 2. HTTP contract
 
@@ -726,6 +734,7 @@ location, or upstream attention `detail` or `subject` text.
   | `observed_unavailable` | `warning` | `observation` | An observed entry has `available` false. |
   | `observed_problem` | `warning` | `observation` | An available observed entry has a non-null `error`. |
   | `daily_limit_reached` | `info` | `workflow` | An enabled workflow is blocked only by its daily cap. |
+  | `alerts_failing` | `warning` | `alerts` | (rev 10) The latest attempt to deliver an alert failed (section 8.1). `subject.id` is `alerts` and `name` is `Alerts`; `since` is when the first failure since the last delivery happened. |
   | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs, the ones that wait for the operator, and `since` is the earliest of their `finishedAt`. |
 
 - `activity`: the newest 30 activity entries (section 11), newest first.
@@ -736,7 +745,80 @@ location, or upstream attention `detail` or `subject` text.
   error,modelCostAvailable:false,modelCost,cloudProvisioning:false}`. `modelCost`
   says that model cost is unavailable. `revision` is an opaque string that
   changes whenever stored state or a readiness changes; clients compare it for
-  equality only.
+  equality only. (rev 10) `meta` also has `alerts` (section 8.1).
+
+### 8.1 Alerts (rev 10)
+
+The operator can have the attention items that need them announced to a webhook,
+so that unattended work reaches them where they are, such as a chat channel
+(MGD-19). The console's own notifications need an open browser; alerts do not.
+
+**Configuration** is operator-local, like a connection (section 7): no HTTP route
+reads or changes it.
+- `node managed/cli.mjs alerts --url URL` sets the webhook, `alerts --off`
+  removes it, and `alerts` alone prints the setting. Each prints one JSON object,
+  `{"configured":BOOLEAN,"host":HOST}`, `host` being the URL's host name as
+  the WHATWG URL standard writes it (`[::1]` for an IPv6 host), or null when
+  none is configured, and exits 0.
+- With `--url -` the URL is read from standard input, trimmed, which keeps it out
+  of the process list and the shell's history.
+- URL must be an absolute `https` URL. An `http` URL is accepted only when its
+  host is `localhost`, `127.0.0.1` or `[::1]`. It may have no user name or
+  password, and is at most 2,048 characters. Any other value prints one error
+  line on stderr, exits 1 and changes nothing, not even an older store's
+  version.
+- The URL usually carries a secret, so it is stored in the private state like a
+  credential. No HTTP response, activity entry, log line, CLI output or alert
+  contains more of it than its host name.
+- Setting a URL records `alerts.configured` with `{host}`, and `--off` records
+  `alerts.removed` (section 11). Both start over: every alert of the previous
+  URL is forgotten, `failing` becomes false, and the attention items present
+  then are announced to the new URL.
+
+**Alerts.** An alert follows one attention item, identified by its `kind`,
+`subject.type` and `subject.id`. Only `action` and `warning` items are
+announced, never `info` items. When such an item appears, which includes an
+item present when alerts are set, the controller sends a **raised** alert.
+When the item is gone, it sends a **cleared** alert. A change of the item's
+severity or message is not a new alert. An item that disappears and comes back
+is a new one. Attention is evaluated within 10 seconds of every change of
+`meta.revision`, and at least every 30 seconds, for what changes with time
+alone, such as an observed source. An item that appears and is gone again
+between two evaluations may raise nothing.
+
+**Delivery.** Each alert is one `POST` to the URL with a JSON body and
+`Content-Type: application/json`:
+
+```
+{"text":TEXT,"content":TEXT,"event":"attention.raised" or "attention.cleared","item":ITEM}
+```
+
+- ITEM is the attention item as section 8 shows it when it was raised.
+- TEXT is `Needs your action: NAME: MESSAGE` for an `action` item,
+  `Warning: NAME: MESSAGE` for a `warning` item, and `Resolved: NAME: MESSAGE`
+  for a cleared alert. NAME is `subject.name` and MESSAGE is `message`, both as
+  raised.
+- `text` and `content` repeat TEXT for chat services that read either field.
+
+An alert is delivered when the response status is 2xx. The controller follows
+no redirect and waits at most 5 seconds for a response. An alert that fails is
+tried again: 30 seconds after the first failure, then after twice the previous
+delay, up to 30 minutes. One item's alerts are delivered in order. A cleared
+alert waits until its raised alert is delivered, and when a raised alert is
+never delivered its cleared alert is not sent. A retry is tried within 10
+seconds of its time. An alert that is not delivered within 24 hours is given
+up. The 24 hours count from the evaluation that raised it (one that found the
+item, or the first after alerts were set) or that found its item gone. Alerts survive a restart: none is
+sent twice after it was delivered, and an item that cleared while the
+controller was stopped is announced as cleared at its next start. Until a
+connection's first check after a start has ended (`checking`, section 3), its
+`worker_unready` alert is neither raised nor cleared.
+
+**Visibility.** `meta.alerts` is `{configured,host,failing}`. `failing` is true
+while the latest attempt to deliver an alert failed. Then the attention item
+`alerts_failing` (`warning`, subject `{type:"alerts",id:"alerts",name:"Alerts"}`)
+is present, with a message that names the host and the failure, such as the
+status or a timeout. That item itself is never announced.
 
 ## 9. Editing and archiving workflows (rev 2)
 
@@ -895,6 +977,8 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `system` | `workflow.rework_due` | (rev 4) `{attempt}`: the attempt the rework will be (section 15.2). The entry's `runId` is the rejected run. |
 | `system` | `workflow.handoff_due` | (rev 9) null: an upstream result became the workflow's next input (section 14.1). The entry's `runId` is the upstream run, and its `workflowId` the workflow that will run on it. |
 | `operator` | `connection.added`, `connection.removed`, `observation.added`, `observation.removed` | null |
+| `operator` | `alerts.configured` | (rev 10) `{host}`: the webhook's host name (section 8.1). |
+| `operator` | `alerts.removed` | (rev 10) null. |
 | `system` | `run.dispatched` | null |
 | `system` | `run.finished` | `{state}` |
 | `system` | `run.problem`, `run.recovered` | null: a run's `error` appearing, and clearing while the run is still unresolved. (rev 4) `{task:"review"}` for its review task's `error`. |
@@ -1638,7 +1722,36 @@ area, not by revision.
       checks, beginning with the rejected run's `assignment` and keeping its
       `handoffFrom`.
 
-Version 2, 3, 4 and 5 state are not described by this contract, so their
+`alerts.mjs` (revision 10 alerts), with a local HTTP receiver standing in for the
+webhook:
+
+29. Alert configuration:
+    - `alerts --url`, `--off` and the bare command, with their JSON output;
+    - the refusals: an `http` URL to another host, a URL with a user name, one
+      of 2,049 characters, and a URL that is not absolute;
+    - the URL's secret path or query in no HTTP response, activity entry, CLI
+      output, log line or alert;
+    - the `alerts.*` activity entries;
+    - `meta.alerts`.
+30. Raising and clearing:
+    - a raised alert with the exact body for an `action` and a `warning` item,
+      and its cleared alert once the item is gone;
+    - no alert for an `info` item, and no new alert for a change of severity or
+      message;
+    - the items present when alerts are set announced, and announced again after
+      a new URL;
+    - an item that comes back raising again;
+    - a restart sending nothing twice, and announcing an item that cleared while
+      the controller was stopped.
+31. Failed delivery:
+    - non-2xx statuses, a redirect and a slow receiver counting as failures;
+    - the retry delays, moved with `MANAGED_CLOCK_FILE`;
+    - one item's alerts staying in order;
+    - `meta.alerts.failing` and the `alerts_failing` item, which is never
+      announced, until a delivery succeeds;
+    - an alert given up after 24 hours.
+
+Version 2, 3, 4, 5 and 6 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those
 versions and recorded with the validation results, not by these suites.
 

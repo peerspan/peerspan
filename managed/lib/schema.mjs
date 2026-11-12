@@ -8,12 +8,37 @@
 // Version 4 adds reviewer agents, rework and branches (sections 10.1, 15.1, 15.2).
 // Version 5 adds result checks (section 15.3). Version 6 adds handoffs (section
 // 14.1): a workflow runs on an interval, a schedule or after another workflow.
+// Version 7 adds alerts to a webhook (section 8.1).
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchOf } from './review.mjs';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
+
+// Version 7: operator settings (the alerts webhook, a secret) and one row per alert (contract section 8.1).
+// An alert follows one attention item from raised to cleared; `item` is the item as raised.
+const ALERT_TABLES = `
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_key TEXT NOT NULL,
+  item TEXT NOT NULL,
+  raised_at TEXT NOT NULL,
+  raised_sent_at TEXT,
+  cleared_at TEXT,
+  cleared_sent_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT,
+  -- Set when the raised alert was given up: its item may still be present, but nothing more is sent.
+  gave_up_at TEXT
+);
+-- At most one alert per attention item is open (not yet cleared).
+CREATE UNIQUE INDEX alerts_open_item ON alerts(item_key) WHERE cleared_at IS NULL;
+`;
 const backupName = version => `managed.v${version}-backup.sqlite`;
 
 // States in which a task still reserves its target and its run its workflow.
@@ -216,7 +241,7 @@ CREATE TABLE activity (
   data TEXT
 );
 CREATE INDEX activity_workflow ON activity(workflow_id, seq);
-`;
+` + ALERT_TABLES;
 
 // Covering indexes for the seven-day statistics, which read every run finished in the window. They
 // change no table, so version 4 stores gain them when opened and earlier revisions read them as before.
@@ -254,26 +279,31 @@ function rebuild(db, table, ddl, columns) {
 function migrateFromV2(db) {
   rebuild(db, 'connections', CONNECTIONS, CONNECTION_COLUMNS);
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V2);
-  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
+  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
 }
 
 // Version 3 to the current version, inside the caller's transaction.
 function migrateFromV3(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V3);
-  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
+  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
 }
 
 // Version 4 to the current version, inside the caller's transaction. The workflows table is
 // rebuilt because its constraints changed in version 6 (handoffs).
 function migrateFromV4(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V4);
-  db.exec(RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
+  db.exec(RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
 }
 
 // Version 5 to the current version, inside the caller's transaction.
 function migrateFromV5(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V5);
-  db.exec(RUN_COLUMNS_V6);
+  db.exec(RUN_COLUMNS_V6 + ALERT_TABLES);
+}
+
+// Version 6 to the current version, inside the caller's transaction.
+function migrateFromV6(db) {
+  db.exec(ALERT_TABLES);
 }
 
 /**
@@ -387,7 +417,8 @@ export function openDatabase(file) {
         // Another process may have migrated while this one waited for the lock.
         const current = userVersion(db);
         if (current < SCHEMA_VERSION) {
-          if (current === 5) migrateFromV5(db);
+          if (current === 6) migrateFromV6(db);
+          else if (current === 5) migrateFromV5(db);
           else if (current === 4) migrateFromV4(db);
           else if (current === 3) migrateFromV3(db);
           else if (current === 2) migrateFromV2(db);

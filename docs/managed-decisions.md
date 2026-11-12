@@ -504,3 +504,53 @@ restarts, and would make two rules where the store's one rule now decides.
   - "latest" means by the moment a result counted;
   - a PATCH with two ways to run is refused.
 - **Contract.** Sections 1, 2, 4, 8, 9, 11, 14.1 and 15.2.
+
+## MGD-19. Alerts to a webhook (2026-11-12)
+
+- **Question.** Recurring work runs unattended, but the console only shows what
+  needs the operator while it is open: its notifications need a browser tab.
+  How should a paused workflow, an unready worker or a result waiting for review
+  reach the operator anywhere else?
+- **Options.**
+  - (a) Email through a configured mail server.
+  - (b) A webhook: one JSON `POST` per alert to a URL the operator gives.
+  - (c) Leave it to the operator to poll the HTTP API.
+- **Chosen.** (b). The URL is configured with the local CLI and announces
+  `action` and `warning` attention items when they appear and when they clear.
+  The body carries `text` and `content` with one sentence, plus the item
+  itself.
+- **Reason.**
+  - (b) reaches chat services directly: Slack and Mattermost read `text`, and
+    Discord reads `content`. Through a small relay it also reaches mail, a pager
+    or ntfy, and it needs no new dependency.
+  - (a) needs credentials for a mail server, and mail is slower to act on.
+  - (c) puts a scheduler on the operator.
+  - Alerts follow the attention items the console already shows, so there is one
+    definition of what needs the operator. `info` items stay quiet, and an
+    alert clears when its item does.
+  - The URL is secret: like connections it is set only on the machine, never
+    over HTTP, and nothing shows more than its host.
+  - Delivery is retried with backoff for a day, keeps one item's alerts in
+    order, and survives restarts without duplicates. A failing webhook shows in
+    the console, never through another alert.
+- **Review.** The independent reviewer confirmed seven defects, all fixed and
+  re-checked with its own probes:
+  - Attention was read again only on a change of the revision, so a source that
+    went stale with time alone was never announced. It is now also read every
+    30 seconds.
+  - An item that came back while its cleared alert was being retried could be
+    raised again before the cleared alert, so the last word was "Resolved".
+    Alerts now wait for an older alert of the same item.
+  - A URL changed during an evaluation could send the start-over alerts to the
+    old URL and mark them as delivered. Every step now names its URL and does
+    nothing after a change.
+  - A slow webhook answering 2xx held each evaluation for as long as it took.
+    Deliveries now have a share of each evaluation.
+  - An alert delivered as the controller stopped was sent again after the
+    restart.
+  - A response body was read in full: a 1 GB answer took 1 GB of memory.
+  - A refused URL still migrated an older store.
+  
+  The reviewer also raised the URL standing in the process list and the shell
+  history. `--url -` reads it from standard input.
+- **Contract.** Sections 1, 7, 8, 8.1 and 11.

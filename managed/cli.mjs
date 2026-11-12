@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { Alerter, alertHost, checkAlertUrl } from './lib/alerts.mjs';
 import { seedClock, stamp } from './lib/clock.mjs';
 import { runDoctor } from './lib/doctor.mjs';
 import { Engine } from './lib/engine.mjs';
@@ -27,6 +28,7 @@ node managed/cli.mjs connect --name NAME --remote AGENT [--network ID] [--sender
 node managed/cli.mjs disconnect --id ID [--state DIR]
 node managed/cli.mjs observe --name NAME --directory DIR [--state DIR]
 node managed/cli.mjs unobserve --id ID [--state DIR]
+node managed/cli.mjs alerts [--url URL | --off] [--state DIR]
 node managed/cli.mjs doctor [--state DIR]
 
 Connect existing Peerspan workers. This preview does not launch model sessions.
@@ -40,8 +42,11 @@ const OPTIONS = {
   disconnect: ['state', 'id'],
   observe: ['state', 'name', 'directory'],
   unobserve: ['state', 'id'],
+  alerts: ['state', 'url', 'off'],
   doctor: ['state']
 };
+// Options that take no value.
+const FLAGS = new Set(['off']);
 
 const SHUTDOWN_GRACE_MS = 4000;
 
@@ -52,7 +57,7 @@ function parseCommand(argv) {
   try {
     const { values } = parseArgs({
       args: rest,
-      options: Object.fromEntries(allowed.map(name => [name, { type: 'string' }])),
+      options: Object.fromEntries(allowed.map(name => [name, { type: FLAGS.has(name) ? 'boolean' : 'string' }])),
       strict: true,
       allowPositionals: false
     });
@@ -126,6 +131,9 @@ async function serve(store, { token, options }) {
   });
   const server = await startServer({ engine, store, token, port, version: await version() });
   engine.start();
+  // Attention items announced to the operator's webhook, when one is set (contract section 8.1).
+  const alerter = new Alerter({ store, engine, version: await version() });
+  alerter.start();
   console.log(`Peerspan Managed ready at http://localhost:${port}\n`
     + 'Use the token command to sign in. No model sessions are started automatically.');
 
@@ -136,8 +144,34 @@ async function serve(store, { token, options }) {
   // Interrupted work is reconciled after the next start under the same task identities.
   const forced = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   abort.abort();
-  await Promise.all([engine.stop(), server.close()]);
+  await Promise.all([engine.stop(), server.close(), alerter.stop()]);
   clearTimeout(forced);
+}
+
+/**
+ * The webhook URL an `alerts` command sets, validated before anything is opened, or undefined. With
+ * `--url -` it is read from standard input, which keeps the secret out of the process list and the
+ * shell's history (contract section 8.1).
+ */
+async function alertUrlOption(options) {
+  if (options.url !== undefined && options.off) throw new Error('Pass --url or --off, not both');
+  if (options.url === undefined) return undefined;
+  let text = options.url;
+  if (text === '-') {
+    if (process.stdin.isTTY) console.error('Paste the webhook URL, then press Ctrl-D');
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    text = Buffer.concat(chunks).toString('utf8').trim();
+  }
+  return checkAlertUrl(text);
+}
+
+/** `alerts`: set, remove or show the webhook; nothing of its URL but the host is ever printed. */
+async function alerts(store, options, url) {
+  if (url !== undefined) return store.configureAlerts(url, stamp());
+  if (options.off) return store.removeAlerts(stamp());
+  const setting = await store.alertsSetting();
+  return { configured: setting.url !== null, host: alertHost(setting.url) };
 }
 
 async function main() {
@@ -156,6 +190,8 @@ async function main() {
     return;
   }
 
+  // A refused alert URL changes nothing, not even the state directory (contract section 8.1).
+  const alertUrl = command === 'alerts' ? await alertUrlOption(options) : undefined;
   const { path, token } = await prepareState(stateDirectory);
   if (command === 'token') {
     console.log(token);
@@ -177,6 +213,8 @@ async function main() {
       if (!options.id) throw new Error('--id is required');
       const remove = command === 'disconnect' ? store.removeConnection : store.removeObservation;
       console.log(JSON.stringify(await remove(options.id, stamp())));
+    } else if (command === 'alerts') {
+      console.log(JSON.stringify(await alerts(store, options, alertUrl)));
     } else if (command === 'observe') {
       if (!options.directory) throw new Error('--directory is required');
       const observation = { id: randomUUID(), name: requireName(options), directory: resolve(options.directory) };

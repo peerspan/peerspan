@@ -19,6 +19,7 @@ node managed/conformance/runtime-agents.mjs
 node managed/conformance/capacity.mjs
 node managed/conformance/checks.mjs
 node managed/conformance/handoffs.mjs
+node managed/conformance/alerts.mjs
 ```
 
 On the configured Windows editing machine:
@@ -37,12 +38,13 @@ revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
 suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
 (cases 20 to 22) the revision 6 and 7.1 suite, `checks.mjs` (cases 23 to 25)
-the revision 8 suite, and `handoffs.mjs` (cases 26 to 28) the revision 9 suite.
+the revision 8 suite, `handoffs.mjs` (cases 26 to 28) the revision 9 suite, and
+`alerts.mjs` (cases 29 to 31) the revision 10 suite.
 They are split by area to stay near
 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 9 shapes of
-contract sections 1, 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 14.1, 15, 15.1 and 15.3
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 10 shapes of
+contract sections 1, 3, 3.1, 4, 7.1, 8, 8.1, 10, 10.1, 11, 14, 14.1, 15, 15.1 and 15.3
 (readiness with `runtime` and the runtime codes of agent mode; each connection's
 `capacity`, derived from its readiness, and `activeTasks`, equal for connections
 to one agent; each workflow's `resultChecks` and each run's `checks`; each
@@ -51,7 +53,10 @@ workflow's `after` and `handoffPending`, exactly one of `intervalMinutes`,
 upstream that exists and no cycle, followed through the `after` of archived
 entries too; each run's `handoffFrom` naming a counted
 run of another workflow and a handoff run's assignment with its `INPUT` block;
-`workflow.handoff_due`; schema version 6), which are checked on
+`workflow.handoff_due`; `meta.alerts` `{configured,host,failing}`, the
+`alerts_failing` item present exactly while `failing` is true, with subject
+`{type:"alerts",id:"alerts",name:"Alerts"}` and a message naming the host;
+`alerts.configured` `{host}` and `alerts.removed`; schema version 7), which are checked on
 every snapshot, run page and run detail any of them fetches: among them the
 attention items derived from the snapshot (`worker_unready` for reviewers,
 `run_problem` for review tasks, `review_pending` only for runs that wait for the
@@ -161,6 +166,40 @@ Every response body is also checked for fixture paths, the access token and
   checks, beginning with the rejected run's `assignment` and keeping
   `handoffFrom`, still within 65,536 bytes). Nine concurrent cases, about 25
   seconds; the fake plays the worker and reviewer by `scripts` or step by step.
+- `alerts.mjs`: alerts to a webhook, received by an explicitly SCRIPTED local
+  `node:http` server on 127.0.0.1 that records each request (method, target,
+  headers, body, arrival and end) and answers with a chosen status, delay or
+  redirect. Configuration (`alerts --url`, `--url -` reading a trimmed URL from
+  standard input, `--off` and alone with their JSON
+  output; http only to `localhost`, `127.0.0.1` or `[::1]`; refusals of another
+  host, a user name or password, 2,049 characters, a relative URL, another
+  scheme and an empty value, which create no state directory and leave a
+  version 1 store byte for byte, with no backup or other new file; `meta.alerts`
+  while serving and after a restart;
+  the `alerts.*` activity), the URL's secret path and query in no HTTP response,
+  activity entry, CLI output (`alerts`, refusals, `status`, `doctor`),
+  controller log or alert; raising and clearing (the exact bodies, `text` and
+  `content`, `Content-Type`, `POST` and the configured target for an `action`
+  and a `warning` item, the items present when alerts are set and again after a
+  new URL, the previous URL forgotten, an item that comes back, nothing after
+  `--off`, no alert for an `info` item or for a change of severity or message, a
+  cleared alert carrying the item as raised; a restart sending nothing twice,
+  announcing items that cleared while stopped, and an unready worker whose first
+  check after the start is made slow neither cleared nor raised while
+  `checking`); failed delivery with `MANAGED_CLOCK_FILE` (500, 404, a redirect
+  that is not followed and a receiver slower than 5 seconds; retries after 30,
+  60, 120, 240, 480, 960, 1800 and 1800 seconds, none earlier and each within 10
+  seconds of its time; a cleared alert
+  waiting for its raised alert; an item that comes back while its raised or its
+  cleared alert is retried, its new raised alert waiting for the older ones;
+  `failing`, `alerts_failing` and its `since`
+  until a 2xx, and `failing` false after a new URL or `--off`; a raised alert
+  given up 24 hours after the evaluation that raised it and its cleared alert
+  never sent; a cleared alert given up 24 hours after the evaluation that found
+  its item gone, shown by its first failed attempt, or by the 10-second
+  evaluation bound while its raised alert still fails). Quiet windows last 11.5
+  seconds (attention is evaluated within 10 seconds of a change). Nine concurrent
+  cases, about 70 seconds.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly

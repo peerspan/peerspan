@@ -81,6 +81,7 @@ export class Engine {
     this.errorSince = null;
     this.running = false;
     this.passing = null;
+    this.passes = 0;
     this.again = false;
     this.timer = null;
     // Ready connections whose verdict, at the latest dispatch, was older than work waiting for them,
@@ -306,6 +307,8 @@ export class Engine {
         this.setError(CONTROLLER_PROBLEM);
       }
     } finally {
+      // Passes attempted since the start, failed ones included: alerts wait for the first (section 8.1).
+      this.passes += 1;
       this.passing = null;
       // The next pass starts one interval after this one started, or at once when this one took longer.
       if (this.running) this.schedule(this.again ? 0 : Math.max(0, this.tickMs - (performance.now() - started)));

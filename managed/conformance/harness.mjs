@@ -1,12 +1,13 @@
-// Shared plumbing for the revision 2 to 9 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs, checks.mjs and handoffs.mjs). Contract-only and
-// black-box: it launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in
-// throwaway private directories. It never imports or reads the managed implementation or its database. Section
-// numbers (§) refer to docs/managed-contract.md. Shapes are those of revision 9, which keeps every revision 8
-// behavior and adds handoffs (§14.1): each workflow's after and handoffPending, nextRunAt null exactly for an after
-// workflow, each run's handoffFrom and the system activity workflow.handoff_due; the store is at schema 6 (§1).
-// Revision 8 added result checks (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for
-// a result that failed them.
+// Shared plumbing for the revision 2 to 10 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs, checks.mjs, handoffs.mjs and alerts.mjs).
+// Contract-only and black-box: it launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan
+// executable in throwaway private directories. It never imports or reads the managed implementation or its database.
+// Section numbers (§) refer to docs/managed-contract.md. Shapes are those of revision 10, which keeps every revision 9
+// behavior and adds alerts to a webhook (§8.1): meta.alerts {configured,host,failing}, the attention kind
+// alerts_failing and the operator activity alerts.configured and alerts.removed; the store is at schema 7 (§1).
+// Revision 9 added handoffs (§14.1): each workflow's after and handoffPending, nextRunAt null exactly for an after
+// workflow, each run's handoffFrom and the system activity workflow.handoff_due. Revision 8 added result checks
+// (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for a result that failed them.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -121,12 +122,14 @@ const severities = ['action', 'warning', 'info'];
 const attentionRows = {controller_error: ['action', 'controller'], workflow_auto_paused: ['action', 'workflow'],
   worker_unready: [null, 'connection'], run_problem: ['warning', 'run'], observed_unavailable: ['warning', 'observation'],
   observed_problem: ['warning', 'observation'], daily_limit_reached: ['info', 'workflow'],
-  review_pending: ['action', 'workflow']};
+  alerts_failing: ['warning', 'alerts'], review_pending: ['action', 'workflow']};
+// §8.1 (rev 10): the one subject of alerts_failing.
+export const alertsSubject = {type: 'alerts', id: 'alerts', name: 'Alerts'};
 const activityKinds = {
   operator: ['workflow.created', 'workflow.paused', 'workflow.resumed', 'workflow.run_requested',
     'workflow.archived', 'workflow.restored', 'workflow.edited', 'run.cancel_requested', 'run.abandoned',
     'run.reviewed', 'connection.added', 'connection.removed', 'observation.added', 'observation.removed',
-    'review.cancel_requested', 'review.abandoned'],
+    'review.cancel_requested', 'review.abandoned', 'alerts.configured', 'alerts.removed'],
   system: ['run.dispatched', 'run.finished', 'run.problem', 'run.recovered', 'workflow.auto_paused',
     'worker.ready', 'worker.unready', 'run.reviewed', 'review.dispatched', 'review.finished', 'review.fallback',
     'workflow.rework_due', 'workflow.handoff_due']};
@@ -382,12 +385,14 @@ export function checkActivityEntry(entry) {
     '§11 seq, at, and the kind listed for its actor', entry);
   // (rev 4) A review.* entry carries the reviewed run and its workflow, as a run.* entry does, and
   // workflow.rework_due carries the rejected run as its runId. (rev 9) workflow.handoff_due carries the upstream run
-  // as its runId and the workflow that will run on it as its workflowId; its data is null.
+  // as its runId and the workflow that will run on it as its workflowId; its data is null. (rev 10) An alerts.* entry
+  // carries no reference.
   const area = ['workflow.rework_due', 'workflow.handoff_due'].includes(entry.kind) ? 'run' : entry.kind.split('.')[0];
+  const none = ['workflowId', 'runId', 'connectionId'];
   const present = {workflow: ['workflowId'], run: ['runId', 'workflowId'], review: ['runId', 'workflowId'],
-    connection: ['connectionId'], worker: ['connectionId'], observation: []}[area];
+    connection: ['connectionId'], worker: ['connectionId'], observation: [], alerts: []}[area];
   const absent = {workflow: ['runId'], run: [], review: [], connection: ['workflowId', 'runId'],
-    worker: ['workflowId', 'runId'], observation: ['workflowId', 'runId', 'connectionId']}[area];
+    worker: ['workflowId', 'runId'], observation: none, alerts: none}[area];
   expect(present.every(name => text(entry[name])) && absent.every(name => entry[name] === null),
     '§11 an entry carries the references of its kind; absent references are null', entry);
   const only = (data, name) => data !== null && isDeepStrictEqual(Object.keys(data), [name]);
@@ -407,7 +412,9 @@ export function checkActivityEntry(entry) {
     'review.finished': data => only(data, 'state') && terminal(data.state),
     'review.fallback': data => only(data, 'cause') && fallbackCauses.includes(data.cause),
     'workflow.rework_due': data => only(data, 'attempt') && Number.isInteger(data.attempt) && data.attempt >= 2 &&
-      data.attempt <= 4};
+      data.attempt <= 4,
+    // (rev 10) {host}: the webhook's host name (§8.1); alerts.removed has data null.
+    'alerts.configured': data => only(data, 'host') && text(data.host) && data.host !== ''};
   expect((dataRules[entry.kind] ?? (data => data === null))(entry.data, entry), '§11 data of ' + entry.kind, entry);
 }
 
@@ -531,6 +538,13 @@ function checkAttention(s) {
   const pendingRuns = id => s.runs.filter(run => run.workflowId === id && forOperator(run));
   const reviewed = [...s.workflows, ...s.archived].filter(w => pendingRuns(w.id).length > 0);
   for (const w of reviewed) expected.push({kind: 'review_pending', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
+  // §8.1 (rev 10): alerts_failing is present while the latest attempt to deliver an alert failed (meta.alerts.failing),
+  // with a message that names the webhook's host and a since: when the first failure since the last delivery happened.
+  if (s.meta.alerts.failing) expected.push({kind: 'alerts_failing', severity: 'warning', subject: alertsSubject});
+  for (const item of s.attention.filter(entry => entry.kind === 'alerts_failing')) {
+    expect(isTime(item.since) && (s.meta.alerts.host === null || item.message.includes(s.meta.alerts.host)),
+      '§8.1 the alerts_failing message names the host, and since is a time', {item, alerts: s.meta.alerts});
+  }
   const allRunsVisible = s.runs.length < 100;
   const optional = item => item.kind === 'review_pending' && !allRunsVisible &&
     [...s.workflows, ...s.archived].some(w => w.id === item.subject.id);
@@ -560,6 +574,18 @@ function checkAttention(s) {
 
 export function checkSnapshot(s) {
   keys(s, 'connections workflows runs observed attention activity archived meta', '§8 snapshot');
+  keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
+    'modelCost cloudProvisioning alerts', '§8 meta (rev 10: with alerts)');
+  expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
+    s.meta.revision !== '' && s.meta.schemaVersion === 7, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 (rev 10) schema version 7', s.meta);
+  // §8.1 (rev 10): meta.alerts is {configured,host,failing}; host is the webhook's host name, null when none is set.
+  keys(s.meta.alerts, 'configured host failing', '§8.1 meta.alerts');
+  const {configured, host, failing} = s.meta.alerts;
+  expect(typeof configured === 'boolean' && typeof failing === 'boolean' &&
+    (configured ? text(host) && host !== '' : host === null && !failing), '§8.1 meta.alerts: configured and failing ' +
+    'are booleans; host is the URL host name, or null when none is configured; --off sets failing to false, and ' +
+    'nothing is delivered without a URL', s.meta.alerts);
   for (const c of s.connections) {
     keys(c, 'id name hostId agentId mode readiness capacity activeTasks', '§8 connection');
     expect(['file', 'agent', 'remote'].includes(c.mode), '§8 mode is file, agent or remote', c.mode);
@@ -616,11 +642,6 @@ export function checkSnapshot(s) {
   expect(s.activity.every((entry, index) => index === 0 || s.activity[index - 1].seq > entry.seq),
     '§8 activity is newest first', s.activity.map(entry => entry.seq));
   newestFirst(s.archived, 'archivedAt', '§8 archived is newest first');
-  keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
-    'modelCost cloudProvisioning', '§8 meta');
-  expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 6, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 (rev 9) schema version 6', s.meta);
 }
 
 // ---- Process and file plumbing ----
@@ -637,11 +658,16 @@ export async function until(description, check, timeout = 10000) {
   throw new Error((stopped ? 'Stopped by the suite watchdog: ' : 'Timed out: ') + what, {cause: last});
 }
 
-export async function command(args, env, timeout = 8000) {
-  const child = spawn(process.execPath, [cli, ...args], {env, stdio: ['ignore', 'pipe', 'pipe']});
+// `input`, when given, is written to the command's standard input (rev 10: alerts --url - reads the URL there, §8.1).
+export async function command(args, env, timeout = 8000, input = undefined) {
+  const child = spawn(process.execPath, [cli, ...args], {env, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']});
   let stdout = '', stderr = '';
   child.stdout.on('data', data => stdout += data);
   child.stderr.on('data', data => stderr += data);
+  if (input !== undefined) {
+    child.stdin.on('error', () => {});   // a command that exits without reading its input
+    child.stdin.end(input);
+  }
   const timer = setTimeout(() => child.kill('SIGKILL'), timeout);
   const code = await new Promise((resolve, reject) => {
     child.on('error', reject);
@@ -742,6 +768,7 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
   };
   if (clockFile) await f.setClock(startAt);
   f.cli = async (...args) => command([...args, '--state', state], env);
+  f.cliInput = async (input, ...args) => command([...args, '--state', state], env, 8000, input);
   f.checkedCli = async (...args) => {
     const result = await f.cli(...args);
     assert.equal(result.code, 0, snippet({args, ...result}));
@@ -1024,7 +1051,7 @@ export async function runCases(suite, cases) {
   } finally {
     clearTimeout(watchdog);
     for (const f of fixtures) {
-      await f.stop('SIGKILL');
+      await f.stop?.('SIGKILL');   // a fixture whose setup failed has no stop yet
       if (process.env.KEEP_FAKE_MANAGED_FIXTURES === '1') console.log('FAKE fixture retained: ' + f.dir);
       else await fs.rm(f.dir, {recursive: true, force: true});
     }

@@ -247,6 +247,16 @@ function setLive(on) {
   $('live-text').textContent = on ? 'Live' : 'Reconnecting';
 }
 
+/** Where alerts go (contract section 8.1): set on this machine with the alerts command, never here. */
+function showAlerts(alerts) {
+  const note = $('alerts-note');
+  note.textContent = !alerts?.configured ? 'Alerts off'
+    : alerts.failing ? `Alerts to ${alerts.host} are failing` : `Alerts go to ${alerts.host}`;
+  note.className = 'alerts-note' + (alerts?.failing ? ' failing' : '');
+  note.title = alerts?.configured ? 'Attention items are announced to this webhook'
+    : 'Announce attention items to a webhook: node managed/cli.mjs alerts --url URL';
+}
+
 /** What a snapshot shows, without the fields that change on every pass. */
 function signatureOf(data) {
   return JSON.stringify(data, (key, value) => (key === 'checkedAt' || key === 'lastTickAt' ? undefined : value));
@@ -270,6 +280,7 @@ async function refresh() {
   applied = number;
   app.data = data;
   notifyAttention(data.attention);
+  showAlerts(data.meta.alerts);
   $('login').hidden = true;
   $('console').hidden = false;
   setLive(true);

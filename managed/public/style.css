@@ -267,6 +267,8 @@ nav .count.alert { background: var(--danger-soft); color: var(--danger); }
 .live.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .live.off .dot { background: var(--warn); }
 .preview-note { font-size: 12px; color: var(--faint); line-height: 1.5; }
+.alerts-note { font-size: 12px; color: var(--muted); margin: -4px 0 0; overflow-wrap: anywhere; }
+.alerts-note.failing { color: var(--danger); }
 .foot-actions { display: flex; flex-wrap: wrap; gap: 0 4px; margin-left: -8px; }
 
 #view { padding: 28px 36px 60px; max-width: 1240px; width: 100%; outline: none; }
@@ -597,7 +599,7 @@ dialog::backdrop { background: rgb(8 20 15 / 45%); }
   nav a { padding: 7px 10px; white-space: nowrap; }
   nav a svg { display: none; }
   .sidebar-foot { margin: 0 0 0 auto; display: flex; align-items: center; padding: 0; }
-  .preview-note, #live-text { display: none; }
+  .preview-note, .alerts-note, #live-text { display: none; }
   #view { padding: 20px 16px 48px; }
   .page-head h1 { font-size: 21px; }
   .field-row, .field-row.two { grid-template-columns: minmax(0, 1fr); }

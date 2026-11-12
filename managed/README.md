@@ -211,6 +211,26 @@ item that needs you, such as a result waiting for review or a workflow paused
 after failures, while the console is open in a tab you are not looking at. The
 browser shows it; nothing is sent anywhere.
 
+To hear about those items with no console open, send them to a webhook, such as
+a Slack, Mattermost or Discord channel:
+
+```sh
+node managed/cli.mjs alerts --url - < ~/.config/webhook-url   # set, read from standard input
+node managed/cli.mjs alerts                                   # show the host
+node managed/cli.mjs alerts --off                             # stop
+```
+
+`--url -` keeps the URL out of the process list and your shell history;
+`--url https://...` works too.
+
+- **What is sent.** Each item that needs your action, or warns you, is posted
+  once when it appears and once when it is resolved. The JSON body has `text`
+  and `content` with one sentence, plus the item.
+- **Failed deliveries.** They are retried with backoff for a day and survive
+  restarts. A failing webhook shows in the console.
+- **Privacy.** The URL usually holds a secret. It is set only on this machine
+  and is never shown, logged or returned by the console beyond its host name.
+
 - **Cancel** asks the worker to stop. The run ends when the worker confirms, or
   with the worker's own result if it finishes anyway. A run that was never sent
   is cancelled without being sent. A cancellation does not count as a failure.
@@ -296,7 +316,7 @@ state directory. Nothing here replaces the Peerspan host service.
 
 The first command of this version that opens an existing state directory
 migrates it in place, after saving a copy beside it as
-`managed.vN-backup.sqlite`, N being the store version it found (1 to 5).
+`managed.vN-backup.sqlite`, N being the store version it found (1 to 6).
 Connections, observations, workflows, runs, task IDs, results, verdicts and the
 activity log keep their IDs and values; a run that was unresolved is reconciled
 under its task ID as after any restart. Existing workflows keep their intervals,
@@ -317,6 +337,7 @@ node managed/conformance/runtime-agents.mjs     # contract case 19
 node managed/conformance/capacity.mjs           # contract cases 20 to 22
 node managed/conformance/checks.mjs             # contract cases 23 to 25
 node managed/conformance/handoffs.mjs           # contract cases 26 to 28
+node managed/conformance/alerts.mjs             # contract cases 29 to 31
 # Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```
