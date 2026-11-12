@@ -281,3 +281,51 @@ stays [managed-contract.md](managed-contract.md).
   says, even though a launch profile may allow several runs at once; using
   that capacity is a later change.
 - **Contract.** Sections 3.1 and 6.
+
+## MGD-14. A runtime agent's capacity (2026-11-12)
+
+- **Question.** MGD-6 holds each worker agent to one managed task at a time,
+  because an attached session works on one assignment at a time. A runtime
+  agent's host runs each task in its own microVM on its own fork, up to the
+  launch profile's `max_runs` at once. Should the operator use that capacity?
+- **Options.**
+  - (a) Keep one task per agent.
+  - (b) Let a `ready_runtime` agent hold up to `max_runs` tasks, across
+    workflows, with one run per workflow as before.
+  - (c) Also let one workflow have several runs at once.
+- **Chosen.** (b). The capacity comes from the latest readiness, and anything
+  else, a session agent, a remote agent or a runtime agent that is not ready,
+  keeps a capacity of 1.
+- **Reason.** Running several assignments side by side is what runtime agents
+  are for: each run starts from the branch and works on a fork of its own, so
+  two runs cannot disturb each other, and `max_runs` is the owner's own limit,
+  which the host enforces anyway. (a) would leave a team of workflows queued
+  behind one VM at a time. (c) changes what a recurring assignment means:
+  overlapping runs of one workflow would compete for the same result, and the
+  schedule, the cap and rework all assume one run at a time. The store keeps
+  enforcing the limit by giving each extra concurrent task a numbered slot of its
+  agent's target, so the exclusion rule stays a constraint, not a check that a
+  race could pass.
+- **Contract.** Sections 3.1, 4 and 8.
+
+## MGD-15. Passes never wait for a slow call (2026-11-12)
+
+- **Question.** A scheduler pass waited for every readiness check and
+  reconciliation before it dispatched, so one hanging Peerspan call, such as a
+  `runtime show` waiting 35 seconds for a stopped runtime, slowed dispatch and
+  readiness for every worker.
+- **Options.**
+  - (a) Shorter command limits only.
+  - (b) Wait a bounded time each pass, dispatch with the readiness last
+    recorded, and let slow calls finish beside later passes, at most one per
+    connection or task.
+- **Chosen.** (b), with a 2-second wait, and the 5-second limit for
+  `runtime show` kept.
+- **Reason.** A limit short enough to keep passes quick would also cut off
+  calls that are only slow, such as a busy daemon's `task events`, and would
+  still multiply across connections. With (b) a slow call delays only its own
+  connection or task. Dispatch uses the readiness each connection last
+  recorded, which a slow check would have returned late anyway, and a check
+  never runs twice at once, so a hanging host gets one call in flight, not one
+  per pass.
+- **Contract.** Section 4.

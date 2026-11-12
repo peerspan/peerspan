@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 5. Revision 1 defined the first local slice: the console, recurring
+Revision 6. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -9,9 +9,12 @@ revision 2 behavior and added workers on other machines (section 7.1), wall-cloc
 schedules (section 14) and operator review of results (section 15). Revision 4
 kept every revision 3 behavior and added reviewer agents (section 15.1), rework of
 rejected results (section 15.2) and the workspace branches of runtime agents
-(section 10.1). Revision 5 keeps every revision 4 behavior and adds readiness for
-runtime agents whose host runs on this machine (section 3.1); its store is
-version 4, unchanged. Additions are marked "(rev 2)" to "(rev 5)" where they
+(section 10.1). Revision 5 kept every revision 4 behavior and added readiness for
+runtime agents whose host runs on this machine (section 3.1). Revision 6 keeps
+every revision 5 behavior and adds a capacity per worker agent, so that a
+runtime agent works on several tasks at once, and scheduler passes that never
+wait for a slow Peerspan call (section 4). The store of revisions 5 and 6 is
+version 4, unchanged. Additions are marked "(rev 2)" to "(rev 6)" where they
 extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
@@ -249,9 +252,10 @@ changed: upstream's directory does not tell a sender whether an agent runs in a
 runtime, and it lists a runtime agent without a session as not `connected`, so a
 remote runtime agent is `session_not_ready`.
 
-A runtime agent's runs are dispatched one at a time like any agent's (section 4),
-although its launch profile may let the host run several of its tasks at once.
-Their output ends with the branch line of section 10.1.
+(rev 6) While a runtime agent is `ready_runtime`, it may hold as many unresolved
+tasks as its launch profile's `max_runs` (section 4), because its host runs
+each of them in its own microVM on its own fork. Their output ends with the
+branch line of section 10.1.
 
 ## 4. Dispatch and recovery
 
@@ -273,6 +277,29 @@ reserve a second unresolved run for a workflow or a target. An operator request
 never waits for a Peerspan subprocess: every route answers from stored state,
 and the effect of `run`, `resume`, `cancel` and an enabled creation is picked up
 by a scheduler pass that starts within one second.
+
+(rev 6) **Capacity.** A target's capacity is how many unresolved tasks, runs and
+review tasks together, its worker agent may hold at once. It is 1, except for a
+runtime agent (section 3.1) whose connection's readiness is `ready_runtime` and
+whose `runtime.maxRuns` is an integer from 1 to 64: then it is that number
+(MGD-14). A target is free while it holds fewer unresolved tasks than its
+capacity, and the store still enforces the limit, so no interleaving can reserve
+more. When several connections name one worker agent, the capacity is the
+largest any of them reports while it is ready. Tasks that a target already
+holds are never affected when its capacity falls, as when the profile changes or
+the agent stops being ready: they finish as before, and no new task is reserved
+for that target until it holds fewer than its capacity. One unresolved run per
+workflow stays the rule whatever the capacity.
+
+(rev 6) **Slow Peerspan calls.** A scheduler pass waits at most 2 seconds for the
+readiness checks and reconciliations it starts. It then dispatches with the
+readiness each connection last recorded, and a check or reconciliation still
+running goes on beside later passes; no second one for the same connection or
+task starts until it has ended. A slow or hanging Peerspan call therefore delays
+only its own connection or task, never another connection's readiness, another
+task's reconciliation, or dispatch to a ready worker. A submission started by a
+pass is waited for in the same way. Until a connection's first check after a
+start has ended its readiness stays `checking` (section 3).
 
 Before any submission, persist a task ID (`task_` plus 32 hex digits) and exact
 input, peer, agent, deadline and sender state. Submit using `task submit --peer
@@ -319,7 +346,8 @@ persisted before it is sent, submitted, inspected, recovered, cancelled and
 released by the rules of this section and section 10, under its own task ID,
 and its result is final only with its final event, as for a run. Its target is
 the reviewer's worker agent, so the target rule covers it too: a worker agent
-holds at most one unresolved task, whether that task is a run or a review task.
+holds at most one unresolved task, whether that task is a run or a review task
+(rev 6: at most its capacity).
 A review task does not hold its run's workflow, is not counted by the daily cap,
 and never changes the failure count, `nextRunAt` or dispatch of the workflow.
 Review tasks are reserved before runs in each scheduler pass, so that results
@@ -548,7 +576,11 @@ location, or upstream attention `detail` or `subject` text.
 
 - `connections`: `{id,name,hostId,agentId,mode,readiness}` for each connection
   that is not removed, oldest first. (rev 3) `mode` is `file`, `agent` or
-  `remote`.
+  `remote`. (rev 6) Connections also have `capacity`, the capacity this
+  connection's readiness gives its worker agent (section 4; 1 unless it is
+  `ready_runtime` with a `runtime.maxRuns` from 1 to 64), and `activeTasks`, how
+  many unresolved tasks, runs and review tasks of every workflow, its worker
+  agent holds.
 - `workflows`: every workflow that is not archived, oldest first, as
   `{id,name,connectionId,instructions,intervalMinutes,maxRunsPerDay,
   acceptanceMinutes,enabled,nextRunAt,failureStreak,blockedReason,createdAt,
@@ -1228,6 +1260,21 @@ area, not by revision.
     remote mode never running `agent runtime show`; a run dispatched to a
     runtime agent, completed with a branch line; and the `checking` readiness
     with `runtime` null.
+
+`capacity.mjs` (revision 6 capacity and slow calls):
+
+20. Capacity: a `ready_runtime` agent with `maxRuns` 3 holding three runs of
+    three workflows at once, and a fourth workflow waiting until one ends;
+    review tasks counted against a reviewer's capacity; an agent that is not a
+    runtime agent, a `maxRuns` of null, 0 or 65, and a runtime agent that is not
+    ready all holding one; a capacity that falls below the tasks held leaving
+    them unresolved and dispatching nothing until fewer are held; two
+    connections to one agent; and `capacity` and `activeTasks` in the snapshot.
+21. Slow calls: with one connection's `status`, a runtime agent's
+    `runtime show`, one task's `task inspect` or one submission hanging, another
+    ready connection's workflow still dispatched and its run reconciled within a
+    few seconds, the other connections' `checkedAt` advancing, no second call
+    for the hanging connection or task, and shutdown within 5 seconds.
 
 Version 2 and version 3 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those
