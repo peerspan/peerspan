@@ -1,14 +1,17 @@
 # Managed operator contract
 
-Revision 3. Revision 1 defined the first local slice: the console, recurring
+Revision 4. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
-reliability statistics, live updates and an indexed store. Revision 3 keeps every
-revision 2 behavior and adds workers on other machines (section 7.1), wall-clock
-schedules (section 14) and operator review of results (section 15). Additions are
-marked "(rev 2)" or "(rev 3)" where they extend an earlier section. Fork decisions
-are recorded in [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
+reliability statistics, live updates and an indexed store. Revision 3 kept every
+revision 2 behavior and added workers on other machines (section 7.1), wall-clock
+schedules (section 14) and operator review of results (section 15). Revision 4
+keeps every revision 3 behavior and adds reviewer agents (section 15.1), rework of
+rejected results (section 15.2) and the workspace branches of runtime agents
+(section 10.1). Additions are marked "(rev 2)", "(rev 3)" or "(rev 4)" where they
+extend an earlier section. Fork decisions are recorded in
+[managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
 
@@ -50,17 +53,19 @@ least once a second whatever `MANAGED_TICK_MS` says. A missing or unreadable fil
 than an optional `-` and 1 to 15 digits with optional surrounding whitespace,
 means 0. The rule above about steps back applies to the adjusted clock.
 
-(rev 2) The store carries a schema version. (rev 3) The current version is 3, and
-version 3 state is created directly. Version 1 state (section 13) and version 2
-state are migrated in place, in one transaction, the first time a revision 3
+(rev 2) The store carries a schema version. (rev 4) The current version is 4, and
+version 4 state is created directly. Version 1 state (section 13) and version 2
+and 3 state are migrated in place, in one transaction, the first time a revision 4
 command opens them; connections, observations, workflows, runs, task IDs,
 submission payloads, results and the activity log are retained with their IDs.
 Before it migrates, the command saves a copy of the database as
-`managed.v1-backup.sqlite` or `managed.v2-backup.sqlite` (by the version it
-found) in the state directory, with the same private permissions. Migrated
-workflows have `schedule` null and `review` `none`, and migrated runs need no
-review. State written by a newer schema is refused with a nonzero exit and is not
-modified.
+`managed.vN-backup.sqlite`, N being the version it found, in the state
+directory, with the same private permissions. Migrated workflows from version 1
+or 2 have `schedule` null and `review` `none`; migrated workflows have
+`reviewerId` and `reviewCriteria` null, `reworkLimit` 0 and `reworkPending` null;
+migrated runs have `attempt` 1 and `reworkOf` null, need no review unless version
+3 recorded that they do, and need no agent review. State written by a newer
+schema is refused with a nonzero exit and is not modified.
 
 ## 2. HTTP contract
 
@@ -93,6 +98,8 @@ current state does not permit the operation, and 413 for an oversized body.
   also have `schedule` (section 14) and `review` (section 15). Exactly one of
   `intervalMinutes` and a non-null `schedule` is required: both, or neither, is
   400. At creation, `schedule` null beside `intervalMinutes` means no schedule.
+  (rev 4) The body may also have `reviewerId`, `reviewCriteria` (section 15.1)
+  and `reworkLimit` (section 15.2).
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
@@ -100,7 +107,9 @@ current state does not permit the operation, and 413 for an oversized body.
 - (rev 2) `PATCH /api/workflows/:id`, `POST /api/workflows/:id/archive` and
   `restore`: section 9.
 - (rev 2) `GET /api/runs`, `GET /api/runs/:id`, `POST /api/runs/:id/cancel` and
-  `abandon`: section 10. (rev 3) `POST /api/runs/:id/review`: section 15.
+  `abandon`: section 10. (rev 3) `POST /api/runs/:id/review`: section 15. (rev 4)
+  `POST /api/runs/:id/review/cancel` and `POST /api/runs/:id/review/abandon`:
+  section 15.1.
 - (rev 2) `GET /api/activity`: section 11. `GET /api/events`: section 12.
 - `POST /api/logout`: removes the console session cookie.
 
@@ -234,7 +243,19 @@ interval, at least one minute later.
 instead of an interval, as section 14 says; every other rule of this section,
 the caps and the failure circuit included, applies to it unchanged. An operator's
 review verdict (section 15) never changes the failure count, `nextRunAt` or
-dispatch.
+dispatch. (rev 4) A rejection may make a rework due (section 15.2); it still
+changes neither the failure count nor `nextRunAt`.
+
+(rev 4) A run's review task (section 15.1) is a Peerspan task of its own. It is
+persisted before it is sent, submitted, inspected, recovered, cancelled and
+released by the rules of this section and section 10, under its own task ID,
+and its result is final only with its final event, as for a run. Its target is
+the reviewer's worker agent, so the target rule covers it too: a worker agent
+holds at most one unresolved task, whether that task is a run or a review task.
+A review task does not hold its run's workflow, is not counted by the daily cap,
+and never changes the failure count, `nextRunAt` or dispatch of the workflow.
+Review tasks are reserved before runs in each scheduler pass, so that results
+already produced are checked before new work starts.
 
 ## 5. Observation bridge
 
@@ -346,7 +367,9 @@ NAME is 1 to 100 characters after trimming. (rev 3) Exactly one of
 
 `disconnect --id ID` removes a connection. It is refused, with a nonzero exit and
 nothing changed, while a workflow that is not archived uses the connection or one
-of its runs is unresolved. Retained runs keep their history. `unobserve --id ID`
+of its runs is unresolved. Retained runs keep their history. (rev 4) A workflow
+uses a connection as its worker or as its reviewer, and a review task on the
+connection that is unresolved refuses it as a run does. `unobserve --id ID`
 removes an observation registration and never touches the observed directory.
 Both print `{id,removed:true}`; an unknown ID is a nonzero exit.
 
@@ -448,7 +471,9 @@ location, or upstream attention `detail` or `subject` text.
   `{id,name,connectionId,instructions,intervalMinutes,maxRunsPerDay,
   acceptanceMinutes,enabled,nextRunAt,failureStreak,blockedReason,createdAt,
   updatedAt,pausedBy,recent,stats}`, (rev 3) with `schedule` and `review`
-  (sections 14 and 15). `intervalMinutes` is null for a workflow with a schedule,
+  (sections 14 and 15), (rev 4) and with `reviewerId`, `reviewCriteria`,
+  `reworkLimit` and `reworkPending` (sections 15.1 and 15.2). `intervalMinutes`
+  is null for a workflow with a schedule,
   and `schedule` is null for one with an interval. `pausedBy` is null while
   enabled, and otherwise `operator` (created paused, paused, or restored) or
   `failures` (the failure circuit). `recent` is the workflow's latest 20 runs,
@@ -488,7 +513,11 @@ location, or upstream attention `detail` or `subject` text.
   controller observed it, because that event carries another host's clock.
   `finishedAt` is null until the run is terminal, and is then the time the
   controller retained the terminal result. (rev 3) Runs also have `review`,
-  `reviewedAt` and `reviewNote` (section 15).
+  `reviewedAt` and `reviewNote` (section 15). (rev 4) Runs also have
+  `reviewedBy`, `reviewTask` and `reviewFallback` (section 15.1), `attempt` and
+  `reworkOf` (section 15.2), and `branch` (section 10.1). A run's `state`,
+  `output`, `error`, `reason`, `progress`, times and `cancelRequestedAt` are
+  always those of its own task, never of its review task.
 - `observed`: section 6.
 - `attention`: what needs the operator, as `{kind,severity,subject:{type,id,name},
   message,since}`; `severity` is `action`, `warning` or `info`, and entries are
@@ -500,12 +529,12 @@ location, or upstream attention `detail` or `subject` text.
   | --- | --- | --- | --- |
   | `controller_error` | `action` | `controller` | The scheduler's last pass failed. `subject.id` and `name` are `controller`. |
   | `workflow_auto_paused` | `action` | `workflow` | `pausedBy` is `failures`. |
-  | `worker_unready` | `action` when an enabled workflow that is not archived uses the connection, otherwise `warning` | `connection` | Its readiness is not ready. `message` is the readiness reason and `since` its `since`. |
-  | `run_problem` | `warning` | `run` | An unresolved run has a non-null `error`. `subject.name` is the workflow name; `since` is when the problem first appeared. |
+  | `worker_unready` | `action` when an enabled workflow that is not archived uses the connection, (rev 4) as its worker or its reviewer, or a run waits for a review task on it that is not yet reserved; otherwise `warning` | `connection` | Its readiness is not ready. `message` is the readiness reason and `since` its `since`. |
+  | `run_problem` | `warning` | `run` | An unresolved run has a non-null `error`, (rev 4) or a run's unresolved review task has a non-null `reviewTask.error`; one item per run, for its own task when both have one. `subject.name` is the workflow name; `since` is when the problem first appeared. |
   | `observed_unavailable` | `warning` | `observation` | An observed entry has `available` false. |
   | `observed_problem` | `warning` | `observation` | An available observed entry has a non-null `error`. |
   | `daily_limit_reached` | `info` | `workflow` | An enabled workflow is blocked only by its daily cap. |
-  | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending`. One item per workflow; `message` gives the number of such runs and `since` is the earliest of their `finishedAt`. |
+  | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs and `since` is the earliest of their `finishedAt`. |
 
 - `activity`: the newest 30 activity entries (section 11), newest first.
 - `archived`: `{id,name,archivedAt}` for each archived workflow, newest first.
@@ -519,8 +548,9 @@ location, or upstream attention `detail` or `subject` text.
 
 `PATCH /api/workflows/:id` accepts a JSON object with at least one of `name`,
 `connectionId`, `instructions`, `intervalMinutes`, `maxRunsPerDay` and
-`acceptanceMinutes`, (rev 3) `schedule` and `review`, validated as at creation;
-any other field, `enabled`
+`acceptanceMinutes`, (rev 3) `schedule` and `review`, (rev 4) `reviewerId`,
+`reviewCriteria` and `reworkLimit`, validated as at creation (with the
+combination rules of section 15.1); any other field, `enabled`
 included, is 400. It returns the workflow. An edit never changes a run that was
 already reserved: its submission payload is immutable. When `intervalMinutes`
 changes and the workflow has a terminal run, `nextRunAt` becomes its latest
@@ -536,7 +566,9 @@ null) by the rule of section 14. Such a switch changes both values, so its
 `schedule` is compared after normalization (section 14), so one that lists the
 same days in another order equals the current one. Changing `review` applies to
 runs reserved afterwards; a run keeps the review requirement it was reserved
-with.
+with. (rev 4) So does changing `reviewerId`: a run keeps the reviewer it was
+reserved with. `reviewCriteria` is read when a review task is reserved, and
+`reworkLimit` when a review becomes `rejected`.
 
 `pause` and `resume` do not change `nextRunAt`: a resumed workflow runs when its
 schedule says so, or when the operator also sends `run`. Every accepted `pause`,
@@ -545,7 +577,9 @@ not the workflow's state changed.
 
 `POST /api/workflows/:id/archive` accepts `{}`. It is 409 while the workflow has
 an unresolved run. It disables the workflow, removes it from `workflows`, lists
-it in `archived` and keeps its runs. An archived workflow is never dispatched,
+it in `archived` and keeps its runs. (rev 4) It also sets `reworkPending` to
+null: no rework is dispatched for an archived workflow. Reviews of its runs go
+on (section 15.1). An archived workflow is never dispatched,
 and `pause`, `resume`, `run`, `PATCH` and `archive` on it are 409.
 `POST /api/workflows/:id/restore` accepts `{}`, is 409 unless the workflow is
 archived, and returns it paused with `pausedBy` `operator`, a failure count of 0
@@ -573,6 +607,15 @@ read are left for the next read, so a final event is always taken together with
 the record that reports it. A timeline fetch that fails while the task is not final is not a
 run problem.
 
+(rev 4) The detail also has `reviewEvents`, the review task's retained timeline
+by the same rules, or an empty array when the run has no review task, and
+`run.assignment`, the workflow's `instructions` when the run was reserved: equal
+to `instructions` for a run with `attempt` 1, and without the revision request
+for a rework (section 15.2). In the detail, a non-null `run.reviewTask` also has
+`input`, the exact input of the review task or null before it is reserved, and
+`output` and `outputTruncated`, the review task's retained output in full and
+whether the remote output was longer, by the rules for a run's output.
+
 `POST /api/runs/:id/cancel` accepts `{}` and asks the worker to stop an
 unresolved run (MGD-1). It is 404 for an unknown run and 409 for a terminal one.
 It records `cancelRequestedAt` once and returns the run; a repeat returns the run
@@ -598,6 +641,38 @@ cancels that task. The identity stays retained and is never reused. The response
 is the run. Abandoning does not stop remote work that may still be running: the
 console must say so before it sends the request.
 
+(rev 4) `cancel` and `abandon` act on the run's own task only: a run that is
+terminal is 409 even while its review task is unresolved. Section 15.1 has the
+routes for a review task.
+
+### 10.1 Workspace branches (rev 4)
+
+A runtime agent of the upstream [runtime agent contract](runtime-agent-contract.md)
+works on its own peerfs branch and ends its output with a line naming that branch
+(upstream RUN-11). A run's `branch` is null, or that line read as
+`{name,outcome,commit,from,error}` (MGD-12). It is read from the run's retained
+output when the run is `succeeded` or `failed` and `outputTruncated` is false,
+and it is null in every other case.
+
+The output, without its trailing whitespace, must end with an LF, an empty line
+and a last line L: that is, with `\n\nL`, where L has no LF. L is matched against
+these forms in this order, and the first that matches gives `branch`; when none
+matches, `branch` is null.
+
+| L | `branch` |
+| --- | --- |
+| `Branch: none` | `{name:null,outcome:"none",commit:null,from:null,error:null}` |
+| `Branch: NAME at commit ID`, ID being 66 lowercase hex digits | `{name:NAME,outcome:"committed",commit:ID,from:null,error:null}` |
+| `Branch: NAME, unchanged from FROM` | `{name:NAME,outcome:"unchanged",commit:null,from:FROM,error:null}` |
+| `Branch: NAME, not committed: ERROR` | `{name:NAME,outcome:"not_committed",commit:null,from:null,error:ERROR}` |
+
+NAME and FROM are 1 to 255 characters without `/` or control characters, and
+ERROR is 1 to 1,024 characters without control characters; a line whose parts
+break these rules does not match its form. Where a form could match in more than
+one way, NAME is the longest text that makes it match. The run's `output` is
+unchanged: the branch line stays in it. `branch` describes the worker host's
+peerfs state as the agent reported it; the controller reads no peerfs state.
+
 ## 11. Activity (rev 2)
 
 The controller keeps an append-only activity log, newest 5,000 entries. An entry
@@ -613,12 +688,23 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `operator` | `workflow.edited` | `{fields}`: the names of the fields whose values changed, sorted. An edit that changes no value records nothing. |
 | `operator` | `run.cancel_requested`, `run.abandoned` | null. A repeated cancel request records nothing. |
 | `operator` | `run.reviewed` | (rev 3) `{verdict}`: `accepted` or `rejected`. |
+| `system` | `run.reviewed` | (rev 4) `{verdict}`: a reviewer agent's verdict (section 15.1). |
+| `operator` | `review.cancel_requested`, `review.abandoned` | (rev 4) null. A repeated cancel request records nothing. |
+| `system` | `review.dispatched` | (rev 4) null: a review task reserved. |
+| `system` | `review.finished` | (rev 4) `{state}`: a review task's terminal state. |
+| `system` | `review.fallback` | (rev 4) `{cause}`: the run's `reviewFallback`. |
+| `system` | `workflow.rework_due` | (rev 4) `{attempt}`: the attempt the rework will be (section 15.2). The entry's `runId` is the rejected run. |
 | `operator` | `connection.added`, `connection.removed`, `observation.added`, `observation.removed` | null |
 | `system` | `run.dispatched` | null |
 | `system` | `run.finished` | `{state}` |
-| `system` | `run.problem`, `run.recovered` | null: a run's `error` appearing, and clearing while the run is still unresolved. |
+| `system` | `run.problem`, `run.recovered` | null: a run's `error` appearing, and clearing while the run is still unresolved. (rev 4) `{task:"review"}` for its review task's `error`. |
 | `system` | `workflow.auto_paused` | `{failureStreak}` |
 | `system` | `worker.ready`, `worker.unready` | `{code}`: recorded when a connection's `ready` value changes, and for a new connection's first check. A restart alone records nothing. |
+
+(rev 4) A `review.*` entry carries the reviewed run's ID and that run's
+workflow's, as a `run.*` entry does. `review.cancel_requested` and
+`review.abandoned` are interventions (section 8); a verdict of either actor is
+not.
 
 `GET /api/activity?before=SEQ&limit=N` pages the log, newest first, as
 `{activity,nextBefore}`; `limit` is 1 to 200 (default 50) and `nextBefore` is
@@ -707,7 +793,8 @@ Clients compare times as instants, not as strings.
 
 ## 15. Reviewing results (rev 3)
 
-A workflow's `review` is `none`, the default, or `operator`. With `operator`, each
+A workflow's `review` is `none`, the default, `operator`, or (rev 4) `agent`
+(section 15.1). With `operator`, each
 of its runs that ends `succeeded` waits for the operator's verdict before it
 counts as a success (MGD-9). A run keeps the review requirement that its workflow
 had when the run was reserved.
@@ -728,7 +815,183 @@ verdict is final. The response is the run. Each verdict records `run.reviewed`
 A verdict changes only the run's review fields and what sections 8 and 11 derive
 from them. It never changes the run's `state`, the failure count, `nextRunAt` or
 dispatch: a pending review does not hold back the workflow's next run, and a
-rejected result is not sent back to the agent.
+rejected result is not sent back to the agent. (rev 4) Except that a rejection
+makes a rework due when the workflow asks for one (section 15.2).
+
+(rev 4) A run's `reviewedBy` is null while its `review` is null or `pending`, and
+then `operator` or `agent`: who gave the verdict. The operator's verdict through
+this route is accepted for every run whose `review` is `pending`, whether it
+waits for the operator or for a reviewer agent.
+
+### 15.1 Reviewer agents (rev 4)
+
+A workflow whose `review` is `agent` has another worker agent check each result
+(MGD-10). Its `reviewerId` names the reviewer: a connection whose worker agent is
+not the workflow's own, that is, whose `hostId` or `agentId` differs from those of
+the connection named by `connectionId`. Each run of such a workflow that ends
+`succeeded` has `review` `pending`, as in section 15, and the controller asks the
+reviewer for the verdict with a **review task**. The operator is the fallback:
+whenever the reviewer gives no verdict, the run waits for the operator's, and the
+operator may give a verdict at any time while the review is `pending`.
+
+**Fields.**
+
+- `reviewerId` is null, or the ID of a connection that is not removed. It is not
+  null exactly when `review` is `agent`. At creation, `review` `agent` without a
+  `reviewerId`, a non-null `reviewerId` with another `review`, an unknown
+  connection, and a reviewer whose worker agent is the workflow's are 400;
+  `reviewerId` null beside another `review` means no reviewer.
+- In a `PATCH`, setting `review` to `none` or `operator` also sets `reviewerId` to
+  null. The workflow that results must follow the rules above, so `review`
+  `agent` without a reviewer, a non-null `reviewerId` on a workflow whose
+  `review` stays `none` or `operator`, `reviewerId` null on a workflow whose
+  `review` stays `agent`, an unknown connection, and a `connectionId` or
+  `reviewerId` that puts one worker agent on both sides, are 400. When a switch
+  clears `reviewerId`, its `workflow.edited` entry lists both `review` and
+  `reviewerId`.
+- `reviewCriteria` is null, or a string of at most 2,000 characters as sent,
+  stored trimmed; an empty trimmed string is stored as null. It tells the
+  reviewer agent, and the operator in the console, what a good result must do.
+  It is valid with every `review`.
+
+**The run's review task.** `reviewTask` is null for a run that needs no agent
+review. A run reserved while its workflow's `review` was `agent` keeps that
+requirement and that reviewer, and once it ends `succeeded` its `reviewTask` is
+`{connectionId,taskId,state,error,reason,cancelRequestedAt,createdAt,
+finishedAt}`: `connectionId` is the reviewer it was reserved with, and the other
+fields are null until the review task is reserved and then follow its task as a
+run's fields follow the run's task (section 8). While the run is unresolved, or
+when it ends in another state than `succeeded`, `reviewTask` is null.
+
+In a scheduler pass the controller reserves the review task of each run whose
+`review` is still `pending`, whose `reviewTask.taskId` is null and whose
+`reviewFallback` is null, when the reviewer connection is ready and its worker
+agent holds no unresolved task. Runs waiting for one reviewer agent are served in
+the order of their `finishedAt`, oldest first. Whether the run's workflow is
+paused, blocked or archived does not matter: those stop new runs, not reviews.
+Reserving persists the task ID, the input below, the reviewer connection's host,
+agent and sender state, and a deadline of the reservation time plus the
+workflow's current `acceptanceMinutes`, and records `review.dispatched`. The
+task is then submitted with `task submit --peer HOST --agent AGENT --task ID
+--input=TEXT --deadline RFC3339` against the reviewer connection's sender state,
+and handled as section 4 says. A run gets at most one review task: the
+controller never reserves a second one, whatever became of the first.
+
+**The review input** is these lines joined by LF, with no LF after the last:
+
+```
+Review the result below, which an agent produced for the assignment that follows it. Decide whether the result does what the assignment asks.
+Begin your answer with one line that says exactly VERDICT: ACCEPT or VERDICT: REJECT. Then give your reasons briefly: the operator reads them, and after a rejection the agent may receive them with the assignment.
+
+ASSIGNMENT
+<the run's assignment>
+
+CRITERIA
+<the workflow's reviewCriteria>
+
+RESULT
+<the run's output>
+```
+
+The run's assignment is its `assignment` (section 10), its output is the retained
+output, and `reviewCriteria` is read when the review task is reserved. When
+`reviewCriteria` is null, the three lines `CRITERIA`, its text and the empty line
+after it are left out. An input longer than 65,536 bytes of UTF-8 has the output
+cut at a character boundary and ended with `…` (U+2026), keeping as much of the
+output as lets the whole input fit in 65,536 bytes.
+
+**The verdict.** When the review task ends `succeeded`, the verdict is in the
+first line of its output that has a character other than whitespace. With
+whitespace and the characters `*`, `_`, `#`, `>`, `` ` `` and `.` removed from
+both its ends, that line must be `VERDICT:`, optional spaces, and `ACCEPT` or
+`REJECT`, letters in any case, and nothing else. `ACCEPT` makes the run's
+`review` `accepted` and `REJECT` makes it `rejected`, with `reviewedBy` `agent`,
+`reviewedAt` the time the controller retained the review task's result, and
+`reviewNote` the reviewer's reasons: the text after the verdict line, without a
+final branch line (section 10.1; it is removed with the empty line before it
+when the review task's output has one), with control characters other than LF
+and tab removed, trimmed, and cut to its first 1,999 characters followed by `…`
+when longer than 2,000; null when empty. `run.reviewed` is recorded with actor
+`system`. A rejection may then make a rework due (section 15.2).
+
+**Fallback.** The run's review stays `pending`, now waiting for the operator, and
+its `reviewFallback` becomes one of these causes, recorded as `review.fallback`:
+
+| `reviewFallback` | When |
+| --- | --- |
+| `failed`, `rejected`, `expired`, `cancelled` or `abandoned` | The review task ended in that state. |
+| `no_verdict` | The review task ended `succeeded`, but its output has no verdict line. |
+| `reviewer_removed` | The reviewer connection was removed before the review task was reserved. The controller notices it at its next pass. |
+
+`reviewFallback` is null otherwise. The run's `review_pending` item (section 8)
+appears once it falls back.
+
+**The operator's verdict** (section 15) ends the agent review. Given before the
+review task is reserved, no review task is reserved. Given while the review task
+is unresolved, that task goes on to its end under the rules of section 4, and its
+state and output are kept in `reviewTask`, but its end changes nothing else: no
+verdict, no fallback and no `review.fallback` entry. `review.finished` is
+recorded for every review task that ends.
+
+**Cancelling and releasing a review task.** `POST /api/runs/:id/review/cancel`
+accepts `{}`. It is 404 for an unknown run and 409 unless the run has an
+unresolved review task. It records the review task's `cancelRequestedAt` once,
+with `review.cancel_requested`, and returns the run; the controller then acts on
+the review task as section 10 says for a run's task. `POST
+/api/runs/:id/review/abandon` accepts exactly `{"confirm":TASK_ID}`, where
+TASK_ID is the review task's ID. It is 404 for an unknown run, 409 unless the run
+has an unresolved review task, and 400 unless `confirm` equals that task's ID.
+The review task becomes `abandoned`, its reviewer agent is released, the
+controller never again submits, inspects or cancels that task, and
+`review.abandoned` is recorded; the run falls back as the table says unless the
+operator has already given a verdict. The response is the run.
+
+### 15.2 Rework (rev 4)
+
+A workflow's `reworkLimit` is an integer from 0, the default, to 3: how many times
+a rejected result is sent back to the worker agent with its review (MGD-11). A
+run's `attempt` is 1 for a run reserved for the workflow's interval, schedule or
+`run`, and one more than the rejected run's for a rework; its `reworkOf` is null,
+or for a rework the ID of the rejected run.
+
+When a run's `review` becomes `rejected`, by the reviewer agent or by the
+operator, its workflow becomes due for a rework when all of these hold: the run's
+`attempt` is at most the workflow's `reworkLimit` at that moment; no later run of
+the workflow has been reserved; and the workflow is not archived. The workflow's
+`reworkPending` then becomes the rejected run's ID, and `workflow.rework_due` is
+recorded with the coming attempt. Otherwise the rejection only counts, as in
+section 15.
+
+While `reworkPending` is not null, the workflow is due whatever its `nextRunAt`
+says; every other dispatch rule of section 4 applies (enabled, the daily cap, a
+ready and free worker). The next run reserved for the workflow is the rework: its
+`attempt` is the rejected run's plus one, its `reworkOf` the rejected run's ID,
+and `reworkPending` becomes null. A `pause` keeps `reworkPending`, so the rework
+is dispatched after `resume`; `archive` clears it. A rework is a run like any
+other: it counts toward the daily cap and the statistics, its own result sets the
+failure count and `nextRunAt`, and its review requirement and reviewer are the
+workflow's when it is reserved.
+
+**The rework input** is these lines joined by LF, with no LF after the last:
+
+```
+<the workflow's instructions>
+
+REVISION REQUESTED
+A reviewer rejected your previous result for this assignment. Do the assignment again in full, addressing the review.
+
+REVIEW
+<the rejected run's reviewNote>
+
+PREVIOUS RESULT
+<the rejected run's output>
+```
+
+The workflow's `instructions` are read when the rework is reserved, and they are
+the rework's `assignment`. A null `reviewNote` is written `The reviewer gave no
+reasons.` An input longer than 65,536 bytes of UTF-8 has the previous result cut
+at a character boundary and ended with `…`, keeping as much of it as lets the
+whole input fit in 65,536 bytes.
 
 ## 16. Independent conformance cases
 
@@ -816,9 +1079,40 @@ area, not by revision.
     by a pending review, and a run reserved before a `PATCH` of `review`
     keeping its requirement.
 
-Version 2 state is not described by this contract, so its migration to version 3
-is checked by the implementer against a copy of real version 2 state and
-recorded with the validation results, not by these suites.
+`reviewers.mjs` (revision 4 reviewer agents, rework and branches):
+
+16. Reviewer agents: the `reviewerId` rules at creation and in `PATCH`, including
+    one agent on both sides and a switch that clears the reviewer, and
+    `reviewCriteria` limits and trimming; a succeeded run's review task
+    submitted to the reviewer through its sender state with the exact input,
+    with and without criteria, and with a long output cut to 65,536 bytes; a
+    verdict line accepted with decoration and in lower case, and the reasons
+    stored as the note without a final branch line; each `reviewFallback` a fake
+    can produce; the operator's verdict before the review task is reserved and
+    while it is unresolved, the review task's end then changing nothing; a
+    review task holding its reviewer agent against a run of another workflow
+    whose worker is that agent, and reviews served before runs and oldest
+    first; reviews of a paused workflow going on; `review/cancel` and
+    `review/abandon` with their 400, 404 and 409 rules; a restart reconciling a
+    review task under its task ID; `review_pending` raised only once a run
+    waits for the operator, `worker_unready` as an action for a reviewer, a
+    review task's problem as `run_problem`; the `review.*` activity entries and
+    a system `run.reviewed`; and `disconnect` refused for a reviewer in use.
+17. Rework: a rejection by the reviewer agent and one by the operator each
+    making a rework due, the rework's exact input with and without a note and
+    with a long previous result cut, its `attempt`, `reworkOf` and
+    `assignment`; no further rework once the limit is reached, when a later run
+    exists, or for an archived workflow; a paused workflow keeping its rework
+    until `resume`; a rework due before `nextRunAt`; and the rework counted by
+    the daily cap and the statistics.
+18. Workspace branches: each form of section 10.1 read from a `succeeded` and a
+    `failed` run, and `branch` null for an output without the empty line before
+    its last line, a commit ID of another length or case, a name with `/`, and
+    a run that is not `succeeded` or `failed`.
+
+Version 2 and version 3 state are not described by this contract, so their
+migration is checked by the implementer against copies of real state of those
+versions and recorded with the validation results, not by these suites.
 
 Real Peerspan compatibility is a separate local smoke check. Do not claim a fake
 adapter test validates model execution or the upstream transport.

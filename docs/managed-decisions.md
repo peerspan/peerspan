@@ -172,3 +172,81 @@ stays [managed-contract.md](managed-contract.md).
   the figures do not change under a reader, and they are not counted as
   interventions, because reviewing is the work a reviewed workflow asks for.
 - **Contract.** Sections 8 and 15.
+
+## MGD-10. Reviewer agents (2026-11-12)
+
+- **Question.** Operator review (MGD-9) makes the figures honest, but every
+  result then waits for a person. How can another agent check results first,
+  with the operator as the fallback?
+- **Options.**
+  - (a) A reviewer agent per workflow, asked by an ordinary Peerspan task whose
+    input holds the assignment, optional criteria and the result, and whose
+    answer starts with a fixed verdict line. Anything else hands the result to
+    the operator.
+  - (b) As (a), but retry a review that failed or gave no verdict, or ask a
+    second reviewer.
+  - (c) Judge results in the controller itself, with a model call or rules.
+- **Chosen.** (a). The review task is a sub-task of the run, not a run of its
+  own, so the run's state, history and figures stay those of the work; it
+  holds the reviewer's agent like any task, and the controller sends at most
+  one per run.
+- **Reason.** Peerspan already delivers, authorizes and recovers tasks between
+  agents, so a reviewer is any agent the operator can reach, on this machine or
+  another, under the owner's grants, and it needs no new transport, credential
+  or model access in the controller, which (c) would add. A fixed first line is
+  the smallest answer format an agent follows reliably and a person can read;
+  everything after it is the reasons, shown to the operator and, on a
+  rejection, available to the worker. Retrying (b) turns a broken or confused
+  reviewer into repeated work and cost; one attempt and then the operator keeps
+  every result's path short and visible. The operator may still decide at any
+  time, because a reviewer that is offline must not hold a result hostage. The
+  reviewer must be another agent than the worker: an agent checking its own
+  result is not a review.
+- **Contract.** Sections 4, 8, 11 and 15.1.
+
+## MGD-11. Sending a rejected result back (2026-11-12)
+
+- **Question.** MGD-9 left a rejection with no effect on the work. Once a
+  reviewer gives reasons, should the worker get them and try again?
+- **Options.**
+  - (a) An opt-in limit of 0 to 3 reworks per workflow: a rejection of the
+    workflow's latest run makes the next run a rework, whose input is the
+    current instructions, the review and the previous result.
+  - (b) Rework every rejection, including of older runs.
+  - (c) Leave reworks to the operator, who can edit the instructions and run
+    again.
+- **Chosen.** (a), with the rework due at once, outside the interval or schedule,
+  and subject to every other dispatch rule.
+- **Reason.** A rejection with reasons is the most useful feedback a worker can
+  get, and sending it back is what a team lead would do; (c) makes the operator
+  copy text between screens. Only the latest run is reworked, because a later
+  run of a recurring assignment has already done that work again, so (b) would
+  redo stale work. The limit keeps a worker and a reviewer that disagree from
+  looping: each rework is a run that counts toward the daily cap and the
+  figures, so the cost stays visible and bounded. The input repeats the
+  instructions in full because a worker session may not remember the previous
+  attempt, and a runtime agent never does.
+- **Contract.** Sections 4, 9 and 15.2.
+
+## MGD-12. Branches of runtime agents (2026-11-12)
+
+- **Question.** Upstream's runtime agents (runtime agent contract, RUN-8 to
+  RUN-11) run each task on its own peerfs fork and end the output with a line
+  such as `Branch: codex.task_… at commit 01…`. What should the operator do
+  with it?
+- **Options.**
+  - (a) Show the output as it is.
+  - (b) Also read the documented forms of that last line into a `branch` field
+    that the console shows with the result.
+  - (c) Read the branch from peerfs on the worker host.
+- **Chosen.** (b). The output is kept unchanged, and a line that does not
+  follow one of the documented forms exactly gives no branch.
+- **Reason.** RUN-11 chose the text line so that "scripts parse the last line";
+  the operator is such a script, and the branch is where the work is, so it
+  belongs beside the result. (c) needs access to the worker host's storage,
+  which a remote worker never gives, and the controller does not otherwise
+  depend on peerfs. Readiness is not changed for runtime agents: upstream has
+  not yet implemented them, and its contracts do not yet say how `status` and
+  the `agents` directory present an agent that runs without an attached
+  session, which is what readiness reads.
+- **Contract.** Section 10.1.

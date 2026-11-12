@@ -14,8 +14,12 @@ loopback console. Its second revision makes that slice complete enough to run
 unattended: workers registered by agent, editing and archiving, cancellation,
 run timelines, an activity log, and a measure of how often the operator steps in. Its third revision reaches agents on other machines through the sender
 host's directory, runs workflows on wall-clock schedules, and lets the operator
-review results before they count. It does not provision cloud machines, launch
-model sessions, bill customers, or guarantee that an agent's answer is correct. These limits are
+review results before they count. Its fourth revision lets a reviewer agent
+check each result first, with the operator as the fallback, sends a rejected
+result back to the worker with the review, and shows the branch a runtime agent
+worked on. It does not provision cloud machines, launch
+model sessions, bill customers, or guarantee that an agent's answer is correct;
+a reviewer agent's verdict is another agent's judgment, not a guarantee either. These limits are
 visible in the console and documentation.
 
 The original host, peer protocol, grants, adapters and license remain upstream
@@ -40,10 +44,14 @@ manual interventions, repeat weekly use and paid retention.
    pause/resume, daily dispatch caps, failure circuit, task history and results.
    Implemented, with editing, archiving, cancellation, timelines, activity and
    reliability figures (revision 2), and workers on other machines, wall-clock
-   schedules and operator review of results ([contract](managed-contract.md)
-   revision 3). Still open in this step: results checked by a reviewer agent.
+   schedules and operator review of results (revision 3), and reviewer agents
+   with rework of rejected results ([contract](managed-contract.md) revision 4).
 2. Worker lifecycle: managed dedicated harness sessions, repository workspaces,
    health repair, approvals and independently checked result contracts.
+   Upstream's runtime agents (one microVM per task on a peerfs fork, from a
+   host-local launch profile) are the intended basis for sessions and
+   workspaces; revision 4 already shows the branch such an agent reports, and
+   readiness for them follows once upstream implements them.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,
    per-tenant secrets and isolation, account authentication, actual cost telemetry.
 4. Paid teams: billing, client workspaces, organization administration, service
