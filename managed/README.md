@@ -209,6 +209,9 @@ worker's host. The controller reads nothing of peerfs itself.
 - One unresolved run per workflow, and one unresolved task per worker agent,
   whether it is a run or a review task, enforced by the store. A review task is
   stored, sent and recovered exactly as a run's task is.
+- A slow or hanging Peerspan call delays only its own worker or task: every
+  other worker is still checked, dispatched to and followed, and no second call
+  for the same worker or task starts while one is running.
 - A stopped controller exits within seconds; work it was waiting for is picked
   up again under the same identities at the next start.
 - The Activity page records what you did and what the controller did. Each
