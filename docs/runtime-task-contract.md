@@ -17,7 +17,9 @@ networks; legacy coordinator networks are read-only history (spec section 14) an
 nothing. The Rust host at the repository root is the only host (DEC-OWN5).
 
 Not in this contract: guest network access, choosing a guest image, stdin, grants for
-runtime tasks, delegating a runtime task onward, and agents in the VM.
+runtime tasks, and delegating a runtime task onward. Agents in the VM are the
+[runtime agent contract](runtime-agent-contract.md), which also adds fields to the runtime's
+local API below.
 
 ## Requests
 
@@ -332,7 +334,7 @@ other than those below.
 | Route | Behavior |
 | --- | --- |
 | `GET /v1/runtime` | `{version, image, max_cpus, max_memory_mib, max_seconds, max_concurrent_runs, running, peerfs}`, where `peerfs` says whether the runtime serves a peerfs space. |
-| `POST /v1/runs` with `{run_id, argv, cwd, env, resources, workspace_archive, peerfs_workspace, results}` | Starts a run. `resources` is complete; `workspace_archive` is an absolute path the daemon can read, or null; `peerfs_workspace` is a workspace name or null, and at most one of the two is set. 201 with the run record `{run_id, state, created_at}`; 200 with the same record for an identical repeat; 409 for a reused `run_id` with different fields; 429 when every slot is busy or another run holds the peerfs workspace; 422 when `resources` exceed the runtime's maximums, or when a peerfs workspace is asked of a runtime that serves no peerfs space. |
+| `POST /v1/runs` with `{run_id, argv, cwd, env, resources, workspace_archive, peerfs_workspace, results}`, and the optional fields of the [runtime agent contract](runtime-agent-contract.md#the-runtimes-local-api), which runtime tasks never set | Starts a run. `resources` is complete; `workspace_archive` is an absolute path the daemon can read, or null; `peerfs_workspace` is a workspace name or null, and at most one of the two is set. 201 with the run record `{run_id, state, created_at}`; 200 with the same record for an identical repeat; 409 for a reused `run_id` with different fields; 429 when every slot is busy or another run holds the peerfs workspace; 422 when `resources` exceed the runtime's maximums, or when a peerfs workspace is asked of a runtime that serves no peerfs space. |
 | `GET /v1/runs/{run_id}/events?after=N&wait=S&limit=L` | Events with `sequence` after `N`, at most `L` (1 to 1,000; without `limit`, all), waiting up to `S` (0 to 25) seconds for the first. Each is `{sequence, kind, ...}`: `started`; `stdout` or `stderr` with `data` (base64, 1 to 16,384 bytes); `exited` with `result`, the run result above without `output_truncated`, `results_dropped` and `results_same` (`snapshot` included); then `results` with `artifacts`, a list of `{name, path, size, sha256, media_type}` in the order above. `results` is last. |
 | `POST /v1/runs/{run_id}/cancel` | Stops the run. It then ends with `exited`, `signal` 9. A finished run is unchanged. |
 | `DELETE /v1/runs/{run_id}` | Deletes the run and its files; 200 with `{}`. |
