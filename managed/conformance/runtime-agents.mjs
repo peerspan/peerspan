@@ -18,7 +18,9 @@ const verified = sessionId => ({session_id: sessionId, state: 'ready', channel: 
 const advice = {kind: 'fake_runtime_host_advice', subject: 'PRIVATE-SUBJECT runtime host',
   detail: 'PRIVATE-DETAIL runtime host', command: 'peerspan runtime show'};
 // §3.1: the readiness summary of the default launch profile below.
-const summary = {fromBranch: 'fake-main', network: 'FAKE-none', cpus: 2, memoryMib: 2048, timeoutSeconds: 900, maxRuns: 3};
+// (rev 7) Its harness is codex and it has no image.
+const summary = {fromBranch: 'fake-main', network: 'FAKE-none', cpus: 2, memoryMib: 2048, timeoutSeconds: 900, maxRuns: 3,
+  harness: 'codex', image: null};
 
 // A fixture whose fake worker host has a file-mode worker (ids), a runtime agent (a launch profile, no session)
 // and a session agent (a ready session, no profile). Agent-mode connections use their own worker host state
@@ -27,7 +29,7 @@ async function runtimeFixture(label, {connect = false} = {}) {
   const f = await fixture(label, {connect});
   f.hostDir = path.join(f.dir, 'PRIVATE-runtime-host');
   // Paths and extra fields carry PRIVATE- markers: §8 forbids them in every response (checked on each one).
-  f.profile = (agentId, patch = {}) => ({agent_id: agentId, harness: 'FAKE-harness', harness_dir: path.join(f.dir,
+  f.profile = (agentId, patch = {}) => ({agent_id: agentId, harness: 'codex', harness_dir: path.join(f.dir,
     'PRIVATE-harness'), from_branch: 'fake-main', network: 'FAKE-none', cpus: 2, memory_mib: 2048, timeout_seconds: 900,
   max_runs: 3, credential: true, fake_extra: 'PRIVATE-PROFILE-EXTRA', ...patch});
   f.runtimeShow = (patch = {}) => ({enabled: true, socket: path.join(f.dir, 'PRIVATE-runtime.sock'), rule: 'FAKE rule',
@@ -75,8 +77,9 @@ async function case19_readyRuntimeAndRun() {
   expect(ready.ready === true && /runtime/i.test(ready.reason), '§3.1 ready_runtime is ready, and its reason says that ' +
     'tasks run in the host runtime', ready);
   expectEqual([ready.runtime, ready.hints], [summary, [{kind: advice.kind, command: advice.command}]], '§3.1 runtime is ' +
-    '{fromBranch,network,cpus,memoryMib,timeoutSeconds,maxRuns} from the launch profile, nothing else; hints are the ' +
-    'worker host status attention, as for any agent-mode connection');
+    '{fromBranch,network,cpus,memoryMib,timeoutSeconds,maxRuns,harness,image} from the launch profile, nothing else ' +
+    '(rev 7: a codex profile without an image has image null); hints are the worker host status attention, as for any ' +
+    'agent-mode connection');
   const from = (await f.calls()).length;
   await delay(600);
   const [listings, reads] = [await f.listings(from), await f.runtimeReads(from)];
@@ -90,7 +93,7 @@ async function case19_readyRuntimeAndRun() {
 
   // §3.1: each value as the profile gives it when it is a string or an integer, and null otherwise.
   const odd = f.profile(runtimeAgent.agentId, {from_branch: null, network: 7, cpus: 1.5, memory_mib: '2048',
-    timeout_seconds: true, max_runs: -1});
+    timeout_seconds: true, max_runs: -1, harness: true, image: ['FAKE-image']});
   delete odd.network;
   await f.configure({profiles: [f.profile(sessionAgent.agentId, {cpus: 64}), odd]});
   const changed = await until('§3.1 a change of the launch profile is a change of readiness runtime', async () => {
@@ -98,8 +101,18 @@ async function case19_readyRuntimeAndRun() {
     return current.runtime?.cpus !== summary.cpus && current;
   });
   expectEqual(pick(changed, 'code runtime since'), {code: 'ready_runtime', since: ready.since, runtime: {fromBranch: null,
-    network: null, cpus: null, memoryMib: '2048', timeoutSeconds: null, maxRuns: -1}}, '§3.1 strings and integers as the ' +
-    'profile gives them, null for a missing or other value; only the pinned agent profile counts; since moves only with ready');
+    network: null, cpus: null, memoryMib: '2048', timeoutSeconds: null, maxRuns: -1, harness: null, image: null}},
+  '§3.1 strings and integers as the profile gives them, null for a missing or other value (rev 7: harness and image ' +
+    'too); only the pinned agent profile counts; since moves only with ready');
+  // (rev 7) A claude profile with an image: both as the profile gives them.
+  const image = 'ghcr.io/fake-org/fake-claude-runtime:0.0';
+  await f.configure({profiles: [f.profile(runtimeAgent.agentId, {harness: 'claude', image})]});
+  const claude = await until('§3.1 (rev 7) runtime follows a claude profile with an image', async () => {
+    const current = (await f.snapshot()).connections.find(item => item.id === runtime).readiness;
+    return current.runtime?.harness === 'claude' && current;
+  });
+  expectEqual([claude.code, claude.runtime], ['ready_runtime', {...summary, harness: 'claude', image}],
+    '§3.1 (rev 7) runtime.harness and runtime.image of a claude profile with an image');
   await f.configure({profiles: f.baseline.profiles});
   await until('§3.1 the summary follows the profile back', async () =>
     isDeepStrictEqual((await f.snapshot()).connections.find(item => item.id === runtime).readiness.runtime, summary));

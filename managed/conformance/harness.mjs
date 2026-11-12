@@ -167,9 +167,10 @@ export function parseBranch(output) {
   return null;
 }
 
-// §3.1 (rev 5): a runtime agent's launch profile summary; each value a string, an integer or null.
+// §3.1 (rev 5): a runtime agent's launch profile summary, (rev 7) with its harness and image; each value a
+// string, an integer or null.
 export function checkRuntime(runtime) {
-  keys(runtime, 'fromBranch network cpus memoryMib timeoutSeconds maxRuns', '§3.1 readiness runtime');
+  keys(runtime, 'fromBranch network cpus memoryMib timeoutSeconds maxRuns harness image', '§3.1 readiness runtime');
   expect(Object.values(runtime).every(value => value === null || text(value) || Number.isInteger(value)),
     '§3.1 each runtime value is the profile value when it is a string or an integer, and null otherwise', runtime);
 }
@@ -664,7 +665,9 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
           resolve({status: res.statusCode, headers: res.headers, text: received, data});
         });
       });
-      req.on('error', reject);
+      // A refused connection says whether this fixture's controller has exited, and with what output.
+      req.on('error', error => reject(f.child && f.child.exitCode !== null ? new Error(`${error.message} (the ` +
+        `controller exited with ${f.child.exitCode}; output: ${snippet(f.logs)})`, {cause: error}) : error));
       req.setTimeout(6000, () => req.destroy(new Error('HTTP request timed out: ' + method + ' ' + route)));
       req.end(payload);
     });
@@ -707,19 +710,40 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
     req.end();
   });
 
+  // Concurrent fixtures each pick a free port, and two can pick the same one. Then one controller cannot
+  // listen, and another fixture's controller may answer this fixture's /health. So start requires this state's
+  // own token to be accepted (another controller refuses it, §2), and picks a new port only when this serve
+  // exited reporting its port in use; any other exit fails at once with the controller's output.
   f.start = async () => {
     assert.equal(f.child, null);
-    f.child = spawn(process.execPath, [cli, 'serve', '--state', state, '--port', String(f.port)],
-      {env, stdio: ['ignore', 'pipe', 'pipe']});
-    const child = f.child;
-    child.stdout.on('data', data => f.logs += data);
-    child.stderr.on('data', data => f.logs += data);
-    await until(() => label + ': serve answers /health; output: ' + snippet(f.logs), async () => {
-      if (child.exitCode !== null) throw new Error('serve exited with ' + child.exitCode + ': ' + f.logs);
-      return (await f.request('GET', '/health', undefined, {auth: false})).status === 200;
-    }, 15000);
-    f.token = await f.checkedCli('token');
-    assert.ok(f.token.length >= 24, 'private token must be nonempty and unguessable');
+    for (let attempt = 1; ; attempt++) {
+      f.logs = '';
+      f.child = spawn(process.execPath, [cli, 'serve', '--state', state, '--port', String(f.port)],
+        {env, stdio: ['ignore', 'pipe', 'pipe']});
+      const child = f.child;
+      child.stdout.on('data', data => f.logs += data);
+      child.stderr.on('data', data => f.logs += data);
+      const started = await until(() => label + ': serve answers /health; output: ' + snippet(f.logs), async () => {
+        if (child.exitCode !== null) return 'exited';
+        return (await f.request('GET', '/health', undefined, {auth: false})).status === 200 && 'answering';
+      }, 15000);
+      if (started === 'answering') {
+        f.token = await f.checkedCli('token');
+        assert.ok(f.token.length >= 24, 'private token must be nonempty and unguessable');
+        if ((await f.request('GET', '/api/snapshot')).status === 200 && child.exitCode === null) return;
+        await until('a serve that another controller answered for exits', () => child.exitCode !== null, 5000).catch(() => {});
+      }
+      const portTaken = /EADDRINUSE|address already in use/i.test(f.logs);
+      if (!portTaken || attempt === 3) {
+        child.kill('SIGKILL');
+        f.child = null;
+        throw new Error(`${label}: serve did not start as this fixture's controller (exit ${child.exitCode}); output: ` +
+          snippet(f.logs));
+      }
+      console.log(`${label}: port ${f.port} was taken by another fixture; starting again on another port`);
+      f.port = await freePort();
+      f.origin = 'http://127.0.0.1:' + f.port;
+    }
   };
   // Signals the controller and reports how it exited (§1: exit 0 within 5 seconds).
   f.terminate = async signal => {
@@ -815,6 +839,7 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
   f.calls = () => jsonLines(path.join(dir, 'calls.jsonl'));
   f.outcomes = () => jsonLines(path.join(dir, 'outcomes.jsonl'));
   f.hanging = () => jsonLines(path.join(dir, 'hanging.jsonl'));
+  f.delayed = () => jsonLines(path.join(dir, 'delayed.jsonl'));   // revision 6.1: delayed calls that woke
   const isTask = (argv, sub, taskId) => argv[argv.indexOf('task') + 1] === sub && argv.includes('task') &&
     (taskId === undefined || argv.includes(taskId));
   f.taskCalls = async (sub, taskId) => (await f.calls()).filter(call => isTask(call.argv, sub, taskId));

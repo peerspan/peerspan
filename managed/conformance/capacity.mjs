@@ -22,7 +22,7 @@ const disabledRuntime = {enabled: false, socket: null, runtime: null, rule: 'FAK
 async function capacityFixture(label, {connect = false, maxRuns = 3} = {}) {
   const f = await fixture(label, {connect});
   const R = runtimeAgent.agentId;
-  f.profile = (patch = {}) => ({agent_id: R, harness: 'FAKE-harness', harness_dir: path.join(f.dir, 'PRIVATE-harness'),
+  f.profile = (patch = {}) => ({agent_id: R, harness: 'codex', harness_dir: path.join(f.dir, 'PRIVATE-harness'),
     from_branch: 'fake-main', network: 'FAKE-none', cpus: 2, memory_mib: 2048, timeout_seconds: 900, max_runs: maxRuns,
     credential: true, ...patch});
   const sessions = agent => [{id: agent.sessionId, adapter_id: agent.adapterId, connection: 'ready'}];
@@ -325,38 +325,57 @@ async function case21_slowCheck() {
   const slowHost = hex('host', 5, 64);
   await f.configure({hostIds: {[slowDir]: slowHost}});
   const slow = await f.connectAgent(sessionAgent, 'FAKE-CONFORMANCE slowly checked worker', slowDir);
-  await f.configure({delayWhen: [{command: 'status', state: slowDir, ms: 800}]});
+  await f.configure({delayWhen: [{command: 'status', state: slowDir, ms: 1200}]});
   await f.start();
-  await f.code(slow, 'ready', 'the slowly checked worker is ready', 10000);
+  await f.code(slow, 'ready', 'the slowly checked worker is ready', 15000);
   const workflow = await f.create({name: 'FAKE slowly checked workflow', connectionId: slow, intervalMinutes: 60, enabled: true});
-  await f.finish(await f.newRun(workflow.id, 'queued', 8000), 'succeeded');
+  await f.finish(await f.newRun(workflow.id, 'queued', 15000), 'succeeded');
   const sent = async () => (await f.submissions()).filter(call => option(call.argv, '--agent') === sessionAgent.agentId).length;
   const isSlowStatus = argv => argv.includes('status') && option(argv, '--state') === slowDir;
-  // A status call of the worker that started 250 to 450 ms ago and has not ended: well inside its 800 ms, and after
-  // the pass that started it has made its dispatch decision (one interval is 100 ms).
+  // A status call of the worker that started 250 to 700 ms ago and has not ended: inside its 1,200 ms, and after the
+  // pass that started it has made its dispatch decision (one interval is 100 ms).
   const inFlight = () => until('§4 a slow check of the worker is in flight', async () => {
     const [calls, outcomes] = [await f.calls(), await f.outcomes()];
     const started = calls.filter(call => isSlowStatus(call.argv));
     const age = started.length ? monotonicNow() - started.at(-1).mono : Infinity;
-    return outcomes.filter(call => isSlowStatus(call.argv)).length < started.length && age >= 250 && age <= 450 &&
+    return outcomes.filter(call => isSlowStatus(call.argv)).length < started.length && age >= 250 && age <= 700 &&
       started.length;
-  }, 10000);
-  for (const [code, why, unready, restore] of [
-    ['session_not_ready', 'its session stops being ready', {agents: f.config.agents.map(item => item.id === sessionAgent.agentId
-      ? {...item, sessions: item.sessions.map(session => ({...session, connection: 'disconnected'}))} : item)},
-    {agents: f.config.agents}],
-    ['identity_changed', 'its status reports another host', {hostIds: {[slowDir]: hex('host', 6, 64)}}, {hostIds: {[slowDir]: slowHost}}]]) {
-    const before = await sent();
+  }, 15000);
+  // The worker becomes unready while a check of it is in flight. Normally that check has not yet read the host (the
+  // fake logs a delayed call's waking before it reads its configuration) and reports the change; on a loaded machine
+  // it may already have read it. Either way no task may be sent: `run` is requested after the change, and a run is
+  // reserved only on readiness from a check that began after it became due, which reads the host after the change.
+  const unreadyInFlight = async (unready, late) => {
     const started = await inFlight();
+    if (late) {   // the change comes just after the in-flight check has read the host, which it reports as ready
+      await until('the in-flight check reads the host', async () =>
+        (await f.delayed()).filter(call => isSlowStatus(call.argv)).length >= started, 15000);
+    }
     await f.configure(unready);
+    const read = (await f.delayed()).filter(call => isSlowStatus(call.argv)).length >= started;
+    return {started, timing: read ? 'had already read the host before the change' : 'read the host after the change'};
+  };
+  const sessionGone = {agents: f.config.agents.map(item => item.id === sessionAgent.agentId
+    ? {...item, sessions: item.sessions.map(session => ({...session, connection: 'disconnected'}))} : item)};
+  const sessionBack = {agents: f.config.agents};
+  for (const [code, why, unready, restore, late] of [
+    ['session_not_ready', 'its session stops being ready', sessionGone, sessionBack, false],
+    ['identity_changed', 'its status reports another host', {hostIds: {[slowDir]: hex('host', 6, 64)}},
+      {hostIds: {[slowDir]: slowHost}}, false],
+    ['session_not_ready', 'its session stops being ready just after the in-flight check read the host as ready',
+      sessionGone, sessionBack, true]]) {
+    const before = await sent();
+    const {started, timing} = await unreadyInFlight(unready, late);
     await f.action(workflow.id, 'run');
-    await until('the in-flight check ends', async () => (await f.outcomes()).filter(call => isSlowStatus(call.argv)).length >= started);
+    await until('the in-flight check ends', async () =>
+      (await f.outcomes()).filter(call => isSlowStatus(call.argv)).length >= started, 15000);
     await delay(1500);
-    expectEqual(await sent(), before, `§4 no task is sent on readiness older than the latest check: the worker became ` +
-      `unready (${why}) while a check of it was in flight`);
-    await f.code(slow, code, `${why}, as the in-flight check reports`, 8000);
+    expectEqual(await sent(), before, `§4 a run is reserved only on readiness from a check that began after it became ` +
+      `due: the worker became unready (${why}) while a check of it was in flight (which ${timing}), then run was ` +
+      `requested, and every check that began after that reads the host after the change`);
+    await f.code(slow, code, `${why}, as the checks that read the host after the change report`, 10000);
     await f.configure(restore);
-    await f.finish(await f.newRun(workflow.id, 'queued', 10000), 'succeeded');   // ready again: the requested run goes out
+    await f.finish(await f.newRun(workflow.id, 'queued', 15000), 'succeeded');   // ready again: the requested run goes out
   }
   await f.stop();
 }

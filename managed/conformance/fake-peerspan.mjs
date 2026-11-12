@@ -38,12 +38,15 @@ const invoked = args.includes('status') ? 'status'
 // Revision 3: "default" in senderStates makes a call without --state a call to a sender host.
 const stateArgument = args.includes('--state') ? flag('--state') : 'default';
 // Revision 6.1: `delayWhen` makes calls slow but not hanging. An entry {command,state,ms} matches a call of that
-// command (named as in `hang`) whose --state is `state` (when given); the call waits `ms` milliseconds and then
-// reads the configuration again, so it answers with the state of the host when it answers, as a slow host would.
+// command (named as in `hang`) whose --state is `state` (when given); the call waits `ms` milliseconds, logs that
+// it woke to delayed.jsonl, and only then reads the configuration again, so it answers with the state of the
+// host when it answers, as a slow host would.
 const slow = (config.delayWhen ?? []).find(entry => entry.command === invoked &&
   (entry.state === undefined || entry.state === stateArgument));
 if (slow) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, slow.ms);
+  fs.appendFileSync(path.join(dir, 'delayed.jsonl'), JSON.stringify({mono: Number(process.hrtime.bigint() / 1000000n),
+    argv: args}) + '\n', {mode: 0o600});
   config = readConfig();
 }
 const senderState =(config.senderStates ?? [path.join(dir, 'PRIVATE-sender')]).includes(stateArgument);
