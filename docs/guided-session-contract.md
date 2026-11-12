@@ -8681,6 +8681,35 @@ inputs, broader resume/F/commit automation, proofless completion, indefinite
 polling, unbounded fallback or historical signature evidence as current readiness.
 Recommended under GU-OWN1; no new choice attributed to the owner.
 
+### GU.impl43c: classify a missed expired-ciphertext retirement
+
+Full-tier run 43114365969 (release commit b835498, first attempt) failed
+verification5 once: `retired_expired_helper` timed out after 5 s with one
+mailbox past expiry on the host clock still `active` with one frame, and one
+already `expired` ([#189](https://github.com/peerspan/peerspan/issues/189)).
+The rerun passed, as did 14 earlier full-tier runs and 40 local whole-suite
+runs on main 622541b (20 idle, 20 under CPU and disk load). Section 9.2 bounds
+erasure at 2 seconds (MBX-1), so the host missed its own bound. The cause is
+unclassified: the existing summary does not show whether erasure stopped or was
+only late, nor which of the case's two retirement waits failed.
+
+A separate contract-only author may add ONLY failure diagnostics to
+`retired_expired_helper` in machine_owner_signing. Give it an optional phase,
+default unknown; tag the case's two existing calls `fresh-expiry` and
+`retained-history`. On the wait's existing failure path only (its timeout, or a
+layout check it already makes), print one separate public line after the
+unchanged `helper_summary` line: that phase; whether any mailbox state or ciphertext
+category changed between the first and the last snapshot the wait already
+captured (any retirement during the wait, or none); the count of mailboxes
+past expiry that still fail the wait's retirement test, by seconds past expiry
+at the last poll's host clock, bucketed as at most 2, at most 5 or over 5; and
+the host process as running, exited, stopped (no handle) or unknown, from the
+harness's own process handle with no request to the daemon. No identifiers,
+times, paths or raw rows; no new request, probe, action, retry or wait; the
+assertion, the 5 s bound, every call and the verdict stay as they are, and a
+diagnostic failure cannot change the outcome. A passing run classifies nothing;
+the next CI occurrence does.
+
 ## 44. Native existing-computer machine-owner review and initial signing
 
 GU.impl44 follows merged96. Compose sections41–43 in the existing terminal

@@ -1159,11 +1159,55 @@ def helper_summary(databases):
     return summary
 
 
-def retired_expired_helper(h):
+def retirement_categories(databases):
+    """Per-mailbox (state, ciphertext) categories, keyed only in memory."""
+    categories = {}
+    for name, database in databases.items():
+        for row in database.get('mailboxes', ()):
+            if len(row) != 12:
+                return None
+            categories[(name, row[0])] = (row[10] if row[10] in {'active', 'deleted', 'expired'} else 'unknown',
+                                          type(row[11]) is int and row[11] > 0)
+    return categories
+
+
+def retirement_classification(phase, first, last, now, process):
+    """GU.impl43c failure-only categories from the wait's own captures; no IO."""
+    before = retirement_categories(first) if first is not None else None
+    after = retirement_categories(last) if last is not None else None
+    buckets = dict.fromkeys(('<=2', '<=5', '>5'), 0)
+    if after is not None and type(now) is int:
+        for database in last.values():
+            frames = database.get('frames', ())
+            for row in database.get('mailboxes', ()):
+                if type(row[5]) is not int or row[5] > now:
+                    continue
+                if row[10] in ('deleted', 'expired') and row[11] == 0 and not any(
+                        len(frame) == 6 and frame[0] == row[0] for frame in frames):
+                    continue
+                late = now - row[5]
+                buckets['<=2' if late <= 2 else '<=5' if late <= 5 else '>5'] += 1
+    else:
+        buckets = 'unknown'
+    if process is None:
+        host = 'stopped'
+    elif callable(getattr(process, 'poll', None)):
+        host = 'running' if process.poll() is None else 'exited'
+    else:
+        host = 'unknown'
+    return {'phase': phase if phase in {'fresh-expiry', 'retained-history'} else 'unknown',
+            'changed_during_wait': 'unknown' if before is None or after is None else
+                                   'any' if before != after else 'none',
+            'unretired_seconds_past_expiry': buckets,
+            'host_process': host}
+
+
+def retired_expired_helper(h, phase='unknown'):
     """Observe real collection on the live original; do not start its peer."""
     last = {}
     def retired():
         now = int(h.now().timestamp()); data = records(h); last['captured'] = data
+        last.setdefault('first', data); last['now'] = now
         found = False
         for database in data.values():
             if not ({'mailboxes', 'frames'} & set(database)):
@@ -1187,6 +1231,12 @@ def retired_expired_helper(h):
             print('machine_signing_retirement_failure_public=' + json.dumps(helper_summary(last.get('captured', {})), sort_keys=True), flush=True)
         except Exception:
             pass
+        try:
+            print('machine_signing_retirement_failure_class_public=' + json.dumps(retirement_classification(
+                phase, last.get('first'), last.get('captured'), last.get('now'), getattr(h, 'process', 'unknown')),
+                sort_keys=True), flush=True)
+        except Exception:
+            pass  # A diagnostic cannot replace the original timeout verdict.
         raise
 
 
@@ -1436,7 +1486,7 @@ def _():
     target = parse_time(expired['prepared']['consent']['review']['expires_at']) + timedelta(seconds=1)
     check(target < parse_time(expired['prepared']['request']['expires_at']), 'fixed expiry stimulus exhausted signed request instead')
     advance_to(expired['a'], target)
-    retired_expired_helper(expired['a'])
+    retired_expired_helper(expired['a'], phase='fresh-expiry')
     expired_view = pure_signing(expired, guard=guard, phase='fresh-expiry')
     check(expired_view['signing']['can_sign'] is False and expired_view['signing']['state'] != 'signed', 'expired fresh action remained enabled')
     pure_signing(expired, 'sign', guard=guard, phase='fresh-expiry', status=409, code='review_expired')
@@ -1451,7 +1501,7 @@ def _():
     check(get(h, PROJECT + '/' + old_parent['flow_id'])['state'] == 'invalidated', 'ordinary restart did not detach old parent')
     for local in (h, f['b']):
         advance_to(local, parse_time(f['prepared']['request']['expires_at']) + timedelta(seconds=1))
-    retired_expired_helper(h)
+    retired_expired_helper(h, phase='retained-history')
     quiet(f); receipt = intent(h, f['prepared']['consent']['consent_id']); owner = intent(h, f['prepared']['consent']['review']['intent_id'])
     for action in ('signing', 'sign'):
         for cli in (False, True):

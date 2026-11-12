@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
   - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
   - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
   - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
@@ -65,6 +66,47 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-8 to RUN-11: runtime agents (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** runtime agents, user story 2: an agent such as Codex run headless in a microVM, one VM per task, on a fork of a peerfs branch.
+- **Source:** decision 6 of `runtime.md` in the internal design repository (docs-internal PR #36), and the owner's answers to three questions on 2026-11-12. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md).
+- **Implementing PRs:** [peerspan/runtime#10](https://github.com/peerspan/runtime/pull/10) (secrets and the harness mount) and [peerspan/runtime#11](https://github.com/peerspan/runtime/pull/11) (forks), on the runtime side. The host side is not implemented yet.
+
+#### RUN-8. The basis: decision 6's recommendations
+
+- **Question:** whether to accept decision 6's open recommendations as the basis for the host contract.
+- **Options:**
+  - (a) Accept all: "6a: senders send an ordinary agent task to e.g. priya/codex, and the host runs it in a VM from a host-local launch profile, rather than senders sending a runtime task with Codex argv. 6d: the model key goes into the VM at /run/secrets in v1, with a credential proxy before keys cross owners. 6f: the agent binary is mounted read-only into any image. Defaults: 3 concurrent runs, 2 vCPU, 2 GiB, 1 hour."
+  - (b) "Same design, but you give different concurrency or resource defaults."
+  - (c) "Ask about 6a, 6d and 6f separately before writing anything."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question. The question noted that the measured Codex run peaked at about 570 MiB.
+- **Note:** 6f's harness "pinned by the host release" is a directory the owner installs in this contract (`harness_dir`). Bundling a Codex release (about 366 MB) with the host is left to release work.
+
+#### RUN-9. The fork's name
+
+- **Options:** options not recorded. Decision 6c named forks `agents/AGENT/TASK_ID`. peerfs names are one path component, and `/` already means `<host>/<branch>` for pulled branches, so the contract uses `AGENT.TASK_ID`. This is an implementation choice within RUN-8, recorded so later readers find it.
+
+#### RUN-10. Snapshots of a runtime agent's work in v1
+
+- **Options:**
+  - (a) Per-run for v1: "v1 records a snapshot before and after each task; acceptance is amended. Per-call snapshots come with the guest-to-host vsock channel in 6i, which needs the same plumbing."
+  - (b) Per-call now: "Build a vsock snapshot request from the guest, plus a Codex hook that calls it after each tool call, before the host work. Adds a runtime and guest change and depends on Codex's hook support."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-11. How the result reaches the sender
+
+- **Options:**
+  - (a) Text trailer: "output stays plain text: the agent's final message, then a last line such as 'Branch: codex.task_ab12… at commit 01cd…'. Works with every sender and reads naturally to an agent; scripts parse the last line."
+  - (b) JSON output: "output is a JSON object {message, branch, commit, exit_code}. Works with older senders and is easy for scripts to read, but agents receive JSON instead of prose."
+  - (c) New event field: "output stays the message, and the final event gets a nullable 'workspace' field. This is the cleanest data, but older senders reject it, so it needs a capability check or a version gate."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
 
 ### CONV-36: a denied `about` start after a synced deny (2026-11-11)
 
