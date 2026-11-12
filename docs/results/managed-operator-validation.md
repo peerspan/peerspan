@@ -17,15 +17,26 @@ After revision 6 was published, a regression run of the suites failed once in
 `acceptance.mjs`: `readinessAndTargetExclusion` saw a run sent to a worker whose
 pinned identity had just changed. Revision 6 dispatched with the readiness each
 connection had last recorded, and its review fix had capped a pass's wait at one
-interval (100 ms in the suites), so a check that had not ended within the wait
-left dispatch with the previous pass's verdict. Dispatch now uses only verdicts
-from checks that ended since its previous decision; a worker whose check is slow
-waits for its own next verdict, so no evidence is older than one check, as
-before revision 6. The contract and MGD-15 say so. The suite author added
-`case21_slowCheck`, which makes one worker's checks slower than a pass, makes it
-unready while a check is in flight and requests a run: it failed twice against
-the code before the fix and passed four times with it. `acceptance.mjs` then
-passed three runs in a row.
+interval (100 ms in the suites), so a check that began before the change could
+still give the verdict for a run requested after it. A first correction, using
+only verdicts from checks that ended since the previous decision, passed locally
+but failed the same way in the fork's CI (`045f62e1`), which also showed it was
+not enough: a check can begin before the change and end after the request.
+
+Work is now reserved only on readiness from a check that began after the work
+became due: a run after its `nextRunAt`, its rework or the operator's latest
+change of the workflow, whichever is latest; a review task after its run ended.
+A change made before a run is requested is then always seen. To check it, the
+case was run six at a time with every CPU kept busy, which imitates a slow
+machine: it failed 5 of 18 runs on the published code, 11 of 18 on revision 5,
+whose pass timing had kept the same race out of normal runs, and 0 of 18 with
+the rule. The suite author also added `case21_slowCheck`, which makes one
+worker's checks slower than a pass, makes it unready while a check is in flight
+and requests a run; it fails against the code before the first correction. Under
+that load revision 5 also failed once at an earlier step of the case, where a
+check read the worker's status before a change and its adapter after it; that
+two-call view is inherent to file mode, did not occur with the rule, and is
+noted here as a limit.
 
 ### Recipes, comparison and notifications
 
