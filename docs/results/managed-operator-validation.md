@@ -1,5 +1,74 @@
 # Managed operator validation
 
+## Revision 5
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
+against host binaries rebuilt from this branch after merging upstream `main`
+through `ad5d7993`, which implements runtime agents (`b270c1b6`); the managed
+work changes nothing in the host, and its checks were not rerun. The store is
+version 4, unchanged, so no migration was needed.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The seven suites, cases 1 to 19 | 38/38 passed in about 3.5 minutes in sequence: acceptance 6/6 (63 s), operations 5/5 (17 s), visibility 6/6 (41 s), remote 4/4 (65 s), schedules 5/5 (10 s), reviewers 8/8 (10 s), runtime-agents 4/4 (10 s, new). |
+| `real-peerspan-smoke.py` against the rebuilt binaries | 5/5 passed in 150 seconds; the fifth case is new. |
+| Upstream `conversations_tools` `help` against the rebuilt binaries | Passed. |
+| Console in headless Chrome 157 | The Workers page with a runtime agent, desktop and phone, light and dark: no horizontal overflow, no page errors, and no launch-profile path in any response. |
+
+The new suite, `runtime-agents.mjs` (case 19), was written from the contract by
+the same separate author, who did not read the implementation; it found no
+defects, and its three questions (which profile counts when two match, a profile
+listing that rejects `--json`, and `runtime` for codes before the runtime rows)
+were settled in the contract (`7bbc9047`). With the harness and the fake, the
+seven suites are 5,028 lines.
+
+The real-transport smoke's fifth case runs a real host with upstream's own fake
+runtime (`conformance/slim/fake_runtime.py`), which serves a peerfs space and
+acts as the agent. An agent registered with `--agent` is `session_not_ready`
+without a profile, `runtime_credential_missing` once its owner sets a launch
+profile, with the profile summarized in readiness and no path in any response,
+and `ready_runtime` once a credential is stored, without any session. A
+workflow's run then executes on the fork `codex.TASK_ID` of `main`, which holds
+the agent's write while `main` is unchanged, and the run's `branch` is that fork
+at its commit, read from the real host's output line. Switching the runtime off
+makes the agent `runtime_disabled`. No model is called.
+
+The fork's CI on `35a153cb` (revision 4) failed once in upstream's `conversations_run_fixes` suite, in `order_cursor_follows_print`, and passed when rerun; that suite covers host code this work does not change.
+
+Upstream's runtime agents confirmed the open question of MGD-12: on `b270c1b6`, a
+runtime agent with a profile, a credential and a running runtime is listed in
+its host's `status` with no sessions and in the sender's `agents` directory as
+not `connected`. Readiness for a runtime agent on another machine therefore
+waits for upstream's answer on PR #186.
+
+### Independent review of revision 5
+
+The reviewer of revision 4 read revision 5 against the contract, probed it with a
+fake and with the real binaries, and confirmed four defects, all fixed before
+publishing:
+
+- **Medium-low:** with its runtime process stopped, upstream's `runtime show`
+  waits up to 35 seconds; the controller's 15-second command limit then slowed
+  every scheduler pass, for every worker, to about 15 seconds. `runtime show` now
+  has 5 seconds, after which the agent is `runtime_unavailable`, and the
+  contract says so. A pass that meets a stuck runtime still waits those 5
+  seconds; reading slow checks beside dispatch, as a hanging `status` would also
+  need, is left for later.
+- **Low:** the runtime summary rounded short time limits, showing 20 seconds as
+  0 minutes.
+- **Low:** the activity log called an unreadable launch-profile listing an
+  unreadable host status.
+- **Low:** before a check reached the launch profiles, the Workers page said an
+  agent-mode worker followed its sessions.
+
+It also confirmed the order of the four codes, every failure mode of both
+commands, that no path leaves the controller, that a change of only the
+profile summary is a readiness change, that file and remote mode never run the
+new commands, and that each check adds exactly one profile listing. It noted
+that a new CLI talking to an older daemon still running cannot read launch
+profiles; the operator guide now says to restart the daemon after upgrading.
+
 ## Revision 4
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
