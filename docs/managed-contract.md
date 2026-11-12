@@ -531,11 +531,11 @@ location, or upstream attention `detail` or `subject` text.
   | `controller_error` | `action` | `controller` | The scheduler's last pass failed. `subject.id` and `name` are `controller`. |
   | `workflow_auto_paused` | `action` | `workflow` | `pausedBy` is `failures`. |
   | `worker_unready` | `action` when an enabled workflow that is not archived uses the connection, (rev 4) as its worker or its reviewer, or a run waits for a review task on it that is not yet reserved; otherwise `warning` | `connection` | Its readiness is not ready. `message` is the readiness reason and `since` its `since`. |
-  | `run_problem` | `warning` | `run` | An unresolved run has a non-null `error`, (rev 4) or a run's unresolved review task has a non-null `reviewTask.error`; one item per run, for its own task when both have one. `subject.name` is the workflow name; `since` is when the problem first appeared. |
+  | `run_problem` | `warning` | `run` | An unresolved run has a non-null `error`, (rev 4) or a run's unresolved review task has a non-null `reviewTask.error`. `subject.name` is the workflow name; `since` is when the problem first appeared. |
   | `observed_unavailable` | `warning` | `observation` | An observed entry has `available` false. |
   | `observed_problem` | `warning` | `observation` | An available observed entry has a non-null `error`. |
   | `daily_limit_reached` | `info` | `workflow` | An enabled workflow is blocked only by its daily cap. |
-  | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs and `since` is the earliest of their `finishedAt`. |
+  | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs, the ones that wait for the operator, and `since` is the earliest of their `finishedAt`. |
 
 - `activity`: the newest 30 activity entries (section 11), newest first.
 - `archived`: `{id,name,archivedAt}` for each archived workflow, newest first.
@@ -615,7 +615,8 @@ to `instructions` for a run with `attempt` 1, and without the revision request
 for a rework (section 15.2). In the detail, a non-null `run.reviewTask` also has
 `input`, the exact input of the review task or null before it is reserved, and
 `output` and `outputTruncated`, the review task's retained output in full and
-whether the remote output was longer, by the rules for a run's output.
+whether the remote output was longer, by the rules for a run's output: `output`
+is null and `outputTruncated` false until there is an output.
 
 `POST /api/runs/:id/cancel` accepts `{}` and asks the worker to stop an
 unresolved run (MGD-1). It is 404 for an unknown run and 409 for a terminal one.
@@ -652,8 +653,10 @@ A runtime agent of the upstream [runtime agent contract](runtime-agent-contract.
 works on its own peerfs branch and ends its output with a line naming that branch
 (upstream RUN-11). A run's `branch` is null, or that line read as
 `{name,outcome,commit,from,error}` (MGD-12). It is read from the run's retained
-output when the run is `succeeded` or `failed` and `outputTruncated` is false,
-and it is null in every other case.
+output when the run is `succeeded` or `failed` and the controller retained the
+whole remote output (the run detail's `outputTruncated` is false), and it is null
+in every other case. A snapshot's `outputTruncated`, which is also true when only
+the preview is cut, does not change `branch`.
 
 The output, without its trailing whitespace, must end with an LF, an empty line
 and a last line L: that is, with `\n\nL`, where L has no LF. L is matched against
@@ -843,13 +846,19 @@ operator may give a verdict at any time while the review is `pending`.
   connection, and a reviewer whose worker agent is the workflow's are 400;
   `reviewerId` null beside another `review` means no reviewer.
 - In a `PATCH`, setting `review` to `none` or `operator` also sets `reviewerId` to
-  null. The workflow that results must follow the rules above, so `review`
+  null, unless the same body gives a non-null `reviewerId`, which is 400. The
+  workflow that results must follow the rules above, so `review`
   `agent` without a reviewer, a non-null `reviewerId` on a workflow whose
   `review` stays `none` or `operator`, `reviewerId` null on a workflow whose
   `review` stays `agent`, an unknown connection, and a `connectionId` or
-  `reviewerId` that puts one worker agent on both sides, are 400. When a switch
-  clears `reviewerId`, its `workflow.edited` entry lists both `review` and
+  `reviewerId` that puts one worker agent on both sides, are 400. These rules
+  are checked when a body has `review`, `reviewerId` or `connectionId`. When a
+  switch clears `reviewerId`, its `workflow.edited` entry lists both `review` and
   `reviewerId`.
+- A reviewer connection can be removed while every workflow naming it is
+  archived. Such a workflow keeps its `reviewerId` when it is restored, and its
+  results fall back with `reviewer_removed` (below) until a `PATCH` gives it
+  another reviewer or another `review`.
 - `reviewCriteria` is null, or a string of at most 2,000 characters as sent,
   stored trimmed; an empty trimmed string is stored as null. It tells the
   reviewer agent, and the operator in the console, what a good result must do.
@@ -905,7 +914,8 @@ output as lets the whole input fit in 65,536 bytes.
 first line of its output that has a character other than whitespace. With
 whitespace and the characters `*`, `_`, `#`, `>`, `` ` `` and `.` removed from
 both its ends, that line must be `VERDICT:`, optional spaces, and `ACCEPT` or
-`REJECT`, letters in any case, and nothing else. `ACCEPT` makes the run's
+`REJECT`, and nothing else; the letters of all three words may be in any case,
+so `verdict: accept` is a verdict line. `ACCEPT` makes the run's
 `review` `accepted` and `REJECT` makes it `rejected`, with `reviewedBy` `agent`,
 `reviewedAt` the time the controller retained the review task's result, and
 `reviewNote` the reviewer's reasons: the text after the verdict line, without a
@@ -924,15 +934,17 @@ its `reviewFallback` becomes one of these causes, recorded as `review.fallback`:
 | `no_verdict` | The review task ended `succeeded`, but its output has no verdict line. |
 | `reviewer_removed` | The reviewer connection was removed before the review task was reserved. The controller notices it at its next pass. |
 
-`reviewFallback` is null otherwise. The run's `review_pending` item (section 8)
-appears once it falls back.
+`reviewFallback` is null otherwise, and once set it never changes, also after
+the operator's verdict. The run's `review_pending` item (section 8) appears once
+it falls back.
 
 **The operator's verdict** (section 15) ends the agent review. Given before the
 review task is reserved, no review task is reserved. Given while the review task
 is unresolved, that task goes on to its end under the rules of section 4, and its
 state and output are kept in `reviewTask`, but its end changes nothing else: no
 verdict, no fallback and no `review.fallback` entry. `review.finished` is
-recorded for every review task that ends.
+recorded for every review task that ends, with its final state, `abandoned`
+included.
 
 **Cancelling and releasing a review task.** `POST /api/runs/:id/review/cancel`
 accepts `{}`. It is 404 for an unknown run and 409 unless the run has an
@@ -940,8 +952,10 @@ unresolved review task. It records the review task's `cancelRequestedAt` once,
 with `review.cancel_requested`, and returns the run; the controller then acts on
 the review task as section 10 says for a run's task. `POST
 /api/runs/:id/review/abandon` accepts exactly `{"confirm":TASK_ID}`, where
-TASK_ID is the review task's ID. It is 404 for an unknown run, 409 unless the run
-has an unresolved review task, and 400 unless `confirm` equals that task's ID.
+TASK_ID is the review task's ID. A body that is not an object with exactly a
+string `confirm` is 400 first, as for `abandon`; then it is 404 for an unknown
+run, 409 unless the run has an unresolved review task, and 400 unless `confirm`
+equals that task's ID.
 The review task becomes `abandoned`, its reviewer agent is released, the
 controller never again submits, inspects or cancels that task, and
 `review.abandoned` is recorded; the run falls back as the table says unless the
@@ -949,7 +963,8 @@ operator has already given a verdict. The response is the run.
 
 ### 15.2 Rework (rev 4)
 
-A workflow's `reworkLimit` is an integer from 0, the default, to 3: how many times
+A workflow's `reworkLimit` is an integer from 0, the default, to 3 (any other
+value, null included, is 400): how many times
 a rejected result is sent back to the worker agent with its review (MGD-11). A
 run's `attempt` is 1 for a run reserved for the workflow's interval, schedule or
 `run`, and one more than the rejected run's for a rework; its `reworkOf` is null,
