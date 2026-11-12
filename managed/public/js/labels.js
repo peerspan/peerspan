@@ -151,7 +151,9 @@ const count = (value, word) => (Number.isInteger(value) ? `${value.toLocaleStrin
 
 /** One line about a runtime agent's launch profile, from its readiness (contract section 3.1). */
 export function runtimeText(runtime) {
+  const harness = { codex: 'Codex', claude: 'Claude Code' }[runtime.harness] ?? runtime.harness;
   const parts = [
+    harness && (runtime.image ? `${harness} on ${runtime.image}` : harness),
     runtime.fromBranch !== null && `forks of ${runtime.fromBranch}`,
     runtime.network === 'none' ? 'no network' : runtime.network === 'internet' ? 'internet access' : null,
     count(runtime.cpus, runtime.cpus === 1 ? 'CPU' : 'CPUs'),

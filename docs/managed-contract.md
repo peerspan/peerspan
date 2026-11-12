@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 6. Revision 1 defined the first local slice: the console, recurring
+Revision 7. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -13,9 +13,10 @@ rejected results (section 15.2) and the workspace branches of runtime agents
 runtime agents whose host runs on this machine (section 3.1). Revision 6 keeps
 every revision 5 behavior and adds a capacity per worker agent, so that a
 runtime agent works on several tasks at once, and scheduler passes that never
-wait for a slow Peerspan call (section 4). The store of revisions 5 and 6 is
-version 4, unchanged. Additions are marked "(rev 2)" to "(rev 6)" where they
-extend an earlier section. Fork decisions are recorded in
+wait for a slow Peerspan call (section 4). Revision 7 keeps every revision 6
+behavior and adds a runtime agent's harness and image to its readiness (section
+3.1). The store of revisions 5 to 7 is version 4, unchanged. Additions are marked
+"(rev 2)" to "(rev 7)" where they extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -243,9 +244,11 @@ Readiness gains `runtime`, which is null except with the four codes of this
 section, for which it is
 `{fromBranch,network,cpus,memoryMib,timeoutSeconds,maxRuns}` from its launch
 profile (`from_branch`, `network`, `cpus`, `memory_mib`, `timeout_seconds` and
-`max_runs`), each value as the profile gives it when it is a string or an
-integer, and null otherwise. No other profile field, and never a path, is
-returned. A change of `runtime` is a readiness change.
+`max_runs`), (rev 7) with `harness` and `image` (`harness`, `codex` or `claude`
+upstream, and `image`, an OCI image reference or null), each value as the
+profile gives it when it is a string or an integer, and null otherwise. No
+other profile field, and never a path, is returned. A change of `runtime` is a
+readiness change.
 
 File mode always follows its worker state file. Remote mode (section 7.1) is not
 changed: upstream's directory does not tell a sender whether an agent runs in a
@@ -408,8 +411,9 @@ on stderr. Other upstream fields may be present.
 (rev 5) `agent runtime show` with the global `--json` flag and no agent argument
 prints a JSON array of the host's launch profiles in agent ID order, each
 `{agent_id,harness,harness_dir,from_branch,network,cpus,memory_mib,
-timeout_seconds,max_runs,credential}`, where `harness_dir` is an absolute path and
-`credential` a boolean. `runtime show` with the global `--json` flag prints
+timeout_seconds,max_runs,credential}`, (rev 7) with `image`, where `harness` is
+`codex` or `claude`, `harness_dir` is an absolute path, `image` is an OCI image
+reference or null, and `credential` a boolean. `runtime show` with the global `--json` flag prints
 `{enabled,socket,runtime,rule}`: `enabled` is a boolean, `socket` a path or null,
 and `runtime` null while the switch is off, the runtime's report
 `{version,image,max_cpus,max_memory_mib,max_seconds,max_concurrent_runs,running,
@@ -1269,7 +1273,8 @@ area, not by revision.
     becoming one, and ceasing to be one, without operator action; file and
     remote mode never running `agent runtime show`; a run dispatched to a
     runtime agent, completed with a branch line; and the `checking` readiness
-    with `runtime` null.
+    with `runtime` null. (rev 7) `runtime.harness` and `runtime.image` from a
+    `claude` profile with an image and a `codex` profile without one.
 
 `capacity.mjs` (revision 6 capacity and slow calls):
 

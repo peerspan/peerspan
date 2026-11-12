@@ -106,7 +106,10 @@ function runtimeSummary(profile) {
     cpus: value('cpus'),
     memoryMib: value('memory_mib'),
     timeoutSeconds: value('timeout_seconds'),
-    maxRuns: value('max_runs')
+    maxRuns: value('max_runs'),
+    // Revision 7: which agent program runs, and on which image (null: the runtime's own).
+    harness: value('harness'),
+    image: value('image')
   };
 }
 
