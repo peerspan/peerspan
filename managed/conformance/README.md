@@ -34,7 +34,7 @@ locks. The suite is bounded to 115 seconds; normal duration is around 70 seconds
 revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
 suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
-(cases 20 and 21) the revision 6 suite. They are split by area to stay near
+(cases 20 to 22) the revision 6 and 7.1 suite. They are split by area to stay near
 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
 logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 6 shapes of
@@ -101,7 +101,11 @@ Every response body is also checked for fixture paths, the access token and
   another connection's workflow is dispatched and reconciled, `checkedAt`
   advancing, no second call for the hanging connection or task, and shutdown
   within 5 seconds; a worker whose slow check reports it unready getting no task
-  on the verdict of the check before). Nine concurrent cases, about 15 seconds.
+  on the verdict of the check before), and (revision 7.1, case 22) readiness from
+  one moment: a file-mode worker and a runtime agent switching in one step between
+  two states that are each not ready, with the read that completes a ready
+  verdict made slow, never getting a run, and dispatched once really ready.
+  Eleven concurrent cases, about 30 seconds.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly

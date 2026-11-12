@@ -342,3 +342,69 @@ check that began after the work became due (the run's due time, a rework, or
 the operator's latest change of the workflow; for a review task, its run's
 end), so a change made before a run is requested is always seen, whatever the
 timing; a worker with a slow check waits for its own next verdict.
+
+Note to MGD-15 (2026-11-12, revision 7.1): with that rule, work held back for a
+fresher verdict waited for the next periodic pass. Under WSL the system clock
+often steps back about 2.5 seconds during a suite run, and while the controller holds
+its clock every check records the same time as the operator's change, so a
+resume made then waited a full interval; the prompt-pass case of the visibility
+suite caught it once locally. A dispatch now reports which ready connections
+held work back. A recheck follows as soon as a check that began late enough can
+start: when that connection's running check ends, or once the held clock has
+moved past the time it holds, and never sooner than 20 ms. The recheck
+dispatches with what is known, checks only those connections whose verdict is
+still too old, and dispatches again.
+
+A first form moved the whole next pass forward instead. The independent
+reviewer showed two problems with it. A pass that failed before or during its
+dispatch kept the old list and ran again every 20 ms, about 94 passes in 6
+seconds against 6. And every reviewed result that finished during a pass would
+have cost another full pass, with every check and inspection. The list is now
+emptied before each dispatch and after a failed recheck, and a recheck touches
+only the connections concerned. Its second review found one more loop: a check
+that fails to record its verdict leaves the old one, still too old, so the
+connection stayed stale and was checked every 20 ms. A connection whose latest
+check failed is now left to the passes until a check of it succeeds.
+
+The alternative, ordering checks against changes by an in-memory counter instead
+of recorded times, would not cover changes recorded by other processes or
+restarts, and would make two rules where the store's one rule now decides.
+
+## MGD-16. A ready verdict from one moment (2026-11-12)
+
+- **Question.** A readiness check reads several things one after another: the
+  worker state file, the worker's `status`, then the adapter's `adapter
+  connection` report, or for a runtime agent its launch profile and `runtime
+  show`. Each read can see a different moment. Under load the acceptance suite
+  sent a run while the fake host was changing in one step from "identity right,
+  channel verified without a time" to "a time, but another host". The check had
+  taken the identity from before the change and the verification from after it,
+  a ready combination that never existed. A probe that delays the adapter's
+  report by 300 ms reproduced it with 0.8.0 on the first such change, and the
+  same with a runtime agent's credential and runtime switch.
+- **Options.**
+  - (a) Read everything at once. Separate commands cannot do that.
+  - (b) Make every check twice and compare. This doubles every call, including
+    a slow `runtime show`.
+  - (c) After a ready verdict, read again what was read before its last read,
+    and keep the verdict only when the facts it rests on are unchanged.
+- **Chosen.** (c). The adapter report now follows the status that made its
+  session a candidate. A mismatch makes the whole check again, once. A second
+  mismatch gives `status_invalid`.
+- **Reason.** If the facts read before and after the last read are equal, they
+  held throughout, unless they changed and changed back, so the whole verdict
+  held at the moment of the last read. (c) adds the worker's and the sender's
+  `status` calls, and in agent mode one `agent runtime show`, only to checks
+  that come out ready. The facts compared are the ones the verdict uses: the
+  file's identity, the host, the agent, the verified session, the sender host,
+  and in agent mode the launch profile or its absence. Attention items and other
+  sessions are not compared, so a host whose unrelated fields change does not
+  lose its readiness. Ending a second mismatch in `status_invalid`, rather than
+  checking until the facts settle, keeps a check bounded; the next pass checks
+  again.
+- **Review.** The first form compared neither the sender's status nor, for a
+  session in agent mode, the absence of a launch profile. The independent
+  reviewer's probes still sent runs through both gaps, with the sender failing
+  and with a profile appearing in the same step as the channel's time; both
+  are now among the facts compared.
+- **Contract.** Section 3.

@@ -1,6 +1,91 @@
 # Managed operator validation
 
-## Revision 7
+## Revision 7.1 (0.8.1)
+
+Validated on 2026-11-12 UTC like revision 7 below. Revision 7.1 of the contract
+changes section 3 (a ready verdict from one moment) and one rule of section 4;
+the store is still version 4.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The eight suites, cases 1 to 22 | 49/49 passed in about 4 minutes in sequence: acceptance 6/6 (63 s), operations 5/5 (17 s), visibility 6/6 (41 s), remote 4/4 (70 s), schedules 5/5 (9 s), reviewers 8/8 (18 s), runtime-agents 4/4 (12 s), capacity 11/11 (25 s); 5,613 lines with the harness and the fake. Five of those runs saw the WSL clock step back, by 2.5 to 15 seconds in all; visibility also passed four times in a row on its own, each run with a step back. |
+| Case 22 against 0.8.0 | Both parts fail at the first change: a ready verdict from two moments and a run sent. |
+| Acceptance's readiness case, six copies at once with every CPU busy | 30/30 passed; 0.8.0 passed 24/24 and the first form of this revision 16/18. |
+| `real-peerspan-smoke.py` against the binaries of revision 7 | 5/5 passed in 174 seconds: ready verdicts kept their facts across both reads against real hosts. |
+
+### Work held back by a held clock
+
+The prompt-pass case of the visibility suite failed once in a run during which
+the WSL clock stepped back 2.46 seconds. A resume made while the controller
+holds its clock is recorded at the same time as the check that the resume
+starts, and since revision 7 an equal time does not count as after, so the run
+waited for the next periodic pass: up to six seconds in that case, and up to
+ten at the default interval. A dispatch now reports which ready connections
+held work back for a fresher check. A recheck of only those connections, then a
+dispatch, follows as soon as such a check can start: when the connection's
+running check ends, or once the clock moves past the time it holds (note to
+MGD-15). A probe can step the controller's clock back only through
+`MANAGED_CLOCK_FILE`, which also makes passes start every second, so it cannot
+show the saving: it measured 1.2 to 2.1 seconds with 0.8.1 and about 2.1 with
+0.8.0. The visibility case, at a six-second interval with the real clock, passed
+in every run since, most of them with a step back.
+
+The independent reviewer found that the first form of this change, which moved
+the whole next pass forward, ran failing passes every 20 ms (94 passes in 6
+seconds against 6 with 0.8.0, with a store that refused to reserve) and would
+have spent a full pass on every reviewed result finishing during a pass. Both
+are fixed: the list of connections is emptied before each dispatch and after a
+failed recheck, and a recheck checks only the connections concerned. Its
+second review found a check that could not record its verdict (a store that
+refused the write) rechecked every 20 ms, 62 checks in 6 seconds against 6; a
+connection whose latest check failed is now left to the passes until a check
+of it succeeds.
+
+### A ready verdict from reads of two moments
+
+The loaded stress run of the acceptance suite's readiness case (six copies at
+once, every CPU busy) failed 2 times in 18 with `changed status host
+dispatched`. The case changes the fake host in one step from "identity right,
+verified without a time" to "a time, but another host". A file-mode check read
+`status` and `adapter connection` in parallel, so it could take the identity
+from before the change and the verification from after it: a ready verdict
+that described no single moment. The defect dates from revision 1; 0.8.0 passed
+the same stress 24 times in 24, so it is rare without help. Two probes give it
+help, by delaying the slow read 300 ms and holding each state about a second
+(longer than a check, so that no check sees a state come back):
+
+| Probe | 0.8.0 | 0.8.1 |
+| --- | --- | --- |
+| File mode: status before the change, the adapter's report after it | A run sent on the first change | No run in 40 changes |
+| Runtime agent: the launch profile's credential before the change, `runtime show` after it | A run sent on the second change | No run in 30 changes |
+
+A ready verdict now stands only when what was read before its last read reads
+the same after it (section 3, MGD-16). The facts compared are the file's
+identity, the host, the agent, the verified session, the sender host, and in
+agent mode the launch profile or its absence. In file mode, the adapter report
+now follows the status that made its session a candidate. The reviewer's
+probes found the first form missing the sender (a run on the first change) and
+a profile's absence (a run after four changes); both are compared now.
+
+### Statistics at scale
+
+A probe seeded stores of 100,000 runs (300,000 events) and timed the console's
+reads through the real server. The snapshot was dominated by the seven-day
+statistics, which joined every task finished in the window to its run. Two
+covering indexes, created when a store is opened, replace the finished-time
+index; they add no table or column, so the store stays version 4 and 0.8.0 can
+still open it.
+
+| Store | Snapshot, 0.8.0 | Snapshot, 0.8.1 | Size |
+| --- | --- | --- | --- |
+| 50 workflows, 2,000 runs each over 21 days | 97 to 114 ms | 79 to 113 ms | 224 to 242 MB |
+| 400 workflows, 250 runs each, all within the window | 470 to 476 ms | 252 to 270 ms | 225 to 243 MB |
+
+Run pages, the run detail and activity pages stayed at 3 to 7 ms. The
+statistics still read every run of the window, about 2 microseconds per run, so
+100,000 runs a week (one every 6 seconds) cost 200 ms per snapshot; at 10,000
+runs a week the snapshot stays within tens of milliseconds.
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
 against host binaries rebuilt from this branch after merging upstream `main`

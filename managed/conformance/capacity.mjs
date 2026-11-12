@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Contract-only black-box suite for docs/managed-contract.md revision 6, section 16, cases 20 and 21: the capacity
 // of a worker agent (sections 3.1, 4 and 8; decision MGD-14) and scheduler passes that never wait for a slow
-// Peerspan call (section 4; decision MGD-15). No imports or reads of the managed implementation or its database:
-// the documented CLI, HTTP, the explicitly fake Peerspan executable and throwaway state only. The fake plays
-// runtime agents (README: `profiles`, `runtimeShow`) and makes single calls hang (`hangWhen`). Section numbers
-// (§) refer to that contract.
+// Peerspan call (section 4; decision MGD-15); and revision 7.1, case 22: a ready verdict from one moment (section 3;
+// decision MGD-16). No imports or reads of the managed implementation or its database: the documented CLI, HTTP,
+// the explicitly fake Peerspan executable and throwaway state only. The fake plays runtime agents (README:
+// `profiles`, `runtimeShow`), makes single calls hang (`hangWhen`) and makes calls slow (`delayWhen`). Section
+// numbers (§) refer to that contract.
 import path from 'node:path';
 import {delay, expect, expectEqual, fixture, hex, ids, option, pick, runCases, snippet, until, writeJson} from './harness.mjs';
 
@@ -380,5 +381,135 @@ async function case21_slowCheck() {
   await f.stop();
 }
 
+// ---- Case 22: a ready verdict from one moment ----
+
+const slowMs = 300;   // the delay of the read that completes a ready verdict
+// §3 (rev 7.1). The worker host changes `changes` times, each in one step (one atomic write of the fake's
+// configuration), between states[0] and states[1]. Each state is not ready (`codes`), but the reads a check makes
+// before its slow last read (`earlier`) in states[0], together with that last read (`slow`) in states[1], would
+// look ready. Each change into states[1] is made while a slow read is in flight, so that its check spans the change.
+// Each state is held at least `hold` ms and until a read matching `earlier` that began after the change has ended,
+// so that no state comes back within one check, however long checks take. The enabled workflow on the worker never
+// gets a run and no check records ready; once the host is ready (`ready`) and stays so, the workflow is dispatched.
+async function oneMoment(f, {connectionId, agentId, what, states, codes, ready, readyCode, earlier, slow, changes = 16,
+  hold = 1000}) {
+  await f.code(connectionId, codes[0], `${what} in its first state`, 15000);
+  const workflow = await f.create({name: 'FAKE one moment', connectionId, intervalMinutes: 60, enabled: true});
+  const changed = [];   // {mono, index}: when the host became states[index]
+  const seen = {codes: new Set(), ready: [], runs: new Set()};
+  const watch = async () => {
+    const snapshot = await f.snapshot();
+    const readiness = snapshot.connections.find(item => item.id === connectionId).readiness;
+    seen.codes.add(readiness.code);
+    if (readiness.ready) seen.ready.push(pick(readiness, 'code checkedAt'));
+    for (const run of snapshot.runs) if (run.workflowId === workflow.id) seen.runs.add(run.id);
+  };
+  const watchFor = async (ms, done = async () => true) => {
+    const start = monotonicNow();
+    while (monotonicNow() - start < ms || !(await done())) {
+      expect(monotonicNow() - start < ms + 10000, `fixture: a read of ${what} that began after a change of the host ` +
+        'ended within 10 seconds');
+      await watch();
+      await delay(100);
+    }
+  };
+  // The last slow read began at most 180 ms ago and has not woken (it reads the host only when it wakes).
+  const slowInFlight = async () => {
+    const last = (await f.calls()).filter(call => slow(call.argv)).at(-1);
+    return last && monotonicNow() - last.mono <= slowMs * 0.6 &&
+      !(await f.delayed()).some(call => slow(call.argv) && call.mono >= last.mono);
+  };
+  for (let change = 1; change <= changes; change++) {
+    if (change % 2) await until(`fixture: a slow read of ${what} in flight`, slowInFlight, 10000);
+    await f.configure(states[change % 2]);
+    const mono = monotonicNow();
+    changed.push({mono, index: change % 2});
+    const before = (await f.calls()).filter(call => earlier(call.argv) && call.mono <= mono).length;
+    // Calls of one connection's checks follow one another: the next to end is the first that began after the change.
+    await watchFor(hold, async () => (await f.outcomes()).filter(call => earlier(call.argv)).length > before);
+  }
+  await watchFor(1500);   // the last state (states[0]) held, so that a run reserved on an earlier verdict shows
+
+  // Checks whose earlier reads saw states[0] and whose slow last read saw states[1]: the race this case is about.
+  const stateAt = mono => changed.findLast(entry => entry.mono <= mono)?.index ?? 0;
+  const calls = await f.calls();
+  let straddles = 0;
+  for (const wake of (await f.delayed()).filter(call => slow(call.argv))) {
+    const start = calls.filter(call => slow(call.argv) && call.mono <= wake.mono - slowMs).at(-1);
+    const read = start && calls.filter(call => earlier(call.argv) && call.mono < start.mono).at(-1);
+    if (read && stateAt(read.mono) === 0 && stateAt(wake.mono) === 1) straddles++;
+  }
+  const runs = (await f.snapshot()).runs.filter(run => run.workflowId === workflow.id);
+  const sent = async () => (await f.submissions()).filter(call => option(call.argv, '--agent') === agentId);
+  const flips = (await f.request('GET', '/api/activity?limit=200')).data.activity
+    .filter(entry => entry.connectionId === connectionId && entry.kind === 'worker.ready');
+  const evidence = {runs: runs.map(run => pick(run, 'state createdAt')), submissions: (await sent()).length,
+    readySeen: seen.ready.slice(0, 3), workerReady: flips.map(entry => pick(entry, 'at data')), straddles,
+    codes: [...seen.codes]};
+  expect(seen.runs.size === 0 && runs.length === 0 && evidence.submissions === 0, `§16 case 22, §3 (rev 7.1) and §4: ` +
+    `with the read that completes a ready verdict slow, ${what} whose host changed ${changes} times in one step between ` +
+    'two states that are each not ready, but whose earlier and later reads together would look ready, never gets a run',
+  evidence);
+  expect(seen.ready.length === 0 && flips.length === 0, '§3 (rev 7.1) a ready verdict must describe one moment, and ' +
+    `${what} was ready at none: no check records ready (§11: no worker.ready entry)`, evidence);
+  expect(codes.every(code => seen.codes.has(code)), `fixture: the checks saw both states (${codes.join(', ')})`, evidence);
+  expect(straddles >= changes / 4, `fixture: for at least half of the ${changes / 2} changes into the second state, a ` +
+    `check of ${what} made its earlier reads before the change and its slow last read after it, so the case exercised ` +
+    'the race of §3 (rev 7.1)', evidence);
+
+  // Ready, and kept so: the due workflow is dispatched normally.
+  await f.configure(ready);
+  let last = null;
+  await until(() => `§16 case 22 and §4: once ${what} is ready and stays so, its enabled due workflow is dispatched ` +
+    `within a few seconds; last seen: ${snippet(last)}`, async () => {
+    const snapshot = await f.snapshot();
+    last = {readiness: pick(snapshot.connections.find(item => item.id === connectionId).readiness, 'code reason checkedAt'),
+      blockedReason: snapshot.workflows.find(item => item.id === workflow.id).blockedReason,
+      runs: snapshot.runs.filter(run => run.workflowId === workflow.id).map(run => pick(run, 'state error'))};
+    return last.runs.some(run => run.state === 'queued');
+  }, 8000);
+  expectEqual([(await f.readiness(connectionId)).code, (await sent()).length], [readyCode, 1],
+    `§3 ${what} is ${readyCode}, and §4 its workflow was submitted once`);
+}
+
+// Case 22, file mode. With `adapter connection` slow, the worker host alternates between A, the pinned host with
+// its channel verified and an empty channel_verified_at (channel_unverified), and B, a verified time but status
+// reporting another host (identity_changed): A's status and B's adapter report would look ready.
+async function case22_oneMomentFile() {
+  const f = await capacityFixture('one-moment-file', {connect: true});
+  const adapters = channelVerifiedAt => ({...f.config.adapters, [ids.adapterId]: {...verified(ids.sessionId),
+    channel_verified_at: channelVerifiedAt}});
+  const states = [{hostId: ids.hostId, adapters: adapters('')},
+    {hostId: hex('host', 7, 64), adapters: adapters('2026-01-01T00:00:00Z')}];
+  await f.configure({...states[0], delayWhen: [{command: 'adapter', ms: slowMs}]});
+  await f.start();
+  await oneMoment(f, {connectionId: f.connectionId, agentId: ids.agentId, what: 'a file-mode worker', states,
+    codes: ['channel_unverified', 'identity_changed'], ready: {hostId: ids.hostId, adapters: adapters('2026-01-01T00:00:00Z')},
+    readyCode: 'ready', earlier: argv => argv.includes('status') && option(argv, '--state') === f.workerDir,
+    slow: argv => argv.includes('adapter') && argv.includes('connection')});
+  await f.stop();
+}
+
+// Case 22, a runtime agent in agent mode. With `runtime show` slow, the host alternates between R1, a profile with
+// its credential and the runtime switch off (runtime_disabled), and R2, the switch on but a profile without its
+// credential (runtime_credential_missing): R1's launch profile and R2's runtime show would look ready.
+async function case22_oneMomentRuntime() {
+  const f = await capacityFixture('one-moment-runtime');
+  const hostDir = path.join(f.dir, 'PRIVATE-one-moment-host');
+  const runtime = await f.connectAgent(runtimeAgent, 'FAKE-CONFORMANCE runtime agent', hostDir);
+  const on = {enabled: true, socket: null, rule: 'FAKE rule', runtime: {version: 'FAKE-runtime 0.0', running: 0}};
+  const states = [{profiles: [f.profile({credential: true})], runtimeShow: disabledRuntime},
+    {profiles: [f.profile({credential: false})], runtimeShow: on}];
+  await f.configure({...states[0], delayWhen: [{command: 'runtime', ms: slowMs}]});
+  await f.start();
+  await oneMoment(f, {connectionId: runtime, agentId: runtimeAgent.agentId, what: 'a runtime agent', states,
+    codes: ['runtime_disabled', 'runtime_credential_missing'], ready: {profiles: [f.profile()], runtimeShow: on},
+    readyCode: 'ready_runtime',
+    earlier: argv => argv.includes('agent') && argv.includes('runtime') && option(argv, '--state') === hostDir,
+    slow: argv => argv.includes('runtime') && !argv.includes('agent') && option(argv, '--state') === hostDir});
+  await f.stop();
+}
+
 await runCases('capacity', [case20_runtimeCapacity, case20_reviewerCapacity, case20_capacityOfOne, case20_twoConnections,
-  case21_hangingStatus, case21_hangingRuntimeShow, case21_hangingInspect, case21_hangingSubmit, case21_slowCheck]);
+  case21_hangingStatus, case21_hangingRuntimeShow, case21_hangingInspect, case21_hangingSubmit, case21_slowCheck,
+  case22_oneMomentFile, case22_oneMomentRuntime]);

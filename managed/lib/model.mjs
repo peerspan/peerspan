@@ -468,26 +468,31 @@ export class Model {
    * Decides, for every workflow, whether it may dispatch now, and reserves a run
    * for each one that may. `readiness` maps connection IDs to `{ready, reason, capacity, checkedAt}`,
    * `checkedAt` being when the check that gave the verdict began.
-   * Returns the reserved tasks; nothing has been sent for them yet.
+   * Returns the reserved tasks, on which nothing has been sent yet, and the IDs
+   * of the ready connections whose verdict was older than work waiting for them.
    */
   planDispatch(now, readiness, correctedAt = null) {
     const dayStart = now.slice(0, 10) + 'T00:00:00.000Z';
     const capacities = this.capacities(readiness);
+    const stale = new Set();
     // Results already produced are checked before new work starts (contract section 4).
-    const reserved = this.planReviews(now, readiness, capacities, correctedAt);
+    const reserved = this.planReviews(now, readiness, capacities, correctedAt, stale);
     const workflows = this.all('SELECT * FROM workflows WHERE archived_at IS NULL ORDER BY next_run_at, rowid');
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
       const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt);
       // A ready worker whose verdict is older than the work is decided by a later pass; its reason stays.
-      if (reason === undefined) continue;
+      if (reason === undefined) {
+        stale.add(connection.id);
+        continue;
+      }
       if (reason === null) {
         reserved.push(this.reserve(workflow, connection, now, this.freeTarget(connection, capacities)));
       } else if (reason !== workflow.blocked_reason) {
         this.run('UPDATE workflows SET blocked_reason = ? WHERE id = ?', reason, workflow.id);
       }
     }
-    return reserved;
+    return { tasks: reserved, stale: [...stale] };
   }
 
   blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt = null) {
@@ -557,7 +562,7 @@ export class Model {
    * Reserves the review task of each run that waits for its reviewer agent,
    * oldest result first, while that reviewer is ready and free (section 15.1).
    */
-  planReviews(now, readiness, capacities, correctedAt = null) {
+  planReviews(now, readiness, capacities, correctedAt, stale) {
     const reserved = [];
     const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id, t.finished_at FROM runs r JOIN tasks t ON t.task_id = r.task_id
       WHERE r.review = 'pending' AND r.reviewer_id IS NOT NULL AND r.review_task_id IS NULL
@@ -571,7 +576,11 @@ export class Model {
       }
       // As for runs: a verdict from a check that began before the result was ready is not enough.
       const state = readiness[reviewer.id];
-      if (!state?.ready || state.checkedAt > now || state.checkedAt <= notAfter(run.finished_at, now, correctedAt)) continue;
+      if (!state?.ready) continue;
+      if (state.checkedAt > now || state.checkedAt <= notAfter(run.finished_at, now, correctedAt)) {
+        stale.add(reviewer.id);
+        continue;
+      }
       const target = this.freeTarget(reviewer, capacities);
       if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }
@@ -926,7 +935,7 @@ export class Model {
           OR (t.state = 'succeeded' AND r.review IS 'rejected')) AS failed,
         AVG(CASE WHEN ${counted}
           THEN (julianday(t.finished_at) - julianday(r.created_at)) * 86400.0 END) AS average_seconds
-      FROM tasks t JOIN runs r ON r.task_id = t.task_id
+      FROM tasks t JOIN runs r INDEXED BY runs_task_stats ON r.task_id = t.task_id
       WHERE t.open = 0 AND t.finished_at >= ? GROUP BY r.workflow_id`, since)) {
       const item = entry(row.workflow_id);
       item.succeeded = row.succeeded;

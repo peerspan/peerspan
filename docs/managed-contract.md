@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 7. Revision 1 defined the first local slice: the console, recurring
+Revision 7.1. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -15,8 +15,11 @@ every revision 5 behavior and adds a capacity per worker agent, so that a
 runtime agent works on several tasks at once, and scheduler passes that never
 wait for a slow Peerspan call (section 4). Revision 7 keeps every revision 6
 behavior and adds a runtime agent's harness and image to its readiness (section
-3.1). The store of revisions 5 to 7 is version 4, unchanged. Additions are marked
-"(rev 2)" to "(rev 7)" where they extend an earlier section. Fork decisions are recorded in
+3.1). Revision 7.1 makes a ready verdict describe one moment (section 3) and
+lets work held back for a fresher check go out without waiting for the next
+interval (section 4). The store of revisions 5 to 7.1 is version 4, unchanged.
+Additions are marked "(rev 2)" to "(rev 7.1)" where they extend an earlier
+section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -157,7 +160,7 @@ section 7.1 says instead.
 | `peerspan_unavailable` | false | The Peerspan executable cannot be started. |
 | `peerspan_incompatible` | false | The executable rejects the global `--json` flag: exit 2 with `unexpected argument '--json'` on stderr. |
 | `daemon_not_running` | false | Any other status exit 2. |
-| `status_invalid` | false | Status exits with another code than 0 or 1, is not JSON, or lacks `host_id`, a boolean `service.active`, an `attention` array or an `agents` array. |
+| `status_invalid` | false | Status exits with another code than 0 or 1, is not JSON, or lacks `host_id`, a boolean `service.active`, an `attention` array or an `agents` array; (rev 7.1) or two ready verdicts in a row each had their facts change while they were checked (below). |
 | `sender_unavailable` | false | The sender host's status cannot be read: any outcome other than exit 0 or 1 with valid status JSON. |
 | `sender_is_worker` | false | The sender status `host_id` is the pinned worker host. A Peerspan host cannot submit a task to itself: it answers that submission as not found. |
 | `agent_missing` | false | The pinned agent is not in `agents`. |
@@ -176,12 +179,32 @@ connection has none), together with the worker's status. Only its `host_id` is
 used; sender attention items are not hints.
 
 In file mode the only candidate is the session and adapter named by the worker
-state file, and its `status` and `adapter connection` are read together, so
-that both describe the same moment. In agent mode (section 7) every session of
-the pinned agent that has an `adapter_id` is a candidate; there `adapter
+state file. In agent mode (section 7) every session of
+the pinned agent that has an `adapter_id` is a candidate. In both modes `adapter
 connection` is invoked only for candidates whose status `connection` is
-`ready`, in ascending session ID order, for at most four of them, stopping at
-the first that is verified.
+`ready`, after the status that shows it, in ascending session ID order, for at
+most four of them, stopping at the first that is verified.
+
+(rev 7.1) A ready verdict rests on reads made one after another, and it must
+describe one moment (MGD-16). After the read that completes a ready verdict (the
+verified `adapter connection`, or for a runtime agent `runtime show`), the
+controller reads again what it read before that: the worker state file in file
+mode, the worker's and the sender's `status`, and in agent mode `agent runtime
+show`. The verdict stands only when these facts read the same:
+- the file's identity;
+- the status `host_id`;
+- whether the pinned agent is listed;
+- whether the verified session is still listed, with its adapter, as `ready`
+  (other candidate sessions are not compared);
+- the sender's `host_id`, or the outcome of its failed read;
+- the agent's launch profile entry as `agent runtime show` lists it, with all
+  its fields, or that it has none.
+
+Otherwise the controller makes the whole check once more. That second check's
+verdict stands when it is not ready, or when it is ready and its facts read the
+same. A second ready verdict whose facts changed as well becomes
+`status_invalid`, with a reason that says the status changed while it was being
+checked. A check that is not ready reads nothing again.
 
 Until a connection's first check after a start has finished, its readiness is
 `{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null}`, (rev 5)
@@ -308,7 +331,12 @@ whose check is still running gets no new task, keeping its blocked reason,
 until such a check has ended. (rev 7) "Began after" compares recorded times,
 and an equal time is not after: while a step back holds the clock (section 1),
 times recorded meanwhile are equal, so no work is reserved until the clock
-moves on. A due time later than the current time can only have been recorded
+moves on. (rev 7.1) Work held back only for such a check does not wait for the next
+interval: the controller dispatches again, and checks that connection again
+when its verdict is still too old, as soon as a check that began late enough
+can start. That is once the connection's check still running has ended, or
+once a held clock has moved past the time it holds. Only the connections
+concerned are checked; a pass's other work keeps its interval. A due time later than the current time can only have been recorded
 before a deliberate correction of the clock, and counts as the moment of that
 correction, so work due before a correction is not held back until the
 corrected clock reaches its old time. Likewise a check whose recorded start is later
@@ -1284,7 +1312,7 @@ area, not by revision.
     with `runtime` null. (rev 7) `runtime.harness` and `runtime.image` from a
     `claude` profile with an image and a `codex` profile without one.
 
-`capacity.mjs` (revision 6 capacity and slow calls):
+`capacity.mjs` (revision 6 capacity and slow calls, revision 7.1 readiness from one moment):
 
 20. Capacity: a `ready_runtime` agent with `maxRuns` 3 holding three runs of
     three workflows at once, and a fourth workflow waiting until one ends;
@@ -1298,6 +1326,12 @@ area, not by revision.
     ready connection's workflow still dispatched and its run reconciled within a
     few seconds, the other connections' `checkedAt` advancing, no second call
     for the hanging connection or task, and shutdown within 5 seconds.
+22. (rev 7.1) One moment: with the reads that complete a ready verdict made
+    slow (`adapter connection` for a file-mode worker, `runtime show` for a
+    runtime agent), a worker host that changes in one step between two states
+    that are each not ready, but whose earlier and later reads together would
+    look ready, never gets a run, over many such changes; and the same worker
+    dispatched normally once it is ready and stays so.
 
 Version 2 and version 3 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those

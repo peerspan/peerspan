@@ -42,6 +42,7 @@ export function capacityOf(readiness) {
   return readiness?.code === 'ready_runtime' && Number.isInteger(runs) && runs >= 1 && runs <= MAX_CAPACITY ? runs : 1;
 }
 const PROFILES_UNREADABLE = "The worker host's launch profiles could not be read";
+const STATUS_CHANGING = 'Worker host status changed while it was being checked; checking again';
 
 // Remote mode reads only the sender's directory (contract section 7.1).
 const REMOTE_REASONS = {
@@ -201,55 +202,98 @@ async function checkRemote(connection, peerspan, refresh) {
   });
 }
 
+const profileOf = (profiles, agentId) => (profiles.kind === 'ok'
+  ? profiles.value.find(item => item && typeof item === 'object' && item.agent_id === agentId)
+  : undefined);
+
+/**
+ * The facts of a ready verdict that were read before its last read (MGD-16): the
+ * worker state file's identity, the status host and agent, the verified session,
+ * the sender host, and in agent mode the agent's launch profile or its absence.
+ */
+function factsOf(connection, { state, status, sender, profiles, session }) {
+  const value = status.value;
+  const agent = value.agents.find(item => item?.id === connection.agentId);
+  const held = session && (Array.isArray(agent?.sessions) ? agent.sessions : []).some(item => item
+    && item.id === session.id && item.adapter_id === session.adapter_id && item.connection === 'ready');
+  const profile = profiles && (profiles.kind === 'invalid' ? 'invalid' : profileOf(profiles, connection.agentId) ?? null);
+  return JSON.stringify([state && [state.host_id, state.agent_id, state.host_dir, state.session_id, state.adapter_id],
+    value.host_id, Boolean(agent), session ? Boolean(held) : null,
+    sender.kind === 'ok' ? sender.value.host_id : sender.kind, profile ?? null]);
+}
+
+/** Whether the facts a ready verdict rests on read the same again, after its last read. */
+async function stillHolds(connection, peerspan, basis) {
+  const [state, status, sender, profiles] = await Promise.all([
+    connection.mode === 'file' ? readWorkerState(connection.workerState).catch(() => null) : null,
+    peerspan.status(basis.hostDir),
+    peerspan.status(connection.senderState),
+    connection.mode === 'agent' ? peerspan.launchProfiles(basis.hostDir) : null
+  ]);
+  if ((connection.mode === 'file' && !state) || status.kind !== 'ok') return false;
+  return factsOf(connection, { state, status, sender, profiles, session: basis.session }) === basis.facts;
+}
+
 /**
  * Evaluates one connection. Resolves `{ready, code, reason, hints, directoryAt}`.
  * `refresh` asks a remote connection's sender to refresh its directory first.
  */
 export async function checkReadiness(connection, peerspan, { refresh = false } = {}) {
   if (connection.mode === 'remote') return checkRemote(connection, peerspan, refresh);
+  // A ready verdict rests on reads made one after another. It stands only when the facts read
+  // before its last read are read unchanged after it, so that all of them held at one moment of
+  // that last read; otherwise the check is made again, once (contract section 3, MGD-16).
+  for (let attempt = 1; ; attempt += 1) {
+    const { result, basis } = await checkLocal(connection, peerspan);
+    if (!result.ready || await stillHolds(connection, peerspan, basis)) return result;
+    if (attempt === 2) return verdict('status_invalid', result.hints, { reason: STATUS_CHANGING });
+  }
+}
+
+/** One check of a file-mode or agent-mode connection: `{result, basis}`, `basis` for a ready result. */
+async function checkLocal(connection, peerspan) {
+  const done = result => ({ result, basis: null });
   let hostDir = connection.hostDir;
+  let state = null;
   let named = null;
-  let namedReport = null;
   if (connection.mode === 'file') {
-    let state;
     try {
       state = await readWorkerState(connection.workerState);
     } catch {
-      return verdict('worker_state_invalid');
+      return done(verdict('worker_state_invalid'));
     }
     if (state.host_id !== connection.hostId || state.agent_id !== connection.agentId
       || resolve(state.host_dir) !== connection.hostDir) {
-      return verdict('identity_changed');
+      return done(verdict('identity_changed'));
     }
     hostDir = state.host_dir;
     named = { id: state.session_id, adapter_id: state.adapter_id };
-    // The file names the adapter, so both reads describe the same moment.
-    namedReport = adapterReport(peerspan, hostDir, named.adapter_id);
   }
 
-  const [status, report, sender] = await Promise.all([
+  const [status, sender] = await Promise.all([
     peerspan.status(hostDir),
-    namedReport,
     peerspan.status(connection.senderState)
   ]);
-  if (status.kind !== 'ok') return verdict(status.kind);
+  if (status.kind !== 'ok') return done(verdict(status.kind));
   const { value } = status;
   const hints = hintsFrom(value.attention);
-  if (value.host_id !== connection.hostId) return verdict('identity_changed', hints);
+  if (value.host_id !== connection.hostId) return done(verdict('identity_changed', hints));
   // Tasks are submitted through the sender host, which must answer and be another host.
-  if (sender.kind !== 'ok') return verdict('sender_unavailable', hints);
-  if (sender.value.host_id === connection.hostId) return verdict('sender_is_worker', hints);
+  if (sender.kind !== 'ok') return done(verdict('sender_unavailable', hints));
+  if (sender.value.host_id === connection.hostId) return done(verdict('sender_is_worker', hints));
   const agent = value.agents.find(item => item?.id === connection.agentId);
-  if (!agent) return verdict('agent_missing', hints);
+  if (!agent) return done(verdict('agent_missing', hints));
 
   // An agent with a launch profile runs its tasks in the host's runtime, never in a session.
+  let profiles = null;
   if (connection.mode === 'agent') {
-    const profiles = await peerspan.launchProfiles(hostDir);
-    if (profiles.kind === 'invalid') return verdict('status_invalid', hints, { reason: PROFILES_UNREADABLE });
-    const profile = profiles.kind === 'ok'
-      ? profiles.value.find(item => item && typeof item === 'object' && item.agent_id === connection.agentId)
-      : undefined;
-    if (profile) return checkRuntime(peerspan, hostDir, profile, value.service.active, hints);
+    profiles = await peerspan.launchProfiles(hostDir);
+    if (profiles.kind === 'invalid') return done(verdict('status_invalid', hints, { reason: PROFILES_UNREADABLE }));
+    const profile = profileOf(profiles, connection.agentId);
+    if (profile) {
+      const result = await checkRuntime(peerspan, hostDir, profile, value.service.active, hints);
+      return { result, basis: { hostDir, session: null, facts: factsOf(connection, { state, status, sender, profiles }) } };
+    }
   }
 
   const sessions = (Array.isArray(agent.sessions) ? agent.sessions : [])
@@ -258,14 +302,17 @@ export async function checkReadiness(connection, peerspan, { refresh = false } =
     .filter(session => session.connection === 'ready')
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, MAX_CANDIDATES);
-  if (!sessions.length) return verdict('session_not_ready', hints);
+  if (!sessions.length) return done(verdict('session_not_ready', hints));
 
+  // The adapter's report is read after the status that made its session a candidate (MGD-16).
   const ready = verdict(value.service.active ? 'ready' : 'ready_service_inactive', hints);
-  if (named) return isVerified(report, named) ? ready : verdict('channel_unverified', hints);
   for (const session of sessions) {
-    if (isVerified(await adapterReport(peerspan, hostDir, session.adapter_id), session)) return ready;
+    if (isVerified(await adapterReport(peerspan, hostDir, session.adapter_id), session)) {
+      const ids = { id: session.id, adapter_id: session.adapter_id };
+      return { result: ready, basis: { hostDir, session: ids, facts: factsOf(connection, { state, status, sender, profiles, session: ids }) } };
+    }
   }
-  return verdict('channel_unverified', hints);
+  return done(verdict('channel_unverified', hints));
 }
 
 /** Refuses a registration whose sender host is the worker host itself. */

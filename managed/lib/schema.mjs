@@ -138,7 +138,7 @@ CREATE TABLE tasks (
 -- One unresolved task per worker agent, host and agent (contract section 4).
 CREATE UNIQUE INDEX tasks_open_target ON tasks(target) WHERE open = 1;
 CREATE INDEX tasks_open_agent ON tasks(peer, agent) WHERE open = 1;
-CREATE INDEX tasks_finished ON tasks(finished_at);
+-- (The statistics indexes are created by INDEXES below, for new and existing stores alike.)
 
 CREATE TABLE runs (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,6 +191,14 @@ CREATE TABLE activity (
   data TEXT
 );
 CREATE INDEX activity_workflow ON activity(workflow_id, seq);
+`;
+
+// Covering indexes for the seven-day statistics, which read every run finished in the window. They
+// change no table, so version 4 stores gain them when opened and earlier revisions read them as before.
+const INDEXES = `
+DROP INDEX IF EXISTS tasks_finished;
+CREATE INDEX IF NOT EXISTS tasks_finished_stats ON tasks(finished_at, open, state, cancel_requested_at, task_id);
+CREATE INDEX IF NOT EXISTS runs_task_stats ON runs(task_id, workflow_id, review, created_at);
 `;
 
 function tableExists(db, name) {
@@ -347,6 +355,7 @@ export function openDatabase(file) {
         throw error;
       }
     }
+    db.exec(INDEXES);
     if (!existed) chmodSync(file, 0o600);
     return db;
   } catch (error) {

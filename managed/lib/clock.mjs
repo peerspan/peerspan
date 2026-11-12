@@ -47,6 +47,12 @@ export const clockCorrectedAt = () => (correctedAt === null ? null : new Date(co
 
 export const stamp = () => new Date(nowMs()).toISOString();
 
+/** How much longer the clock stays held at a time it has already used, in milliseconds; 0 while it moves. */
+export function clockHeldMs() {
+  const held = newest - systemMs();
+  return held > 0 && held <= TOLERANCE_MS ? held : 0;
+}
+
 /** Continues from the newest time already recorded in the store, within the tolerance. */
 export function seedClock(iso) {
   const recorded = typeof iso === 'string' ? Date.parse(iso) : NaN;

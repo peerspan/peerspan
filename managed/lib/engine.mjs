@@ -1,7 +1,7 @@
 // The scheduler. It owns timing and every Peerspan call; all state decisions
 // are atomic store operations (model.mjs), so an operator request never waits
 // for a subprocess and no interleaving can break the exclusion rules.
-import { clockCorrectedAt, nowMs, stamp } from './clock.mjs';
+import { clockCorrectedAt, clockHeldMs, nowMs, stamp } from './clock.mjs';
 import { capacityOf, checkReadiness } from './readiness.mjs';
 import { OUTPUT_LIMIT } from './model.mjs';
 
@@ -83,6 +83,12 @@ export class Engine {
     this.passing = null;
     this.again = false;
     this.timer = null;
+    // Ready connections whose verdict, at the latest dispatch, was older than work waiting for them,
+    // and the recheck of them that follows (contract section 4, rev 7.1).
+    this.stale = new Set();
+    this.recheckTimer = null;
+    this.recheckAt = null;
+    this.rechecking = null;
     this.dataVersion = null;
     // Tasks with a Peerspan call in flight; no second call for one task starts meanwhile.
     this.inFlight = new Set();
@@ -127,7 +133,10 @@ export class Engine {
   async stop() {
     this.running = false;
     clearTimeout(this.timer);
-    await Promise.all([this.passing, this.prompt, ...this.work.values()]);
+    clearTimeout(this.recheckTimer);
+    this.recheckTimer = null;
+    this.recheckAt = null;
+    await Promise.all([this.passing, this.prompt, this.rechecking, ...this.work.values()]);
   }
 
   /**
@@ -162,6 +171,8 @@ export class Engine {
         clearTimeout(timer);
         release();
         this.work.delete(key);
+        // A check that ends while work waits for a fresher verdict of its connection lets the next begin soon.
+        if (key.startsWith('connection:') && this.stale.has(key.slice(11))) this.planRecheck();
       }
     })();
     this.work.set(key, promise);
@@ -194,6 +205,54 @@ export class Engine {
     this.timer = setTimeout(() => {
       this.passing = this.pass();
     }, delay);
+  }
+
+  /**
+   * Plans a recheck of the stale connections (rev 7.1): a check of each, then a
+   * dispatch, as soon as a check fresh enough for their waiting work can begin.
+   * That is at once, or once a held clock has moved past the time it holds; a
+   * connection whose check is still in flight waits for its end, which plans
+   * again. A connection whose latest check failed, and so recorded no newer
+   * verdict, is left to the passes until a check of it succeeds. A recheck that
+   * is planned or running is never put off.
+   */
+  recheckable() {
+    return [...this.stale].filter(id => !this.work.has('connection:' + id) && !this.failedWork.has('connection:' + id));
+  }
+
+  planRecheck() {
+    if (!this.running || this.rechecking) return;
+    if (!this.recheckable().length) return;
+    const delay = Math.max(POKE_DELAY_MS, clockHeldMs() + 1);
+    if (this.recheckAt !== null && performance.now() + delay >= this.recheckAt) return;
+    clearTimeout(this.recheckTimer);
+    this.recheckAt = performance.now() + delay;
+    this.recheckTimer = setTimeout(() => {
+      this.recheckTimer = null;
+      this.recheckAt = null;
+      this.rechecking = this.recheck().finally(() => {
+        this.rechecking = null;
+        this.planRecheck();
+      });
+    }, delay);
+  }
+
+  async recheck() {
+    try {
+      // A check that ended since the last dispatch may already be fresh enough.
+      await this.dispatch();
+      const ids = new Set(this.recheckable());
+      if (!ids.size) return;
+      const connections = (await this.store.listConnections()).filter(connection => ids.has(connection.id));
+      if (!connections.length) return;
+      await this.runWork(connections.map(connection =>
+        ['connection:' + connection.id, () => this.refreshReadiness(connection)]));
+      await this.dispatch();
+    } catch (error) {
+      // A failed recheck is not repeated: the next pass decides as usual.
+      this.stale = new Set();
+      if (this.running && !error.aborted) console.error('Scheduler recheck failed: ' + error.message);
+    }
   }
 
   /**
@@ -297,9 +356,13 @@ export class Engine {
     for (const [id, state] of this.readiness) {
       ready[id] = { ready: state.ready, reason: state.reason, capacity: capacityOf(state), checkedAt: state.checkedAt };
     }
-    const reserved = await this.store.planDispatch(stamp(), ready, clockCorrectedAt());
+    // Only a dispatch that succeeded names stale connections, so a failing one never plans rechecks.
+    this.stale = new Set();
+    const { tasks, stale } = await this.store.planDispatch(stamp(), ready, clockCorrectedAt());
+    this.stale = new Set(stale);
+    this.planRecheck();
     // Each reserved task is persisted; only now may anything be sent for it.
-    await this.runWork(reserved.map(task => ['task:' + task.taskId, () => this.reconcile(task, { fresh: true })]));
+    await this.runWork(tasks.map(task => ['task:' + task.taskId, () => this.reconcile(task, { fresh: true })]));
   }
 
   async refreshReadiness(connection) {
