@@ -18,7 +18,9 @@ const fail = (message, code = 1) => {
   process.exitCode = code;
 };
 const append = (name, value) => fs.appendFileSync(path.join(dir, name), JSON.stringify(value) + '\n', {mode: 0o600});
-append('calls.jsonl', {at: new Date().toISOString(), argv: args});
+// Revision 3: `mono` is the system-wide monotonic clock in milliseconds (process.hrtime), so a suite can
+// measure the time between calls even while the wall clock of a virtual machine steps back.
+append('calls.jsonl', {at: new Date().toISOString(), mono: Number(process.hrtime.bigint() / 1000000n), argv: args});
 // Revision 2: every invocation that exits also logs its exit status, so a suite can tell a
 // failed call from a successful one without reading anything but this fixture directory.
 process.on('exit', code => {
@@ -27,8 +29,14 @@ process.on('exit', code => {
 const taskIndex = args.indexOf('task');
 const command = args[taskIndex + 1];
 const invoked = args.includes('status') ? 'status'
+  : args.includes('agents') ? 'agents'
   : args.includes('adapter') && args.includes('connection') ? 'adapter'
   : taskIndex >= 0 ? command : null;
+// Revision 3: "default" in senderStates makes a call without --state a call to a sender host.
+const stateArgument = args.includes('--state') ? flag('--state') : 'default';
+const senderState = (config.senderStates ?? [path.join(dir, 'PRIVATE-sender')]).includes(stateArgument);
+// rejectJson is true (every command) or, in revision 3, a list of command names.
+const rejectsJson = config.rejectJson === true || (Array.isArray(config.rejectJson) && config.rejectJson.includes(invoked));
 const taskPath = id => path.join(dir, 'remote', id + '.json');
 const taskArgument = () => args.find(arg => /^task_[a-f0-9]{32}$/.test(arg));
 const publicRecord = remote => {
@@ -49,19 +57,42 @@ const hangUntilReleased = () => {
   }, 200);
 };
 
-if (config.rejectJson && args.includes('--json')) {
+if (rejectsJson && args.includes('--json')) {
   // An executable older than the global flag (contract section 6): nothing on stdout.
   fail("error: unexpected argument '--json' found\n\nUsage: FAKE-peerspan <COMMAND>\n\nFor more information, try '--help'.", 2);
 } else if (!args.includes('--json')) {
   fail('FAKE fixture requires the global --json flag for every Peerspan command', 2);
 } else if (Array.isArray(config.hang) && config.hang.includes(invoked)) {
   hangUntilReleased();
-} else if (args.includes('status') && args.includes('--state') &&
-  (config.senderStates ?? [path.join(dir, 'PRIVATE-sender')]).includes(flag('--state'))) {
+} else if (invoked === 'agents') {
+  // Revision 3 (contract section 6): `agents [--network ID] [--refresh]` prints the sender host's directory
+  // of the named network, or of its only network. `networks` maps a network ID to that directory's fields;
+  // a `network_id` inside one overrides the reported ID. The fixture's directories are static: --refresh
+  // is only logged.
+  const networks = config.networks ?? {};
+  const known = Object.keys(networks);
+  const named = args.includes('--network') ? flag('--network') : null;
+  if (config.agentsExit) fail('error: FAKE directory failure', config.agentsExit);
+  else if (named !== null && !Object.hasOwn(networks, named)) fail(`error: FAKE network not found: ${named}`, 1);
+  else if (named === null && known.length !== 1) {
+    fail(known.length ? `error: FAKE host is in several networks (${known.join(', ')}); pass --network`
+      : 'error: FAKE host is in no network', 1);
+  } else if (config.agentsMalformed) process.stdout.write('FAKE directory that is not JSON\n');
+  else {
+    const id = named ?? known[0];
+    const directory = {network_id: id, refreshed_at: null, reachable: [], mine: [], inbound: [], hosts: [],
+      ...networks[id]};
+    for (const key of config.agentsOmit ?? []) delete directory[key];
+    emit(directory);
+  }
+} else if (args.includes('status') && senderState) {
   // Revision 2 (contract section 6): a sender state directory is another host than the worker's, with
   // no agents. senderStatusExit 2 makes it unreachable; senderHostId can be set to the worker's host.
   const exit = config.senderStatusExit ?? 0;
-  if (exit === 2) emit({daemon: 'not running', state: flag('--state'), service: {active: false}}, 2);
+  if (exit === 2) {
+    emit({daemon: 'not running', state: args.includes('--state') ? flag('--state') : 'FAKE-default-state',
+      service: {active: false}}, 2);
+  }
   else emit({host_id: config.senderHostId ?? 'host_' + 'd'.repeat(64), service: {active: true},
     attention: config.senderAttention ?? [], agents: []}, exit);
 } else if (args.includes('status')) {

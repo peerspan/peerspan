@@ -1,7 +1,8 @@
-// Shared plumbing for the revision 2 contract suites (operations.mjs and visibility.mjs).
-// Contract-only and black-box: it launches the documented CLI, speaks HTTP and drives the explicitly
-// fake Peerspan executable in throwaway private directories. It never imports or reads the managed
-// implementation or its database. Section numbers (§) refer to docs/managed-contract.md.
+// Shared plumbing for the revision 2 and 3 contract suites (operations.mjs, visibility.mjs, remote.mjs and
+// schedules.mjs). Contract-only and black-box: it launches the documented CLI, speaks HTTP and drives the
+// explicitly fake Peerspan executable in throwaway private directories. It never imports or reads the
+// managed implementation or its database. Section numbers (§) refer to docs/managed-contract.md.
+// Shapes are those of revision 3, which keeps every revision 2 behavior and adds fields (§1: schema 3).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -95,32 +96,43 @@ export const readinessCodes = {worker_state_invalid: false, identity_changed: fa
   peerspan_incompatible: false, daemon_not_running: false, status_invalid: false, sender_unavailable: false,
   sender_is_worker: false, agent_missing: false, session_not_ready: false, channel_unverified: false,
   ready_service_inactive: true, ready: true};
+// §7.1 (rev 3): the table of a remote connection.
+export const remoteReadinessCodes = {peerspan_unavailable: false, peerspan_incompatible: false,
+  sender_unavailable: false, sender_is_worker: false, directory_unavailable: false, agent_missing: false,
+  host_unreachable: false, not_authorized: false, session_not_ready: false, ready: true};
+const anyReadinessCode = {...readinessCodes, ...remoteReadinessCodes};
 const unresolved = ['submitting', 'queued', 'running'];
 const runStates = [...unresolved, 'succeeded', 'failed', 'cancelled', 'rejected', 'expired', 'abandoned'];
 const severities = ['action', 'warning', 'info'];
 // §8 attention table: kind -> [severity (null: action or warning, by use), subject.type].
 const attentionRows = {controller_error: ['action', 'controller'], workflow_auto_paused: ['action', 'workflow'],
   worker_unready: [null, 'connection'], run_problem: ['warning', 'run'], observed_unavailable: ['warning', 'observation'],
-  observed_problem: ['warning', 'observation'], daily_limit_reached: ['info', 'workflow']};
+  observed_problem: ['warning', 'observation'], daily_limit_reached: ['info', 'workflow'],
+  review_pending: ['action', 'workflow']};
 const activityKinds = {
   operator: ['workflow.created', 'workflow.paused', 'workflow.resumed', 'workflow.run_requested',
     'workflow.archived', 'workflow.restored', 'workflow.edited', 'run.cancel_requested', 'run.abandoned',
-    'connection.added', 'connection.removed', 'observation.added', 'observation.removed'],
+    'run.reviewed', 'connection.added', 'connection.removed', 'observation.added', 'observation.removed'],
   system: ['run.dispatched', 'run.finished', 'run.problem', 'run.recovered', 'workflow.auto_paused',
     'worker.ready', 'worker.unready']};
 const runFields = 'id workflowId workflowName taskId state output outputTruncated error reason progress ' +
   'cancelRequestedAt createdAt updatedAt startedAt finishedAt';
+export const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-export function checkReadiness(r) {
-  keys(r, 'ready code reason checkedAt since hints', '§3 readiness');
+// `mode` is the connection's (§8): file and agent mode use the §3 table, remote mode the §7.1 table.
+export function checkReadiness(r, {mode} = {}) {
+  keys(r, 'ready code reason checkedAt since hints directoryAt', '§3 readiness');
   if (r.checkedAt === null || r.code === 'checking') {
     expect(r.ready === false && r.code === 'checking' && r.checkedAt === null && isDeepStrictEqual(r.hints, []) &&
-      nullable(r.since, isTime), '§3 before the first check readiness is {ready:false,code:"checking",' +
-      'checkedAt:null,hints:[]} with the last recorded since', r);
+      nullable(r.since, isTime) && r.directoryAt === null, '§3 before the first check readiness is ' +
+      '{ready:false,code:"checking",checkedAt:null,hints:[],directoryAt:null} with the last recorded since', r);
     return;
   }
-  expect(Object.hasOwn(readinessCodes, r.code) && r.ready === readinessCodes[r.code],
-    '§3 readiness code and ready value come from the table', r);
+  const table = mode === 'remote' ? remoteReadinessCodes : mode === undefined ? anyReadinessCode : readinessCodes;
+  expect(Object.hasOwn(table, r.code) && r.ready === table[r.code],
+    `§3/§7.1 readiness code and ready value come from the table of a ${mode ?? 'connection'}`, r);
+  expect(mode === 'remote' || mode === undefined ? nullable(r.directoryAt, isTime) : r.directoryAt === null,
+    '§3 directoryAt is null except for remote connections; §7.1 there it is null or a time', r);
   expect(text(r.reason) && r.reason !== '' && isTime(r.checkedAt) && isTime(r.since),
     '§3 reason is a sentence; checkedAt and since are times', r);
   expect(Array.isArray(r.hints) && r.hints.length <= 10, '§3 hints lists at most ten items', r.hints);
@@ -134,7 +146,15 @@ export function checkReadiness(r) {
 
 // `detail` is the run of GET /api/runs/:id: full retained output and the submitted instructions (§10).
 export function checkRun(run, {detail = false} = {}) {
-  keys(run, runFields + (detail ? ' instructions' : ''), detail ? '§10 run detail' : '§8 run');
+  keys(run, runFields + ' review reviewedAt reviewNote' + (detail ? ' instructions' : ''), detail ? '§10 run detail' : '§8 run');
+  // §15: review is null unless the run ended succeeded and needs review; reviewedAt and reviewNote come
+  // with a verdict, the note trimmed, nonempty and at most 2,000 characters.
+  const verdict = ['accepted', 'rejected'].includes(run.review);
+  expect([null, 'pending', 'accepted', 'rejected'].includes(run.review) && (run.review === null || run.state === 'succeeded') &&
+    (verdict ? isTime(run.reviewedAt) : run.reviewedAt === null) && (verdict ? nullable(run.reviewNote, note =>
+      text(note) && note !== '' && note.length <= 2000 && note === note.trim()) : run.reviewNote === null),
+  '§15 review is null, pending, accepted or rejected (null unless succeeded); reviewedAt and reviewNote only with a ' +
+    'verdict, the note trimmed, nonempty and at most 2,000 characters', pick(run, 'state review reviewedAt reviewNote'));
   expect(runStates.includes(run.state) && /^task_[0-9a-f]{32}$/.test(run.taskId) && text(run.id) &&
     text(run.workflowId) && text(run.workflowName), '§8 run identity, state and §4 task ID', run);
   expect(nullable(run.output, value => text(value) && value.length <= (detail ? 262144 : 2000)) &&
@@ -167,26 +187,47 @@ export function checkActivityEntry(entry) {
       isDeepStrictEqual(data.fields, [...data.fields].sort()),
     'run.finished': data => only(data, 'state') && runStates.includes(data.state) && !unresolved.includes(data.state),
     'workflow.auto_paused': data => only(data, 'failureStreak') && Number.isInteger(data.failureStreak),
-    'worker.ready': data => only(data, 'code') && readinessCodes[data.code] === true,
-    'worker.unready': data => only(data, 'code') && readinessCodes[data.code] === false};
+    'worker.ready': data => only(data, 'code') && anyReadinessCode[data.code] === true,
+    'worker.unready': data => only(data, 'code') && anyReadinessCode[data.code] === false,
+    'run.reviewed': data => only(data, 'verdict') && ['accepted', 'rejected'].includes(data.verdict)};
   expect((dataRules[entry.kind] ?? (data => data === null))(entry.data), '§11 data of ' + entry.kind, entry);
+}
+
+// §14: a schedule as the controller returns it, normalized.
+export function checkSchedule(schedule) {
+  keys(schedule, 'timeZone days times', '§14 schedule');
+  const {timeZone, days, times} = schedule;
+  expect(text(timeZone) && timeZone.length >= 1 && timeZone.length <= 64 && Array.isArray(days) && days.length >= 1 &&
+    isDeepStrictEqual(days, dayNames.filter(day => days.includes(day))) && Array.isArray(times) && times.length >= 1 &&
+    times.length <= 24 && times.every((time, index) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && (index === 0 || times[index - 1] < time)),
+  '§14 a schedule is {timeZone,days,times}: distinct days in mon..sun order, 1 to 24 distinct HH:MM times ascending', schedule);
 }
 
 function checkWorkflow(w) {
   keys(w, 'id name connectionId instructions intervalMinutes maxRunsPerDay acceptanceMinutes enabled ' +
-    'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats', '§8 workflow');
+    'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review', '§8 workflow');
   expect(w.enabled ? w.pausedBy === null : ['operator', 'failures'].includes(w.pausedBy),
     '§8 pausedBy is null while enabled, otherwise operator or failures', pick(w, 'enabled pausedBy'));
+  expect((w.schedule === null) !== (w.intervalMinutes === null) && ['none', 'operator'].includes(w.review),
+    '§8 exactly one of intervalMinutes and schedule is null; §15 review is none or operator',
+    pick(w, 'intervalMinutes schedule review'));
+  if (w.schedule !== null) checkSchedule(w.schedule);
   expect(Array.isArray(w.recent) && w.recent.length <= 20, '§8 recent is at most 20 runs', w.recent);
-  for (const run of w.recent) keys(run, 'id state createdAt finishedAt', '§8 recent run');
+  for (const run of w.recent) {
+    keys(run, 'id state createdAt finishedAt review', '§8 recent run');
+    expect([null, 'pending', 'accepted', 'rejected'].includes(run.review), '§8 a recent run has the run review', run);
+  }
   newestFirst(w.recent, 'createdAt', '§8 recent is newest first');
-  keys(w.stats, 'windowDays runs succeeded failed successRate averageSeconds interventions unattendedRuns', '§8 stats');
+  keys(w.stats, 'windowDays runs succeeded failed successRate averageSeconds interventions unattendedRuns ' +
+    'awaitingReview', '§8 stats');
   const {succeeded, failed, successRate, averageSeconds} = w.stats;
-  expect(w.stats.windowDays === 7 && ['runs', 'succeeded', 'failed', 'interventions', 'unattendedRuns']
+  expect(w.stats.windowDays === 7 && ['runs', 'succeeded', 'failed', 'interventions', 'unattendedRuns', 'awaitingReview']
     .every(name => Number.isInteger(w.stats[name]) && w.stats[name] >= 0) &&
     (succeeded + failed === 0 ? successRate === null : Math.abs(successRate - succeeded / (succeeded + failed)) < 1e-9) &&
     (succeeded === 0 ? averageSeconds === null : Number.isInteger(averageSeconds)),
   '§8 stats: seven-day window, counts, successRate and averageSeconds in whole seconds or null', w.stats);
+  expect(w.stats.awaitingReview >= w.recent.filter(run => run.review === 'pending').length,
+    '§8 awaitingReview counts every run of the workflow whose review is pending', {stats: w.stats, recent: w.recent});
 }
 
 function newestFirst(rows, field, rule) {
@@ -231,13 +272,38 @@ function checkAttention(s) {
     const kind = !o.available ? 'observed_unavailable' : o.error !== null ? 'observed_problem' : null;
     if (kind) expected.push({kind, severity: 'warning', subject: {type: 'observation', id: o.id, name: o.name}});
   }
+  // review_pending (rev 3): one item per workflow, archived or not, with a pending run. A workflow's
+  // awaitingReview says so; for an archived workflow only its runs among the newest 100 can show it, so an
+  // item for an archived workflow without such a visible run is allowed but not required.
+  const pendingRuns = id => s.runs.filter(run => run.workflowId === id && run.review === 'pending');
+  const reviewed = [...s.workflows.filter(w => w.stats.awaitingReview > 0),
+    ...s.archived.filter(a => pendingRuns(a.id).length > 0)];
+  for (const w of reviewed) expected.push({kind: 'review_pending', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
+  const optional = item => item.kind === 'review_pending' && s.archived.some(a => a.id === item.subject.id);
   const derived = Object.keys(attentionRows).filter(kind => !['controller_error', 'daily_limit_reached'].includes(kind));
   const label = item => item.kind + ' ' + item.subject.id;
-  expectEqual(s.attention.filter(item => derived.includes(item.kind)).map(label).sort(), expected.map(label).sort(),
-    '§8 an attention entry is present exactly while its table row applies');
+  const wanted = expected.map(label);
+  expectEqual(s.attention.filter(item => derived.includes(item.kind) && (wanted.includes(label(item)) || !optional(item)))
+    .map(label).sort(), wanted.sort(), '§8 an attention entry is present exactly while its table row applies');
   for (const want of expected) {
     const found = s.attention.find(item => label(item) === label(want));
     expectEqual(pick(found, Object.keys(want).join(' ')), want, '§8 attention row for ' + want.kind);
+  }
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+  for (const item of s.attention.filter(entry => entry.kind === 'review_pending')) {
+    expect(s.workflows.some(w => w.id === item.subject.id) || optional(item),
+      '§8 review_pending names a workflow, archived or not', item);
+    const count = s.workflows.find(w => w.id === item.subject.id)?.stats.awaitingReview ?? null;
+    if (count !== null) {
+      expect(new RegExp(`(^|\\D)${count}(\\D|$)`).test(item.message) ||
+        new RegExp(`\\b${words[count] ?? 'NO-WORD'}\\b`, 'i').test(item.message),
+      `§8 review_pending message gives the number of pending runs (${count})`, item.message);
+    }
+    const visible = pendingRuns(item.subject.id);
+    if (visible.length > 0 && (count === null || visible.length === count)) {
+      expectEqual(Date.parse(item.since), Math.min(...visible.map(run => Date.parse(run.finishedAt))),
+        '§8 review_pending since is the earliest finishedAt of the pending runs (as instants)');
+    }
   }
 }
 
@@ -245,8 +311,8 @@ export function checkSnapshot(s) {
   keys(s, 'connections workflows runs observed attention activity archived meta', '§8 snapshot');
   for (const c of s.connections) {
     keys(c, 'id name hostId agentId mode readiness', '§8 connection');
-    expect(['file', 'agent'].includes(c.mode), '§7 mode is file or agent', c.mode);
-    if (c.readiness !== null) checkReadiness(c.readiness);
+    expect(['file', 'agent', 'remote'].includes(c.mode), '§8 mode is file, agent or remote', c.mode);
+    if (c.readiness !== null) checkReadiness(c.readiness, {mode: c.mode});
   }
   s.workflows.forEach(checkWorkflow);
   for (let index = 1; index < s.workflows.length; index++) {
@@ -269,8 +335,8 @@ export function checkSnapshot(s) {
   keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
     'modelCost cloudProvisioning', '§8 meta');
   expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 2, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 schema version 2', s.meta);
+    s.meta.revision !== '' && s.meta.schemaVersion === 3, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 schema version 3', s.meta);
 }
 
 // ---- Process and file plumbing ----
@@ -339,7 +405,9 @@ export async function observedDirectory(f, state = {}) {
 
 // ---- One throwaway controller: private state, a copy of the fake executable, HTTP and CLI helpers ----
 
-export async function fixture(label, {connect = true, config = {}, env: extraEnv = {}} = {}) {
+// `clock` (rev 3): an instant (ISO string or milliseconds) the controller's clock starts at, through
+// MANAGED_CLOCK_FILE (§1); f.setClock and f.clockAt move it, f.now() is the suite's view of it.
+export async function fixture(label, {connect = true, config = {}, env: extraEnv = {}, clock: startAt} = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'FAKE-managed-conformance-' + label + '-'));
   await fs.chmod(dir, 0o700);
   const state = path.join(dir, 'private-managed-state');
@@ -354,11 +422,13 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
   const worker = {host_dir: workerDir, host_id: ids.hostId, agent_id: ids.agentId,
     adapter_id: ids.adapterId, session_id: ids.sessionId};
   await writeJson(workerFile, worker);
-  const env = {...process.env, PEERSPAN_BIN: fake, FAKE_PEERSPAN_FIXTURE: dir, MANAGED_TICK_MS: '100', ...extraEnv};
+  const clockFile = startAt === undefined ? null : path.join(dir, 'FAKE-clock-offset-ms');
+  const env = {...process.env, PEERSPAN_BIN: fake, FAKE_PEERSPAN_FIXTURE: dir, MANAGED_TICK_MS: '100',
+    ...(clockFile ? {MANAGED_CLOCK_FILE: clockFile} : {}), ...extraEnv};
   // senderStates tells the fake which state directories are sender hosts (§6).
   const f = {label, dir, state, fake, workerFile, workerDir, senderDir, worker, env,
     config: {...defaults, senderStates: [senderDir], ...config}, child: null, logs: '', token: '',
-    connectionId: null, port: await freePort(), secrets: [dir], streams: [], seen: new Set()};
+    connectionId: null, port: await freePort(), secrets: [dir], streams: [], seen: new Set(), offset: 0};
   fixtures.push(f);
 
   f.configure = async patch => {
@@ -366,6 +436,27 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
     await writeJson(path.join(dir, 'config.json'), f.config);
   };
   await f.configure({});
+  // §1 (rev 3): the file holds the whole milliseconds the controller adds to the system clock.
+  const instant = value => (typeof value === 'number' ? value : Date.parse(value));
+  f.now = () => Date.now() + f.offset;
+  f.setClock = async at => {
+    assert.ok(clockFile, label + ': this fixture was created without a clock');
+    f.offset = Math.round(instant(at) - Date.now());
+    await fs.writeFile(clockFile + '.new', String(f.offset) + '\n', {mode: 0o600});
+    await fs.rename(clockFile + '.new', clockFile);
+  };
+  // Moves the clock and, while serving, waits for a scheduler pass that ran on it (meta.lastTickAt).
+  f.clockAt = async (at, why = 'the suite moved the clock') => {
+    await f.setClock(at);
+    if (!f.child) return;
+    let last = null;
+    await until(() => `§1 a changed MANAGED_CLOCK_FILE takes effect at the next scheduler pass, which starts within ` +
+      `one second (${why}): meta.lastTickAt should reach ${new Date(instant(at)).toISOString()}, last ${last}`, async () => {
+      last = (await f.snapshot()).meta.lastTickAt;
+      return Date.parse(last) >= instant(at);
+    }, 5000);
+  };
+  if (clockFile) await f.setClock(startAt);
   f.cli = async (...args) => command([...args, '--state', state], env);
   f.checkedCli = async (...args) => {
     const result = await f.cli(...args);

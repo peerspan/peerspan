@@ -31,7 +31,7 @@ def node_24():
     return node
 
 
-def two_hosts(prefix):
+def two_hosts(prefix, agent_name=None):
     """A worker host with a scripted agent, and a second person's sender host with task access to it."""
     worker = suite.host(f"{prefix}-worker")
     sender = suite.host(f"{prefix}-sender")
@@ -39,7 +39,7 @@ def two_hosts(prefix):
     network_id = network.get("id") or network.get("network_id")
     check(network_id, f"network creation returned no ID: {network}")
     join_new_person(worker, sender, "ScriptedSenderOwner", ssh_key(sender.root, f"{prefix}-person"), network_id)
-    adapter = worker.agent(f"SCRIPTED-{prefix.upper()}")
+    adapter = worker.agent(agent_name or f"SCRIPTED-{prefix.upper()}")
     worker.ok("allow", "ScriptedSenderOwner", "--agent", adapter.name, "--network", network_id)
     return worker, sender, adapter
 
@@ -235,6 +235,66 @@ def agent_mode_and_cancel():
     print("  Agent registration, hyphen input, progress timeline and confirmed cancellation checked; no model.",
           flush=True)
     adapter.stop()
+
+
+@suite.case("real-remote-worker", "managed contract rev 3: remote worker, schedule with run now, operator review")
+def remote_worker():
+    node = node_24()
+    # The sender's directory lists only addressable agents: lowercase names, as attach creates.
+    worker, sender, adapter = two_hosts("remote", "scripted-remote")
+    managed = Controller(node, sender, "remote")
+    # The sender lists the agent once the worker owner's new policy has reached it by sync.
+    wait_for(lambda: any(entry.get("agent_id") == adapter.id
+                         for entry in (sender.cli("--json", "agents", "--refresh").json or {}).get("reachable", [])),
+             timeout=40, interval=1, message="the worker's agent in the sender's directory")
+    # Only the sender's state is named: the worker host is treated as another machine's.
+    connection = json.loads(managed.cli("connect", "--name", "SCRIPTED remote worker — no model",
+                                        "--remote", adapter.id, "--sender-state", sender.state))
+    check(connection["mode"] == "remote" and connection["agentId"] == adapter.id and connection["hostId"] == worker.id,
+          f"remote registration pinned the wrong identity: {connection}")
+    managed.start()
+    ready = managed.wait_ready(connection["id"], worker, adapter, sender)
+    check(ready["readiness"]["code"] == "ready" and ready["readiness"]["directoryAt"],
+          f"remote readiness lacks the directory evidence: {ready['readiness']}")
+
+    instructions = "SCRIPTED REMOTE SMOKE ONLY. Produce the predetermined receipt; no model executes this."
+    workflow = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED remote scheduled smoke — no model", "connectionId": connection["id"],
+        "instructions": instructions, "schedule": {"timeZone": "UTC", "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+                                                   "times": ["00:00"]},
+        "review": "operator", "maxRunsPerDay": 2, "acceptanceMinutes": 2, "enabled": True})
+    check(workflow["schedule"]["times"] == ["00:00"] and workflow["intervalMinutes"] is None,
+          f"schedule not stored as given: {workflow}")
+    # The next slot is up to a day away; run now makes it due without bypassing readiness.
+    managed.request("POST", f"/api/workflows/{workflow['id']}/run", {})
+    handoff = adapter.next_task(timeout=30)
+    check(handoff["task"]["input"] == instructions, "transport changed exact workflow instructions")
+    task_id = handoff["task"]["task_id"]
+    code, _ = adapter.post(f"/adapter/v1/tasks/{task_id}/accept")
+    check(code == 200, f"scripted accept failed: {code}")
+    output = "SCRIPTED REMOTE RECEIPT: delivered through the sender's directory entry; no model was called."
+    code, _ = adapter.post(f"/adapter/v1/tasks/{task_id}/complete", {"status": "succeeded", "output": output})
+    check(code == 200, f"scripted completion failed: {code}")
+    run = wait_for(lambda: managed.run(workflow["id"], "succeeded"), timeout=20, message="remote completion retained")
+    check(run["review"] == "pending" and run["output"] == output, f"a reviewed success did not wait for review: {run}")
+    current = next(row for row in managed.request("GET", "/api/snapshot")["workflows"] if row["id"] == workflow["id"])
+    check(current["stats"]["succeeded"] == 0 and current["stats"]["awaitingReview"] == 1,
+          f"a pending result counted as a success: {current['stats']}")
+    reviewed = managed.request("POST", f"/api/runs/{run['id']}/review", {"verdict": "accepted", "note": "  receipt matches  "})
+    check(reviewed["review"] == "accepted" and reviewed["reviewNote"] == "receipt matches", f"verdict not kept: {reviewed}")
+    current = next(row for row in managed.request("GET", "/api/snapshot")["workflows"] if row["id"] == workflow["id"])
+    check(current["stats"]["succeeded"] == 1 and current["stats"]["awaitingReview"] == 0,
+          f"an accepted result did not count: {current['stats']}")
+    check(current["nextRunAt"].startswith(("20", "21")) and current["nextRunAt"][11:16] == "00:00",
+          f"the next run is not the next 00:00 UTC slot: {current['nextRunAt']}")
+
+    # The directory is refreshed at most once a minute: a lapsed lease shows within about that long.
+    adapter.stop()
+    lapsed = wait_for(lambda: (row := managed.connection(connection["id"]))["readiness"]["code"] == "session_not_ready" and row,
+                      timeout=100, message="a lapsed remote session seen through the refreshed directory")
+    check(not lapsed["readiness"]["ready"], f"a lapsed remote session stayed ready: {lapsed['readiness']}")
+    print("  Remote registration, directory readiness, scheduled run now, operator review and lease lapse checked; no model.",
+          flush=True)
 
 
 suite.finish()

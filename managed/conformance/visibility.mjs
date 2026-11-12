@@ -33,7 +33,7 @@ async function case11_timelineHistoryAndActivity() {
   await attention('observed_problem', observation);
   const idle = await f.create({name: 'FAKE idle'});
   expectEqual((await f.workflow(idle.id)).stats, {windowDays: 7, runs: 0, succeeded: 0, failed: 0, successRate: null,
-    averageSeconds: null, interventions: 0, unattendedRuns: 0}, '§8 stats of a workflow that has not run');
+    averageSeconds: null, interventions: 0, unattendedRuns: 0, awaitingReview: 0}, '§8 stats of a workflow that has not run');
   const workflow = await f.create({enabled: true});
   const stats = async () => (await f.workflow(workflow.id)).stats;
   const first = await f.newRun(workflow.id, 'queued');
@@ -90,7 +90,7 @@ async function case11_timelineHistoryAndActivity() {
   const seconds = (Date.parse(done.finishedAt) - Date.parse(done.createdAt)) / 1000;
   const afterOne = await stats();
   expectEqual({...afterOne, averageSeconds: null}, {windowDays: 7, runs: 1, succeeded: 1, failed: 0, successRate: 1,
-    averageSeconds: null, interventions: 0, unattendedRuns: 1}, '§8 stats after one success without intervention');
+    averageSeconds: null, interventions: 0, unattendedRuns: 1, awaitingReview: 0}, '§8 stats after one success without intervention');
   expect(Math.abs(afterOne.averageSeconds - seconds) <= 1,
     '§8 averageSeconds is finishedAt minus createdAt of the succeeded runs, in whole seconds', {...afterOne, seconds});
 
@@ -501,8 +501,8 @@ async function case12_versionOneMigration() {
   db.close();
   await fs.chmod(file, 0o600);
 
-  await f.start();   // the first revision 2 command that opens the state migrates it
-  const snapshot = await f.snapshot();   // meta.schemaVersion 2 is checked on every snapshot
+  await f.start();   // the first revision 3 command that opens the state migrates it
+  const snapshot = await f.snapshot();   // meta.schemaVersion 3 is checked on every snapshot
   const backup = await fs.stat(path.join(f.state, 'managed.v1-backup.sqlite')).catch(() => null);
   expect(backup !== null && backup.size > 0 && (backup.mode & 0o777) === 0o600,
     '§1 before migrating, a copy of the version 1 database is saved as managed.v1-backup.sqlite, private (0600)',
@@ -518,6 +518,9 @@ async function case12_versionOneMigration() {
     '§13 workflows keep their IDs and values, oldest first');
   expectEqual(snapshot.workflows.map(item => item.pausedBy), [null, 'failures', 'operator'],
     '§13 a disabled migrated workflow with failureStreak 3 or more has pausedBy failures, any other disabled one operator');
+  expectEqual(snapshot.workflows.map(item => pick(item, 'schedule review')), Array(3).fill({schedule: null, review: 'none'}),
+    '§1 (rev 3) migrated workflows have schedule null and review none');
+  expectEqual(snapshot.runs.find(run => run.id === done.id)?.review, null, '§1 (rev 3) a migrated succeeded run needs no review');
   const runView = row => row && {...pick(row, 'id workflowId taskId state output'), createdAt: moment(row.createdAt),
     finishedAt: moment(row.finishedAt)};
   expectEqual(runView(snapshot.runs.find(run => run.id === done.id)), runView(done),
@@ -538,9 +541,10 @@ async function case12_versionOneMigration() {
   const touching = (await f.calls()).filter(call => call.argv.includes(open.taskId)).map(call => call.argv);
   expect(touching[0].includes('inspect'), '§4 after migration, as after any restart, the same ID is inspected first', touching.slice(0, 3));
   const finished = await f.finish(await f.waitRun(open.id, 'queued'), 'succeeded', {output: 'FAKE migrated run completed'});
-  expectEqual([pick(finished, 'id taskId output'), (await f.submissions()).length, (await f.detail(open.id)).run.instructions],
-    [{id: open.id, taskId: open.taskId, output: 'FAKE migrated run completed'}, 1, submission.input],
-    '§13 the migrated run completes under its own identity, submitted once, with its input as the run instructions');
+  expectEqual([pick(finished, 'id taskId output review'), (await f.submissions()).length, (await f.detail(open.id)).run.instructions],
+    [{id: open.id, taskId: open.taskId, output: 'FAKE migrated run completed', review: null}, 1, submission.input],
+    '§13 the migrated run completes under its own identity, submitted once, with its input as the run instructions; ' +
+    '§1 (rev 3) a migrated run needs no review');
   const resumed = expectStatus(await f.request('POST', '/api/workflows/fake-v1-paused/resume', {}), 200,
     '§13 every route accepts any ID of 1 to 64 letters, digits, _ or -, such as a migrated one that is no UUID').data;
   expectEqual(pick(resumed, 'id enabled failureStreak'), {id: 'fake-v1-paused', enabled: true, failureStreak: 0},
@@ -555,7 +559,8 @@ async function case12_newerSchemaRefused() {
   await fs.mkdir(f.state, {mode: 0o700});
   const file = path.join(f.state, 'managed.sqlite');
   const db = new DatabaseSync(file);
-  db.exec("PRAGMA user_version = 3; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
+  // §1 (rev 3): the current schema version is 3, so a newer one is 4.
+  db.exec("PRAGMA user_version = 4; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
     "INSERT INTO fake_future_schema VALUES ('FAKE state written by a newer schema')");
   db.close();
   await fs.chmod(file, 0o600);

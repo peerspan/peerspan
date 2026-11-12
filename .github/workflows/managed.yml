@@ -9,7 +9,7 @@ permissions:
 jobs:
   operator:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,3 +19,5 @@ jobs:
       - run: node managed/conformance/acceptance.mjs
       - run: node managed/conformance/operations.mjs
       - run: node managed/conformance/visibility.mjs
+      - run: node managed/conformance/remote.mjs
+      - run: node managed/conformance/schedules.mjs
