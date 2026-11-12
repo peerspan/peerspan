@@ -277,7 +277,7 @@ async fn save_result(
 }
 
 /// `90`, `90s`, `10m` or `2h`, as whole seconds.
-fn seconds(value: &str) -> anyhow::Result<i64> {
+pub(crate) fn seconds(value: &str) -> anyhow::Result<i64> {
     let (number, unit) = match value.char_indices().last() {
         Some((i, c)) if c.is_ascii_alphabetic() => (&value[..i], c),
         _ => (value, 's'),

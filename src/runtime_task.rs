@@ -14,12 +14,12 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hyper::Method;
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     io::{Read, Write},
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -129,6 +129,17 @@ pub(crate) struct Internal {
     /// deleted until the runtime answers 200 or 404.
     #[serde(default)]
     pub cleanup: bool,
+    /// A runtime agent's task: the whole `POST /v1/runs` body stored at
+    /// dispatch, which every resend uses (runtime agent contract, Running).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<Value>,
+    /// A runtime agent's task: its run's stdout, base64, up to the output
+    /// bound, for the agent's message.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stdout: String,
+    /// The run wrote more stdout than kept, not all whitespace.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stdout_more: bool,
 }
 
 fn invalid(field: &str) -> Error {
@@ -431,6 +442,37 @@ fn save_internal(
     )?;
     Ok(())
 }
+/// Whether a received task is a runtime agent's (runtime agent contract),
+/// as stored when it was received.
+pub(crate) fn is_agent_task(conn: &Connection, sender: &str, task_id: &str) -> Result<bool, Error> {
+    let flag: Option<bool> = conn.query_row(
+        "SELECT json_extract(record, '$.runtime_agent') FROM received_tasks WHERE sender = ?1 AND task_id = ?2",
+        params![sender, task_id],
+        |r| r.get(0),
+    )?;
+    Ok(flag.unwrap_or(false))
+}
+/// Marks a task just received as a runtime agent's, with the internal run
+/// fields of a runtime task.
+pub(crate) fn mark_agent_task(
+    tx: &Transaction<'_>,
+    sender: &str,
+    task_id: &str,
+) -> Result<(), Error> {
+    tx.execute(
+        "UPDATE received_tasks SET record = json_set(record, '$.runtime_agent', json('true')) WHERE sender = ?1 AND task_id = ?2",
+        params![sender, task_id],
+    )?;
+    save_internal(
+        tx,
+        sender,
+        task_id,
+        &Internal {
+            run_id: run_id(sender, task_id),
+            ..Default::default()
+        },
+    )
+}
 /// Whether a queued runtime task was dispatched, so its deadline no longer
 /// applies.
 pub(crate) fn dispatched(conn: &Connection, sender: &str, task_id: &str) -> Result<bool, Error> {
@@ -576,6 +618,8 @@ struct Task {
     request: TaskRequest,
     status: TaskStatus,
     internal: Internal,
+    /// A runtime agent's task rather than a runtime task.
+    agent: bool,
 }
 fn load(conn: &Connection, sender: &str, task_id: &str) -> Result<Option<Task>, Error> {
     let Some((request, status)) = received(conn, sender, task_id)? else {
@@ -586,12 +630,13 @@ fn load(conn: &Connection, sender: &str, task_id: &str) -> Result<Option<Task>, 
         request,
         status,
         internal: internal(conn, sender, task_id)?,
+        agent: is_agent_task(conn, sender, task_id)?,
     }))
 }
 /// Runtime tasks not yet final, in `created_at` order.
 fn open_tasks(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
     let mut statement = conn.prepare(
-        "SELECT sender, task_id FROM received_tasks WHERE json_extract(request, '$.executor') = 'runtime' AND json_extract(record, '$.state') IN ('queued', 'running') ORDER BY json_extract(record, '$.created_at'), rowid",
+        "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1) AND json_extract(record, '$.state') IN ('queued', 'running') ORDER BY json_extract(record, '$.created_at'), rowid",
     )?;
     statement
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -635,22 +680,33 @@ fn finish(
     // A cancellation is always honoured: one that arrived after the caller
     // chose the outcome, while it copied results, ends the task `cancelled`
     // with the run result and no result artifacts (State machine).
-    let (kind, output, artifacts) =
-        if status.cancel_requested && matches!(kind, "succeeded" | "failed") {
-            let output = match output {
-                Some(o) => {
-                    let mut result: Value = serde_json::from_str(&o)?;
-                    result["results_dropped"] = json!([]);
-                    result["results_same"] = json!({});
-                    Some(serde_json::to_string(&result)?)
-                }
-                None => None,
-            };
-            ("cancelled", output, None)
-        } else {
-            (kind, output, artifacts)
+    let (kind, output, artifacts) = if t.agent && status.cancel_requested {
+        // A runtime agent's output is text, kept as it is.
+        (
+            if matches!(kind, "succeeded" | "failed") {
+                "cancelled"
+            } else {
+                kind
+            },
+            output,
+            None,
+        )
+    } else if status.cancel_requested && matches!(kind, "succeeded" | "failed") {
+        let output = match output {
+            Some(o) => {
+                let mut result: Value = serde_json::from_str(&o)?;
+                result["results_dropped"] = json!([]);
+                result["results_same"] = json!({});
+                Some(serde_json::to_string(&result)?)
+            }
+            None => None,
         };
-    if kind != "rejected" && kind != "cancelled" && status.state == "running" {
+        ("cancelled", output, None)
+    } else {
+        (kind, output, artifacts)
+    };
+    // A runtime agent's final event records `task.run_exited` itself.
+    if !t.agent && kind != "rejected" && kind != "cancelled" && status.state == "running" {
         append_event(
             &tx,
             "task.run_exited",
@@ -693,7 +749,7 @@ async fn clean_up(store: &Arc<Store>) -> Result<(), Error> {
     let pending = crate::api::blocking(store.clone(), |s| {
         let conn = s.connection()?;
         let mut statement = conn.prepare(
-            "SELECT sender, task_id FROM received_tasks WHERE json_extract(request, '$.executor') = 'runtime' AND json_extract(record, '$.runtime.cleanup') = 1",
+            "SELECT sender, task_id FROM received_tasks WHERE (json_extract(request, '$.executor') = 'runtime' OR json_extract(record, '$.runtime_agent') = 1) AND json_extract(record, '$.runtime.cleanup') = 1",
         )?;
         let keys = statement
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
@@ -738,6 +794,8 @@ fn undispatch(store: &Store, sender: &str, task_id: &str) -> Result<bool, Error>
     let tx = conn.transaction()?;
     let mut i = internal(&tx, sender, task_id)?;
     i.dispatched = false;
+    // A runtime agent's next start builds a new body from the profile.
+    i.body = None;
     save_internal(&tx, sender, task_id, &i)?;
     let cancel = load(&tx, sender, task_id)?.is_some_and(|t| t.status.cancel_requested);
     tx.commit()?;
@@ -746,6 +804,10 @@ fn undispatch(store: &Store, sender: &str, task_id: &str) -> Result<bool, Error>
 
 /// The start request for a task (`POST /v1/runs`).
 fn start_body(store: &Store, t: &Task) -> Result<Value, Error> {
+    // A runtime agent's task resends exactly the body stored at dispatch.
+    if let Some(body) = &t.internal.body {
+        return Ok(body.clone());
+    }
     let run = t.request.run.as_ref().ok_or_else(|| invalid("run"))?;
     let rule = t
         .internal
@@ -876,7 +938,7 @@ async fn pass(
     following: &Following,
     shutdown: &watch::Receiver<bool>,
 ) -> Result<(), Error> {
-    let tasks = crate::api::blocking(store.clone(), |s| {
+    let (tasks, profiles) = crate::api::blocking(store.clone(), |s| {
         let conn = s.connection()?;
         let mut out = Vec::new();
         for (sender, id) in open_tasks(&conn)? {
@@ -885,9 +947,18 @@ async fn pass(
                 out.push((t, ready));
             }
         }
-        Ok(out)
+        drop(conn);
+        Ok((out, s.runtime_profiles()?))
     })
     .await?;
+    // A runtime agent's dispatched or running tasks, against its
+    // profile's `max_runs`.
+    let mut runs: HashMap<String, i64> = HashMap::new();
+    for (t, _) in &tasks {
+        if t.agent && (t.internal.dispatched || t.status.state == "running") {
+            *runs.entry(t.request.target_agent_id.clone()).or_default() += 1;
+        }
+    }
     // Runs on one peerfs workspace take turns: a queued task waits while
     // another task on its workspace is dispatched or running.
     let mut in_use: HashSet<String> = tasks
@@ -924,6 +995,15 @@ async fn pass(
         {
             continue;
         }
+        // A runtime agent's task waits while its agent has `max_runs` tasks
+        // dispatched or running. Without a profile the checks below reject it.
+        let agent = t.agent.then(|| t.request.target_agent_id.clone());
+        if let Some(agent) = &agent
+            && let Some(p) = profiles.iter().find(|p| p.agent_id == *agent)
+            && runs.get(agent).copied().unwrap_or(0) >= p.max_runs
+        {
+            continue;
+        }
         if free.is_none() {
             let switch = crate::api::blocking(store.clone(), |s| s.runtime_switch()).await?;
             free = Some(match switch {
@@ -955,6 +1035,9 @@ async fn pass(
             {
                 tx.commit()?;
                 return Ok(None);
+            }
+            if is_agent_task(&tx, &sender, &id)? {
+                return dispatch_agent(s, tx, &sender, &request, status);
             }
             let rule = match authorize(s, &tx, &sender, &request) {
                 Ok(rule) => rule,
@@ -998,6 +1081,9 @@ async fn pass(
         if let Some(w) = workspace.clone() {
             in_use.insert(w);
         }
+        if let Some(agent) = agent {
+            *runs.entry(agent).or_default() += 1;
+        }
         match start(store, &key.0, &key.1).await? {
             Started::Accepted => follow(store, following, shutdown, key, true),
             Started::Unknown => follow(store, following, shutdown, key, false),
@@ -1010,6 +1096,64 @@ async fn pass(
         }
     }
     Ok(())
+}
+
+/// The checks before a runtime agent's task starts, in their order: the
+/// authorization recheck, the runtime switch, the profile and the
+/// credential. A final failure rejects the task; a recoverable one leaves it
+/// queued. On success the dispatch is recorded with the `POST /v1/runs`
+/// body, and the runtime's socket returned.
+fn dispatch_agent(
+    store: &Store,
+    tx: Transaction<'_>,
+    sender: &str,
+    request: &TaskRequest,
+    mut status: TaskStatus,
+) -> Result<Option<PathBuf>, Error> {
+    let reject = |tx: Transaction<'_>, status: &mut TaskStatus, reason: &str| {
+        record(
+            &tx,
+            sender,
+            status,
+            "rejected",
+            Some(reason.into()),
+            None,
+            None,
+        )?;
+        tx.commit()?;
+        Ok(None)
+    };
+    match crate::task::recheck(store, &tx, sender, request) {
+        Ok(Ok(_)) => {}
+        Ok(Err(reason)) => return reject(tx, &mut status, &reason),
+        Err(Error::Unavailable(_)) => return Ok(None),
+        Err(e) => return Err(e),
+    }
+    let Some(switch) = store.runtime_switch()? else {
+        return reject(tx, &mut status, "the runtime is disabled");
+    };
+    let agent = request.target_agent_id.as_str();
+    let profile = store.runtime_profile(agent)?;
+    let name: Option<String> = tx
+        .query_row("SELECT name FROM agents WHERE id = ?1", [agent], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let (Some(profile), Some(name)) = (profile, name) else {
+        return reject(tx, &mut status, "the agent has no launch profile");
+    };
+    if !store.has_credential(agent)? {
+        return reject(tx, &mut status, "the agent has no credential");
+    }
+    let mut i = internal(&tx, sender, &request.task_id)?;
+    i.body = Some(crate::runtime_agent::run_body(
+        store, &profile, &name, &i.run_id, sender, request,
+    )?);
+    i.dispatched = true;
+    i.socket = Some(switch.socket.clone());
+    save_internal(&tx, sender, &request.task_id, &i)?;
+    tx.commit()?;
+    Ok(Some(switch.socket))
 }
 
 fn follow(
@@ -1175,6 +1319,11 @@ fn lost(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     if t.status.cancel_requested {
         return finish(store, sender, id, "cancelled", None, None, None);
     }
+    if t.agent {
+        let exited = t.internal.exited.clone().unwrap_or(Value::Null);
+        let output = agent_output(&t, &exited, Some(RESTARTED), false);
+        return finish(store, sender, id, "failed", None, Some(output), None);
+    }
     let result = RunResult::never_started(RESTARTED);
     let output = match &t.internal.exited {
         Some(v) => {
@@ -1235,8 +1384,27 @@ fn apply(
             "started" if t.status.state == "queued" => {
                 t.internal.started = true;
                 record(&tx, sender, &mut t.status, "accepted", None, None, None)?;
-                append_event(&tx, "task.run_started", &format!("{sender}/{id}"), &now())?;
+                // A runtime agent's `accepted` records `task.run_started` itself.
+                if !t.agent {
+                    append_event(&tx, "task.run_started", &format!("{sender}/{id}"), &now())?;
+                }
             }
+            // A runtime agent's task has no output events: its stdout is
+            // kept, up to the output bound, for the final message.
+            "stdout" if t.agent => {
+                let data = STANDARD
+                    .decode(event["data"].as_str().unwrap_or_default())
+                    .unwrap_or_default();
+                let mut kept = STANDARD.decode(&t.internal.stdout).unwrap_or_default();
+                let room = crate::task::MAX_TEXT.saturating_sub(kept.len());
+                let (now_kept, rest) = data.split_at(data.len().min(room));
+                kept.extend_from_slice(now_kept);
+                if rest.iter().any(|b| !b.is_ascii_whitespace()) {
+                    t.internal.stdout_more = true;
+                }
+                t.internal.stdout = STANDARD.encode(kept);
+            }
+            "stderr" if t.agent => {}
             stream @ ("stdout" | "stderr") => {
                 let data = STANDARD
                     .decode(event["data"].as_str().unwrap_or_default())
@@ -1340,6 +1508,23 @@ fn results(store: &Store, sender: &str, id: &str, artifacts: Vec<Value>) -> Resu
         return Ok(());
     }
     let exited = t.internal.exited.clone().unwrap_or(Value::Null);
+    if t.agent {
+        // runtime agent contract, Transitions: an `error` fails the task
+        // even when the command exited 0.
+        let kind = if t.status.cancel_requested {
+            "cancelled"
+        } else if t.internal.started
+            && exited["exit_code"].as_i64() == Some(0)
+            && exited["timed_out"].as_bool() != Some(true)
+            && exited["error"].is_null()
+        {
+            "succeeded"
+        } else {
+            "failed"
+        };
+        let output = agent_output(&t, &exited, None, kind == "cancelled");
+        return finish(store, sender, id, kind, None, Some(output), None);
+    }
     let mut result = RunResult::from_exited(&exited, t.internal.streamed);
     let kind = if t.status.cancel_requested {
         "cancelled"
@@ -1395,6 +1580,29 @@ fn results(store: &Store, sender: &str, id: &str, artifacts: Vec<Value>) -> Resu
     let artifacts = (!attached.is_empty()).then_some(attached);
     let output = serde_json::to_string(&result)?;
     finish(store, sender, id, kind, None, Some(output), artifacts)
+}
+
+/// A runtime agent's final output from the runtime's `exited` result, with
+/// `error` in place of the result's when the run was lost.
+fn agent_output(t: &Task, exited: &Value, error: Option<&str>, cancelled: bool) -> String {
+    let body = t.internal.body.as_ref().unwrap_or(&Value::Null);
+    let stdout = STANDARD.decode(&t.internal.stdout).unwrap_or_default();
+    let lost = error.is_some();
+    crate::runtime_agent::output(&crate::runtime_agent::Ending {
+        stdout: &stdout,
+        stdout_more: t.internal.stdout_more,
+        started: t.internal.started,
+        cancelled,
+        exit_code: exited["exit_code"].as_i64().filter(|_| !lost),
+        signal: exited["signal"].as_i64().filter(|_| !lost),
+        timed_out: !lost && exited["timed_out"].as_bool() == Some(true),
+        error: error
+            .map(str::to_owned)
+            .or_else(|| exited["error"].as_str().map(str::to_owned)),
+        commit: exited["commit"].as_str().map(str::to_owned),
+        fork: body["peerfs_workspace"].as_str().unwrap_or_default(),
+        from: body["peerfs_fork_from"].as_str().unwrap_or_default(),
+    })
 }
 
 /// Copies one result file into the artifact store, verifying its size and

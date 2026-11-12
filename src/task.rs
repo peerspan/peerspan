@@ -336,7 +336,12 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
 /// The stored record of a received task: the status record plus what the
 /// authorization checked at acceptance allowed, which is never served: the
 /// artifact bound and whether the agent may pass the task on.
-const INTERNAL_KEYS: [&str; 3] = ["max_artifact_bytes", "delegable", "runtime"];
+const INTERNAL_KEYS: [&str; 4] = [
+    "max_artifact_bytes",
+    "delegable",
+    "runtime",
+    "runtime_agent",
+];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
     if let Some(object) = value.as_object_mut() {
@@ -476,12 +481,14 @@ pub(crate) fn record(
         "UPDATE received_tasks SET record = ?1 WHERE sender = ?2 AND task_id = ?3",
         params![serde_json::to_string(&new)?, sender, status.task_id],
     )?;
-    append_event(
-        tx,
-        activity(kind),
-        &format!("{sender}/{}", status.task_id),
-        &at,
-    )?;
+    // A runtime agent's tasks record the run's start and exit in place of
+    // `task.accepted` and `task.completed` (runtime agent contract).
+    let kind = match activity(kind) {
+        "task.accepted" if old["runtime_agent"] == true => "task.run_started",
+        "task.completed" if old["runtime_agent"] == true => "task.run_exited",
+        other => other,
+    };
+    append_event(tx, kind, &format!("{sender}/{}", status.task_id), &at)?;
     Ok(event)
 }
 /// Appends a runtime task's `output` event, which records no activity.
@@ -530,8 +537,9 @@ pub(crate) fn expire(
     if status.state != "queued" || time(&request.deadline)? > crate::clock::now() {
         return Ok(false);
     }
-    // Once dispatched, the runtime decides how a runtime task ends.
-    if request.is_runtime() && crate::runtime_task::dispatched(tx, sender, &status.task_id)? {
+    // Once dispatched, the runtime decides how a runtime task, or a runtime
+    // agent's, ends.
+    if crate::runtime_task::dispatched(tx, sender, &status.task_id)? {
         return Ok(false);
     }
     record(tx, sender, status, "expired", None, None, None)?;
@@ -548,7 +556,7 @@ fn may_delegate(bounds: &Bounds, verified: Option<&Verified>) -> bool {
 /// admits it, `Ok(Err(reason))` is a final lapse, and `Unavailable` can
 /// recover.
 #[allow(clippy::type_complexity)]
-fn recheck(
+pub(crate) fn recheck(
     store: &Store,
     tx: &Transaction<'_>,
     sender: &str,
@@ -576,8 +584,20 @@ impl Store {
             Some(_) => return Err(Error::Invalid("executor".into())),
         }
         validate_task(&r)?;
+        // A task to an agent with a launch profile is a runtime agent's
+        // (runtime agent contract, Receiving a task), refused with input
+        // artifacts before anything is checked or persisted.
+        let runtime_agent = self.runtime_profile(&r.target_agent_id)?.is_some();
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
+        if runtime_agent
+            && r.artifacts.as_ref().is_some_and(|a| !a.is_empty())
+            && received(&tx, sender, &r.task_id)?.is_none()
+        {
+            return Err(Error::Invalid(
+                "artifacts: a runtime agent's task takes no input artifacts".into(),
+            ));
+        }
         let (bounds, subject, _) = task_bounds(self, &tx, sender, &r, true)?;
         match self.grant_connected(&tx, &subject, &bounds)? {
             Connectivity::Usable => {}
@@ -622,6 +642,9 @@ impl Store {
                 serde_json::to_string(&status)?
             ],
         )?;
+        if runtime_agent {
+            crate::runtime_task::mark_agent_task(&tx, sender, &r.task_id)?;
+        }
         record(&tx, sender, &mut status, "queued", None, None, None)?;
         if let Some(manifest) = &r.artifacts {
             crate::artifact::add_artifacts(
@@ -635,6 +658,9 @@ impl Store {
             )?;
         }
         tx.commit()?;
+        if runtime_agent {
+            self.runtime_wake.notify_one();
+        }
         Ok(status)
     }
     /// A submitter's task, settled for expiry; anyone else's is not found.
@@ -688,6 +714,7 @@ impl Store {
         let tx = connection.transaction()?;
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
+        let run = request.is_runtime() || crate::runtime_task::is_agent_task(&tx, sender, id)?;
         let mut children = Vec::new();
         if !status.cancel_requested && !is_final(&status.state) {
             record(
@@ -700,12 +727,12 @@ impl Store {
                 None,
             )?;
             children = crate::task_outbound::cancel_children(&tx, sender, id)?;
-            if request.is_runtime() {
+            if run {
                 crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
             }
         }
         tx.commit()?;
-        if request.is_runtime() {
+        if run {
             self.runtime_wake.notify_one();
             self.runtime_cancel.notify_waiters();
         }
@@ -756,7 +783,7 @@ impl Store {
             return Ok(Some(handoff));
         }
         let pending = {
-            let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100")?;
+            let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND json_extract(t.record, '$.runtime_agent') IS NULL AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
