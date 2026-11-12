@@ -41,7 +41,15 @@ def two_hosts(prefix, agent_name=None):
     join_new_person(worker, sender, "ScriptedSenderOwner", ssh_key(sender.root, f"{prefix}-person"), network_id)
     adapter = worker.agent(agent_name or f"SCRIPTED-{prefix.upper()}")
     worker.ok("allow", "ScriptedSenderOwner", "--agent", adapter.name, "--network", network_id)
+    worker.managed_network = network_id
     return worker, sender, adapter
+
+
+def another_agent(worker, name):
+    """A second scripted agent on the worker host, with task access for the same sender."""
+    adapter = worker.agent(name)
+    worker.ok("allow", "ScriptedSenderOwner", "--agent", adapter.name, "--network", worker.managed_network)
+    return adapter
 
 
 class Controller:
@@ -295,6 +303,95 @@ def remote_worker():
     check(not lapsed["readiness"]["ready"], f"a lapsed remote session stayed ready: {lapsed['readiness']}")
     print("  Remote registration, directory readiness, scheduled run now, operator review and lease lapse checked; no model.",
           flush=True)
+
+
+REVIEW_HEADER = ("Review the result below, which an agent produced for the assignment that follows it. Decide whether "
+                 "the result does what the assignment asks.\nBegin your answer with one line that says exactly "
+                 "VERDICT: ACCEPT or VERDICT: REJECT. Then give your reasons briefly: the operator reads them, and "
+                 "after a rejection the agent may receive them with the assignment.")
+
+
+def review_input(assignment, criteria, result):
+    """The review task's input of managed contract section 15.1."""
+    return f"{REVIEW_HEADER}\n\nASSIGNMENT\n{assignment}\n\nCRITERIA\n{criteria}\n\nRESULT\n{result}"
+
+
+def rework_input(instructions, note, result):
+    """The rework's input of managed contract section 15.2."""
+    return (f"{instructions}\n\nREVISION REQUESTED\nA reviewer rejected your previous result for this assignment. "
+            f"Do the assignment again in full, addressing the review.\n\nREVIEW\n{note}\n\nPREVIOUS RESULT\n{result}")
+
+
+def answer(adapter, expected_input, output, what):
+    """Takes the adapter's next task, checks its exact input, accepts it and completes it with `output`."""
+    handoff = adapter.next_task(timeout=30)
+    check(handoff["task"]["input"] == expected_input,
+          f"{what}: transport delivered another input than the contract's: {handoff['task']['input']!r}")
+    task_id = handoff["task"]["task_id"]
+    code, _ = adapter.post(f"/adapter/v1/tasks/{task_id}/accept")
+    check(code == 200, f"{what}: scripted accept failed: {code}")
+    code, _ = adapter.post(f"/adapter/v1/tasks/{task_id}/complete", {"status": "succeeded", "output": output})
+    check(code == 200, f"{what}: scripted completion failed: {code}")
+    return task_id
+
+
+@suite.case("real-reviewer-agent", "managed contract rev 4: reviewer agent, rejection, rework and acceptance")
+def reviewer_agent():
+    node = node_24()
+    worker, sender, adapter = two_hosts("review", "scripted-worker")
+    reviewer = another_agent(worker, "scripted-reviewer")
+    managed = Controller(node, sender, "review")
+    register = lambda name, agent: json.loads(managed.cli(
+        "connect", "--name", name, "--agent", agent.name, "--host-state", worker.state, "--sender-state", sender.state))
+    worker_connection = register("SCRIPTED worker — no model", adapter)
+    reviewer_connection = register("SCRIPTED reviewer — no model", reviewer)
+    managed.start()
+    managed.wait_ready(worker_connection["id"], worker, adapter, sender)
+    managed.wait_ready(reviewer_connection["id"], worker, reviewer, sender)
+
+    instructions = "SCRIPTED REVIEW SMOKE ONLY. Report the receipt number; no model executes this."
+    criteria = "The result names the receipt number."
+    workflow = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED reviewed smoke — no model", "connectionId": worker_connection["id"],
+        "instructions": instructions, "intervalMinutes": 60, "maxRunsPerDay": 3, "acceptanceMinutes": 2,
+        "review": "agent", "reviewerId": reviewer_connection["id"], "reviewCriteria": f"  {criteria}  ",
+        "reworkLimit": 1, "enabled": True})
+    check(workflow["reviewCriteria"] == criteria and workflow["reworkLimit"] == 1, f"review settings not kept: {workflow}")
+
+    # Attempt 1: the reviewer agent rejects it with reasons, which go back to the worker.
+    first = "SCRIPTED attempt 1: done."
+    first_task = answer(adapter, instructions, first, "attempt 1")
+    note = "SCRIPTED: the receipt number is missing."
+    review_task = answer(reviewer, review_input(instructions, criteria, first), f"**VERDICT: REJECT**\n{note}",
+                         "first review")
+    check(review_task != first_task, "the review task reused the run's task ID")
+
+    # Attempt 2, the rework, at once: the assignment, the review and the previous result.
+    second = "SCRIPTED attempt 2: receipt 42."
+    answer(adapter, rework_input(instructions, note, first), second, "rework")
+    answer(reviewer, review_input(instructions, criteria, second), "verdict: accept\nSCRIPTED: receipt 42 is named.",
+           "second review")
+
+    def reviewed_rework():
+        runs = [row for row in managed.request("GET", "/api/snapshot")["runs"] if row["workflowId"] == workflow["id"]]
+        return runs if len(runs) == 2 and runs[0]["review"] == "accepted" else False
+
+    rework, rejected = wait_for(reviewed_rework, timeout=30, message="the reviewed rework")
+    check(rejected["review"] == "rejected" and rejected["reviewedBy"] == "agent" and rejected["reviewNote"] == note,
+          f"the agent's rejection was not recorded: {rejected}")
+    check(rejected["reviewTask"]["taskId"] == review_task and rejected["reviewTask"]["state"] == "succeeded",
+          f"the first review task is not the one delivered: {rejected['reviewTask']}")
+    check(rework["attempt"] == 2 and rework["reworkOf"] == rejected["id"] and rework["reviewedBy"] == "agent"
+          and rework["reviewNote"] == "SCRIPTED: receipt 42 is named.", f"the rework was not recorded: {rework}")
+    current = next(row for row in managed.request("GET", "/api/snapshot")["workflows"] if row["id"] == workflow["id"])
+    check(current["stats"]["succeeded"] == 1 and current["stats"]["failed"] == 1 and current["reworkPending"] is None,
+          f"statistics after a rejection and an accepted rework: {current['stats']}")
+    upstream = sender.ok("task", "inspect", "--peer", worker.id, review_task)
+    check(upstream["status"]["state"] == "succeeded", f"the review task is not a real succeeded task: {upstream['status']}")
+    print("  Reviewer agent rejection, exact review and rework inputs, rework and acceptance over real transport; no model.",
+          flush=True)
+    adapter.stop()
+    reviewer.stop()
 
 
 suite.finish()

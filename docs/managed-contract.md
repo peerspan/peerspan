@@ -64,7 +64,8 @@ directory, with the same private permissions. Migrated workflows from version 1
 or 2 have `schedule` null and `review` `none`; migrated workflows have
 `reviewerId` and `reviewCriteria` null, `reworkLimit` 0 and `reworkPending` null;
 migrated runs have `attempt` 1 and `reworkOf` null, need no review unless version
-3 recorded that they do, and need no agent review. State written by a newer
+3 recorded that they do, and need no agent review; a verdict that version 3
+recorded has `reviewedBy` `operator`. State written by a newer
 schema is refused with a nonzero exit and is not modified.
 
 ## 2. HTTP contract

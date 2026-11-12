@@ -236,6 +236,8 @@ function migrateFromV3(db) {
  */
 function deriveV4(db) {
   db.exec('UPDATE runs SET assignment = (SELECT input FROM tasks WHERE tasks.task_id = runs.task_id) WHERE assignment IS NULL');
+  // Before reviewer agents, every verdict was the operator's.
+  db.exec("UPDATE runs SET reviewed_by = 'operator' WHERE review IN ('accepted', 'rejected') AND reviewed_by IS NULL");
   const setBranch = db.prepare('UPDATE tasks SET branch = ? WHERE task_id = ?');
   const finished = db.prepare(`SELECT task_id, state, output, output_truncated FROM tasks
     WHERE state IN ('succeeded', 'failed') AND output IS NOT NULL AND output LIKE '%Branch: %'`);
