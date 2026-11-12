@@ -458,8 +458,8 @@ export class Model {
 
   /**
    * Decides, for every workflow, whether it may dispatch now, and reserves a run
-   * for each one that may. `readiness` maps connection IDs to `{ready, current, reason, capacity}`, where
-   * `current` says whether the verdict came from a check that ended since the previous decision.
+   * for each one that may. `readiness` maps connection IDs to `{ready, reason, capacity, checkedAt}`,
+   * `checkedAt` being when the check that gave the verdict began.
    * Returns the reserved tasks; nothing has been sent for them yet.
    */
   planDispatch(now, readiness) {
@@ -471,7 +471,7 @@ export class Model {
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
       const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities);
-      // A ready worker without a current verdict is decided by a later pass; its reason stays.
+      // A ready worker whose verdict is older than the work is decided by a later pass; its reason stays.
       if (reason === undefined) continue;
       if (reason === null) {
         reserved.push(this.reserve(workflow, connection, now, this.freeTarget(connection, capacities)));
@@ -488,14 +488,27 @@ export class Model {
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
-    if (state.current === false) return undefined;
     if (!this.freeTarget(connection, capacities)) {
       const capacity = capacities.get(targetOf(connection)) ?? 1;
       return capacity > 1 ? `Worker is at its capacity of ${capacity} tasks` : 'Worker is busy with another managed task';
     }
     // A due rework does not wait for the interval or schedule (contract section 15.2).
     if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
+    // The verdict must come from a check that began after the run became due or the operator last
+    // changed the workflow, so that a change made before a run is requested is always seen (MGD-15).
+    if (state.checkedAt < this.dueSince(workflow, now)) return undefined;
     return null;
+  }
+
+  /** When a workflow's next run became due: its schedule, the operator's last change, or a rework. */
+  dueSince(workflow, now) {
+    let since = workflow.updated_at;
+    if (workflow.next_run_at <= now && workflow.next_run_at > since) since = workflow.next_run_at;
+    if (workflow.rework_pending !== null) {
+      const reviewed = this.one('SELECT reviewed_at FROM runs WHERE id = ?', workflow.rework_pending)?.reviewed_at;
+      if (reviewed && reviewed > since) since = reviewed;
+    }
+    return since;
   }
 
   /**
@@ -534,7 +547,7 @@ export class Model {
    */
   planReviews(now, readiness, capacities) {
     const reserved = [];
-    const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id FROM runs r JOIN tasks t ON t.task_id = r.task_id
+    const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id, t.finished_at FROM runs r JOIN tasks t ON t.task_id = r.task_id
       WHERE r.review = 'pending' AND r.reviewer_id IS NOT NULL AND r.review_task_id IS NULL
         AND r.review_fallback IS NULL
       ORDER BY t.finished_at, r.seq`);
@@ -544,7 +557,9 @@ export class Model {
         this.fallBack(run, 'reviewer_removed', now);
         continue;
       }
-      if (!readiness[reviewer.id]?.ready || readiness[reviewer.id].current === false) continue;
+      // As for runs: a verdict from a check that began before the result was ready is not enough.
+      const state = readiness[reviewer.id];
+      if (!state?.ready || state.checkedAt < run.finished_at) continue;
       const target = this.freeTarget(reviewer, capacities);
       if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }

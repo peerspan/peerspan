@@ -73,10 +73,6 @@ export class Engine {
     this.readiness = new Map();
     // When each remote connection's last check that refreshed the sender's directory began.
     this.refreshedAt = new Map();
-    // When each connection's latest check ended, and when dispatch last decided, on the monotonic
-    // clock: dispatch uses only verdicts from checks that ended since its previous decision (MGD-15).
-    this.checkEndedAt = new Map();
-    this.dispatchedAt = -Infinity;
     this.listeners = new Set();
     this.bootId = Date.now().toString(36);
     this.changes = 0;
@@ -286,7 +282,6 @@ export class Engine {
       if (!connections.some(connection => connection.id === id)) {
         this.readiness.delete(id);
         this.refreshedAt.delete(id);
-        this.checkEndedAt.delete(id);
       }
     }
 
@@ -296,14 +291,11 @@ export class Engine {
 
   /** Reserves runs for every workflow that may dispatch now, then sends them. */
   async dispatch() {
-    // Evidence is never older than one check: a worker whose check has not ended since the previous
-    // decision, such as one still waiting for a slow call, gets nothing new until one has.
-    const since = this.dispatchedAt;
-    this.dispatchedAt = performance.now();
+    // `checkedAt` is when the check began: the store reserves work only on a check that began after
+    // the work became due (MGD-15), so a slow check never lends an older verdict to new work.
     const ready = {};
     for (const [id, state] of this.readiness) {
-      const current = (this.checkEndedAt.get(id) ?? -Infinity) > since;
-      ready[id] = { ready: state.ready, current, reason: state.reason, capacity: capacityOf(state) };
+      ready[id] = { ready: state.ready, reason: state.reason, capacity: capacityOf(state), checkedAt: state.checkedAt };
     }
     const reserved = await this.store.planDispatch(stamp(), ready);
     // Each reserved task is persisted; only now may anything be sent for it.
@@ -342,7 +334,6 @@ export class Engine {
     const since = await this.store.recordReadiness(connection.id, result.ready, result.code, checkedAt);
     const previous = this.readiness.get(connection.id);
     this.readiness.set(connection.id, { ...result, checkedAt, since });
-    this.checkEndedAt.set(connection.id, performance.now());
     const same = previous && previous.code === result.code && previous.reason === result.reason
       && previous.directoryAt === result.directoryAt && JSON.stringify(previous.hints) === JSON.stringify(result.hints)
       && JSON.stringify(previous.runtime) === JSON.stringify(result.runtime);

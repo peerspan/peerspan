@@ -332,9 +332,13 @@ stays [managed-contract.md](managed-contract.md).
 
 Note to MGD-15 (2026-11-12, revision 6.1): the first form of (b) dispatched
 with the readiness each connection had last recorded. Once the wait was also
-capped at one interval, so that passes keep their pace, a check that had not
-ended within the wait left dispatch with the previous pass's verdict, and the
-acceptance suite caught a run sent to a worker whose pinned identity had just
-changed. Dispatch now uses only verdicts from checks that ended since its
-previous decision: a worker with a slow check waits for its own next verdict,
-and no evidence is older than one check, as before revision 6.
+capped at one interval, so that passes keep their pace, a check that began
+before an operator's change could still end, ready, just after the operator
+requested a run, and the acceptance suite caught a run sent to a worker whose
+pinned identity had just changed. A first correction, using only verdicts from
+checks that ended since the previous decision, narrowed that window but did not
+close it, and CI caught it again. Work is now reserved only on readiness from a
+check that began after the work became due (the run's due time, a rework, or
+the operator's latest change of the workflow; for a review task, its run's
+end), so a change made before a run is requested is always seen, whatever the
+timing; a worker with a slow check waits for its own next verdict.
