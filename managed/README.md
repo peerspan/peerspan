@@ -221,7 +221,11 @@ browser shows it; nothing is sent anywhere.
 A succeeded run is the worker's own report. Unless its workflow has checks or
 asks for review, nothing in this preview checks the output; it never downloads
 artifacts or approves anything on your behalf. A run with checks lists each one
-on its page, passed or failed with the reason. Results waiting for your review are listed on
+on its page, passed or failed with the reason.
+
+![A result rejected by its checks: each failed check with its reason, and the rework it was sent back for](assets/console-checks.png)
+
+Scripted demonstration data, not real agent work. Results waiting for your review are listed on
 the overview, oldest first, and each run page has Accept and Reject with an
 optional note. A reviewed run's page also shows the reviewer's verdict and
 reasons, its full answer, what it was asked and its task's timeline, and links a
