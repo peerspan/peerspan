@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
   - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
   - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
   - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
@@ -66,6 +67,34 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### RUN-12 and RUN-13: Claude as the second harness (2026-11-12)
+
+- **Date:** 2026-11-12.
+- **Area:** runtime agents: Claude Code (`claude -p`) as a second harness beside Codex, with an Anthropic API key.
+- **Source:** the owner's answers to two questions on 2026-11-12, after a spike in which Claude Code 2.1.322 ran headless in a microVM on `python:3.12-slim`: it reached the Anthropic API and got the expected 401 for a fake key, in about 6 s and 280 MiB. The options and reasons below are quoted from those questions.
+- **Recorded in:** this log and the contract.
+- **Contract section:** [runtime-agent-contract.md](runtime-agent-contract.md), The launch profile, Running and The runtime's local API.
+- **Implementing PRs:** none yet.
+
+#### RUN-12. How a Claude runtime agent gets a glibc image
+
+- **Question:** "Claude Code's Linux binary needs glibc, so it can't run on the Alpine images Codex works on (Codex is static). The runtime's `serve` boots one image for every run, and launch profiles don't choose an image."
+- **Options:**
+  - (a) One glibc image: "The owner runs the runtime with a glibc image (e.g. python:3.12-slim or a project image); Codex works on it too. The contract states the requirement, and a Claude run on a musl image fails before its command with a clear error. No runtime change."
+  - (b) Image per profile: "Launch profiles gain `image`, and runtime `serve` boots a per-run image (pulling and caching several). More flexible (Alpine for Codex, Debian for Claude), but a runtime change plus more contract and tests."
+- **Chosen:** (b).
+- **Reason given:** options not compared beyond the question.
+
+#### RUN-13. How Claude runs in the VM
+
+- **Question:** "Claude Code refuses --dangerously-skip-permissions as root, and the VM's command runs as root. It runs if IS_SANDBOX=1 is set, which tells Claude Code it's inside a sandbox. Here the VM is the sandbox, as it is for Codex's --dangerously-bypass-approvals-and-sandbox."
+- **Options:**
+  - (a) Root, `IS_SANDBOX=1`: "Same as Codex: the agent is root inside its own throwaway VM, which is the isolation boundary. The spike confirmed it runs this way. No new guest requirements."
+  - (b) Unprivileged user: "The harness script reads the key as root, then drops to a non-root user to run Claude. That's defence in depth inside the VM, but it needs the workspace writable by that user and a privilege-drop tool such as setpriv in the image."
+- **Chosen:** (a).
+- **Reason given:** options not compared beyond the question.
+- **Note:** Claude's output is `--output-format text`, so stdout is the final message, as for Codex, and the host parses nothing. This is an implementation choice within RUN-13.
 
 ### RUN-8 to RUN-11: runtime agents (2026-11-12)
 
