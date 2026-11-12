@@ -183,7 +183,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=30).contains(&version) {
+        if !(0..=31).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -316,7 +316,8 @@ impl Store {
         crate::decentralized::storage::check_schema(&tx)?;
         // 29 is runtime tasks (runtime task contract): new record fields only.
         // 30 is conversations C7: the agent_descriptions table.
-        tx.execute_batch("PRAGMA user_version = 30;")?;
+        // 31 is runtime agents (runtime agent contract): new record fields only.
+        tx.execute_batch("PRAGMA user_version = 31;")?;
         if version < 23
             && std::env::var("PEERSPAN_DEC_TEST_MODE").as_deref() == Ok("1")
             && std::env::var("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL").as_deref() == Ok("1")

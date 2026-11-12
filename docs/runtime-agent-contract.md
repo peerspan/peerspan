@@ -305,3 +305,5 @@ server, with no open session there, run concurrently on three forks. Each return
 a branch, and the owner merges one. With per-run snapshots (RUN-10), each branch's history holds
 the before and after snapshots and the commit, all attributed to the agent, rather than one
 snapshot per tool call. The run also records memory per agent VM, wall time and tokens per task.
+`conformance/live_runtime_agents.py` runs this on one machine, with both hosts there: a manual check that
+needs KVM, a Codex release and a real key.

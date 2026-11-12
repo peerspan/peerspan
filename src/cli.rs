@@ -912,6 +912,72 @@ pub enum AgentCommand {
         #[arg(long)]
         clear: bool,
     },
+    /// Run an agent's tasks in this host's runtime: its launch profile
+    #[command(subcommand)]
+    Runtime(AgentRuntimeCommand),
+    /// Store or remove a runtime agent's model credential
+    #[command(subcommand)]
+    Credential(AgentCredentialCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentRuntimeCommand {
+    /// Create or replace an agent's launch profile; omitted options take
+    /// their defaults
+    Set {
+        /// Agent ID or name on this host
+        agent: String,
+        /// Directory holding the Codex release's binaries
+        #[arg(long, value_name = "DIR")]
+        harness_dir: PathBuf,
+        /// The peerfs branch each task forks; default main
+        #[arg(long, value_name = "BRANCH")]
+        from_branch: Option<String>,
+        /// none or internet; default internet
+        #[arg(long, value_name = "NETWORK", value_parser = ["none", "internet"])]
+        network: Option<String>,
+        /// vCPUs per run; default 2
+        #[arg(long, value_name = "N")]
+        cpus: Option<i64>,
+        /// Memory per run in MiB; default 2048
+        #[arg(long, value_name = "N")]
+        memory_mib: Option<i64>,
+        /// Each run's time limit, such as 90s, 10m or 2h; default 1h
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+        /// Tasks of this agent dispatched or running at once; default 3
+        #[arg(long, value_name = "N")]
+        max_runs: Option<i64>,
+    },
+    /// Show one agent's launch profile, or every profile
+    Show {
+        /// Agent ID or name on this host
+        agent: Option<String>,
+        /// Print the JSON (the default output)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove an agent's launch profile
+    Clear {
+        /// Agent ID or name on this host
+        agent: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCredentialCommand {
+    /// Store the agent's OpenAI API key, read from a file
+    Set {
+        /// Agent ID or name on this host
+        agent: String,
+        #[arg(long, value_name = "PATH")]
+        from_file: PathBuf,
+    },
+    /// Remove the agent's credential
+    Clear {
+        /// Agent ID or name on this host
+        agent: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2147,7 +2213,8 @@ impl Command {
                 | NetworkCommand::Bind { .. }
                 | NetworkCommand::Unbind { .. },
             )
-            | Self::Agent(AgentCommand::Describe { .. }) => return None,
+            | Self::Agent(AgentCommand::Describe { .. })
+            | Self::Agent(AgentCommand::Runtime(_) | AgentCommand::Credential(_)) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Runtime(RuntimeCommand::Show { .. }) => (Method::GET, "/v1/runtime".into(), None),
             Self::Onboarding(_) => (Method::GET, "/v1/onboarding".into(), None),
