@@ -157,8 +157,8 @@ export function runtimeText(runtime) {
     count(runtime.cpus, runtime.cpus === 1 ? 'CPU' : 'CPUs'),
     count(runtime.memoryMib, 'MiB'),
     Number.isInteger(runtime.timeoutSeconds) && `${limitText(runtime.timeoutSeconds)} limit`,
-    // The host may run several of its tasks at once; this console still sends one at a time (MGD-13).
-    Number.isInteger(runtime.maxRuns) && `its host allows ${runtime.maxRuns} at once; sent one at a time`
+    // While ready, this console sends it up to that many tasks at once (MGD-14).
+    Number.isInteger(runtime.maxRuns) && `up to ${runtime.maxRuns} at once`
   ].filter(Boolean);
   return parts.join(' · ');
 }

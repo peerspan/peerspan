@@ -549,6 +549,9 @@ function workerPanel(ctx, connection) {
       readiness.runtime && fact('Runtime', runtimeText(readiness.runtime) || 'Launch profile without details'),
       fact('Workflows', assigned.length ? links(assigned) : 'None'),
       reviewing.length > 0 && fact('Reviews for', links(reviewing)),
+      fact('Working on', connection.capacity > 1
+        ? `${connection.activeTasks} of ${connection.capacity} tasks at once`
+        : connection.activeTasks ? 'One task' : 'Nothing now'),
       fact('Last checked', timeAgo(readiness.checkedAt, 'Not yet')),
       remote && fact('Directory as of', timeAgo(readiness.directoryAt, 'Unknown'))),
     readiness.hints.length > 0 && h('div.hints', null,

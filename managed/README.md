@@ -68,8 +68,10 @@ Workers page shows which of these is missing and a summary of its launch
 profile, never its paths. Each run's result ends with the branch the agent
 worked on, which the run page shows.
 
-The operator still sends one task at a time to the agent, even when its
-profile lets the host run several at once. After upgrading Peerspan, restart
+While it is ready, the operator sends it up to its profile's `max_runs` tasks
+at once, of different workflows, each on its own fork; one workflow still has
+one run at a time, and every other agent takes one task at a time. The Workers
+page shows how many it is working on. After upgrading Peerspan, restart
 its daemon before relying on readiness: a new CLI talking to an older daemon
 that is still running cannot read launch profiles, and agent-mode workers
 show "launch profiles could not be read" until the daemon restarts. A runtime agent on another machine

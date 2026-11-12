@@ -3,6 +3,7 @@
 // public fields; no path, credential or upstream detail text is passed through.
 import { stamp } from './clock.mjs';
 import { readObservations } from './observations.mjs';
+import { capacityOf } from './readiness.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
 
 const SEVERITIES = ['action', 'warning', 'info'];
@@ -62,14 +63,20 @@ function attentionFor({ engine, workflows, connections, problems, reviews, await
 export async function buildSnapshot({ store, engine, version }) {
   const [data, sources] = await Promise.all([store.snapshot(stamp()), store.listObservations()]);
   const observed = await readObservations(sources);
-  const connections = data.connections.map(connection => ({
-    id: connection.id,
-    name: connection.name,
-    hostId: connection.hostId,
-    agentId: connection.agentId,
-    mode: connection.mode,
-    readiness: engine.readinessOf(connection)
-  }));
+  const connections = data.connections.map(connection => {
+    const readiness = engine.readinessOf(connection);
+    return {
+      id: connection.id,
+      name: connection.name,
+      hostId: connection.hostId,
+      agentId: connection.agentId,
+      mode: connection.mode,
+      readiness,
+      // How many tasks its worker agent may hold, and holds, across workflows (contract sections 4 and 8).
+      capacity: capacityOf(readiness),
+      activeTasks: connection.activeTasks
+    };
+  });
   const attention = attentionFor({
     engine,
     workflows: data.workflows,

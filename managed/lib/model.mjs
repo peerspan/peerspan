@@ -458,19 +458,20 @@ export class Model {
 
   /**
    * Decides, for every workflow, whether it may dispatch now, and reserves a run
-   * for each one that may. `readiness` maps connection IDs to `{ready, reason}`.
+   * for each one that may. `readiness` maps connection IDs to `{ready, reason, capacity}`.
    * Returns the reserved tasks; nothing has been sent for them yet.
    */
   planDispatch(now, readiness) {
     const dayStart = now.slice(0, 10) + 'T00:00:00.000Z';
+    const capacities = this.capacities(readiness);
     // Results already produced are checked before new work starts (contract section 4).
-    const reserved = this.planReviews(now, readiness);
+    const reserved = this.planReviews(now, readiness, capacities);
     const workflows = this.all('SELECT * FROM workflows WHERE archived_at IS NULL ORDER BY next_run_at, rowid');
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
-      const reason = this.blockedReason(workflow, connection, readiness, now, dayStart);
+      const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities);
       if (reason === null) {
-        reserved.push(this.reserve(workflow, connection, now));
+        reserved.push(this.reserve(workflow, connection, now, this.freeTarget(connection, capacities)));
       } else if (reason !== workflow.blocked_reason) {
         this.run('UPDATE workflows SET blocked_reason = ? WHERE id = ?', reason, workflow.id);
       }
@@ -478,28 +479,56 @@ export class Model {
     return reserved;
   }
 
-  blockedReason(workflow, connection, readiness, now, dayStart) {
+  blockedReason(workflow, connection, readiness, now, dayStart, capacities) {
     if (workflow.enabled !== 1) return workflow.paused_by === 'failures' ? PAUSED_BY_FAILURES : PAUSED_BY_OPERATOR;
     if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', workflow.id)) return 'Assignment in progress';
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
-    if (this.agentBusy(connection)) return 'Worker is busy with another managed task';
+    if (!this.freeTarget(connection, capacities)) {
+      const capacity = capacities.get(targetOf(connection)) ?? 1;
+      return capacity > 1 ? `Worker is at its capacity of ${capacity} tasks` : 'Worker is busy with another managed task';
+    }
     // A due rework does not wait for the interval or schedule (contract section 15.2).
     if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
     return null;
   }
 
-  agentBusy(connection) {
-    return Boolean(this.one('SELECT 1 FROM tasks WHERE peer = ? AND agent = ? AND open = 1',
-      connection.host_id, connection.agent_id));
+  /**
+   * Each worker agent's capacity, by target: the largest that any of its
+   * connections' readiness gives, 1 unless a runtime agent is ready (MGD-14).
+   */
+  capacities(readiness) {
+    const byTarget = new Map();
+    for (const connection of this.all('SELECT id, host_id, agent_id FROM connections WHERE removed_at IS NULL')) {
+      const target = targetOf(connection);
+      byTarget.set(target, Math.max(byTarget.get(target) ?? 1, readiness[connection.id]?.capacity ?? 1));
+    }
+    return byTarget;
+  }
+
+  /**
+   * A target with room for one more task of the connection's worker agent, or
+   * null when it holds its capacity. Each concurrent task takes a slot of its own,
+   * so the store's unique index still enforces the limit (contract section 4).
+   */
+  freeTarget(connection, capacities) {
+    const capacity = capacities.get(targetOf(connection)) ?? 1;
+    const held = new Set(this.all('SELECT target FROM tasks WHERE peer = ? AND agent = ? AND open = 1',
+      connection.host_id, connection.agent_id).map(row => row.target));
+    if (held.size >= capacity) return null;
+    for (let slot = 0; slot < capacity; slot += 1) {
+      const target = slot === 0 ? targetOf(connection) : JSON.stringify([connection.host_id, connection.agent_id, slot]);
+      if (!held.has(target)) return target;
+    }
+    return null;
   }
 
   /**
    * Reserves the review task of each run that waits for its reviewer agent,
    * oldest result first, while that reviewer is ready and free (section 15.1).
    */
-  planReviews(now, readiness) {
+  planReviews(now, readiness, capacities) {
     const reserved = [];
     const waiting = this.all(`SELECT r.id, r.workflow_id, r.reviewer_id FROM runs r JOIN tasks t ON t.task_id = r.task_id
       WHERE r.review = 'pending' AND r.reviewer_id IS NOT NULL AND r.review_task_id IS NULL
@@ -511,13 +540,14 @@ export class Model {
         this.fallBack(run, 'reviewer_removed', now);
         continue;
       }
-      if (!readiness[reviewer.id]?.ready || this.agentBusy(reviewer)) continue;
-      reserved.push(this.reserveReview(run, reviewer, now));
+      if (!readiness[reviewer.id]?.ready) continue;
+      const target = this.freeTarget(reviewer, capacities);
+      if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }
     return reserved;
   }
 
-  reserveReview(run, reviewer, now) {
+  reserveReview(run, reviewer, now, target) {
     const details = this.one(`SELECT r.assignment, t.output, w.review_criteria, w.acceptance_minutes
       FROM runs r JOIN tasks t ON t.task_id = r.task_id JOIN workflows w ON w.id = r.workflow_id WHERE r.id = ?`, run.id);
     const taskId = newTaskId();
@@ -528,7 +558,7 @@ export class Model {
       (task_id, run_id, role, connection_id, target, peer, agent, sender_state, input, deadline, state, open,
        created_at, updated_at)
       VALUES (?, ?, 'review', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
-    taskId, run.id, reviewer.id, targetOf(reviewer), reviewer.host_id, reviewer.agent_id, reviewer.sender_state,
+    taskId, run.id, reviewer.id, target, reviewer.host_id, reviewer.agent_id, reviewer.sender_state,
     input, deadline, now, now);
     this.run('UPDATE runs SET review_task_id = ? WHERE id = ?', taskId, run.id);
     this.log(now, 'system', 'review.dispatched', { workflowId: run.workflow_id, runId: run.id });
@@ -539,7 +569,7 @@ export class Model {
     return this.one('SELECT COUNT(*) AS count FROM runs WHERE workflow_id = ? AND created_at >= ?', workflowId, dayStart).count;
   }
 
-  reserve(workflow, connection, now) {
+  reserve(workflow, connection, now, target) {
     const runId = randomUUID();
     const taskId = newTaskId();
     const deadline = iso(Date.parse(now) + workflow.acceptance_minutes * MINUTE);
@@ -561,7 +591,7 @@ export class Model {
       (task_id, run_id, role, connection_id, target, peer, agent, sender_state, input, deadline, state, open,
        created_at, updated_at)
       VALUES (?, ?, 'work', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
-    taskId, runId, connection.id, targetOf(connection), connection.host_id, connection.agent_id,
+    taskId, runId, connection.id, target, connection.host_id, connection.agent_id,
     connection.sender_state, input, deadline, now, now);
     // The run keeps the review requirement and reviewer its workflow has now (contract sections 15, 15.1).
     this.run(`INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required, reviewer_id, attempt,
@@ -935,7 +965,9 @@ export class Model {
       agentId: row.agent_id,
       mode: row.mode,
       ready: row.ready === null ? null : row.ready === 1,
-      readySince: row.ready_since
+      readySince: row.ready_since,
+      activeTasks: this.one('SELECT COUNT(*) AS count FROM tasks WHERE peer = ? AND agent = ? AND open = 1',
+        row.host_id, row.agent_id).count
     }));
     // A run's own task and its review task are never unresolved together; its own task wins if they were.
     const problems = new Map();

@@ -2,12 +2,15 @@
 // are atomic store operations (model.mjs), so an operator request never waits
 // for a subprocess and no interleaving can break the exclusion rules.
 import { nowMs, stamp } from './clock.mjs';
-import { checkReadiness } from './readiness.mjs';
+import { capacityOf, checkReadiness } from './readiness.mjs';
 import { OUTPUT_LIMIT } from './model.mjs';
 
 const OPEN = new Set(['submitting', 'queued', 'running']);
 const FINAL = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancelled']);
-const CONCURRENCY = 4;
+// At most this many readiness checks, reconciliations and submissions at once, across passes.
+const BACKGROUND_LIMIT = 8;
+// A pass waits this long for the work it started, then dispatches with what it knows (MGD-15).
+const PASS_WAIT_MS = 2000;
 const POKE_DELAY_MS = 20;
 // A long task's older progress may be skipped, never its newest events. Progress
 // messages can be 64 KiB each, so the window keeps a fetch well inside the 4 MiB
@@ -21,13 +24,11 @@ const DIRECTORY_REFRESH_MS = 60_000;
 const PROBLEM = 'Delivery or status uncertain; retaining this task identity';
 const CONTROLLER_PROBLEM = 'Controller check failed; inspect local service logs';
 
-/** Runs `work` over `items`, at most `limit` at a time. Rejects with the first failure. */
-async function pool(items, limit, work) {
-  const queue = [...items];
-  const runners = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    while (queue.length) await work(queue.shift());
-  });
-  await Promise.all(runners);
+/** Resolves when `promise` settles or `ms` pass, whichever is first; never rejects. */
+async function waitAtMost(promise, ms) {
+  let timer;
+  await Promise.race([promise.catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, ms); })]);
+  clearTimeout(timer);
 }
 
 /** The task state a local record implies, or null while delivery is unresolved. */
@@ -87,6 +88,11 @@ export class Engine {
     this.inFlight = new Set();
     this.prompt = null;
     this.promptAgain = false;
+    // Background work by key (`connection:ID`, `task:ID`): at most one of each runs at a time.
+    this.work = new Map();
+    this.workSlots = 0;
+    this.workQueue = [];
+    this.workFailed = false;
   }
 
   // ----- change notification ------------------------------------------------------
@@ -118,7 +124,36 @@ export class Engine {
   async stop() {
     this.running = false;
     clearTimeout(this.timer);
-    await Promise.all([this.passing, this.prompt]);
+    await Promise.all([this.passing, this.prompt, ...this.work.values()]);
+  }
+
+  /**
+   * Starts `job` under `key` unless work with that key is still running, and
+   * returns its completion. Work runs beside passes, at most BACKGROUND_LIMIT at
+   * once; a failure is logged and reported by the next pass, never thrown.
+   */
+  startWork(key, job) {
+    const running = this.work.get(key);
+    if (running) return running;
+    const promise = (async () => {
+      if (this.workSlots >= BACKGROUND_LIMIT) await new Promise(resolve => this.workQueue.push(resolve));
+      else this.workSlots += 1;
+      try {
+        if (this.running) await job();
+      } catch (error) {
+        if (this.running && !error.aborted) {
+          console.error('Scheduler work failed: ' + error.message);
+          this.workFailed = true;
+        }
+      } finally {
+        this.work.delete(key);
+        const next = this.workQueue.shift();
+        if (next) next();
+        else this.workSlots -= 1;
+      }
+    })();
+    this.work.set(key, promise);
+    return promise;
   }
 
   schedule(delay) {
@@ -162,7 +197,8 @@ export class Engine {
   async promptWork() {
     const tasks = await this.store.openTasks();
     const cancels = tasks.filter(task => task.cancelRequestedAt !== null && task.cancelSentAt === null);
-    await pool(cancels, CONCURRENCY, task => this.reconcile({ ...task, retryAt: null }));
+    await waitAtMost(Promise.all(cancels.map(task =>
+      this.startWork('task:' + task.taskId, () => this.reconcile({ ...task, retryAt: null })))), PASS_WAIT_MS);
     await this.dispatch();
   }
 
@@ -170,7 +206,10 @@ export class Engine {
     this.again = false;
     try {
       await this.tick();
-      this.setError(null);
+      // Work that failed beside this pass counts as a failed check of the controller.
+      const failed = this.workFailed;
+      this.workFailed = false;
+      this.setError(failed ? CONTROLLER_PROBLEM : null);
     } catch (error) {
       if (this.running && !error.aborted) {
         console.error('Scheduler pass failed: ' + error.message);
@@ -198,10 +237,12 @@ export class Engine {
     this.dataVersion = dataVersion;
 
     const [connections, tasks] = await Promise.all([this.store.listConnections(), this.store.openTasks()]);
-    await Promise.all([
-      pool(tasks, CONCURRENCY, task => this.reconcile(task)),
-      pool(connections, CONCURRENCY, connection => this.refreshReadiness(connection))
-    ]);
+    // A slow call delays only its own task or connection: the pass waits a bounded time (MGD-15).
+    await waitAtMost(Promise.all([
+      ...tasks.map(task => this.startWork('task:' + task.taskId, () => this.reconcile(task))),
+      ...connections.map(connection =>
+        this.startWork('connection:' + connection.id, () => this.refreshReadiness(connection)))
+    ]), PASS_WAIT_MS);
     for (const id of this.readiness.keys()) {
       if (!connections.some(connection => connection.id === id)) {
         this.readiness.delete(id);
@@ -216,10 +257,13 @@ export class Engine {
   /** Reserves runs for every workflow that may dispatch now, then sends them. */
   async dispatch() {
     const ready = {};
-    for (const [id, state] of this.readiness) ready[id] = { ready: state.ready, reason: state.reason };
+    for (const [id, state] of this.readiness) {
+      ready[id] = { ready: state.ready, reason: state.reason, capacity: capacityOf(state) };
+    }
     const reserved = await this.store.planDispatch(stamp(), ready);
     // Each reserved task is persisted; only now may anything be sent for it.
-    await pool(reserved, CONCURRENCY, task => this.reconcile(task, { fresh: true }));
+    await waitAtMost(Promise.all(reserved.map(task =>
+      this.startWork('task:' + task.taskId, () => this.reconcile(task, { fresh: true })))), PASS_WAIT_MS);
   }
 
   async refreshReadiness(connection) {

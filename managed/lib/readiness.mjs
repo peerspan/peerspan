@@ -31,6 +31,16 @@ const REASONS = {
 };
 
 const READY_CODES = new Set(['ready', 'ready_service_inactive', 'ready_runtime']);
+const MAX_CAPACITY = 64;
+
+/**
+ * How many unresolved tasks a readiness lets its worker agent hold (contract
+ * section 4, MGD-14): a ready runtime agent's `maxRuns`, and 1 for anything else.
+ */
+export function capacityOf(readiness) {
+  const runs = readiness?.runtime?.maxRuns;
+  return readiness?.code === 'ready_runtime' && Number.isInteger(runs) && runs >= 1 && runs <= MAX_CAPACITY ? runs : 1;
+}
 const PROFILES_UNREADABLE = "The worker host's launch profiles could not be read";
 
 // Remote mode reads only the sender's directory (contract section 7.1).

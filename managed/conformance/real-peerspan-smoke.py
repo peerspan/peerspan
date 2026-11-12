@@ -398,7 +398,7 @@ def reviewer_agent():
     reviewer.stop()
 
 
-@suite.case("real-runtime-agent", "managed contract rev 5: runtime agent ready without a session, run on a fork")
+@suite.case("real-runtime-agent", "managed contract rev 5 and 6: runtime agent ready without a session, runs on forks, capacity")
 def runtime_agent():
     node = node_24()
     # alice's host runs upstream's fake runtime, which serves a peerfs space with a `main` branch; bob sends.
@@ -460,11 +460,27 @@ def runtime_agent():
     check((runtime.dir / "peerfs" / fork / "notes.txt").read_text() == "SCRIPTED-RUNTIME-RECEIPT"
           and not (main / "notes.txt").exists(), "the fork does not hold the write, or main changed")
 
+    # Revision 6: with max_runs 2, two workflows' runs go to the agent together, each on its own fork.
+    pair = [managed.request("POST", "/api/workflows", {
+        "name": f"SCRIPTED parallel {label} — no model", "connectionId": connection["id"],
+        "instructions": f"write {label}.txt {label} ; echo done", "intervalMinutes": 60,
+        "maxRunsPerDay": 1, "acceptanceMinutes": 2, "enabled": True}) for label in ("left", "right")]
+    runs = [wait_for(lambda item=item: managed.run(item["id"], "succeeded"), timeout=60, message="a parallel run")
+            for item in pair]
+    check(max(run["createdAt"] for run in runs) < min(run["finishedAt"] for run in runs),
+          f"the second run waited for the first despite max_runs 2: {[(r['createdAt'], r['finishedAt']) for r in runs]}")
+    for run, label in zip(runs, ("left", "right")):
+        check((runtime.dir / "peerfs" / f"codex.{run['taskId']}" / f"{label}.txt").read_text() == label,
+              f"the {label} fork does not hold its own write")
+    connection_row = managed.connection(connection["id"])
+    check(connection_row["capacity"] == 2 and connection_row["activeTasks"] == 0,
+          f"capacity and active tasks after both runs: {connection_row}")
+
     # The runtime switched off: the host would reject new tasks, so the worker is not ready.
     status, _ = alice.api("DELETE", "/v1/runtime")
     check(status == 200, f"switching the runtime off: {status}")
     code("runtime_disabled", "a runtime agent whose host's runtime is off")
-    print("  Runtime agent readiness from its launch profile, a run on a peerfs fork with its branch, and the switch; "
+    print("  Runtime agent readiness from its launch profile, runs on peerfs forks with their branches, two at once, and the switch; "
           "no model.", flush=True)
 
 
