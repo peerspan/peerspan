@@ -2135,6 +2135,11 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
             if !(polls.get(k).copied().unwrap_or(false) && running.contains(k)) {
                 return true;
             }
+            // A poll still in flight is skipped by the claim: it must not
+            // take a held turn from a task that is waiting.
+            if dispatcher.in_flight(k) {
+                return false;
+            }
             if free == 0 {
                 return false;
             }
