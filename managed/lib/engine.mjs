@@ -377,9 +377,9 @@ export class Engine {
     const update = { state };
     const last = events.find(event => event.sequence === remoteLast);
     if (producesOutput) {
-      // Status can run ahead of the locally stored events: wait for the output itself.
-      const hasOutput = last && last.kind === state && last.state === state
-        && typeof last.output === 'string' && last.output.length > 0;
+      // Status can run ahead of the locally stored events: wait for the output itself. Upstream
+      // outputs are never empty, but an empty string is still an output, not a missing one.
+      const hasOutput = last && last.kind === state && last.state === state && typeof last.output === 'string';
       if (!hasOutput) throw new Error('Waiting for final task output');
       update.output = last.output.slice(0, OUTPUT_LIMIT);
       update.outputTruncated = last.output.length > OUTPUT_LIMIT;
