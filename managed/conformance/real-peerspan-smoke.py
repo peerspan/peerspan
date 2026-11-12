@@ -398,7 +398,7 @@ def reviewer_agent():
     reviewer.stop()
 
 
-@suite.case("real-runtime-agent", "managed contract rev 5 and 6: runtime agent ready without a session, runs on forks, capacity")
+@suite.case("real-runtime-agent", "managed contract rev 5 to 7: runtime agent ready without a session, runs on forks, capacity, harness")
 def runtime_agent():
     node = node_24()
     # alice's host runs upstream's fake runtime, which serves a peerfs space with a `main` branch; bob sends.
@@ -436,7 +436,8 @@ def runtime_agent():
     alice.ok("agent", "runtime", "set", "codex", "--harness-dir", str(harness), "--max-runs", "2")
     missing = code("runtime_credential_missing", "a launch profile without a credential")
     check(missing["readiness"]["runtime"] == {"fromBranch": "main", "network": "internet", "cpus": 2, "memoryMib": 2048,
-                                              "timeoutSeconds": 3600, "maxRuns": 2},
+                                              "timeoutSeconds": 3600, "maxRuns": 2,
+                                              "harness": "codex", "image": None},
           f"readiness does not summarize the launch profile: {missing['readiness']}")
     check(str(harness) not in json.dumps(managed.request("GET", "/api/snapshot")), "a launch profile path was returned")
     key = suite.work / "scripted-openai.key"
@@ -476,11 +477,27 @@ def runtime_agent():
     check(connection_row["capacity"] == 2 and connection_row["activeTasks"] == 0,
           f"capacity and active tasks after both runs: {connection_row}")
 
+    # Revision 7: the same agent as Claude Code on its own image; readiness says so and runs still go out.
+    alice.ok("agent", "runtime", "set", "codex", "--harness-dir", str(harness), "--harness", "claude",
+             "--image", "python:3.12-slim", "--max-runs", "2")
+    claude = wait_for(lambda: (row := managed.connection(connection["id"]))["readiness"]["runtime"]
+                      and row["readiness"]["runtime"].get("harness") == "claude" and row, timeout=30,
+                      message="the claude profile in readiness")
+    check(claude["readiness"]["code"] == "ready_runtime" and claude["readiness"]["runtime"]["image"] == "python:3.12-slim",
+          f"readiness of the claude profile: {claude['readiness']}")
+    claude_flow = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED claude harness — no model", "connectionId": connection["id"],
+        "instructions": "write claude.txt SCRIPTED-CLAUDE ; echo done", "intervalMinutes": 60,
+        "maxRunsPerDay": 1, "acceptanceMinutes": 2, "enabled": True})
+    claude_run = wait_for(lambda: managed.run(claude_flow["id"], "succeeded"), timeout=60, message="the claude run")
+    check(claude_run["branch"] and claude_run["branch"]["outcome"] == "committed",
+          f"the claude run's branch: {claude_run['branch']} (output {claude_run['output']!r})")
+
     # The runtime switched off: the host would reject new tasks, so the worker is not ready.
     status, _ = alice.api("DELETE", "/v1/runtime")
     check(status == 200, f"switching the runtime off: {status}")
     code("runtime_disabled", "a runtime agent whose host's runtime is off")
-    print("  Runtime agent readiness from its launch profile, runs on peerfs forks with their branches, two at once, and the switch; "
+    print("  Runtime agent readiness from its launch profile, runs on peerfs forks with their branches, two at once, Claude on an image, and the switch; "
           "no model.", flush=True)
 
 
