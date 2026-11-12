@@ -17,6 +17,7 @@ node managed/conformance/schedules.mjs
 node managed/conformance/reviewers.mjs
 node managed/conformance/runtime-agents.mjs
 node managed/conformance/capacity.mjs
+node managed/conformance/checks.mjs
 ```
 
 On the configured Windows editing machine:
@@ -34,18 +35,22 @@ locks. The suite is bounded to 115 seconds; normal duration is around 70 seconds
 revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
 suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
-(cases 20 to 22) the revision 6 and 7.1 suite. They are split by area to stay near
+(cases 20 to 22) the revision 6 and 7.1 suite, and `checks.mjs` (cases 23 to 25)
+the revision 8 suite. They are split by area to stay near
 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 6 shapes of
-contract sections 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 15 and 15.1 (readiness with
-`runtime` and the runtime codes of agent mode; each connection's `capacity`,
-derived from its readiness, and `activeTasks`, equal for connections to one
-agent), which are checked on
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 8 shapes of
+contract sections 1, 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 15, 15.1 and 15.3
+(readiness with `runtime` and the runtime codes of agent mode; each connection's
+`capacity`, derived from its readiness, and `activeTasks`, equal for connections
+to one agent; each workflow's `resultChecks` and each run's `checks`; schema
+version 5), which are checked on
 every snapshot, run page and run detail any of them fetches: among them the
 attention items derived from the snapshot (`worker_unready` for reviewers,
 `run_problem` for review tasks, `review_pending` only for runs that wait for the
-operator) and each complete output's `branch`, read by the forms of section 10.1.
+operator), each complete output's `branch`, read by the forms of section 10.1,
+and a failed check's rejection (`reviewedBy` `checks`, the failed messages
+joined as the note, no review task).
 Every response body is also checked for fixture paths, the access token and
 `PRIVATE-` markers (section 8).
 
@@ -106,6 +111,24 @@ Every response body is also checked for fixture paths, the access token and
   two states that are each not ready, with the read that completes a ready
   verdict made slow, never getting a run, and dispatched once really ready.
   Eleven concurrent cases, about 30 seconds.
+- `checks.mjs`: result checks (every kind at creation and in `PATCH`, stored as
+  sent and in order with `kind` first, repeated checks, `[]` by default, the
+  400s with a kind that is not a string storing nothing, `workflow.edited` only
+  for a changed array, whatever the order of a check's fields, and a reserved
+  run keeping its checks), applying them (each kind passing and failing with
+  the exact entries and messages: code points, NUL left out, a quoted T, the
+  retained output rather than its preview, `jsonKeys` in a code fence (split at
+  LF, ECMAScript whitespace trimmed) and before a branch line, results that are
+  not JSON objects, missing keys in K's order, several failures joined, control
+  characters left out of the note only, a long note cut, and a result cut at
+  retention), the rejection by checks under review `none`,
+  `operator` and `agent` (no review task, no `review_pending`, a system
+  `run.reviewed`, the verdict route's 409, the statistics and the failure
+  circuit), passing checks leaving the review as reserved, and the rework after
+  failed checks (the exact input with `FAILED CHECKS`, `attempt`, `reworkOf`, and
+  the checks as they were when the rework was reserved). Six concurrent cases,
+  about 25 seconds; the fake plays the worker by `scripts` and the reviewer step
+  by step.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly

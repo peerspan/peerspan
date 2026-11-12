@@ -14,6 +14,7 @@ const REVIEW_HEADER = [
 ];
 const REWORK_REQUEST = 'A reviewer rejected your previous result for this assignment. Do the assignment again in full, addressing the review.';
 const NO_REASONS = 'The reviewer gave no reasons.';
+const CHECKS_REQUEST = 'Your previous result for this assignment failed the result checks below. Do the assignment again in full, so that it passes them.';
 
 /**
  * `prefix` followed by `body`, with `body` cut at a character boundary and ended
@@ -42,10 +43,13 @@ export function reviewInput({ assignment, criteria, output }) {
   return fit(lines.join('\n'), withoutNul(output));
 }
 
-/** A rework's input: the instructions, the review and the rejected result (section 15.2). */
-export function reworkInput({ instructions, note, output }) {
-  const prefix = [withoutNul(instructions), '', 'REVISION REQUESTED', REWORK_REQUEST, '', 'REVIEW',
-    note === null ? NO_REASONS : withoutNul(note), '', 'PREVIOUS RESULT', ''].join('\n');
+/**
+ * A rework's input: the instructions, the review and the rejected result
+ * (section 15.2); after failed result checks, those checks (section 15.3).
+ */
+export function reworkInput({ instructions, note, output, byChecks = false }) {
+  const prefix = [withoutNul(instructions), '', 'REVISION REQUESTED', byChecks ? CHECKS_REQUEST : REWORK_REQUEST, '',
+    byChecks ? 'FAILED CHECKS' : 'REVIEW', note === null ? NO_REASONS : withoutNul(note), '', 'PREVIOUS RESULT', ''].join('\n');
   return fit(prefix, withoutNul(output));
 }
 
@@ -67,7 +71,7 @@ const BRANCH_FORMS = [
  * output before the empty line that precedes it; null when the output does not
  * end with one of the documented forms.
  */
-function splitBranch(output) {
+export function splitBranch(output) {
   const text = output.trimEnd();
   const lineStart = text.lastIndexOf('\n') + 1;
   if (lineStart < 2 || text[lineStart - 2] !== '\n') return null;
@@ -101,8 +105,18 @@ export function readVerdict(output) {
   if (index < 0) return null;
   const match = lines[index].replace(DECORATION, '').match(VERDICT_LINE);
   if (!match) return null;
-  let note = lines.slice(index + 1).join('\n').replace(CONTROL, '').trim();
+  return { verdict: match[1].toLowerCase() === 'accept' ? 'accepted' : 'rejected',
+    note: reasonsNote(lines.slice(index + 1).join('\n')) };
+}
+
+/**
+ * Reasons as a review note: control characters other than LF and tab removed,
+ * trimmed, and cut to 1,999 characters and `…` when longer than 2,000; null when
+ * empty (sections 15.1 and 15.3).
+ */
+export function reasonsNote(text) {
+  let note = text.replace(CONTROL, '').trim();
   const characters = Array.from(note);
   if (characters.length > NOTE_LIMIT) note = characters.slice(0, NOTE_LIMIT - 1).join('') + ELLIPSIS;
-  return { verdict: match[1].toLowerCase() === 'accept' ? 'accepted' : 'rejected', note: note || null };
+  return note || null;
 }

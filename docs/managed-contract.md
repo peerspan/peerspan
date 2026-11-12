@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 7.1. Revision 1 defined the first local slice: the console, recurring
+Revision 8. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -17,9 +17,11 @@ wait for a slow Peerspan call (section 4). Revision 7 keeps every revision 6
 behavior and adds a runtime agent's harness and image to its readiness (section
 3.1). Revision 7.1 makes a ready verdict describe one moment (section 3) and
 lets work held back for a fresher check go out without waiting for the next
-interval (section 4). The store of revisions 5 to 7.1 is version 4, unchanged.
-Additions are marked "(rev 2)" to "(rev 7.1)" where they extend an earlier
-section. Fork decisions are recorded in
+interval (section 4). The store of revisions 5 to 7.1 is version 4. Revision 8
+keeps every revision 7.1 behavior and adds result checks, which the controller
+applies to each result itself before any review (section 15.3); its store is
+version 5. Additions are marked "(rev 2)" to "(rev 8)" where they extend an
+earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -77,6 +79,12 @@ migrated runs have `attempt` 1 and `reworkOf` null, need no review unless versio
 recorded has `reviewedBy` `operator`. State written by a newer
 schema is refused with a nonzero exit and is not modified.
 
+(rev 8) The current version is 5, and version 5 state is created directly.
+Version 4 state is migrated in place like the earlier versions, after its
+backup copy `managed.v4-backup.sqlite`, and versions 1 to 3 are migrated through
+to version 5 in the same transaction. Migrated workflows have `resultChecks`
+`[]`, and migrated runs have `checks` null and keep their review fields.
+
 ## 2. HTTP contract
 
 The server binds 127.0.0.1. Host must be localhost or 127.0.0.1 with the configured
@@ -111,6 +119,8 @@ current state does not permit the operation, and 413 for an oversized body.
   (rev 4) The body may also have `reviewerId`, `reviewCriteria` (section 15.1)
   and `reworkLimit` (section 15.2). Instructions that contain NUL (U+0000) are
   400, because they travel as one command-line argument, which cannot carry it.
+  (rev 8) The body may also have `resultChecks` (section 15.3), `[]` when
+  omitted.
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
@@ -636,7 +646,8 @@ location, or upstream attention `detail` or `subject` text.
   acceptanceMinutes,enabled,nextRunAt,failureStreak,blockedReason,createdAt,
   updatedAt,pausedBy,recent,stats}`, (rev 3) with `schedule` and `review`
   (sections 14 and 15), (rev 4) and with `reviewerId`, `reviewCriteria`,
-  `reworkLimit` and `reworkPending` (sections 15.1 and 15.2). `intervalMinutes`
+  `reworkLimit` and `reworkPending` (sections 15.1 and 15.2), (rev 8) and with
+  `resultChecks` (section 15.3). `intervalMinutes`
   is null for a workflow with a schedule,
   and `schedule` is null for one with an interval. `pausedBy` is null while
   enabled, and otherwise `operator` (created paused, paused, or restored) or
@@ -679,7 +690,8 @@ location, or upstream attention `detail` or `subject` text.
   controller retained the terminal result. (rev 3) Runs also have `review`,
   `reviewedAt` and `reviewNote` (section 15). (rev 4) Runs also have
   `reviewedBy`, `reviewTask` and `reviewFallback` (section 15.1), `attempt` and
-  `reworkOf` (section 15.2), and `branch` (section 10.1). A run's `state`,
+  `reworkOf` (section 15.2), and `branch` (section 10.1). (rev 8) Runs also
+  have `checks` (section 15.3). A run's `state`,
   `output`, `error`, `reason`, `progress`, times and `cancelRequestedAt` are
   always those of its own task, never of its review task.
 - `observed`: section 6.
@@ -713,8 +725,8 @@ location, or upstream attention `detail` or `subject` text.
 `PATCH /api/workflows/:id` accepts a JSON object with at least one of `name`,
 `connectionId`, `instructions`, `intervalMinutes`, `maxRunsPerDay` and
 `acceptanceMinutes`, (rev 3) `schedule` and `review`, (rev 4) `reviewerId`,
-`reviewCriteria` and `reworkLimit`, validated as at creation (with the
-combination rules of section 15.1); any other field, `enabled`
+`reviewCriteria` and `reworkLimit`, (rev 8) and `resultChecks`, validated as at
+creation (with the combination rules of section 15.1); any other field, `enabled`
 included, is 400. It returns the workflow. An edit never changes a run that was
 already reserved: its submission payload is immutable. When `intervalMinutes`
 changes and the workflow has a terminal run, `nextRunAt` becomes its latest
@@ -732,7 +744,8 @@ same days in another order equals the current one. Changing `review` applies to
 runs reserved afterwards; a run keeps the review requirement it was reserved
 with. (rev 4) So does changing `reviewerId`: a run keeps the reviewer it was
 reserved with. `reviewCriteria` is read when a review task is reserved, and
-`reworkLimit` when a review becomes `rejected`.
+`reworkLimit` when a review becomes `rejected`. (rev 8) A run keeps the
+`resultChecks` its workflow had when it was reserved (section 15.3).
 
 `pause` and `resume` do not change `nextRunAt`: a resumed workflow runs when its
 schedule says so, or when the operator also sends `run`. Every accepted `pause`,
@@ -855,7 +868,7 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `operator` | `workflow.edited` | `{fields}`: the names of the fields whose values changed, sorted. An edit that changes no value records nothing. |
 | `operator` | `run.cancel_requested`, `run.abandoned` | null. A repeated cancel request records nothing. |
 | `operator` | `run.reviewed` | (rev 3) `{verdict}`: `accepted` or `rejected`. |
-| `system` | `run.reviewed` | (rev 4) `{verdict}`: a reviewer agent's verdict (section 15.1). |
+| `system` | `run.reviewed` | (rev 4) `{verdict}`: a reviewer agent's verdict (section 15.1). (rev 8) `{verdict:"rejected",by:"checks"}`: a rejection by failed result checks (section 15.3). |
 | `operator` | `review.cancel_requested`, `review.abandoned` | (rev 4) null. A repeated cancel request records nothing. |
 | `system` | `review.dispatched` | (rev 4) null: a review task reserved. |
 | `system` | `review.finished` | (rev 4) `{state}`: a review task's terminal state. |
@@ -1177,6 +1190,118 @@ NUL characters, as in section 15.1. An input longer than 65,536 bytes of UTF-8 h
 at a character boundary and ended with `…`, keeping as much of it as lets the
 whole input fit in 65,536 bytes.
 
+### 15.3 Result checks (rev 8)
+
+A workflow's `resultChecks` lists checks that the controller itself applies to
+each result before anyone reviews it (MGD-17). They cost no model call and need
+no reviewer. They catch a result that is plainly incomplete, such as a report
+without its required section, an answer that declines the assignment, or a
+runtime agent's result that committed nothing. A result that passes them may
+still be wrong: the checks are no verdict on its quality.
+
+**Fields.** `resultChecks` is an array of at most 8 checks, `[]` by default,
+kept in the operator's order. Each check is an object with exactly the fields of
+one of these kinds. Any other shape, kind, field or value is 400, at creation
+and in a `PATCH`, which replaces the whole array.
+
+| Check | Passes when |
+| --- | --- |
+| `{"kind":"contains","text":T}` | The result contains T. |
+| `{"kind":"excludes","text":T}` | The result does not contain T. |
+| `{"kind":"minLength","chars":N}` | The result has at least N characters. |
+| `{"kind":"maxLength","chars":N}` | The result has at most N characters. |
+| `{"kind":"branch"}` | The run's `branch` (section 10.1) is not null and its `outcome` is `committed`. |
+| `{"kind":"jsonKeys","keys":K}` | The result's JSON text (below) is a JSON object that has every key in K. |
+
+- T is a string of 1 to 500 characters that contains no NUL and has at least
+  one character other than whitespace. It is stored as sent, with any leading
+  and trailing whitespace, and matched exactly and case-sensitively. Whitespace,
+  here and wherever this section trims, is what ECMAScript counts as white space
+  or a line terminator (`String.prototype.trim`), U+00A0 and U+FEFF included.
+- N is an integer from 1 to 262,144. An array with a `minLength` whose N is
+  greater than that of one of its `maxLength`s is 400.
+- K is an array of 1 to 16 distinct strings, each of 1 to 100 characters
+  without NUL.
+- The result is the run's retained output (section 10) without any NUL
+  characters. Its length counts characters as section 15.1 defines them (code
+  points).
+- The result's JSON text is the result without its branch line when `branch` is
+  not null (the empty line and the last line that section 10.1 read), trimmed of
+  whitespace. If it then has at least two lines (split at LF), its first line
+  begins with three backticks and its last line is exactly three backticks,
+  both lines are removed and the rest is trimmed again. It is parsed as RFC 8259 JSON. A key that appears twice in the
+  object counts as present.
+- `resultChecks` is in the workflow's shape everywhere, each check with `kind`
+  first. A check may appear more than once. A change of it is listed as
+  `resultChecks` in `workflow.edited`; two arrays are equal when their checks
+  are equal, in order, and two checks are equal when they have the same kind
+  and values, whatever the order of their fields. A run is checked with the checks its workflow had
+  when the run was reserved (section 9).
+
+**Applying them.** A run reserved with checks that ends `succeeded` is checked
+in the same step that retains its terminal result. Every check is applied, in
+order. The run's `checks` is then `[{check,passed,message}]`, one entry per
+check: `check` is the check object, `passed` a boolean, and `message` null for a
+check that passed, or for one that failed the sentence from the table below.
+`checks` is null while the run is unresolved, when it ends in any other state,
+and when it was reserved without checks. A result cut at retention
+(`outputTruncated` true in the run detail) is checked as retained; its `branch`
+is null (section 10.1), so a `branch` check fails.
+
+| Failed check | `message` |
+| --- | --- |
+| `contains` | `The result does not contain Q.` |
+| `excludes` | `The result contains Q.` |
+| `minLength` | `The result has M characters; at least N are required.` |
+| `maxLength` | `The result has M characters; at most N are allowed.` |
+| `branch` | `The result does not end with a branch line of a commit.` |
+| `jsonKeys` | `The result is not a JSON object.` when its JSON text does not parse as an object; otherwise `The result's JSON object lacks Q1, Q2.`, listing each missing key of K, in K's order, separated by `, ` |
+
+Q is T, and Q1, Q2 are keys, each written as a JSON string, quotes included, the
+way JavaScript's `JSON.stringify` writes it. M is the result's length. M and N
+are written in decimal without separators.
+
+**A failed check rejects the result.** When any check fails, the run's `review`
+becomes `rejected` in that same step, whatever review the run was reserved
+with. Its `reviewedBy` is `checks`, `reviewedAt` the time the result was
+retained (equal to `finishedAt`), and `reviewNote` the failed checks' messages joined by LF, then
+treated as section 15.1 treats a reviewer's reasons: control characters other
+than LF and tab removed, trimmed, and cut to its first 1,999 characters
+followed by `…` when longer than 2,000. A message in `checks` is not changed. `run.reviewed` is recorded with actor
+`system` and data `{verdict:"rejected",by:"checks"}`. No review task is
+reserved for the run, its `reviewFallback` stays null, and it raises no
+`review_pending` item. A run reserved for an agent review keeps its
+`reviewTask`, with the reviewer's `connectionId` and every other field null.
+This verdict is final like any other (section 15). It counts as a failed result
+in `stats` and makes a rework due by the rules of section 15.2. Like any
+verdict, it changes neither the failure count, nor `nextRunAt`, nor the failure
+circuit.
+
+When every check passes, the run is reviewed as it was reserved: it needs no
+review (`review` null), or it waits for the operator or its reviewer agent
+(`pending`). The review input of section 15.1 is unchanged.
+
+**Rework after failed checks.** A rework whose rejected run has `reviewedBy`
+`checks` has the input of section 15.2 with two lines changed: the revision
+request and the `REVIEW` heading.
+
+```
+<the workflow's instructions>
+
+REVISION REQUESTED
+Your previous result for this assignment failed the result checks below. Do the assignment again in full, so that it passes them.
+
+FAILED CHECKS
+<the rejected run's reviewNote>
+
+PREVIOUS RESULT
+<the rejected run's output>
+```
+
+**Elsewhere.** A run's `reviewedBy` is null, `operator`, `agent` or (rev 8)
+`checks`. Workflows of earlier revisions have `resultChecks` `[]`, and their
+runs have `checks` null.
+
 ## 16. Independent conformance cases
 
 A separate author reads this contract only and implements bounded black-box
@@ -1333,7 +1458,36 @@ area, not by revision.
     look ready, never gets a run, over many such changes; and the same worker
     dispatched normally once it is ready and stays so.
 
-Version 2 and version 3 state are not described by this contract, so their
+`checks.mjs` (revision 8 result checks):
+
+23. Result check fields:
+    - every kind accepted at creation and in `PATCH`, stored as sent and in
+      order, and `[]` by default;
+    - the 400s: an unknown kind, a kind that is not a string (such as
+      `["contains"]`), a missing or extra field, T empty, only
+      whitespace, with NUL or of 501 characters; N 0, 262,145 or not an integer;
+      K empty, with 17 keys, a repeated key or a key of 101 characters; nine
+      checks; a `minLength` above a `maxLength`;
+    - `workflow.edited` listing `resultChecks` only when the array changes;
+    - a run reserved before a `PATCH` keeping its checks.
+24. Applying checks:
+    - each kind passing and failing on a succeeded run, with the exact `checks`
+      entries and messages: characters counted as code points, NUL left out, T
+      with a quote and a backslash, a `jsonKeys` result in a code fence and with
+      a branch line, a result that is not JSON, and missing keys in K's order;
+    - a failed check rejecting the result, for workflows whose review is
+      `none`, `operator` and `agent`: `reviewedBy` `checks`, the joined note,
+      the system `run.reviewed` entry, no review task submitted and no
+      `review_pending` item;
+    - passing checks leaving the review as reserved;
+    - `checks` null for a failed run and for a run reserved without checks;
+    - the verdict route's 409 on a rejection by checks;
+    - the statistics counting such a rejection as failed.
+25. Rework after failed checks: the rework's exact input with `FAILED CHECKS`,
+    its `attempt` and `reworkOf`, and the checks applied to the rework as they
+    were when it was reserved.
+
+Version 2, 3 and 4 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those
 versions and recorded with the validation results, not by these suites.
 

@@ -2,7 +2,7 @@
 import { absoluteTime, commandLine, copyable, duration, h, icon, secondsBetween, shortId, timeAgo } from './dom.js';
 import { diffLines, foldUnchanged } from './diff.js';
 import {
-  OPEN_STATES, activityText, fallbackText, hintText, reviewState, reworkText, runState, runtimeText, schedule,
+  OPEN_STATES, activityText, checkText, fallbackText, hintText, reviewState, reworkText, runState, runtimeText, schedule,
   waitsForOperator, workflowStatus
 } from './labels.js';
 
@@ -306,10 +306,13 @@ export function workflowPage(ctx, id) {
   const reviewer = connections.find(connection => connection.id === workflow.reviewerId);
   const { stats } = workflow;
   const status = workflowStatus(workflow, runs);
+  const checked = workflow.resultChecks.length > 0;
   const results = {
-    none: 'Counted as the worker reports them',
-    operator: 'Each success waits for your verdict before it counts',
-    agent: ['Each success is checked by ', reviewer ? h('a', { href: '#/workers' }, reviewer.name) : 'a disconnected reviewer',
+    none: checked ? 'Counted as the worker reports them once they pass their checks' : 'Counted as the worker reports them',
+    operator: checked ? 'Each success that passes its checks waits for your verdict before it counts'
+      : 'Each success waits for your verdict before it counts',
+    agent: [checked ? 'Each success that passes its checks is checked by ' : 'Each success is checked by ',
+      reviewer ? h('a', { href: '#/workers' }, reviewer.name) : 'a disconnected reviewer',
       ' before it counts; when it gives no verdict, you decide']
   }[workflow.review];
   return [
@@ -340,6 +343,10 @@ export function workflowPage(ctx, id) {
         workflow.reviewCriteria && [
           h('div.section-head.section', null, h('h2', null, 'Review criteria')),
           h('div.panel.pad', null, h('p.prose', null, workflow.reviewCriteria))],
+        workflow.resultChecks.length > 0 && [
+          h('div.section-head.section', null, h('h2', null, 'Checks before review'),
+            h('span.section-note', null, 'A result that fails one is rejected')),
+          h('ul.panel.pad.check-results', null, workflow.resultChecks.map(check => h('li', null, icon('check'), h('span', null, checkText(check)))))],
         h('div.section-head.section', null, h('h2', null, 'Schedule')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Worker', worker ? h('a', { href: '#/workers' }, worker.name) : 'Not connected'),
@@ -347,7 +354,7 @@ export function workflowPage(ctx, id) {
             ? `${schedule(workflow, { zone: false })}, ${workflow.schedule.timeZone} time; a slot missed while busy or paused runs once`
             : schedule(workflow) + ', counted from the end of the previous run'),
           fact('Results', results),
-          workflow.review !== 'none' && fact('Rejected results', reworkText(workflow.reworkLimit)),
+          (workflow.review !== 'none' || workflow.resultChecks.length > 0) && fact('Rejected results', reworkText(workflow.reworkLimit)),
           fact('Daily limit', `${plural(workflow.maxRunsPerDay, 'dispatch', 'dispatches')} per UTC day`),
           fact('Acceptance window', `${plural(workflow.acceptanceMinutes, 'minute')} for the worker to accept`),
           fact('Next run', nextLine(workflow, openRun)),
@@ -406,6 +413,7 @@ export function runPage(ctx, id) {
         run.output ? h('pre.output', { tabindex: '0', 'data-key': `result:${run.id}` }, run.output)
           : h('div.panel.empty', null, open ? ['No result yet.', run.progress && [' Latest update: ', run.progress]] : 'This run reported no output.'),
         comparePanel(run, detail.previous),
+        checksPanel(run),
         reviewPanel(ctx, run, rework),
         reviewTaskPanel(ctx, run, detail.reviewEvents),
         h('div.section-head.section', null, h('h2', null, 'Instructions sent'),
@@ -469,24 +477,40 @@ const BRANCH_OUTCOMES = {
 /** The peerfs branch a runtime agent reported working on (contract section 10.1). */
 const branchText = branch => (BRANCH_OUTCOMES[branch.outcome] ?? BRANCH_OUTCOMES.none)(branch);
 
+/** Each result check the run was checked with, and how it went (contract section 15.3). */
+function checksPanel(run) {
+  if (!run.checks) return null;
+  const failed = run.checks.filter(item => !item.passed).length;
+  return [
+    h('div.section-head.section', null, h('h2', null, 'Checks'),
+      h('span.section-note', null, failed ? `${failed} of ${run.checks.length} failed` : `All ${run.checks.length} passed`)),
+    h('ul.panel.pad.check-results', null, run.checks.map(item => h('li', { class: item.passed ? 'passed' : 'failed' },
+      icon(item.passed ? 'check' : 'alert'),
+      h('div', null, h('span', null, checkText(item.check)), item.message && h('div.help', null, item.message)))))
+  ];
+}
+
 /** The verdict on a result, who gave it, and what happens next; or the form to give one. */
 function reviewPanel(ctx, run, rework) {
   if (run.state !== 'succeeded') return null;
   if (run.review === null) {
-    return h('p.help', null, 'A succeeded run is the worker\'s own report. This workflow does not ask for its results to be reviewed.');
+    return h('p.help', null, 'A succeeded run is the worker\'s own report. This workflow does not ask for its results to be reviewed',
+      run.checks ? ', and it passed its checks.' : '.');
   }
   const reviewer = run.reviewTask && ctx.data.connections.find(connection => connection.id === run.reviewTask.connectionId);
   const reviewerName = reviewer ? reviewer.name : 'The reviewer agent';
   if (run.review !== 'pending') {
     const accepted = run.review === 'accepted';
-    const who = run.reviewedBy === 'agent' ? `${reviewerName} ${accepted ? 'accepted' : 'rejected'} this result`
-      : `You ${accepted ? 'accepted' : 'rejected'} this result`;
+    const who = run.reviewedBy === 'checks' ? 'This result failed its checks'
+      : run.reviewedBy === 'agent' ? `${reviewerName} ${accepted ? 'accepted' : 'rejected'} this result`
+        : `You ${accepted ? 'accepted' : 'rejected'} this result`;
     return h('div.callout', { class: accepted ? 'ok' : 'danger' }, icon(accepted ? 'check' : 'alert'),
       h('div', null,
         h('strong', null, who), ' ', timeAgo(run.reviewedAt), '.',
-        run.reviewNote && h('p.review-note', null, run.reviewNote),
-        rework && h('p.review-note', null, 'Sent back to the worker with this review: ',
-          h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`), '.')));
+        run.reviewedBy === 'checks' && h('p.review-note', null, 'It was rejected before any review, and counts as a failure.'),
+        run.reviewNote && run.reviewedBy !== 'checks' && h('p.review-note', null, run.reviewNote),
+        rework && h('p.review-note', null, run.reviewedBy === 'checks' ? 'Sent back to the worker with the failed checks: '
+          : 'Sent back to the worker with this review: ', h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`), '.')));
   }
   const operatorTurn = waitsForOperator(run);
   const next = [...ctx.data.runs].reverse().find(other => waitsForOperator(other) && other.id !== run.id);

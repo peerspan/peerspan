@@ -6,12 +6,13 @@
 // is read through indexes instead of whole-table scans. Version 3 adds remote
 // connections, schedules and result review (contract sections 7.1, 14, 15).
 // Version 4 adds reviewer agents, rework and branches (sections 10.1, 15.1, 15.2).
+// Version 5 adds result checks (section 15.3).
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchOf } from './review.mjs';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 const backupName = version => `managed.v${version}-backup.sqlite`;
 
 // States in which a task still reserves its target and its run its workflow.
@@ -52,6 +53,8 @@ CREATE TABLE workflows (
   rework_limit INTEGER NOT NULL DEFAULT 0 CHECK (rework_limit BETWEEN 0 AND 3),
   -- The rejected run whose rework is due, if any.
   rework_pending TEXT,
+  -- The result checks, as a JSON array (contract section 15.3).
+  result_checks TEXT NOT NULL DEFAULT '[]',
   max_runs_per_day INTEGER NOT NULL,
   acceptance_minutes INTEGER NOT NULL,
   enabled INTEGER NOT NULL,
@@ -93,6 +96,13 @@ const RUN_COLUMNS_V4 = `
   ALTER TABLE runs ADD COLUMN rework_of TEXT;
   ALTER TABLE runs ADD COLUMN assignment TEXT;
   ALTER TABLE tasks ADD COLUMN branch TEXT;`;
+// Version 5: the checks a run was reserved with and their outcomes. A rejection by checks
+// keeps reviewed_by null, so version 4's constraint on it stands unchanged (MGD-17).
+const RUN_COLUMNS_V5 = `
+  ALTER TABLE runs ADD COLUMN result_checks TEXT;
+  ALTER TABLE runs ADD COLUMN checks TEXT;`;
+const WORKFLOW_COLUMNS_ADDED_V5 = `
+  ALTER TABLE workflows ADD COLUMN result_checks TEXT NOT NULL DEFAULT '[]';`;
 
 const DDL = CONNECTIONS + WORKFLOWS + `
 
@@ -161,7 +171,11 @@ CREATE TABLE runs (
   attempt INTEGER NOT NULL DEFAULT 1,
   rework_of TEXT,
   -- The workflow's instructions when the run was reserved.
-  assignment TEXT
+  assignment TEXT,
+  -- The workflow's result checks when the run was reserved (null: none), and their outcomes
+  -- once it succeeded. A rejection by checks has reviewed_by null (contract section 15.3).
+  result_checks TEXT,
+  checks TEXT
 );
 -- One unresolved run per workflow (contract section 4).
 CREATE UNIQUE INDEX runs_open_workflow ON runs(workflow_id) WHERE open = 1;
@@ -229,13 +243,18 @@ function rebuild(db, table, ddl, columns) {
 function migrateFromV2(db) {
   rebuild(db, 'connections', CONNECTIONS, CONNECTION_COLUMNS);
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V2);
-  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4);
+  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5);
 }
 
 // Version 3 to the current version, inside the caller's transaction.
 function migrateFromV3(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V3);
-  db.exec(RUN_COLUMNS_V4);
+  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5);
+}
+
+// Version 4 to the current version, inside the caller's transaction.
+function migrateFromV4(db) {
+  db.exec(WORKFLOW_COLUMNS_ADDED_V5 + RUN_COLUMNS_V5);
 }
 
 /**
@@ -320,18 +339,25 @@ export function openDatabase(file) {
   const existed = existsSync(file);
   const db = new DatabaseSync(file);
   try {
+    // Wait for other processes' locks from the first read on; the timeout is a setting of this
+    // connection and writes nothing to the file.
+    db.exec('PRAGMA busy_timeout = 5000');
     // Read the version before any pragma that would write to the file.
     const version = userVersion(db);
     if (version > SCHEMA_VERSION) {
       throw new Error(`State was written by a newer Peerspan Managed (schema ${version}); this version reads schema ${SCHEMA_VERSION}`);
     }
-    db.exec('PRAGMA busy_timeout = 5000');
     // Existing state of an older schema is copied aside before it is migrated.
     const found = version === 0 ? (tableExists(db, 'records') ? 1 : null) : version;
     if (found !== null && found < SCHEMA_VERSION) {
       const backup = join(dirname(file), backupName(found));
       if (!existsSync(backup)) {
-        db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+        try {
+          db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+        } catch (error) {
+          // Another process opening the same store at the same moment may have written it first.
+          if (!existsSync(backup)) throw error;
+        }
         chmodSync(backup, 0o600);
       }
     }
@@ -342,11 +368,13 @@ export function openDatabase(file) {
         // Another process may have migrated while this one waited for the lock.
         const current = userVersion(db);
         if (current < SCHEMA_VERSION) {
-          if (current === 3) migrateFromV3(db);
+          if (current === 4) migrateFromV4(db);
+          else if (current === 3) migrateFromV3(db);
           else if (current === 2) migrateFromV2(db);
           else if (tableExists(db, 'records')) migrateFromV1(db, new Date().toISOString());
           else db.exec(DDL);
-          deriveV4(db);
+          // Version 4's derived fields; a version 4 store has them already.
+          if (current < 4) deriveV4(db);
           db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
         }
         db.exec('COMMIT');

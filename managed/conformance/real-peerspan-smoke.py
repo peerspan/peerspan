@@ -326,6 +326,13 @@ def rework_input(instructions, note, result):
             f"Do the assignment again in full, addressing the review.\n\nREVIEW\n{note}\n\nPREVIOUS RESULT\n{result}")
 
 
+def checks_rework_input(instructions, failures, result):
+    """The rework's input after failed result checks, managed contract section 15.3."""
+    return (f"{instructions}\n\nREVISION REQUESTED\nYour previous result for this assignment failed the result checks "
+            f"below. Do the assignment again in full, so that it passes them.\n\nFAILED CHECKS\n{failures}\n\n"
+            f"PREVIOUS RESULT\n{result}")
+
+
 def answer(adapter, expected_input, output, what):
     """Takes the adapter's next task, checks its exact input, accepts it and completes it with `output`."""
     handoff = adapter.next_task(timeout=30)
@@ -339,7 +346,7 @@ def answer(adapter, expected_input, output, what):
     return task_id
 
 
-@suite.case("real-reviewer-agent", "managed contract rev 4: reviewer agent, rejection, rework and acceptance")
+@suite.case("real-reviewer-agent", "managed contract rev 4 and 8: reviewer agent, rejection, rework, acceptance, result checks")
 def reviewer_agent():
     node = node_24()
     worker, sender, adapter = two_hosts("review", "scripted-worker")
@@ -392,13 +399,40 @@ def reviewer_agent():
           f"statistics after a rejection and an accepted rework: {current['stats']}")
     upstream = sender.ok("task", "inspect", "--peer", worker.id, review_task)
     check(upstream["status"]["state"] == "succeeded", f"the review task is not a real succeeded task: {upstream['status']}")
-    print("  Reviewer agent rejection, exact review and rework inputs, rework and acceptance over real transport; no model.",
-          flush=True)
+
+    # Revision 8: result checks before the reviewer. A result that fails them is rejected at once, the reviewer is
+    # never asked, and the rework carries the failed checks; the rework passes and then goes to the reviewer.
+    checked = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED checked smoke — no model", "connectionId": worker_connection["id"],
+        "instructions": instructions, "intervalMinutes": 60, "maxRunsPerDay": 3, "acceptanceMinutes": 2,
+        "review": "agent", "reviewerId": reviewer_connection["id"], "reworkLimit": 1, "enabled": True,
+        "resultChecks": [{"kind": "contains", "text": "receipt "}, {"kind": "maxLength", "chars": 200}]})
+    unchecked = "SCRIPTED attempt 1: done."
+    answer(adapter, instructions, unchecked, "checked attempt 1")
+    failures = 'The result does not contain "receipt ".'
+    passing = "SCRIPTED attempt 2: receipt 7."
+    answer(adapter, checks_rework_input(instructions, failures, unchecked), passing, "rework after failed checks")
+    answer(reviewer, f"{REVIEW_HEADER}\n\nASSIGNMENT\n{instructions}\n\nRESULT\n{passing}",
+           "VERDICT: ACCEPT\nSCRIPTED: receipt 7 is named.", "review after passing checks")
+
+    def checked_rework():
+        runs = [row for row in managed.request("GET", "/api/snapshot")["runs"] if row["workflowId"] == checked["id"]]
+        return runs if len(runs) == 2 and runs[0]["review"] == "accepted" else False
+
+    passed, failed = wait_for(checked_rework, timeout=30, message="the rework after failed checks")
+    check(failed["review"] == "rejected" and failed["reviewedBy"] == "checks" and failed["reviewNote"] == failures
+          and failed["reviewTask"]["taskId"] is None, f"the rejection by checks was not recorded: {failed}")
+    check([item["passed"] for item in failed["checks"]] == [False, True]
+          and [item["passed"] for item in passed["checks"]] == [True, True]
+          and passed["attempt"] == 2 and passed["reworkOf"] == failed["id"] and passed["reviewedBy"] == "agent",
+          f"the checks of the two attempts: {failed['checks']} / {passed['checks']}")
+    print("  Reviewer agent rejection, exact review and rework inputs, rework and acceptance over real transport; "
+          "result checks rejecting before the reviewer and the rework with the failed checks; no model.", flush=True)
     adapter.stop()
     reviewer.stop()
 
 
-@suite.case("real-runtime-agent", "managed contract rev 5 to 7: runtime agent ready without a session, runs on forks, capacity, harness")
+@suite.case("real-runtime-agent", "managed contract rev 5 to 8: runtime agent ready without a session, runs on forks, capacity, harness, branch check")
 def runtime_agent():
     node = node_24()
     # alice's host runs upstream's fake runtime, which serves a peerfs space with a `main` branch; bob sends.
@@ -451,8 +485,11 @@ def runtime_agent():
     workflow = managed.request("POST", "/api/workflows", {
         "name": "SCRIPTED runtime agent smoke — no model", "connectionId": connection["id"],
         "instructions": "write notes.txt SCRIPTED-RUNTIME-RECEIPT ; echo done", "intervalMinutes": 60,
-        "maxRunsPerDay": 1, "acceptanceMinutes": 2, "enabled": True})
+        "maxRunsPerDay": 1, "acceptanceMinutes": 2, "enabled": True, "resultChecks": [{"kind": "branch"}]})
     run = wait_for(lambda: managed.run(workflow["id"], "succeeded"), timeout=60, message="the runtime agent's run")
+    # Revision 8: the branch check reads the real branch line; a committed fork passes it.
+    check(run["checks"] == [{"check": {"kind": "branch"}, "passed": True, "message": None}] and run["review"] is None,
+          f"the branch check of a committed run: {run['checks']} (review {run['review']})")
     fork = f"codex.{run['taskId']}"
     branch = run["branch"]
     check(branch and branch["outcome"] == "committed" and branch["name"] == fork and len(branch["commit"]) == 66,
@@ -460,6 +497,17 @@ def runtime_agent():
     check(run["output"].startswith("done\n\nBranch: " + fork + " at commit "), f"runtime agent output: {run['output']!r}")
     check((runtime.dir / "peerfs" / fork / "notes.txt").read_text() == "SCRIPTED-RUNTIME-RECEIPT"
           and not (main / "notes.txt").exists(), "the fork does not hold the write, or main changed")
+
+    # A run that changes nothing ends with an unchanged branch, which the branch check rejects.
+    idle = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED runtime agent that commits nothing — no model", "connectionId": connection["id"],
+        "instructions": "echo nothing to change", "intervalMinutes": 60, "maxRunsPerDay": 1, "acceptanceMinutes": 2,
+        "enabled": True, "resultChecks": [{"kind": "branch"}]})
+    idle_run = wait_for(lambda: managed.run(idle["id"], "succeeded"), timeout=60, message="the run that commits nothing")
+    check(idle_run["branch"] and idle_run["branch"]["outcome"] != "committed" and idle_run["review"] == "rejected"
+          and idle_run["reviewedBy"] == "checks"
+          and idle_run["reviewNote"] == "The result does not end with a branch line of a commit.",
+          f"the branch check of a run that committed nothing: {idle_run['branch']} {idle_run['checks']}")
 
     # Revision 6: with max_runs 2, two workflows' runs go to the agent together, each on its own fork.
     pair = [managed.request("POST", "/api/workflows", {
@@ -497,8 +545,8 @@ def runtime_agent():
     status, _ = alice.api("DELETE", "/v1/runtime")
     check(status == 200, f"switching the runtime off: {status}")
     code("runtime_disabled", "a runtime agent whose host's runtime is off")
-    print("  Runtime agent readiness from its launch profile, runs on peerfs forks with their branches, two at once, Claude on an image, and the switch; "
-          "no model.", flush=True)
+    print("  Runtime agent readiness from its launch profile, runs on peerfs forks with their branches, the branch check, "
+          "two at once, Claude on an image, and the switch; no model.", flush=True)
 
 
 suite.finish()

@@ -5,6 +5,7 @@
 // preceded by one of these writes (contract section 4).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { nextSlot } from './schedule.mjs';
+import { applyChecks, checksNote } from './checks.mjs';
 import { branchOf, readVerdict, reviewInput, reworkInput } from './review.mjs';
 
 const MINUTE = 60_000;
@@ -110,6 +111,7 @@ function workflowView(row) {
     reviewCriteria: row.review_criteria,
     reworkLimit: row.rework_limit,
     reworkPending: row.rework_pending,
+    resultChecks: JSON.parse(row.result_checks),
     maxRunsPerDay: row.max_runs_per_day,
     acceptanceMinutes: row.acceptance_minutes,
     enabled: row.enabled === 1,
@@ -125,7 +127,7 @@ function workflowView(row) {
 const RUN_COLUMNS = `r.seq, r.id, r.workflow_id, w.name AS workflow_name, t.task_id, t.state,
   t.output_truncated, t.error, t.problem_since, t.reason, t.progress, t.cancel_requested_at,
   r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note,
-  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch,
+  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch, r.checks,
   v.task_id AS review_task_id, v.state AS review_state, v.error AS review_error, v.reason AS review_reason,
   v.cancel_requested_at AS review_cancel_requested_at, v.created_at AS review_created_at,
   v.finished_at AS review_finished_at`;
@@ -171,13 +173,23 @@ function runView(row) {
     review: row.review,
     reviewedAt: row.reviewed_at,
     reviewNote: row.review_note,
-    reviewedBy: row.reviewed_by,
+    reviewedBy: reviewedBy(row),
     reviewTask: reviewTaskView(row),
     reviewFallback: row.review_fallback,
     attempt: row.attempt,
     reworkOf: row.rework_of,
-    branch: row.branch === null ? null : JSON.parse(row.branch)
+    branch: row.branch === null ? null : JSON.parse(row.branch),
+    checks: row.checks === null ? null : JSON.parse(row.checks)
   };
+}
+
+/**
+ * Who gave a verdict. A rejection by result checks is stored without a reviewer,
+ * since every operator and agent verdict records its own (MGD-17).
+ */
+function reviewedBy(row) {
+  if (row.reviewed_by !== null) return row.reviewed_by;
+  return row.review === 'rejected' ? 'checks' : null;
 }
 
 function activityView(row) {
@@ -358,12 +370,12 @@ export class Model {
     const nextRunAt = schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
     this.run(`INSERT INTO workflows
       (id, name, connection_id, instructions, interval_minutes, schedule, review, reviewer_id, review_criteria,
-       rework_limit, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at, next_run_at,
+       rework_limit, result_checks, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at, next_run_at,
        failure_streak, blocked_reason, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes ?? null,
     schedule ? JSON.stringify(schedule) : null, fields.review, fields.reviewerId, fields.reviewCriteria,
-    fields.reworkLimit, fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
+    fields.reworkLimit, JSON.stringify(fields.resultChecks), fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
     enabled ? null : now, nextRunAt, enabled ? null : PAUSED_BY_OPERATOR, now, now);
     this.log(now, 'operator', 'workflow.created', { workflowId: id });
     return this.workflowDetail(id, now);
@@ -384,12 +396,16 @@ export class Model {
       reviewerId: 'reviewer_id',
       reviewCriteria: 'review_criteria',
       reworkLimit: 'rework_limit',
+      resultChecks: 'result_checks',
       maxRunsPerDay: 'max_runs_per_day',
       acceptanceMinutes: 'acceptance_minutes'
     };
     const current = Object.fromEntries(Object.entries(columns).map(([key, column]) => [key, row[column]]));
     const next = { ...current };
-    for (const [key, value] of Object.entries(patch)) next[key] = key === 'schedule' ? JSON.stringify(value) : value;
+    // Schedules and checks are stored as JSON of their normalized form, so equal values compare equal.
+    for (const [key, value] of Object.entries(patch)) {
+      next[key] = key === 'schedule' || key === 'resultChecks' ? JSON.stringify(value) : value;
+    }
     // A workflow has an interval or a schedule: setting one clears the other.
     if (patch.schedule !== undefined) next.intervalMinutes = null;
     if (patch.intervalMinutes !== undefined) next.schedule = null;
@@ -618,10 +634,12 @@ export class Model {
     let attempt = 1;
     let reworkOf = null;
     if (workflow.rework_pending !== null) {
-      const rejected = this.one(`SELECT r.id, r.attempt, r.review_note, t.output FROM runs r
+      const rejected = this.one(`SELECT r.id, r.attempt, r.review_note, r.reviewed_by, t.output FROM runs r
         JOIN tasks t ON t.task_id = r.task_id WHERE r.id = ?`, workflow.rework_pending);
       if (rejected) {
-        input = reworkInput({ instructions: workflow.instructions, note: rejected.review_note, output: rejected.output });
+        // A rejection without a reviewer is the result checks' (section 15.3).
+        input = reworkInput({ instructions: workflow.instructions, note: rejected.review_note, output: rejected.output,
+          byChecks: rejected.reviewed_by === null });
         attempt = rejected.attempt + 1;
         reworkOf = rejected.id;
       }
@@ -633,11 +651,13 @@ export class Model {
       VALUES (?, ?, 'work', ?, ?, ?, ?, ?, ?, ?, 'submitting', 1, ?, ?)`,
     taskId, runId, connection.id, target, connection.host_id, connection.agent_id,
     connection.sender_state, input, deadline, now, now);
-    // The run keeps the review requirement and reviewer its workflow has now (contract sections 15, 15.1).
+    // The run keeps the review requirement, reviewer and result checks its workflow has now
+    // (contract sections 15, 15.1 and 15.3).
     this.run(`INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required, reviewer_id, attempt,
-      rework_of, assignment) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      rework_of, assignment, result_checks) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
     runId, workflow.id, taskId, now, workflow.review === 'none' ? 0 : 1,
-    workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, workflow.instructions);
+    workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, workflow.instructions,
+    workflow.result_checks === '[]' ? null : workflow.result_checks);
     this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL WHERE id = ?`,
       workflow.id);
     this.log(now, 'system', 'run.dispatched', { workflowId: workflow.id, runId });
@@ -736,6 +756,25 @@ export class Model {
     if (changes) this.log(now, 'system', 'review.fallback', { workflowId: run.workflow_id, runId: run.id, data: { cause } });
   }
 
+  /**
+   * Applies the result checks a succeeded run was reserved with, in the step that
+   * retained its result. Any failed check rejects it at once, before any review,
+   * with no reviewer recorded (contract section 15.3, MGD-17).
+   */
+  checkResult(run, now) {
+    const row = this.one(`SELECT r.result_checks, t.output, t.branch FROM runs r JOIN tasks t ON t.task_id = r.task_id
+      WHERE r.id = ?`, run.id);
+    if (!row?.result_checks) return;
+    const results = applyChecks(JSON.parse(row.result_checks), row.output, row.branch === null ? null : JSON.parse(row.branch));
+    this.run('UPDATE runs SET checks = ? WHERE id = ?', JSON.stringify(results), run.id);
+    if (results.every(item => item.passed)) return;
+    this.run(`UPDATE runs SET review = 'rejected', reviewed_at = ?, review_note = ?, reviewed_by = NULL WHERE id = ?`,
+      now, checksNote(results), run.id);
+    this.log(now, 'system', 'run.reviewed',
+      { workflowId: run.workflow_id, runId: run.id, data: { verdict: 'rejected', by: 'checks' } });
+    this.dueRework(run, now);
+  }
+
   /** Records a final verdict and, after a rejection, makes a rework due when the workflow asks for one. */
   decide(run, verdict, note, by, now) {
     this.run('UPDATE runs SET review = ?, reviewed_at = ?, review_note = ?, reviewed_by = ? WHERE id = ?',
@@ -770,6 +809,7 @@ export class Model {
     // A success of a reviewed workflow waits for the operator's verdict before it counts.
     if (succeeded) this.run("UPDATE runs SET review = 'pending' WHERE id = ? AND review_required = 1", run.id);
     this.log(now, 'system', 'run.finished', { workflowId: run.workflow_id, runId: run.id, data: { state: task.state } });
+    if (succeeded) this.checkResult(run, now);
     const workflow = this.one('SELECT * FROM workflows WHERE id = ?', run.workflow_id);
     if (!workflow) return;
     const streak = succeeded ? 0 : isOperatorResult(task) ? workflow.failure_streak : workflow.failure_streak + 1;

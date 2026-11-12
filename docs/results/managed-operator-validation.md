@@ -1,5 +1,68 @@
 # Managed operator validation
 
+## Revision 8 (0.9.0)
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node
+24.22.2, against the host binaries of revision 7. The store is version 5.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The nine suites, cases 1 to 25 | 55/55 passed in about 5 minutes in sequence: acceptance 6/6 (68 s), operations 5/5 (37 s), visibility 6/6 (42 s), remote 4/4 (70 s), schedules 5/5 (14 s), reviewers 8/8 (25 s), runtime-agents 4/4 (14 s), capacity 11/11 (32 s), checks 6/6 (15 s); 6,247 lines with the harness and the fake. Six of those runs saw the WSL clock step back, by 7.5 to 20 seconds in all. |
+| `real-peerspan-smoke.py` | 5/5 passed in 246 seconds. Over real transport, a result that failed its checks was rejected without a review task, the rework carried the exact failed checks, and the passing rework went to the reviewer agent. On a real runtime agent, the branch check passed a committed fork and rejected a run that committed nothing. |
+| Version 4 state built by 0.8.1, opened by 0.9.0 | Every row and compared value kept, the backup `managed.v4-backup.sqlite` written, workflows with `resultChecks` `[]` and runs with `checks` null; a run left running was reconciled under its task ID with one submission. The reviewer also took versions 2 and 3 straight to 5. |
+| Six processes opening a version 4 store at once | No failed open in 10 rounds; before the fix below, 3 rounds of 10 had one. |
+| Console in headless Chrome, 390 and 1440 px, light and dark | The checks editor, a run rejected by checks with its rework, the workflow page and a recipe with checks exercised by script. No overflow or page errors, and stored checks that were not touched survive a save byte for byte. |
+
+### Result checks
+
+A workflow can list up to eight checks that the controller applies to each
+succeeded result itself, before any review (section 15.3, MGD-17): text it must
+or must not contain, a length, JSON keys, or a committed branch. A failed check
+rejects the result at once with `reviewedBy` `checks`, whatever review the
+workflow asks for. No reviewer is asked, and with rework the agent receives the
+failed checks. The console edits checks in the workflow form and lists each
+check's outcome on the run page, and two recipes come with checks of their own.
+
+The suite author wrote `checks.mjs` from the contract: 6 concurrent cases, 25
+scripted results with exact messages, the interplay with every review mode, and
+the rework input. The author's questions about whitespace, code fences, field
+order and repeated checks were settled in the contract text. The shared harness
+now checks every snapshot's rejections by checks.
+
+### Independent review of revision 8
+
+The reviewer confirmed two defects, both fixed and re-checked with its own
+probes:
+
+- A check whose `kind` was a one-element array, such as `["contains"]`, passed
+  validation, because an object key accepts the array as the same string.
+  Applying the check then failed when the result was retained, so the run never
+  resolved and its worker stayed held. Releasing the run was the only way out.
+  The kind must now be a string, and case 23 refuses that form.
+- The console rebuilt every check from its form fields on any save. That dropped
+  line breaks from a text, which an input field cannot hold, and split keys at
+  commas, so renaming a workflow could silently change a check set through the
+  API. A check the operator leaves alone is now sent back exactly as stored.
+
+It also found a defect from revision 2: several processes opening an old store
+at once could fail. The first read happened before the lock timeout was set,
+and two openers could race to write the backup. The timeout is now set first,
+and a backup another opener has just written counts as written.
+
+The reviewer confirmed the rest:
+
+- the messages and quoting;
+- code-point lengths;
+- `jsonKeys` with fences, branch lines, a BOM and prototype-like keys;
+- validation limits;
+- that no review task, `review_pending` item or operator verdict follows a
+  rejection by checks;
+- the statistics and the failure count;
+- migrations;
+- the console's escaping;
+- the cost: eight checks on a 262,144-character result take 9 to 36 ms.
+
 ## Revision 7.1 (0.8.1)
 
 Validated on 2026-11-12 UTC like revision 7 below. Revision 7.1 of the contract

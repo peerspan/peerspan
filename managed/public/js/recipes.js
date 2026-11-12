@@ -48,10 +48,12 @@ export const RECIPES = [
     id: 'link-check',
     name: 'Documentation link check',
     summary: 'Find broken links in the documentation without editing anything.',
-    instructions: 'Check every link in the README files and under docs/. For each broken link, report the file, the line, the link and the HTTP status or error. Do not edit any file. Report the number of links checked.',
+    instructions: 'Check every link in the README files and under docs/. For each broken link, report the file, the line, the link and the HTTP status or error. Do not edit any file. End the report with the line "Links checked: N", N being the number of links you checked.',
     schedule: { days: ['fri'], times: ['16:00'] },
     review: 'none',
     reviewCriteria: null,
+    resultChecks: [{ kind: 'contains', text: 'Links checked: ' }],
+    reworkLimit: 1,
     maxRunsPerDay: 1,
     acceptanceMinutes: 60
   },
@@ -70,10 +72,12 @@ export const RECIPES = [
     id: 'issue-digest',
     name: 'Issue triage digest',
     summary: 'Summarize new and updated issues with a suggested label and priority, without changing them.',
-    instructions: 'Read the issues opened or updated since the previous working day. For each, write one line: its number, a summary, a suggested label and a suggested priority with the reason. Flag anything that looks like a security report. Do not comment on, label or close any issue.',
+    instructions: 'Read the issues opened or updated since the previous working day. For each, write one line: its number, a summary, a suggested label and a suggested priority with the reason. Flag anything that looks like a security report. Do not comment on, label or close any issue. Begin the digest with the line "Issues reviewed: N".',
     schedule: { days: WEEKDAYS, times: ['09:00'] },
     review: 'none',
     reviewCriteria: null,
+    resultChecks: [{ kind: 'contains', text: 'Issues reviewed: ' }, { kind: 'maxLength', chars: 20000 }],
+    reworkLimit: 1,
     maxRunsPerDay: 1,
     acceptanceMinutes: 60
   }
@@ -89,7 +93,8 @@ export function recipeTemplate(recipe) {
     review: recipe.review,
     reviewerId: null,
     reviewCriteria: recipe.reviewCriteria,
-    reworkLimit: 0,
+    resultChecks: recipe.resultChecks ?? [],
+    reworkLimit: recipe.reworkLimit ?? 0,
     maxRunsPerDay: recipe.maxRunsPerDay,
     acceptanceMinutes: recipe.acceptanceMinutes
   };

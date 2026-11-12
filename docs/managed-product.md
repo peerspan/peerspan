@@ -17,7 +17,9 @@ host's directory, runs workflows on wall-clock schedules, and lets the operator
 review results before they count. Its fourth revision lets a reviewer agent
 check each result first, with the operator as the fallback, sends a rejected
 result back to the worker with the review, and shows the branch a runtime agent
-worked on. It does not provision cloud machines, launch
+worked on. Later revisions run runtime agents as workers, several tasks at once,
+and (revision 8) check each result's shape before any review, at no model cost.
+It does not provision cloud machines, launch
 model sessions, bill customers, or guarantee that an agent's answer is correct;
 a reviewer agent's verdict is another agent's judgment, not a guarantee either. These limits are
 visible in the console and documentation.
@@ -53,7 +55,11 @@ manual interventions, repeat weekly use and paid retention.
    workspaces. Revision 4 shows the branch such an agent reports, and revision 5
    makes a runtime agent whose host runs on this machine a ready worker without
    any session; remote runtime agents wait for upstream to say how its
-   directory presents them.
+   directory presents them. Revision 8 adds a first form of checked result
+   contracts: checks the controller applies to each result itself, before any
+   review and with no model call, such as required text, a length, JSON keys
+   or a committed branch. A result that fails them is rejected and can be sent
+   back with the failed checks.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,
    per-tenant secrets and isolation, account authentication, actual cost telemetry.
 4. Paid teams: billing, client workspaces, organization administration, service

@@ -135,11 +135,21 @@ review criteria; read and adapt them, choose the worker, and save.
 - **Review criteria.** What a good result must do, such as "names every changed
   file and cites at least two sources". The reviewer agent receives them, and
   the console shows them to you when you review.
+- **Checks before review.** Up to eight checks the controller applies to each
+  result itself, with no model call, before anyone reviews it:
+  - it must contain, or must not contain, a text;
+  - at least or at most a number of characters;
+  - a JSON object with given keys;
+  - for a runtime agent, a committed branch line.
+
+  A result that fails one is rejected at once, whoever reviews the workflow's
+  results, and the failed checks are its review. Checks catch a missing section
+  or a refusal cheaply; a result that passes them may still be wrong.
 - **Rework.** A rejected result can be sent back to the worker once, twice or
   three times. The next run then starts at once with the instructions, the
-  review and the previous result, and counts toward the daily limit like any
-  run. Only the workflow's latest result is sent back: a later run has already
-  done the work again.
+  review (or the failed checks) and the previous result, and counts toward the
+  daily limit like any run. Only the workflow's latest result is sent back: a
+  later run has already done the work again.
 
 - **Pause and resume.** Pausing stops new dispatch and lets the run in progress
   finish. Resuming does not run at once: the schedule decides, or "Run now".
@@ -199,9 +209,10 @@ browser shows it; nothing is sent anywhere.
   its worker host is gone. It frees the workflow and the worker here and stops
   all further calls for that task. It does not stop the worker.
 
-A succeeded run is the worker's own report. Unless its workflow asks for review,
-nothing in this preview checks the output; it never downloads artifacts or
-approves anything on your behalf. Results waiting for your review are listed on
+A succeeded run is the worker's own report. Unless its workflow has checks or
+asks for review, nothing in this preview checks the output; it never downloads
+artifacts or approves anything on your behalf. A run with checks lists each one
+on its page, passed or failed with the reason. Results waiting for your review are listed on
 the overview, oldest first, and each run page has Accept and Reject with an
 optional note. A reviewed run's page also shows the reviewer's verdict and
 reasons, its full answer, what it was asked and its task's timeline, and links a
@@ -272,12 +283,12 @@ state directory. Nothing here replaces the Peerspan host service.
 
 The first command of this version that opens an existing state directory
 migrates it in place, after saving a copy beside it as
-`managed.vN-backup.sqlite`, N being the store version it found (1 to 3).
+`managed.vN-backup.sqlite`, N being the store version it found (1 to 4).
 Connections, observations, workflows, runs, task IDs, results, verdicts and the
 activity log keep their IDs and values; a run that was unresolved is reconciled
 under its task ID as after any restart. Existing workflows keep their intervals,
-schedules and review settings, have no reviewer agent, and never send results
-back until you choose to. Restart the service after updating the checkout.
+schedules, review settings and reviewers, have no checks, and never send results
+back unless they already did. Restart the service after updating the checkout.
 
 ## Develop
 
@@ -290,6 +301,8 @@ node managed/conformance/remote.mjs             # contract case 13
 node managed/conformance/schedules.mjs          # contract cases 14 and 15
 node managed/conformance/reviewers.mjs          # contract cases 16 to 18
 node managed/conformance/runtime-agents.mjs     # contract case 19
+node managed/conformance/capacity.mjs           # contract cases 20 to 22
+node managed/conformance/checks.mjs             # contract cases 23 to 25
 # Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```

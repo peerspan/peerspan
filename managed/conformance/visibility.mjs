@@ -501,8 +501,8 @@ async function case12_versionOneMigration() {
   db.close();
   await fs.chmod(file, 0o600);
 
-  await f.start();   // the first revision 4 command that opens the state migrates it
-  const snapshot = await f.snapshot();   // meta.schemaVersion 4 is checked on every snapshot
+  await f.start();   // the first revision 8 command that opens the state migrates it through to version 5
+  const snapshot = await f.snapshot();   // meta.schemaVersion 5 is checked on every snapshot
   const backup = await fs.stat(path.join(f.state, 'managed.v1-backup.sqlite')).catch(() => null);
   expect(backup !== null && backup.size > 0 && (backup.mode & 0o777) === 0o600,
     '§1 before migrating, a copy of the version 1 database is saved as managed.v1-backup.sqlite, private (0600)',
@@ -528,6 +528,9 @@ async function case12_versionOneMigration() {
     .map(run => pick(run, 'attempt reworkOf reviewTask reviewFallback reviewedBy')),
   Array(2).fill({attempt: 1, reworkOf: null, reviewTask: null, reviewFallback: null, reviewedBy: null}),
   '§1 (rev 4) migrated runs have attempt 1 and reworkOf null and need no agent review');
+  expectEqual([snapshot.workflows.map(item => item.resultChecks), snapshot.runs.filter(run => [done.id, open.id]
+    .includes(run.id)).map(run => run.checks)], [Array(3).fill([]), [null, null]],
+  '§1 (rev 8) migrated workflows have resultChecks [] and migrated runs have checks null');
   const runView = row => row && {...pick(row, 'id workflowId taskId state output'), createdAt: moment(row.createdAt),
     finishedAt: moment(row.finishedAt)};
   expectEqual(runView(snapshot.runs.find(run => run.id === done.id)), runView(done),
@@ -566,8 +569,8 @@ async function case12_newerSchemaRefused() {
   await fs.mkdir(f.state, {mode: 0o700});
   const file = path.join(f.state, 'managed.sqlite');
   const db = new DatabaseSync(file);
-  // §1 (rev 4): the current schema version is 4, so a newer one is 5.
-  db.exec("PRAGMA user_version = 5; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
+  // §1 (rev 8): the current schema version is 5, so a newer one is 6.
+  db.exec("PRAGMA user_version = 6; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
     "INSERT INTO fake_future_schema VALUES ('FAKE state written by a newer schema')");
   db.close();
   await fs.chmod(file, 0o600);

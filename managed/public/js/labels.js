@@ -73,8 +73,24 @@ export function reviewState(run) {
     return OPEN_STATES.includes(run.reviewTask.state) ? ['Reviewer checking', 'info'] : ['Awaiting reviewer', 'warn'];
   }
   if (run.review === 'accepted') return [byAgent ? 'Accepted by reviewer' : 'Accepted', 'ok'];
-  if (run.review === 'rejected') return [byAgent ? 'Rejected by reviewer' : run.reviewedBy ? 'Rejected by you' : 'Rejected', 'danger'];
+  if (run.review === 'rejected') {
+    if (run.reviewedBy === 'checks') return ['Failed checks', 'danger'];
+    return [byAgent ? 'Rejected by reviewer' : run.reviewedBy ? 'Rejected by you' : 'Rejected', 'danger'];
+  }
   return null;
+}
+
+/** A result check in words (contract section 15.3). */
+export function checkText(check) {
+  switch (check.kind) {
+    case 'contains': return `Contains ${JSON.stringify(check.text)}`;
+    case 'excludes': return `Does not contain ${JSON.stringify(check.text)}`;
+    case 'minLength': return `At least ${check.chars.toLocaleString('en-US')} characters`;
+    case 'maxLength': return `At most ${check.chars.toLocaleString('en-US')} characters`;
+    case 'branch': return 'Ends with a committed branch line';
+    case 'jsonKeys': return `A JSON object with ${check.keys.map(key => JSON.stringify(key)).join(', ')}`;
+    default: return check.kind;
+  }
 }
 
 /** Why a reviewer agent gave no verdict (contract section 15.1). */
@@ -193,6 +209,7 @@ export function activityText(entry, names) {
     case 'run.abandoned': return `released a run of ${workflow}`;
     case 'run.reviewed': {
       const verdict = entry.data?.verdict === 'rejected' ? 'rejected' : 'accepted';
+      if (entry.data?.by === 'checks') return `rejected a result of ${workflow} that failed its checks`;
       return entry.actor === 'system' ? `recorded that the reviewer agent ${verdict} a result of ${workflow}`
         : `${verdict} a result of ${workflow}`;
     }

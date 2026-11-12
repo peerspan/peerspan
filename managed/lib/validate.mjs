@@ -1,7 +1,8 @@
-// Request validation (contract sections 2, 9, 10, 14, 15, 15.1 and 15.2).
+// Request validation (contract sections 2, 9, 10, 14, 15 and 15.1 to 15.3).
 // Unknown fields and invalid values are refused with 400 before anything is
 // stored. Rules that depend on stored state, such as whether a reviewer is
 // another agent than the worker, are the model's.
+import { normalizeChecks } from './checks.mjs';
 import { normalizeSchedule } from './schedule.mjs';
 
 const TEXT_LIMITS = { name: 100, instructions: 12_000 };
@@ -12,7 +13,8 @@ const INTEGER_RANGES = {
   reworkLimit: [0, 3]
 };
 const REQUIRED = ['name', 'connectionId', 'instructions', 'maxRunsPerDay', 'acceptanceMinutes'];
-const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review', 'reviewerId', 'reviewCriteria', 'reworkLimit'];
+const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review', 'reviewerId', 'reviewCriteria', 'reworkLimit',
+  'resultChecks'];
 const CREATABLE = [...EDITABLE, 'enabled'];
 const REVIEWS = ['none', 'operator', 'agent'];
 const VERDICTS = ['accepted', 'rejected'];
@@ -81,6 +83,8 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
       }
       if (value?.includes('\u0000')) throw invalid('Review criteria cannot contain NUL characters');
       fields[key] = value === null ? null : value.trim() || null;
+    } else if (key === 'resultChecks') {
+      fields[key] = normalizeChecks(value);
     }
   }
   if (fields.intervalMinutes !== undefined && fields.schedule !== undefined) {
@@ -95,7 +99,7 @@ export function newWorkflow(body) {
   if (fields.intervalMinutes === undefined && fields.schedule === undefined) {
     throw invalid('Give intervalMinutes or a schedule');
   }
-  const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, ...fields };
+  const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, resultChecks: [], ...fields };
   // A reviewer exactly when the review is an agent's (contract section 15.1).
   if (workflow.review === 'agent' && workflow.reviewerId === null) throw invalid('Choose the reviewer agent');
   if (workflow.review !== 'agent' && workflow.reviewerId !== null) {

@@ -408,3 +408,52 @@ restarts, and would make two rules where the store's one rule now decides.
   and with a profile appearing in the same step as the channel's time; both
   are now among the facts compared.
 - **Contract.** Section 3.
+
+## MGD-17. Result checks (2026-11-12)
+
+- **Question.** The product's worker-lifecycle stage calls for independently
+  checked result contracts. Today a result is judged by the operator or by a
+  reviewer agent, both of which cost attention or a model call. Many recurring
+  assignments need a plainly checkable shape first: a required section, a line
+  that reports a count, no refusal text, valid JSON with given keys, or, for a
+  runtime agent, a commit on its branch. How should the controller check that
+  itself?
+- **Options.**
+  - (a) Checks as a separate pass/fail field beside the review, changing
+    nothing else.
+  - (b) Checks that reject a failing result at once, through the existing
+    verdict, before any review.
+  - (c) Arbitrary scripts or regular expressions run by the controller.
+- **Chosen.** (b), with six fixed kinds: `contains`, `excludes`, `minLength`,
+  `maxLength`, `branch` and `jsonKeys`.
+- **Reason.** A failed check is a rejection, so it should take the path a rejection
+  already has. It counts as a failure in the statistics, and it sends the result
+  back with the reasons when the workflow asks for rework. The reviewer agent and
+  the operator are spared results that cannot pass, and the rework input tells
+  the agent exactly what to fix. (a) would leave a result that failed its
+  checks waiting for a review or counting as a success. (c) would run
+  operator-supplied code or patterns inside the controller. A regular expression
+  can take exponential time on a long result, and a script is a process that
+  needs its own sandbox. The fixed kinds are linear in the result's length, need
+  no new dependency, and their messages are exact sentences the agent can act
+  on. The verdict is final, like the others; a run whose checks were too strict
+  is corrected by editing the checks and running again.
+- **Store.** Version 5 adds the checks to workflows and runs. A failed check's
+  verdict is stored with no reviewer and read as `reviewedBy` `checks`, so the
+  version 4 constraint on `reviewed_by` and the rows that use it stay unchanged.
+- **Review.** The independent reviewer confirmed two defects, both fixed before
+  publishing.
+  - A check whose `kind` was a one-element array, such as `["contains"]`,
+    passed validation and could not be applied. The run it was reserved with
+    then stayed unresolved and held its worker. The kind must now be a string,
+    and case 23 refuses that form.
+  - The console's editor rebuilt every check from its form fields when a
+    workflow was saved. That dropped line breaks from a text and split keys at
+    commas, even in checks the operator had not touched. A check that is left
+    alone is now sent back exactly as stored.
+  
+  The reviewer also found that six processes opening an old store at once
+  could fail with "database is locked" or race to write the backup. This dates
+  from revision 2 and is fixed: the lock timeout is set before the first read,
+  and a backup another opener has just written counts as written.
+- **Contract.** Sections 1, 8, 9, 11 and 15.3.

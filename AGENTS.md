@@ -17,9 +17,9 @@ The managed operator follows the rules below for contracts and tests. Its
 contract is [docs/managed-contract.md](docs/managed-contract.md), its decisions
 are in [docs/managed-decisions.md](docs/managed-decisions.md), and its suites are
 `managed/conformance/acceptance.mjs`, `operations.mjs`, `visibility.mjs`, `remote.mjs`,
-`schedules.mjs`, `reviewers.mjs`, `runtime-agents.mjs` and `capacity.mjs`, written
-from the contract by an author who does not read `managed/lib/` or
-`managed/public/`. Run `npm --prefix managed run check` and the eight suites on
+`schedules.mjs`, `reviewers.mjs`, `runtime-agents.mjs`, `capacity.mjs` and `checks.mjs`,
+written from the contract by an author who does not read `managed/lib/` or
+`managed/public/`. Run `npm --prefix managed run check` and the nine suites on
 Linux with Node 24 before publishing; `real-peerspan-smoke.py` is the separate
 check against built binaries.
 

@@ -1,9 +1,10 @@
-// Shared plumbing for the revision 2 to 6 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs, reviewers.mjs, runtime-agents.mjs and capacity.mjs). Contract-only and black-box: it launches the
-// documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in throwaway private
+// Shared plumbing for the revision 2 to 8 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs and checks.mjs). Contract-only and black-box: it
+// launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in throwaway private
 // directories. It never imports or reads the managed implementation or its database. Section numbers (§)
-// refer to docs/managed-contract.md. Shapes are those of revision 6, which keeps every revision 5 behavior and
-// adds each connection's capacity and activeTasks (§4, §8); the store stays at schema 4 (§1).
+// refer to docs/managed-contract.md. Shapes are those of revision 8, which keeps every revision 7.1 behavior and
+// adds result checks (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for a result
+// that failed them; the store is at schema 5 (§1).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -129,8 +130,34 @@ const activityKinds = {
     'workflow.rework_due']};
 const runFields = 'id workflowId workflowName taskId state output outputTruncated error reason progress ' +
   'cancelRequestedAt createdAt updatedAt startedAt finishedAt review reviewedAt reviewNote ' +
-  'reviewedBy reviewTask reviewFallback attempt reworkOf branch';
+  'reviewedBy reviewTask reviewFallback attempt reworkOf branch checks';
 const reviewTaskFields = 'connectionId taskId state error reason cancelRequestedAt createdAt finishedAt';
+// §15.3 (rev 8): a result check is an object with exactly the fields of one of six kinds.
+const checkField = {contains: 'text', excludes: 'text', minLength: 'chars', maxLength: 'chars', branch: null, jsonKeys: 'keys'};
+function isCheck(check) {
+  if (check === null || typeof check !== 'object' || Array.isArray(check) || typeof check.kind !== 'string' ||
+    !Object.hasOwn(checkField, check.kind)) return false;
+  const field = checkField[check.kind];
+  if (!isDeepStrictEqual(Object.keys(check).sort(), field === null ? ['kind'] : [field, 'kind'].sort())) return false;
+  const value = check[field];
+  // T: 1 to 500 characters, no NUL, not only whitespace; N: an integer from 1 to 262,144; K: 1 to 16 distinct
+  // strings of 1 to 100 characters without NUL.
+  return field === null || (field === 'text' ? text(value) && chars(value) >= 1 && chars(value) <= 500 &&
+    !value.includes('\u0000') && value.trim() !== ''
+    : field === 'chars' ? Number.isInteger(value) && value >= 1 && value <= 262144
+    : Array.isArray(value) && value.length >= 1 && value.length <= 16 && new Set(value).size === value.length &&
+      value.every(key => text(key) && chars(key) >= 1 && chars(key) <= 100 && !key.includes('\u0000')));
+}
+// §15.3: at most 8 checks, and no minLength whose N is greater than that of one of the maxLengths.
+const isCheckList = list => Array.isArray(list) && list.length <= 8 && list.every(isCheck) &&
+  list.every(min => min.kind !== 'minLength' || list.every(max => max.kind !== 'maxLength' || min.chars <= max.chars));
+// §15.3: a rejection's note is the failed messages joined by LF, treated as §15.1 treats a reviewer's reasons:
+// control characters other than LF and tab removed, trimmed (ECMAScript whitespace), and cut to its first 1,999
+// characters followed by … when longer than 2,000.
+function checksNote(messages) {
+  const note = messages.join('\n').replace(/(?![\n\t])\p{Cc}/gu, '').trim();
+  return chars(note) > 2000 ? [...note].slice(0, 1999).join('') + '…' : note;
+}
 // §15.1 (rev 4): the causes of a fallback to the operator.
 export const fallbackCauses = ['failed', 'rejected', 'expired', 'cancelled', 'abandoned', 'no_verdict', 'reviewer_removed'];
 export const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -238,8 +265,37 @@ export function checkRun(run, {detail = false} = {}) {
   keys(run, runFields + (detail ? ' instructions assignment' : ''), detail ? '§10 run detail' : '§8 run');
   // §15 and §15.1 (rev 4): who gave the verdict, the review task and the fallback.
   const decided = ['accepted', 'rejected'].includes(run.review);
-  expect(decided ? ['operator', 'agent'].includes(run.reviewedBy) : run.reviewedBy === null,
-    '§15 reviewedBy is null while review is null or pending, and then operator or agent', pick(run, 'review reviewedBy'));
+  expect(decided ? ['operator', 'agent', 'checks'].includes(run.reviewedBy) : run.reviewedBy === null,
+    '§15 reviewedBy is null while review is null or pending, and then operator, agent or (rev 8, §15.3) checks',
+    pick(run, 'review reviewedBy'));
+  // §15.3 (rev 8): checks is null, or one {check,passed,message} entry per check of a succeeded run; message is null
+  // for a check that passed and a sentence of the table otherwise. Any failed check rejects the result in the same
+  // step, by checks, with the failed messages as the note, and no review task is reserved.
+  if (run.checks !== null) {
+    expect(Array.isArray(run.checks) && run.checks.length >= 1 && run.state === 'succeeded' &&
+      isCheckList(run.checks.map(entry => entry?.check)), '§15.3 checks is null while the run is unresolved, when it ' +
+      'ends in another state than succeeded and when it was reserved without checks; otherwise one entry per check',
+    pick(run, 'state checks'));
+    for (const entry of run.checks) {
+      keys(entry, 'check passed message', '§15.3 a checks entry');
+      expect(typeof entry.passed === 'boolean' && (entry.passed ? entry.message === null
+        : text(entry.message) && entry.message.startsWith('The result')),
+      '§15.3 passed is a boolean; message is null for a check that passed, or the sentence of the table', entry);
+    }
+  }
+  const failedMessages = (run.checks ?? []).filter(entry => !entry.passed).map(entry => entry.message);
+  if (failedMessages.length > 0) {
+    expectEqual(pick(run, 'review reviewedBy reviewNote reviewFallback'), {review: 'rejected', reviewedBy: 'checks',
+      reviewNote: checksNote(failedMessages), reviewFallback: null}, '§15.3 a failed check rejects the result in the ' +
+      'same step: reviewedBy checks, the failed messages joined by LF as the note (treated as §15.1 treats reasons), no fallback');
+    expectEqual(Date.parse(run.reviewedAt), Date.parse(run.finishedAt), '§15.3 reviewedAt of a rejection by checks is ' +
+      'the time the result was retained, equal to finishedAt (as instants)');
+    expect(run.reviewTask === null || run.reviewTask.taskId === null, '§15.3 no review task is reserved for a run ' +
+      'rejected by its checks; one reserved for an agent review keeps only the reviewer connectionId', run.reviewTask);
+  } else {
+    expect(run.reviewedBy !== 'checks', '§15.3 reviewedBy is checks only for a result that failed a check',
+      pick(run, 'reviewedBy checks'));
+  }
   if (run.reviewTask !== null) checkReviewTask(run.reviewTask, run, detail);
   expect(run.reviewTask === null || (run.state === 'succeeded' && run.review !== null),
     '§15.1 reviewTask is null while the run is unresolved, when it ends in another state than succeeded, and when ' +
@@ -323,13 +379,15 @@ export function checkActivityEntry(entry) {
     'workflow.auto_paused': data => only(data, 'failureStreak') && Number.isInteger(data.failureStreak),
     'worker.ready': data => only(data, 'code') && anyReadinessCode[data.code] === true,
     'worker.unready': data => only(data, 'code') && anyReadinessCode[data.code] === false,
-    'run.reviewed': data => only(data, 'verdict') && ['accepted', 'rejected'].includes(data.verdict),
+    // (rev 8) A system entry may also be {verdict:"rejected",by:"checks"}: a rejection by failed result checks.
+    'run.reviewed': data => (only(data, 'verdict') && ['accepted', 'rejected'].includes(data.verdict)) ||
+      (entry.actor === 'system' && isDeepStrictEqual(data, {verdict: 'rejected', by: 'checks'})),
     'run.problem': reviewTaskProblem, 'run.recovered': reviewTaskProblem,
     'review.finished': data => only(data, 'state') && terminal(data.state),
     'review.fallback': data => only(data, 'cause') && fallbackCauses.includes(data.cause),
     'workflow.rework_due': data => only(data, 'attempt') && Number.isInteger(data.attempt) && data.attempt >= 2 &&
       data.attempt <= 4};
-  expect((dataRules[entry.kind] ?? (data => data === null))(entry.data), '§11 data of ' + entry.kind, entry);
+  expect((dataRules[entry.kind] ?? (data => data === null))(entry.data, entry), '§11 data of ' + entry.kind, entry);
 }
 
 // §14: a schedule as the controller returns it, normalized.
@@ -345,7 +403,10 @@ export function checkSchedule(schedule) {
 function checkWorkflow(w, connections = []) {
   keys(w, 'id name connectionId instructions intervalMinutes maxRunsPerDay acceptanceMinutes enabled ' +
     'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review ' +
-    'reviewerId reviewCriteria reworkLimit reworkPending', '§8 workflow');
+    'reviewerId reviewCriteria reworkLimit reworkPending resultChecks', '§8 workflow');
+  expect(isCheckList(w.resultChecks) && w.resultChecks.every(check => Object.keys(check)[0] === 'kind'),
+    '§15.3 (rev 8) resultChecks is an array of at most 8 checks of the six kinds, each with kind first, and no ' +
+    'minLength above a maxLength', w.resultChecks);
   expect(w.enabled ? w.pausedBy === null : ['operator', 'failures'].includes(w.pausedBy),
     '§8 pausedBy is null while enabled, otherwise operator or failures', pick(w, 'enabled pausedBy'));
   expect((w.schedule === null) !== (w.intervalMinutes === null) && ['none', 'operator', 'agent'].includes(w.review),
@@ -498,8 +559,8 @@ export function checkSnapshot(s) {
   keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
     'modelCost cloudProvisioning', '§8 meta');
   expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 4, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 schema version 4', s.meta);
+    s.meta.revision !== '' && s.meta.schemaVersion === 5, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 (rev 8) schema version 5', s.meta);
 }
 
 // ---- Process and file plumbing ----
