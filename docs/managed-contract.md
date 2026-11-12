@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 10. Revision 1 defined the first local slice: the console, recurring
+Revision 11. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -24,8 +24,9 @@ version 5. Revision 9 keeps every revision 8 behavior and adds handoffs: a
 workflow that runs after another one, on that workflow's latest accepted result
 (section 14.1); its store is version 6. Revision 10 keeps every revision 9
 behavior and adds alerts: attention items announced to a webhook (section 8.1);
-its store is version 7. Additions are marked "(rev 2)" to "(rev 10)" where they
-extend an earlier section. Fork decisions are recorded in
+its store is version 7. Revision 11 keeps every revision 10 behavior and adds
+approval before each run (section 14.2); its store is version 8. Additions are
+marked "(rev 2)" to "(rev 11)" where they extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -101,6 +102,12 @@ Version 6 state is migrated in place after its backup copy
 `managed.v6-backup.sqlite`, and earlier versions through to version 7 in the
 same transaction. Migrated state has no alerts configured.
 
+(rev 11) The current version is 8, and version 8 state is created directly.
+Version 7 state is migrated in place after its backup copy
+`managed.v7-backup.sqlite`, and earlier versions through to version 8 in the
+same transaction. Migrated workflows have `approval` `none` and
+`approvalPending` and `approvedAt` null, and migrated runs `approvedAt` null.
+
 ## 2. HTTP contract
 
 The server binds 127.0.0.1. Host must be localhost or 127.0.0.1 with the configured
@@ -138,7 +145,9 @@ current state does not permit the operation, and 413 for an oversized body.
   (rev 8) The body may also have `resultChecks` (section 15.3), `[]` when
   omitted. (rev 9) It may also have `after` (section 14.1), which takes the
   place of `intervalMinutes` and `schedule`: exactly one of the three is
-  required.
+  required. (rev 11) It may also have `approval` (section 14.2), `none` when
+  omitted.
+- (rev 11) `POST /api/workflows/:id/approve` and `skip`: section 14.2.
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
@@ -670,8 +679,9 @@ location, or upstream attention `detail` or `subject` text.
   updatedAt,pausedBy,recent,stats}`, (rev 3) with `schedule` and `review`
   (sections 14 and 15), (rev 4) and with `reviewerId`, `reviewCriteria`,
   `reworkLimit` and `reworkPending` (sections 15.1 and 15.2), (rev 8) with
-  `resultChecks` (section 15.3), (rev 9) and with `after` and `handoffPending`
-  (section 14.1); `nextRunAt` is null for an `after` workflow. `intervalMinutes`
+  `resultChecks` (section 15.3), (rev 9) with `after` and `handoffPending`
+  (section 14.1), (rev 11) and with `approval`, `approvalPending` and
+  `approvedAt` (section 14.2); `nextRunAt` is null for an `after` workflow. `intervalMinutes`
   is null for a workflow with a schedule,
   and `schedule` is null for one with an interval. `pausedBy` is null while
   enabled, and otherwise `operator` (created paused, paused, or restored) or
@@ -692,7 +702,8 @@ location, or upstream attention `detail` or `subject` text.
   whole seconds, or null. `interventions` counts the window's operator activity
   entries for the workflow other than `workflow.created` (rev 3) and
   `run.reviewed`, because reviewing a result is the expected work of a reviewed
-  workflow, not a correction. `unattendedRuns` counts
+  workflow, not a correction. (rev 11) For the same reason `workflow.approved`
+  and `workflow.skipped` are not interventions either. `unattendedRuns` counts
   the workflow's terminal runs, of all time, that finished after its latest such
   intervention (after its creation when there is none). (rev 3) `awaitingReview`
   counts the workflow's runs, of all time, whose `review` is `pending`.
@@ -715,7 +726,8 @@ location, or upstream attention `detail` or `subject` text.
   `reviewedAt` and `reviewNote` (section 15). (rev 4) Runs also have
   `reviewedBy`, `reviewTask` and `reviewFallback` (section 15.1), `attempt` and
   `reworkOf` (section 15.2), and `branch` (section 10.1). (rev 8) Runs also
-  have `checks` (section 15.3), (rev 9) and `handoffFrom` (section 14.1). A run's `state`,
+  have `checks` (section 15.3), (rev 9) `handoffFrom` (section 14.1), (rev 11)
+  and `approvedAt` (section 14.2). A run's `state`,
   `output`, `error`, `reason`, `progress`, times and `cancelRequestedAt` are
   always those of its own task, never of its review task.
 - `observed`: section 6.
@@ -734,6 +746,7 @@ location, or upstream attention `detail` or `subject` text.
   | `observed_unavailable` | `warning` | `observation` | An observed entry has `available` false. |
   | `observed_problem` | `warning` | `observation` | An available observed entry has a non-null `error`. |
   | `daily_limit_reached` | `info` | `workflow` | An enabled workflow is blocked only by its daily cap. |
+  | `approval_pending` | `action` | `workflow` | (rev 11) The workflow waits for the operator's approval of its next run (section 14.2). `since` is its `approvalPending`. |
   | `alerts_failing` | `warning` | `alerts` | (rev 10) The latest attempt to deliver an alert failed (section 8.1). `subject.id` is `alerts` and `name` is `Alerts`; `since` is when the first failure since the last delivery happened. |
   | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs, the ones that wait for the operator, and `since` is the earliest of their `finishedAt`. |
 
@@ -825,8 +838,8 @@ status or a timeout. That item itself is never announced.
 `PATCH /api/workflows/:id` accepts a JSON object with at least one of `name`,
 `connectionId`, `instructions`, `intervalMinutes`, `maxRunsPerDay` and
 `acceptanceMinutes`, (rev 3) `schedule` and `review`, (rev 4) `reviewerId`,
-`reviewCriteria` and `reworkLimit`, (rev 8) `resultChecks`, (rev 9) and `after`,
-validated as at creation (with the combination rules of sections 14.1 and
+`reviewCriteria` and `reworkLimit`, (rev 8) `resultChecks`, (rev 9) `after`,
+(rev 11) and `approval`, validated as at creation (with the combination rules of sections 14.1 and
 15.1); any other field, `enabled`
 included, is 400. It returns the workflow. An edit never changes a run that was
 already reserved: its submission payload is immutable. When `intervalMinutes`
@@ -977,6 +990,8 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `system` | `workflow.rework_due` | (rev 4) `{attempt}`: the attempt the rework will be (section 15.2). The entry's `runId` is the rejected run. |
 | `system` | `workflow.handoff_due` | (rev 9) null: an upstream result became the workflow's next input (section 14.1). The entry's `runId` is the upstream run, and its `workflowId` the workflow that will run on it. |
 | `operator` | `connection.added`, `connection.removed`, `observation.added`, `observation.removed` | null |
+| `system` | `workflow.approval_requested` | (rev 11) null: the workflow began to wait for approval (section 14.2). |
+| `operator` | `workflow.approved`, `workflow.skipped` | (rev 11) null (section 14.2). |
 | `operator` | `alerts.configured` | (rev 10) `{host}`: the webhook's host name (section 8.1). |
 | `operator` | `alerts.removed` | (rev 10) null. |
 | `system` | `run.dispatched` | null |
@@ -1166,6 +1181,81 @@ It never bypasses the paused state, caps or readiness (section 2).
 **Elsewhere.** Workflows have `after` and `handoffPending` in every shape, and
 runs have `handoffFrom`. Workflows of earlier revisions have `after` null and
 `handoffPending` null, and their runs `handoffFrom` null.
+
+### 14.2 Approval before each run (rev 11)
+
+A workflow's `approval` is `none`, the default, or `operator`: each of its runs
+then waits for the operator's approval before it is reserved (MGD-20). It is for
+assignments whose effects the operator wants to confirm every time, such as a
+release, a migration or a message to customers. Because the wait is an `action`
+attention item, it also reaches the operator through alerts (section 8.1).
+
+**Fields.** `approval` is accepted at creation and in a `PATCH`; any other value
+is 400, and a change is listed in `workflow.edited`. A workflow also has
+`approvalPending` and `approvedAt`, both null or a time.
+
+**Waiting.** A workflow is waiting for approval when all of these hold:
+- it is enabled, with `approval` `operator`;
+- it has no unresolved run, and is under its daily cap;
+- it is due: its `nextRunAt` has passed, or a rework (section 15.2) or a
+  handoff (section 14.1) is pending;
+- it holds no approval (`approvedAt` is null).
+
+While it waits:
+- nothing is reserved for it, whatever its worker's state;
+- `approvalPending` is the moment it began to wait, set by the first scheduler
+  pass that found it waiting;
+- its `blockedReason` says it waits for the operator's approval;
+- the attention item `approval_pending` (`action`, subject the workflow, `since`
+  its `approvalPending`) is present.
+
+A wait concerns one run, the one that comes next: the pending rework, which
+goes first; otherwise the pending handoff; otherwise the scheduled run. When the
+workflow comes to wait for another one, because a rework or a newer handoff
+became pending meanwhile, that is a new wait. A handoff that becomes pending
+while a rework is pending changes nothing, since the rework still comes next. The first pass of
+each wait records `workflow.approval_requested`. When the workflow stops waiting
+without a decision, `approvalPending` becomes null again, and a later wait is a
+new one. A `pause` or `archive` ends a wait at once.
+
+**Approve.** `POST /api/workflows/:id/approve` accepts `{}`. It is 404 for an
+unknown workflow, 409 for an archived one, and 409 unless the workflow is
+waiting (`approvalPending` is not null). It:
+- sets `approvedAt` to the time of the request and `approvalPending` to null;
+- records `workflow.approved`;
+- returns the workflow.
+
+The approval is for the run the workflow waited to make. The next run reserved
+for the workflow uses it: the run's `approvedAt` is it, and the workflow's
+`approvedAt` becomes null in the same step. That run follows every other rule of
+section 4 (a ready and free worker, the due-time rule), and a `pause` keeps the
+approval for after `resume`.
+
+An approval is withdrawn, so that the workflow waits again before it runs, when
+any of these happens first:
+- the workflow comes to wait for another run, as above;
+- a `PATCH` changes any of the workflow's values;
+- the workflow is archived.
+
+A `PATCH` or an archive withdraws it at once. A run reserved while the
+workflow's `approval` is `none` has `approvedAt` null.
+
+**Skip.** `POST /api/workflows/:id/skip` accepts `{}`, with the same 404 and 409
+rules. It declines the run the workflow waits to make:
+- A pending rework, and otherwise a pending handoff, is dropped.
+- Otherwise `nextRunAt` moves on as if a run had finished at that moment: an
+  interval later, or for a schedule to its first slot at least one minute
+  later.
+- `approvalPending` becomes null, `workflow.skipped` is recorded, no run is
+  created, and the workflow is returned.
+
+**Elsewhere.**
+- A run has `approvedAt`: null, or the approval it was reserved with.
+- Approving and skipping are the expected work of such a workflow, so neither
+  counts as an intervention (section 8).
+- Both are operator changes of the workflow for the due-time rule of section 4.
+- Workflows of earlier revisions have `approval` `none`, and their runs
+  `approvedAt` null.
 
 ## 15. Reviewing results (rev 3)
 
@@ -1751,7 +1841,29 @@ webhook:
       announced, until a delivery succeeds;
     - an alert given up after 24 hours.
 
-Version 2, 3, 4, 5 and 6 state are not described by this contract, so their
+`approvals.mjs` (revision 11 approval before each run):
+
+32. Approval fields and waiting:
+    - `approval` at creation and in `PATCH`, its 400s, and `workflow.edited`;
+    - an interval, a scheduled, a `run`, a rework and a handoff run each waiting
+      for approval, with no task submitted, whatever the worker's state;
+    - `approvalPending`, the `blockedReason`, the `approval_pending` item and one
+      `workflow.approval_requested` per wait;
+    - no wait while paused, with an unresolved run or at the daily cap, and the
+      wait ending when the workflow is paused.
+33. Approve and skip:
+    - the routes' 404 and 409 rules;
+    - `approve` letting exactly one run go out, with the run's `approvedAt`, and
+      the next run waiting again;
+    - an approval kept across `pause` and `resume`;
+    - `skip` moving `nextRunAt` on for an interval and for a schedule, and
+      dropping a pending rework and a pending handoff, with no run created;
+    - the activity entries, and `interventions` unchanged by both.
+34. Approval and the rest: switching `approval` off while waiting dispatching
+    normally, an approved run still waiting for a ready worker, and a restart
+    keeping both a wait and an approval.
+
+Version 2, 3, 4, 5, 6 and 7 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those
 versions and recorded with the validation results, not by these suites.
 

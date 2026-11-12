@@ -352,6 +352,15 @@ export function workflowDialog({ workflow = null, template = null, connections, 
       h('textarea', { id: 'wf-instructions', name: 'instructions', maxlength: '12000', required: true, rows: '6',
         placeholder: 'Describe a bounded assignment, the result you expect, and the checks it must pass.' }, initial?.instructions ?? ''),
       h('div.when', null, h('span.label', null, 'When it runs'), modes, intervalPart, schedulePart, afterPart),
+      // Approval before each run (contract section 14.2).
+      h('div.when', null, h('span.label', null, 'Before each run'),
+        h('div.segmented', { role: 'radiogroup', 'aria-label': 'Before each run' },
+          h('label', null, h('input', { type: 'radio', name: 'approval', value: 'none', checked: (initial?.approval ?? 'none') === 'none' }),
+            h('span', null, 'Run without asking')),
+          h('label', null, h('input', { type: 'radio', name: 'approval', value: 'operator', checked: initial?.approval === 'operator' }),
+            h('span', null, 'Wait for my approval'))),
+        h('p.help', null, 'With approval, each run waits until you approve it; skipping passes on that run. ',
+          'Nothing is sent before you decide, and alerts tell you when a run waits.')),
       h('div.field-row.two', null,
         h('div', null,
           h('label', { for: 'wf-cap' }, 'Daily run limit'),
@@ -385,7 +394,8 @@ export function workflowDialog({ workflow = null, template = null, connections, 
         reviewerId: values.review === 'agent' ? values.reviewerId || null : null,
         // Hidden while results are counted as reported; the stored values are kept then.
         reviewCriteria: values.review === 'none' ? workflow?.reviewCriteria ?? null : values.reviewCriteria.trim() || null,
-        reworkLimit: results.reworkShown() ? Number(values.reworkLimit) : workflow?.reworkLimit ?? 0
+        reworkLimit: results.reworkShown() ? Number(values.reworkLimit) : workflow?.reworkLimit ?? 0,
+        approval: values.approval
       };
       error.textContent = '';
       try {

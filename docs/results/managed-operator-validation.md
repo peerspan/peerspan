@@ -1,5 +1,51 @@
 # Managed operator validation
 
+## Revision 11 (0.12.0)
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node
+24.22.2, against host binaries built from upstream release 0.2.2. The store is
+version 8.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The twelve suites, cases 1 to 34 | 86/86 passed in about 6.5 minutes in sequence, at a load average of 43 to 64 from other work: acceptance 6/6 (65 s), operations 5/5 (28 s), visibility 6/6 (43 s), remote 4/4 (68 s), schedules 5/5 (17 s), reviewers 8/8 (32 s), runtime-agents 4/4 (14 s), capacity 11/11 (29 s), checks 6/6 (16 s), handoffs 9/9 (15 s), alerts 9/9 (48 s), approvals 13/13 (13 s); 8,519 lines with the harness and the fake. |
+| `real-peerspan-smoke.py` | 5/5 passed in 226 seconds against binaries built from upstream 0.2.2 (`8819c85f`), at a load average of 43 to 49. |
+| Version 7 state built by 0.11.0, opened by 0.12.0 | Every row and compared value kept, with the alerts webhook, a pending handoff and a rejection by checks. The backup `managed.v7-backup.sqlite` was written, a run left running was reconciled with one submission, and a migrated workflow was switched to approval. The reviewer also took versions 2 to 6 to 8, and 0.11.0 refuses version 8. |
+| Console in headless Chrome, 390 and 1360 px | The form's "Before each run" control, a waiting workflow with Approve run and Skip and its attention item, and Approve producing a run with `approvedAt`; no overflow or page errors. |
+
+### Approval before each run
+
+A workflow can wait for the operator before each run (section 14.2, MGD-20).
+When a run is due, nothing is reserved: the workflow shows Approve and Skip,
+and the `approval_pending` item announces the wait through alerts. Approve lets
+that run go out under every other rule, and the run records the approval. Skip
+passes on it: the schedule moves on, or the pending rework or handoff is
+dropped. Neither counts as an intervention.
+
+### Independent review of revision 11
+
+The reviewer found no path that reserves a run without an approval, and
+confirmed defects in what an approval stood for:
+
+- A rework, or a newer handoff, that became pending after the operator approved
+  a run went out on that approval. A newer handoff also silently replaced the
+  input the operator was reading while the workflow waited.
+- An approval survived archive and restore, switching approval off and on, and
+  schedule changes, and could not be taken back. A day-old approval sent out
+  the next day's run.
+- Pause and archive left the wait visible until the next pass, and an approve
+  was accepted on a paused workflow.
+- After an approve, a stale readiness verdict left the reason saying the
+  workflow still waited.
+
+A wait and its approval now concern one run: the scheduled one, or the pending
+rework or handoff. Another run is a new wait. A change by `PATCH` or an archive
+withdraws the approval, and pause and archive end a wait at once. The second
+round confirmed every fix and found one more: a newer handoff arriving while a
+rework was pending restarted the wait for that rework. The rework alone now
+names the run that comes next.
+
 ## Revision 10 (0.11.0)
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node

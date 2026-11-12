@@ -32,6 +32,7 @@ export function workflowStatus(workflow, runs) {
   // A workflow that runs after another simply waits for its next input (contract section 14.1).
   if (workflow.blockedReason.startsWith('Waiting for an accepted result')) return ['Waiting for input', 'ok'];
   if (workflow.blockedReason === 'Daily dispatch limit reached') return ['Daily limit reached', ''];
+  if (workflow.approvalPending) return ['Waiting for approval', 'warn'];
   return ['Waiting for worker', 'warn'];
 }
 
@@ -227,6 +228,9 @@ export function activityText(entry, names) {
     case 'review.cancel_requested': return `asked to cancel a review task of ${workflow}`;
     case 'review.abandoned': return `released a review task of ${workflow}`;
     case 'workflow.rework_due': return `made a rework of a rejected result of ${workflow} due (attempt ${entry.data?.attempt ?? 2})`;
+    case 'workflow.approval_requested': return `asked for your approval to run ${workflow}`;
+    case 'workflow.approved': return `approved the next run of ${workflow}`;
+    case 'workflow.skipped': return `skipped a run of ${workflow}`;
     case 'workflow.handoff_due': return `handed an accepted result to ${workflow} as its next input`;
     case 'alerts.configured': return `set alerts to go to ${entry.data?.host ?? 'a webhook'}`;
     case 'alerts.removed': return 'turned alerts off';

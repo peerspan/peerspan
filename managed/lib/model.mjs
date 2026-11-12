@@ -21,6 +21,7 @@ const TERMINAL = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancell
 
 const PAUSED_BY_OPERATOR = 'Paused by operator';
 const PAUSED_BY_FAILURES = 'Paused after three consecutive failures';
+const WAITING_FOR_APPROVAL = 'Waiting for your approval to run';
 
 /**
  * A due moment as the dispatch rule reads it: a time later than now can only have
@@ -56,7 +57,9 @@ function nextAfterFinish(workflow, finishedAt, succeeded) {
 }
 
 // Reviewing results is the expected work of a reviewed workflow, not an intervention (contract section 8).
-const isIntervention = (actor, kind) => actor === 'operator' && kind !== 'workflow.created' && kind !== 'run.reviewed';
+// Approving and skipping are the expected work of a workflow that asks for approval (section 14.2).
+const EXPECTED_WORK = ['workflow.created', 'run.reviewed', 'workflow.approved', 'workflow.skipped'];
+const isIntervention = (actor, kind) => actor === 'operator' && !EXPECTED_WORK.includes(kind);
 
 // A worker agent takes one assignment at a time, whichever sender submits it (MGD-6),
 // and a review task is such an assignment too (contract section 4).
@@ -119,6 +122,9 @@ function workflowView(row) {
     reworkLimit: row.rework_limit,
     reworkPending: row.rework_pending,
     resultChecks: JSON.parse(row.result_checks),
+    approval: row.approval,
+    approvalPending: row.approval_pending,
+    approvedAt: row.approved_at,
     maxRunsPerDay: row.max_runs_per_day,
     acceptanceMinutes: row.acceptance_minutes,
     enabled: row.enabled === 1,
@@ -134,7 +140,7 @@ function workflowView(row) {
 const RUN_COLUMNS = `r.seq, r.id, r.workflow_id, w.name AS workflow_name, t.task_id, t.state,
   t.output_truncated, t.error, t.problem_since, t.reason, t.progress, t.cancel_requested_at,
   r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note,
-  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch, r.checks, r.handoff_from,
+  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch, r.checks, r.handoff_from, r.approved_at,
   v.task_id AS review_task_id, v.state AS review_state, v.error AS review_error, v.reason AS review_reason,
   v.cancel_requested_at AS review_cancel_requested_at, v.created_at AS review_created_at,
   v.finished_at AS review_finished_at`;
@@ -187,7 +193,8 @@ function runView(row) {
     reworkOf: row.rework_of,
     branch: row.branch === null ? null : JSON.parse(row.branch),
     checks: row.checks === null ? null : JSON.parse(row.checks),
-    handoffFrom: row.handoff_from
+    handoffFrom: row.handoff_from,
+    approvedAt: row.approved_at
   };
 }
 
@@ -404,13 +411,13 @@ export class Model {
     const nextRunAt = fields.after ? null : schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
     this.run(`INSERT INTO workflows
       (id, name, connection_id, instructions, interval_minutes, schedule, after_workflow_id, review, reviewer_id,
-       review_criteria, rework_limit, result_checks, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at,
-       next_run_at, failure_streak, blocked_reason, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+       review_criteria, rework_limit, result_checks, approval, max_runs_per_day, acceptance_minutes, enabled, paused_by,
+       paused_at, next_run_at, failure_streak, blocked_reason, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes ?? null,
     schedule ? JSON.stringify(schedule) : null, fields.after?.workflowId ?? null, fields.review, fields.reviewerId,
     fields.reviewCriteria,
-    fields.reworkLimit, JSON.stringify(fields.resultChecks), fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
+    fields.reworkLimit, JSON.stringify(fields.resultChecks), fields.approval, fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
     enabled ? null : now, nextRunAt, enabled ? null : PAUSED_BY_OPERATOR, now, now);
     this.log(now, 'operator', 'workflow.created', { workflowId: id });
     return this.workflowDetail(id, now);
@@ -433,6 +440,7 @@ export class Model {
       reviewCriteria: 'review_criteria',
       reworkLimit: 'rework_limit',
       resultChecks: 'result_checks',
+      approval: 'approval',
       maxRunsPerDay: 'max_runs_per_day',
       acceptanceMinutes: 'acceptance_minutes'
     };
@@ -480,6 +488,8 @@ export class Model {
     // A workflow that stops running after a workflow, or now runs after another one, no longer has
     // that workflow's result to run on (contract section 14.1).
     if (current.after !== null && next.after !== current.after) sets.push(['handoff_pending', null]);
+    // An approval answered the workflow as it was: any change withdraws it and ends a wait (section 14.2).
+    sets.push(['approval_pending', null], ['approved_at', null], ['approval_for', null]);
     // One statement, so that the store never sees two ways to run, or none.
     this.run(`UPDATE workflows SET ${sets.map(([column]) => column + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`,
       ...sets.map(([, value]) => value), now, id);
@@ -501,7 +511,7 @@ export class Model {
       // Pausing a workflow the failure circuit already paused keeps that cause visible.
       if (row.enabled === 1) {
         this.run(`UPDATE workflows SET enabled = 0, paused_by = 'operator', paused_at = ?, blocked_reason = ?,
-          updated_at = ? WHERE id = ?`, now, PAUSED_BY_OPERATOR, now, id);
+          approval_pending = NULL, updated_at = ? WHERE id = ?`, now, PAUSED_BY_OPERATOR, now, id);
       }
       this.log(now, 'operator', 'workflow.paused', { workflowId: id });
     } else if (action === 'resume') {
@@ -518,13 +528,32 @@ export class Model {
         this.run('UPDATE workflows SET next_run_at = ?, updated_at = ? WHERE id = ?', now, now, id);
       }
       this.log(now, 'operator', 'workflow.run_requested', { workflowId: id });
+    } else if (action === 'approve' || action === 'skip') {
+      // Approval before each run (contract section 14.2): only while the workflow waits for it.
+      if (row.approval_pending === null) throw new Refusal(409, 'The workflow is not waiting for approval');
+      if (action === 'approve') {
+        this.run('UPDATE workflows SET approved_at = ?, approval_pending = NULL, blocked_reason = NULL, updated_at = ? WHERE id = ?',
+          now, now, id);
+      } else if (row.rework_pending !== null) {
+        this.run(`UPDATE workflows SET rework_pending = NULL, approval_pending = NULL, approval_for = NULL, blocked_reason = NULL,
+          updated_at = ? WHERE id = ?`, now, id);
+      } else if (row.handoff_pending !== null) {
+        this.run(`UPDATE workflows SET handoff_pending = NULL, approval_pending = NULL, approval_for = NULL, blocked_reason = NULL,
+          updated_at = ? WHERE id = ?`, now, id);
+      } else {
+        // As if a run had finished now: an interval later, or a schedule's first slot a minute later.
+        this.run(`UPDATE workflows SET next_run_at = ?, approval_pending = NULL, approval_for = NULL, blocked_reason = NULL,
+          updated_at = ? WHERE id = ?`, nextAfterFinish(row, now, true), now, id);
+      }
+      this.log(now, 'operator', action === 'approve' ? 'workflow.approved' : 'workflow.skipped', { workflowId: id });
     } else if (action === 'archive') {
       if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', id)) {
         throw new Refusal(409, 'Workflow has an unresolved run; wait for it, cancel it or release it first');
       }
       // An archived workflow gets no rework and no handoff; reviews of its runs go on (sections 9, 14.1).
       this.run(`UPDATE workflows SET archived_at = ?, enabled = 0, paused_by = 'operator', paused_at = ?,
-        blocked_reason = ?, rework_pending = NULL, handoff_pending = NULL, updated_at = ? WHERE id = ?`,
+        blocked_reason = ?, rework_pending = NULL, handoff_pending = NULL, approval_pending = NULL, approved_at = NULL,
+        approval_for = NULL, updated_at = ? WHERE id = ?`,
       now, now, PAUSED_BY_OPERATOR, now, id);
       this.log(now, 'operator', 'workflow.archived', { workflowId: id });
     } else {
@@ -558,6 +587,13 @@ export class Model {
         '9999') AS due_rank
       FROM workflows w WHERE w.archived_at IS NULL ORDER BY due_rank, w.rowid`);
     for (const workflow of workflows) {
+      // A workflow that asks for approval reserves nothing while it waits, whatever its worker's state.
+      if (this.followApproval(workflow, now, dayStart)) {
+        if (workflow.blocked_reason !== WAITING_FOR_APPROVAL) {
+          this.run('UPDATE workflows SET blocked_reason = ? WHERE id = ?', WAITING_FOR_APPROVAL, workflow.id);
+        }
+        continue;
+      }
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
       const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt);
       // A ready worker whose verdict is older than the work is decided by a later pass; its reason stays.
@@ -603,6 +639,39 @@ export class Model {
       return undefined;
     }
     return null;
+  }
+
+  /**
+   * Whether a workflow waits for the operator's approval now (contract section 14.2): enabled, asking
+   * for approval, without an unresolved run, under its daily cap, due, and holding no approval. The
+   * wait's start is recorded once, and a wait that ends without a decision is forgotten.
+   */
+  followApproval(workflow, now, dayStart) {
+    if (workflow.approval !== 'operator') {
+      if (workflow.approval_pending !== null) this.run('UPDATE workflows SET approval_pending = NULL WHERE id = ?', workflow.id);
+      return false;
+    }
+    const due = workflow.rework_pending !== null
+      || (workflow.after_workflow_id !== null ? workflow.handoff_pending !== null : workflow.next_run_at <= now);
+    // A wait and an approval concern one run: the scheduled run, the pending rework or the pending handoff.
+    // Another one, such as a rework or a newer handoff that arrived since, is a new wait (section 14.2).
+    // The run that comes next: a pending rework goes before a pending handoff, so it alone names the occasion.
+    const occasion = JSON.stringify(workflow.rework_pending !== null ? [workflow.rework_pending, null]
+      : [null, workflow.handoff_pending]);
+    if (workflow.approved_at !== null && due && workflow.approval_for !== occasion) {
+      this.run('UPDATE workflows SET approved_at = NULL, approval_for = NULL WHERE id = ?', workflow.id);
+      workflow.approved_at = null;
+    }
+    const waiting = workflow.enabled === 1 && workflow.approved_at === null && due
+      && !this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', workflow.id)
+      && this.dispatchedSince(workflow.id, dayStart) < workflow.max_runs_per_day;
+    if (waiting && (workflow.approval_pending === null || workflow.approval_for !== occasion)) {
+      this.run('UPDATE workflows SET approval_pending = ?, approval_for = ? WHERE id = ?', now, occasion, workflow.id);
+      this.log(now, 'system', 'workflow.approval_requested', { workflowId: workflow.id });
+    } else if (!waiting && workflow.approval_pending !== null) {
+      this.run('UPDATE workflows SET approval_pending = NULL WHERE id = ?', workflow.id);
+    }
+    return waiting;
   }
 
   /** When a workflow's next run became due: its schedule, the operator's last change, a rework or a handoff. */
@@ -750,13 +819,15 @@ export class Model {
     // The run keeps the review requirement, reviewer and result checks its workflow has now
     // (contract sections 15, 15.1 and 15.3).
     this.run(`INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required, reviewer_id, attempt,
-      rework_of, assignment, result_checks, handoff_from) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      rework_of, assignment, result_checks, handoff_from, approved_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     runId, workflow.id, taskId, now, workflow.review === 'none' ? 0 : 1,
     workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, assignment,
-    workflow.result_checks === '[]' ? null : workflow.result_checks, handoffFrom);
+    workflow.result_checks === '[]' ? null : workflow.result_checks, handoffFrom,
+    workflow.approval === 'operator' ? workflow.approved_at : null);
     // A rework leaves a pending handoff for the run after it; a handoff run takes it.
-    this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL,
-      handoff_pending = CASE WHEN ? THEN NULL ELSE handoff_pending END WHERE id = ?`,
+    // The approval is used up by this run (section 14.2).
+    this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL, approved_at = NULL,
+      approval_for = NULL, handoff_pending = CASE WHEN ? THEN NULL ELSE handoff_pending END WHERE id = ?`,
     workflow.rework_pending === null ? 1 : 0, workflow.id);
     this.log(now, 'system', 'run.dispatched', { workflowId: workflow.id, runId });
     return taskRecord(this.one('SELECT * FROM tasks WHERE task_id = ?', taskId));
@@ -1099,7 +1170,8 @@ export class Model {
       item.averageSeconds = row.average_seconds === null ? null : Math.max(0, Math.round(row.average_seconds));
     }
     for (const row of this.all(`SELECT workflow_id, COUNT(*) AS interventions FROM activity
-      WHERE at >= ? AND actor = 'operator' AND kind NOT IN ('workflow.created', 'run.reviewed')
+      WHERE at >= ? AND actor = 'operator'
+        AND kind NOT IN ('workflow.created', 'run.reviewed', 'workflow.approved', 'workflow.skipped')
         AND workflow_id IS NOT NULL
       GROUP BY workflow_id`, since)) {
       entry(row.workflow_id).interventions = row.interventions;

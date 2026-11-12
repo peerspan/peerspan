@@ -670,7 +670,7 @@ async function case16_cancelAbandonAndRestart() {
     ofRun(three, {state: 'abandoned'}, 'system'), ofRun(four, {state: 'succeeded'}, 'system')].sort(byRun),
   '§11 review.finished {state} for every review task that ends, abandoned included (§15.1)');
   const interventions = log.filter(entry => entry.actor === 'operator' && entry.workflowId === workflow.id &&
-    !['workflow.created', 'run.reviewed'].includes(entry.kind));
+    !['workflow.created', 'run.reviewed', 'workflow.approved', 'workflow.skipped'].includes(entry.kind));   // (rev 11) §8
   expectEqual((await f.workflow(workflow.id)).stats.interventions, interventions.length,
     '§8 interventions count the operator entries of the workflow, review.cancel_requested and review.abandoned included (§11)');
   await f.stop();

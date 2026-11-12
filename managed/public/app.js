@@ -330,7 +330,8 @@ function showLogin() {
 
 const actions = {
   workflow(id, action) {
-    const done = { pause: 'Paused. The run in progress, if any, continues.', resume: 'Resumed.', run: 'The next run is due now.', restore: 'Restored, paused.' }[action];
+    const done = { pause: 'Paused. The run in progress, if any, continues.', resume: 'Resumed.', run: 'The next run is due now.', restore: 'Restored, paused.',
+      approve: 'Approved. The run goes out when its worker is ready.', skip: 'Skipped. The workflow waits for its next run.' }[action];
     return perform(() => post(`/api/workflows/${id}/${action}`), done);
   },
 

@@ -32,6 +32,10 @@ function attentionFor({ engine, workflows, connections, problems, reviews, await
       add('workflow_auto_paused', 'action', 'workflow', workflow,
         'Paused after three consecutive failed runs; review the results, then resume', workflow.pausedAt);
     }
+    // (rev 11) A run that waits for the operator's approval (section 14.2).
+    if (workflow.approvalPending) {
+      add('approval_pending', 'action', 'workflow', workflow, 'Its next run waits for your approval', workflow.approvalPending);
+    }
   }
   for (const review of reviews) {
     add('review_pending', 'action', 'workflow', review, review.waiting === 1

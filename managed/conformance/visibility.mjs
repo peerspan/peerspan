@@ -232,8 +232,9 @@ async function case11_timelineHistoryAndActivity() {
     expect(found.length === wanted, `§11 activity: expected ${wanted} × ${kind} ${JSON.stringify(references)} ` +
       `${data === undefined ? '' : JSON.stringify(data)}, found ${found.length}`, log.filter(entry => entry.kind === kind));
   }
+  // (rev 11) workflow.approved and workflow.skipped are not interventions either; this workflow has neither.
   const interventions = log.filter(entry => entry.actor === 'operator' && entry.workflowId === workflow.id &&
-    entry.kind !== 'workflow.created').length;
+    !['workflow.created', 'workflow.approved', 'workflow.skipped'].includes(entry.kind)).length;
   expectEqual(pick(await stats(), 'runs succeeded failed successRate interventions unattendedRuns'),
     {runs: 6, succeeded: 1, failed: 3, successRate: 0.25, interventions, unattendedRuns: 0},
     '§8 stats: failed excludes the cancelled-on-request and abandoned runs; interventions counts the operator ' +
@@ -501,8 +502,8 @@ async function case12_versionOneMigration() {
   db.close();
   await fs.chmod(file, 0o600);
 
-  await f.start();   // the first revision 10 command that opens the state migrates it through to version 7
-  const snapshot = await f.snapshot();   // meta.schemaVersion 7 is checked on every snapshot
+  await f.start();   // the first revision 11 command that opens the state migrates it through to version 8
+  const snapshot = await f.snapshot();   // meta.schemaVersion 8 is checked on every snapshot
   const backup = await fs.stat(path.join(f.state, 'managed.v1-backup.sqlite')).catch(() => null);
   expect(backup !== null && backup.size > 0 && (backup.mode & 0o777) === 0o600,
     '§1 before migrating, a copy of the version 1 database is saved as managed.v1-backup.sqlite, private (0600)',
@@ -537,6 +538,10 @@ async function case12_versionOneMigration() {
   expectEqual([snapshot.meta.alerts, JSON.parse(await f.checkedCli('alerts'))], [{configured: false, host: null,
     failing: false}, {configured: false, host: null}], '§1 (rev 10) migrated state has no alerts configured: §8.1 ' +
     'meta.alerts and the output of alerts alone');
+  expectEqual([snapshot.workflows.map(item => pick(item, 'approval approvalPending approvedAt')), snapshot.runs.filter(run =>
+    [done.id, open.id].includes(run.id)).map(run => run.approvedAt)], [Array(3).fill({approval: 'none', approvalPending: null,
+    approvedAt: null}), [null, null]], '§1 (rev 11) migrated workflows have approval none and approvalPending and approvedAt ' +
+    'null, and migrated runs approvedAt null');
   const runView = row => row && {...pick(row, 'id workflowId taskId state output'), createdAt: moment(row.createdAt),
     finishedAt: moment(row.finishedAt)};
   expectEqual(runView(snapshot.runs.find(run => run.id === done.id)), runView(done),
@@ -575,8 +580,8 @@ async function case12_newerSchemaRefused() {
   await fs.mkdir(f.state, {mode: 0o700});
   const file = path.join(f.state, 'managed.sqlite');
   const db = new DatabaseSync(file);
-  // §1 (rev 10): the current schema version is 7, so a newer one is 8.
-  db.exec("PRAGMA user_version = 8; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
+  // §1 (rev 11): the current schema version is 8, so a newer one is 9.
+  db.exec("PRAGMA user_version = 9; CREATE TABLE fake_future_schema(note TEXT NOT NULL); " +
     "INSERT INTO fake_future_schema VALUES ('FAKE state written by a newer schema')");
   db.close();
   await fs.chmod(file, 0o600);

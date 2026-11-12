@@ -20,6 +20,7 @@ node managed/conformance/capacity.mjs
 node managed/conformance/checks.mjs
 node managed/conformance/handoffs.mjs
 node managed/conformance/alerts.mjs
+node managed/conformance/approvals.mjs
 ```
 
 On the configured Windows editing machine:
@@ -38,13 +39,14 @@ revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
 suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
 (cases 20 to 22) the revision 6 and 7.1 suite, `checks.mjs` (cases 23 to 25)
-the revision 8 suite, `handoffs.mjs` (cases 26 to 28) the revision 9 suite, and
-`alerts.mjs` (cases 29 to 31) the revision 10 suite.
+the revision 8 suite, `handoffs.mjs` (cases 26 to 28) the revision 9 suite,
+`alerts.mjs` (cases 29 to 31) the revision 10 suite, and `approvals.mjs` (cases
+32 to 34) the revision 11 suite.
 They are split by area to stay near
 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 10 shapes of
-contract sections 1, 3, 3.1, 4, 7.1, 8, 8.1, 10, 10.1, 11, 14, 14.1, 15, 15.1 and 15.3
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 11 shapes of
+contract sections 1, 3, 3.1, 4, 7.1, 8, 8.1, 10, 10.1, 11, 14, 14.1, 14.2, 15, 15.1 and 15.3
 (readiness with `runtime` and the runtime codes of agent mode; each connection's
 `capacity`, derived from its readiness, and `activeTasks`, equal for connections
 to one agent; each workflow's `resultChecks` and each run's `checks`; each
@@ -56,7 +58,12 @@ run of another workflow and a handoff run's assignment with its `INPUT` block;
 `workflow.handoff_due`; `meta.alerts` `{configured,host,failing}`, the
 `alerts_failing` item present exactly while `failing` is true, with subject
 `{type:"alerts",id:"alerts",name:"Alerts"}` and a message naming the host;
-`alerts.configured` `{host}` and `alerts.removed`; schema version 7), which are checked on
+`alerts.configured` `{host}` and `alerts.removed`; each workflow's `approval`
+(`none` or `operator`), `approvalPending` and `approvedAt`, never both set, and
+each run's `approvedAt`; the `approval_pending` item present exactly while a
+workflow's `approvalPending` is set, with that time as its `since`;
+`workflow.approval_requested`, `workflow.approved` and `workflow.skipped`;
+schema version 8), which are checked on
 every snapshot, run page and run detail any of them fetches: among them the
 attention items derived from the snapshot (`worker_unready` for reviewers,
 `run_problem` for review tasks, `review_pending` only for runs that wait for the
@@ -200,6 +207,37 @@ Every response body is also checked for fixture paths, the access token and
   evaluation bound while its raised alert still fails). Quiet windows last 11.5
   seconds (attention is evaluated within 10 seconds of a change). Nine concurrent
   cases, about 70 seconds.
+- `approvals.mjs`: approval before each run. Fields (`approval` at creation,
+  `none` when omitted, and in `PATCH`, the 400s for other values and for
+  `approvalPending` or `approvedAt` in a `PATCH`, `workflow.edited` only for a
+  change, restore keeping it); waits (an interval, a scheduled, a `run`, a rework
+  and a handoff run each waiting with nothing submitted, with the worker ready,
+  not ready and ready again and however many intervals pass; `approvalPending`,
+  `nextRunAt` and the `blockedReason`, which is not the worker's reason, staying
+  through a wait; the `approval_pending` item; one `workflow.approval_requested`
+  per wait; no wait while paused, also after `run`, with an unresolved run, at
+  the daily cap, or for an `after` workflow with nothing pending; pause ending a
+  wait at once (the response, then 409) and resume beginning a new one; a new
+  UTC day; a rework or a newer handoff that becomes pending while the workflow
+  waits making a new wait, with its own `approvalPending` and entry); `approve`
+  and `skip` (404, 409 for an archived, paused, unapproved, approved or busy
+  workflow and right after a pause or an archive, 400 for a body other than
+  `{}`; exactly one run with its `approvedAt` and the workflow's cleared in the
+  same step, the next run waiting again; an approval kept across `pause` and
+  `resume` and by a `PATCH` that changes no value, and withdrawn, so that the
+  workflow waits again, by a `PATCH` that changes a value, by an archive, by a
+  rework that becomes pending before an approved scheduled run goes out (the
+  rework then going out with its own approval) and by a newer handoff, the
+  upstream running on a second worker; `skip` moving `nextRunAt` an interval
+  on, or to the first slot at least a minute away, dropping a pending rework
+  before a pending handoff, and creating no run; the activity entries;
+  `interventions` and `unattendedRuns` unchanged by both); and the rest
+  (switching `approval` off while waiting, an approved run waiting for a ready
+  worker, and a restart keeping a wait and an approval). Thirteen concurrent
+  cases, about 15 seconds; the FAKE worker is driven step by step with FAKE
+  SCRIPTED results, held back by a session that is not ready while an approval
+  must stay unused, and `MANAGED_CLOCK_FILE` moves the clock to due times, slots
+  and a new UTC day.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly

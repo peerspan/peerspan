@@ -14,11 +14,12 @@ const INTEGER_RANGES = {
 };
 const REQUIRED = ['name', 'connectionId', 'instructions', 'maxRunsPerDay', 'acceptanceMinutes'];
 const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'after', 'review', 'reviewerId', 'reviewCriteria',
-  'reworkLimit', 'resultChecks'];
+  'reworkLimit', 'resultChecks', 'approval'];
 // A workflow runs on exactly one of these (contract sections 14 and 14.1).
 const WHEN = ['intervalMinutes', 'schedule', 'after'];
 const CREATABLE = [...EDITABLE, 'enabled'];
 const REVIEWS = ['none', 'operator', 'agent'];
+const APPROVALS = ['none', 'operator'];
 const VERDICTS = ['accepted', 'rejected'];
 const NOTE_LIMIT = 2000;
 const CRITERIA_LIMIT = 2000;
@@ -96,6 +97,10 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
       }
       if (value?.includes('\u0000')) throw invalid('Review criteria cannot contain NUL characters');
       fields[key] = value === null ? null : value.trim() || null;
+    } else if (key === 'approval') {
+      // Approval before each run (contract section 14.2).
+      if (!APPROVALS.includes(value)) throw invalid('Invalid approval; use none or operator');
+      fields[key] = value;
     } else if (key === 'resultChecks') {
       fields[key] = normalizeChecks(value);
     }
@@ -112,7 +117,7 @@ export function newWorkflow(body) {
   if (WHEN.every(key => fields[key] === undefined)) {
     throw invalid('Give intervalMinutes, a schedule, or the workflow this one runs after');
   }
-  const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, resultChecks: [], ...fields };
+  const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, resultChecks: [], approval: 'none', ...fields };
   // A reviewer exactly when the review is an agent's (contract section 15.1).
   if (workflow.review === 'agent' && workflow.reviewerId === null) throw invalid('Choose the reviewer agent');
   if (workflow.review !== 'agent' && workflow.reviewerId !== null) {

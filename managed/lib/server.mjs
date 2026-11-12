@@ -38,7 +38,7 @@ const CONTENT_TYPES = {
 
 // New IDs are UUIDs; the store decides whether an ID exists, so migrated IDs of any shape work too.
 const ID = '[A-Za-z0-9_-]{1,64}';
-const WORKFLOW_ACTION = new RegExp(`^/api/workflows/(${ID})/(pause|resume|run|archive|restore)$`);
+const WORKFLOW_ACTION = new RegExp(`^/api/workflows/(${ID})/(pause|resume|run|archive|restore|approve|skip)$`);
 const WORKFLOW = new RegExp(`^/api/workflows/(${ID})$`);
 const RUN = new RegExp(`^/api/runs/(${ID})$`);
 const RUN_ACTION = new RegExp(`^/api/runs/(${ID})/(cancel|abandon|review)$`);

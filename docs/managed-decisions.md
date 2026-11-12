@@ -554,3 +554,44 @@ restarts, and would make two rules where the store's one rule now decides.
   The reviewer also raised the URL standing in the process list and the shell
   history. `--url -` reads it from standard input.
 - **Contract.** Sections 1, 7, 8, 8.1 and 11.
+
+## MGD-20. Approval before each run (2026-11-12)
+
+- **Question.** Some recurring assignments have effects the operator wants to
+  confirm every time: a release, a migration, a message to customers. The
+  product promises no automatic human approval. Review comes after the work is
+  done, which is too late for those. How should a workflow wait for the
+  operator before it runs?
+- **Options.**
+  - (a) A workflow setting: each run waits for the operator's Approve, and Skip
+    passes on that occurrence.
+  - (b) Reserve the run and hold its task unsent until approved.
+  - (c) Leave such workflows paused, and have the operator use "Run now" by hand.
+- **Chosen.** (a). The wait is an `action` attention item, so it reaches the
+  operator through alerts. Approve lets exactly one run go out under every
+  other rule. Skip moves the schedule on, or drops the pending rework or
+  handoff.
+- **Reason.**
+  - (b) would hold a run and its worker while nobody had decided anything,
+    count toward the daily cap, and leave a task that has to be cancelled when
+    the answer is no.
+  - (c) loses the schedule: nothing tells the operator that a run is due. A
+    missed release day is silent, and a rework or handoff has nowhere to wait.
+  - With (a) nothing is reserved before the decision. The workflow keeps its
+    schedule, checks, review and handoffs, and each run records the approval it
+    went out with. Approve and Skip are the expected work of such a workflow, so
+    neither counts as an intervention.
+- **An approval is for one run.** The independent reviewer showed that the first
+  form approved "the next run", whatever it turned out to be:
+  - A rejection after the approval made the rework go out on it, though the
+    operator had approved the scheduled run.
+  - A newer handoff replaced the input the operator had read, before or after
+    the approval.
+  - An approval outlived archive and restore, and changes to the schedule; it
+    could not be taken back.
+
+  A wait and its approval now concern one run, the scheduled one or the pending
+  rework or handoff. Another one is a new wait, and a change by `PATCH` or an
+  archive withdraws the approval. A pause keeps it, and pause and archive end a
+  wait at once.
+- **Contract.** Sections 1, 2, 8, 9, 11 and 14.2.

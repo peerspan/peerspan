@@ -1,10 +1,13 @@
-// Shared plumbing for the revision 2 to 10 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs, checks.mjs, handoffs.mjs and alerts.mjs).
+// Shared plumbing for the revision 2 to 11 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs, checks.mjs, handoffs.mjs, alerts.mjs and approvals.mjs).
 // Contract-only and black-box: it launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan
 // executable in throwaway private directories. It never imports or reads the managed implementation or its database.
-// Section numbers (§) refer to docs/managed-contract.md. Shapes are those of revision 10, which keeps every revision 9
-// behavior and adds alerts to a webhook (§8.1): meta.alerts {configured,host,failing}, the attention kind
-// alerts_failing and the operator activity alerts.configured and alerts.removed; the store is at schema 7 (§1).
+// Section numbers (§) refer to docs/managed-contract.md. Shapes are those of revision 11, which keeps every revision 10
+// behavior and adds approval before each run (§14.2): each workflow's approval, approvalPending and approvedAt, each
+// run's approvedAt, the attention kind approval_pending, the system activity workflow.approval_requested and the
+// operator activity workflow.approved and workflow.skipped; the store is at schema 8 (§1). Revision 10 added alerts
+// to a webhook (§8.1): meta.alerts {configured,host,failing}, the attention kind alerts_failing and the operator
+// activity alerts.configured and alerts.removed.
 // Revision 9 added handoffs (§14.1): each workflow's after and handoffPending, nextRunAt null exactly for an after
 // workflow, each run's handoffFrom and the system activity workflow.handoff_due. Revision 8 added result checks
 // (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for a result that failed them.
@@ -122,20 +125,21 @@ const severities = ['action', 'warning', 'info'];
 const attentionRows = {controller_error: ['action', 'controller'], workflow_auto_paused: ['action', 'workflow'],
   worker_unready: [null, 'connection'], run_problem: ['warning', 'run'], observed_unavailable: ['warning', 'observation'],
   observed_problem: ['warning', 'observation'], daily_limit_reached: ['info', 'workflow'],
-  alerts_failing: ['warning', 'alerts'], review_pending: ['action', 'workflow']};
+  approval_pending: ['action', 'workflow'], alerts_failing: ['warning', 'alerts'], review_pending: ['action', 'workflow']};
 // §8.1 (rev 10): the one subject of alerts_failing.
 export const alertsSubject = {type: 'alerts', id: 'alerts', name: 'Alerts'};
 const activityKinds = {
   operator: ['workflow.created', 'workflow.paused', 'workflow.resumed', 'workflow.run_requested',
     'workflow.archived', 'workflow.restored', 'workflow.edited', 'run.cancel_requested', 'run.abandoned',
     'run.reviewed', 'connection.added', 'connection.removed', 'observation.added', 'observation.removed',
-    'review.cancel_requested', 'review.abandoned', 'alerts.configured', 'alerts.removed'],
+    'review.cancel_requested', 'review.abandoned', 'alerts.configured', 'alerts.removed',
+    'workflow.approved', 'workflow.skipped'],
   system: ['run.dispatched', 'run.finished', 'run.problem', 'run.recovered', 'workflow.auto_paused',
     'worker.ready', 'worker.unready', 'run.reviewed', 'review.dispatched', 'review.finished', 'review.fallback',
-    'workflow.rework_due', 'workflow.handoff_due']};
+    'workflow.rework_due', 'workflow.handoff_due', 'workflow.approval_requested']};
 const runFields = 'id workflowId workflowName taskId state output outputTruncated error reason progress ' +
   'cancelRequestedAt createdAt updatedAt startedAt finishedAt review reviewedAt reviewNote ' +
-  'reviewedBy reviewTask reviewFallback attempt reworkOf branch checks handoffFrom';
+  'reviewedBy reviewTask reviewFallback attempt reworkOf branch checks handoffFrom approvedAt';
 // §14.1 (rev 9): a run of an upstream counts as a success once it ends succeeded with review null, or once its review
 // becomes accepted; only such a run is handed off.
 const counted = run => run.state === 'succeeded' && (run.review === null || run.review === 'accepted');
@@ -356,6 +360,9 @@ export function checkRun(run, {detail = false} = {}) {
       'and RESULT lines, cut to 32,768 bytes unless the result is only …', {bytes: Buffer.byteLength(run.assignment),
       start: run.assignment.slice(0, 200)});
   }
+  // §14.2 (rev 11): approvedAt is null, or the approval the run was reserved with.
+  expect(nullable(run.approvedAt, isTime), '§14.2 a run approvedAt is null or the approval (a time) it was reserved with',
+    pick(run, 'id approvedAt'));
   // §15: review is null unless the run ended succeeded and needs review; reviewedAt and reviewNote come
   // with a verdict, the note trimmed, nonempty and at most 2,000 characters.
   const verdict = ['accepted', 'rejected'].includes(run.review);
@@ -386,7 +393,8 @@ export function checkActivityEntry(entry) {
   // (rev 4) A review.* entry carries the reviewed run and its workflow, as a run.* entry does, and
   // workflow.rework_due carries the rejected run as its runId. (rev 9) workflow.handoff_due carries the upstream run
   // as its runId and the workflow that will run on it as its workflowId; its data is null. (rev 10) An alerts.* entry
-  // carries no reference.
+  // carries no reference. (rev 11) workflow.approval_requested, workflow.approved and workflow.skipped are workflow
+  // entries with data null.
   const area = ['workflow.rework_due', 'workflow.handoff_due'].includes(entry.kind) ? 'run' : entry.kind.split('.')[0];
   const none = ['workflowId', 'runId', 'connectionId'];
   const present = {workflow: ['workflowId'], run: ['runId', 'workflowId'], review: ['runId', 'workflowId'],
@@ -431,7 +439,14 @@ export function checkSchedule(schedule) {
 function checkWorkflow(w, connections = []) {
   keys(w, 'id name connectionId instructions intervalMinutes maxRunsPerDay acceptanceMinutes enabled ' +
     'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review ' +
-    'reviewerId reviewCriteria reworkLimit reworkPending resultChecks after handoffPending', '§8 workflow');
+    'reviewerId reviewCriteria reworkLimit reworkPending resultChecks after handoffPending approval approvalPending ' +
+    'approvedAt', '§8 workflow');
+  // §14.2 (rev 11): approval is none or operator; approvalPending (the moment a wait began) and approvedAt (an approval
+  // held for the next run) are null or a time. Approve sets approvedAt and makes approvalPending null in one step, and a
+  // workflow that holds an approval does not wait, so the two are never both set.
+  expect(['none', 'operator'].includes(w.approval) && nullable(w.approvalPending, isTime) && nullable(w.approvedAt, isTime) &&
+    (w.approvalPending === null || w.approvedAt === null), '§14.2 approval is none or operator; approvalPending and ' +
+    'approvedAt are null or a time, and a workflow that holds an approval does not wait', pick(w, 'approval approvalPending approvedAt'));
   expect(isCheckList(w.resultChecks) && w.resultChecks.every(check => Object.keys(check)[0] === 'kind'),
     '§15.3 (rev 8) resultChecks is an array of at most 8 checks of the six kinds, each with kind first, and no ' +
     'minLength above a maxLength', w.resultChecks);
@@ -519,6 +534,14 @@ function checkAttention(s) {
   }
   for (const w of s.workflows) {
     if (w.pausedBy === 'failures') expected.push({kind: 'workflow_auto_paused', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
+    // (rev 11) §14.2: while a workflow waits for approval, approvalPending is the moment the wait began and the item
+    // approval_pending is present, with that moment as its since. An archived workflow is disabled and never waits.
+    if (w.approvalPending !== null) expected.push({kind: 'approval_pending', severity: 'action', subject: {type: 'workflow', id: w.id, name: w.name}});
+  }
+  for (const item of s.attention.filter(entry => entry.kind === 'approval_pending')) {
+    const w = s.workflows.find(entry => entry.id === item.subject.id);
+    expect(w && Date.parse(item.since) === Date.parse(w.approvalPending), '§8 (rev 11) approval_pending names a waiting ' +
+      'workflow, and its since is that workflow approvalPending (as instants)', {item, approvalPending: w?.approvalPending});
   }
   for (const run of s.runs) {
     const task = run.reviewTask;
@@ -577,8 +600,8 @@ export function checkSnapshot(s) {
   keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
     'modelCost cloudProvisioning alerts', '§8 meta (rev 10: with alerts)');
   expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 7, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 (rev 10) schema version 7', s.meta);
+    s.meta.revision !== '' && s.meta.schemaVersion === 8, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 (rev 11) schema version 8', s.meta);
   // §8.1 (rev 10): meta.alerts is {configured,host,failing}; host is the webhook's host name, null when none is set.
   keys(s.meta.alerts, 'configured host failing', '§8.1 meta.alerts');
   const {configured, host, failing} = s.meta.alerts;

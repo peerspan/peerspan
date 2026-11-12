@@ -136,6 +136,11 @@ review criteria; read and adapt them, choose the worker, and save.
   history. When several results arrive before the next run, the latest is used.
   A rejected result never travels. "Run now" starts from the latest accepted
   result.
+- **Approval before each run.** For assignments whose effects you want to
+  confirm every time, such as a release or a message to customers, a workflow
+  can wait for you before each run. When a run is due, nothing is sent: the
+  workflow shows Approve and Skip, and alerts tell you it waits. Approve lets
+  that one run go out; Skip passes on it and waits for the next.
 - **Results.** By default a succeeded run counts as the worker reports it. With
   "I check them", it waits for your verdict; with "An agent checks them", a
   reviewer agent checks it first (below). Accepted results count as successes,
@@ -316,7 +321,7 @@ state directory. Nothing here replaces the Peerspan host service.
 
 The first command of this version that opens an existing state directory
 migrates it in place, after saving a copy beside it as
-`managed.vN-backup.sqlite`, N being the store version it found (1 to 6).
+`managed.vN-backup.sqlite`, N being the store version it found (1 to 7).
 Connections, observations, workflows, runs, task IDs, results, verdicts and the
 activity log keep their IDs and values; a run that was unresolved is reconciled
 under its task ID as after any restart. Existing workflows keep their intervals,
@@ -338,6 +343,7 @@ node managed/conformance/capacity.mjs           # contract cases 20 to 22
 node managed/conformance/checks.mjs             # contract cases 23 to 25
 node managed/conformance/handoffs.mjs           # contract cases 26 to 28
 node managed/conformance/alerts.mjs             # contract cases 29 to 31
+node managed/conformance/approvals.mjs          # contract cases 32 to 34
 # Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```

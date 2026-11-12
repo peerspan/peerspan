@@ -8,13 +8,23 @@
 // Version 4 adds reviewer agents, rework and branches (sections 10.1, 15.1, 15.2).
 // Version 5 adds result checks (section 15.3). Version 6 adds handoffs (section
 // 14.1): a workflow runs on an interval, a schedule or after another workflow.
-// Version 7 adds alerts to a webhook (section 8.1).
+// Version 7 adds alerts to a webhook (section 8.1). Version 8 adds approval before
+// each run (section 14.2).
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchOf } from './review.mjs';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
+
+// Version 8: a workflow's approval rule, its wait and the approval its next run will use; a run's approval.
+const APPROVAL_COLUMNS_ADDED = `
+  ALTER TABLE workflows ADD COLUMN approval TEXT NOT NULL DEFAULT 'none' CHECK (approval IN ('none', 'operator'));
+  ALTER TABLE workflows ADD COLUMN approval_pending TEXT;
+  ALTER TABLE workflows ADD COLUMN approved_at TEXT;
+  ALTER TABLE workflows ADD COLUMN approval_for TEXT;`;
+const RUN_COLUMNS_V8 = `
+  ALTER TABLE runs ADD COLUMN approved_at TEXT;`;
 
 // Version 7: operator settings (the alerts webhook, a secret) and one row per alert (contract section 8.1).
 // An alert follows one attention item from raised to cleared; `item` is the item as raised.
@@ -84,6 +94,13 @@ CREATE TABLE workflows (
   rework_pending TEXT,
   -- The result checks, as a JSON array (contract section 15.3).
   result_checks TEXT NOT NULL DEFAULT '[]',
+  -- Approval before each run (contract section 14.2): the rule, since when the workflow waits, and the
+  -- approval its next run will use.
+  approval TEXT NOT NULL DEFAULT 'none' CHECK (approval IN ('none', 'operator')),
+  approval_pending TEXT,
+  approved_at TEXT,
+  -- The run that wait or approval concerns, as JSON [rework run, handoff run]: another one is a new wait.
+  approval_for TEXT,
   max_runs_per_day INTEGER NOT NULL,
   acceptance_minutes INTEGER NOT NULL,
   enabled INTEGER NOT NULL,
@@ -211,7 +228,9 @@ CREATE TABLE runs (
   result_checks TEXT,
   checks TEXT,
   -- For a handoff run, the upstream run whose result was its input (contract section 14.1).
-  handoff_from TEXT
+  handoff_from TEXT,
+  -- The operator's approval the run was reserved with (contract section 14.2).
+  approved_at TEXT
 );
 -- One unresolved run per workflow (contract section 4).
 CREATE UNIQUE INDEX runs_open_workflow ON runs(workflow_id) WHERE open = 1;
@@ -279,31 +298,36 @@ function rebuild(db, table, ddl, columns) {
 function migrateFromV2(db) {
   rebuild(db, 'connections', CONNECTIONS, CONNECTION_COLUMNS);
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V2);
-  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
+  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + RUN_COLUMNS_V8 + ALERT_TABLES);
 }
 
 // Version 3 to the current version, inside the caller's transaction.
 function migrateFromV3(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V3);
-  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
+  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + RUN_COLUMNS_V8 + ALERT_TABLES);
 }
 
 // Version 4 to the current version, inside the caller's transaction. The workflows table is
 // rebuilt because its constraints changed in version 6 (handoffs).
 function migrateFromV4(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V4);
-  db.exec(RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + ALERT_TABLES);
+  db.exec(RUN_COLUMNS_V5 + RUN_COLUMNS_V6 + RUN_COLUMNS_V8 + ALERT_TABLES);
 }
 
 // Version 5 to the current version, inside the caller's transaction.
 function migrateFromV5(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V5);
-  db.exec(RUN_COLUMNS_V6 + ALERT_TABLES);
+  db.exec(RUN_COLUMNS_V6 + RUN_COLUMNS_V8 + ALERT_TABLES);
 }
 
 // Version 6 to the current version, inside the caller's transaction.
 function migrateFromV6(db) {
-  db.exec(ALERT_TABLES);
+  db.exec(ALERT_TABLES + APPROVAL_COLUMNS_ADDED + RUN_COLUMNS_V8);
+}
+
+// Version 7 to the current version, inside the caller's transaction.
+function migrateFromV7(db) {
+  db.exec(APPROVAL_COLUMNS_ADDED + RUN_COLUMNS_V8);
 }
 
 /**
@@ -417,7 +441,8 @@ export function openDatabase(file) {
         // Another process may have migrated while this one waited for the lock.
         const current = userVersion(db);
         if (current < SCHEMA_VERSION) {
-          if (current === 6) migrateFromV6(db);
+          if (current === 7) migrateFromV7(db);
+          else if (current === 6) migrateFromV6(db);
           else if (current === 5) migrateFromV5(db);
           else if (current === 4) migrateFromV4(db);
           else if (current === 3) migrateFromV3(db);

@@ -317,7 +317,7 @@ async function case29_configuration() {
 
 // Case 29. §8.1: a refused URL changes nothing, not even an older store's version, and creates nothing: no state
 // directory where there was none, and a version 1 store (§13, created here as that section documents it; an older
-// store than version 7) left byte for byte, with no backup copy or any other file beside it (§1).
+// store than version 8) left byte for byte, with no backup copy or any other file beside it (§1).
 async function case29_refusalChangesNothing() {
   const f = await fixture('alerts-refusal', {connect: false});
   const port = f.port;   // any port: nothing is delivered here

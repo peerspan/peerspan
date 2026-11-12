@@ -27,3 +27,4 @@ jobs:
       - run: node managed/conformance/checks.mjs
       - run: node managed/conformance/handoffs.mjs
       - run: node managed/conformance/alerts.mjs
+      - run: node managed/conformance/approvals.mjs

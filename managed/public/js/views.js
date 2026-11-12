@@ -96,7 +96,15 @@ function nextLine(workflow, openRun) {
 
 function workflowActions(ctx, workflow, openRun) {
   const act = action => () => ctx.actions.workflow(workflow.id, action);
+  // Approval before each run (contract section 14.2): the decision comes first while the workflow waits.
+  const decide = workflow.approvalPending ? [
+    button('Approve run', { iconName: 'check', kind: 'small primary', onclick: act('approve'), key: `wf:${workflow.id}:approve`,
+      title: 'Let its next run go out' }),
+    button('Skip', { kind: 'small', onclick: act('skip'), key: `wf:${workflow.id}:skip`,
+      title: 'Pass on this run; the workflow waits for its next one' })
+  ] : [];
   return [
+    ...decide,
     workflow.enabled
       ? button('Pause', { iconName: 'pause', kind: 'small', onclick: act('pause'), key: `wf:${workflow.id}:toggle` })
       : button('Resume', { iconName: 'play', kind: 'small', onclick: act('resume'), key: `wf:${workflow.id}:toggle` }),
@@ -377,6 +385,7 @@ export function workflowPage(ctx, id) {
               : schedule(workflow) + ', counted from the end of the previous run'),
           downstream.length > 0 && fact('Hands off to', downstream.map((item, index) =>
             [index ? ', ' : '', h('a', { href: `#/workflows/${item.id}` }, item.name)])),
+          fact('Before each run', workflow.approval === 'operator' ? 'Waits for your approval' : 'Runs without asking'),
           fact('Results', results),
           (workflow.review !== 'none' || workflow.resultChecks.length > 0) && fact('Rejected results', reworkText(workflow.reworkLimit)),
           fact('Daily limit', `${plural(workflow.maxRunsPerDay, 'dispatch', 'dispatches')} per UTC day`),
@@ -452,6 +461,7 @@ export function runPage(ctx, id) {
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Workflow', h('a', { href: `#/workflows/${run.workflowId}` }, run.workflowName)),
           run.attempt > 1 && fact('Attempt', [`${run.attempt}, reworking `, h('a', { href: `#/runs/${run.reworkOf}` }, 'the rejected run')]),
+          run.approvedAt && fact('Approved', timeAgo(run.approvedAt)),
           run.handoffFrom && fact('Input from', h('a', { href: `#/runs/${run.handoffFrom}` }, 'an accepted upstream result')),
           rework && fact('Sent back', ['Reworked in ', h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`)]),
           run.branch && fact('Branch', branchText(run.branch)),
