@@ -57,6 +57,22 @@ no change here. Options:
   file naming `host_dir`, `host_id`, `agent_id`, `adapter_id` and `session_id`,
   for setups where a supervisor already maintains that file.
 
+### A runtime agent
+
+An agent with an upstream launch profile (`peerspan agent runtime set`) is a
+runtime agent: its host runs each of its tasks itself, in a microVM on a fork
+of a peerfs branch, and no session is attached. Register it with `--agent` as
+above. It is ready while its host's runtime switch is on, the runtime answers,
+and the agent has a model credential (`peerspan agent credential set`); the
+Workers page shows which of these is missing and a summary of its launch
+profile, never its paths. Each run's result ends with the branch the agent
+worked on, which the run page shows.
+
+The operator still sends one task at a time to the agent, even when its
+profile lets the host run several at once. A runtime agent on another machine
+cannot be checked yet: the sender's directory lists it as not connected, so
+it stays unready until upstream says how a sender should see it.
+
 ### An agent on another machine
 
 ```sh
@@ -253,6 +269,7 @@ node managed/conformance/visibility.mjs         # contract cases 11 and 12
 node managed/conformance/remote.mjs             # contract case 13
 node managed/conformance/schedules.mjs          # contract cases 14 and 15
 node managed/conformance/reviewers.mjs          # contract cases 16 to 18
+node managed/conformance/runtime-agents.mjs     # contract case 19
 # Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```
