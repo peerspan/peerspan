@@ -136,6 +136,62 @@ def _():
     check(done["submit_state"] == "accepted", f"final record {done['submit_state']}")
 
 
+RESULT_BOUND = 2.0  # task-contract Verification (RUN-14): within 2 seconds of completion
+LOOK = 10.0  # how long past completion the case keeps watching, to report how late a result was
+TRIALS = 3  # running together: at most 3 held polls run at once (task-contract polling)
+
+
+@suite.case("result_reaches_submitter_promptly", "task-contract polling: a running task polled with wait=10 "
+                                                 "and again at once (RUN-14); Verification",
+            known="RUN-14: the sender still polls running tasks on the 1 s to 60 s backoff")
+def _():
+    (bert,) = need("bert")
+    # Three tasks at once, not one: under the backoff schedule how late a single result is depends on where the
+    # completion falls between two polls, so one task can come back in time by chance; under RUN-14 all three do.
+    tasks = [a.ok("task", "bob/bert", f"slow answer {n}")["request"]["task_id"] for n in range(TRIALS)]
+    for _ in tasks:
+        claimed = bert.next_task()["task"]["task_id"]
+        check(claimed in tasks, f"bert claimed {claimed}, not one of {tasks}")
+        status, reply = bert.post(f"/adapter/v1/tasks/{claimed}/accept", {})
+        check(status == 200, f"accept: {status} {reply}")
+
+    def local(task_id):
+        status, record = a.api("GET", f"/v1/tasks/{b.id}/{task_id}")
+        check(status == 200, f"alice's local record of {task_id}: {status} {record}")
+        return record["status"]["state"]
+
+    # The 8 seconds count from when alice's host has stored each acceptance, so the task is `running` there: from
+    # then on the backoff schedule alone would next poll after the completion (about 7 seconds late), while a held
+    # poll returns with it. Real time: the backoff schedule runs on a monotonic clock, not the test clock.
+    running = {}
+    began = time.monotonic()
+    while len(running) < len(tasks):
+        for task_id in tasks:
+            if task_id not in running and local(task_id) == "running":
+                running[task_id] = time.monotonic()
+        check(time.monotonic() - began < 20, f"alice's local records never all showed running: {running}")
+        time.sleep(0.1)
+    completed = {}
+    for task_id in sorted(tasks, key=running.get):
+        time.sleep(max(0.0, running[task_id] + 8 - time.monotonic()))
+        status, reply = bert.post(f"/adapter/v1/tasks/{task_id}/complete", {"status": "succeeded", "output": "late"})
+        completed[task_id] = time.monotonic()
+        check(status == 200, f"complete: {status} {reply}")
+    took = {}
+    while len(took) < len(tasks):
+        for task_id in tasks:
+            if task_id not in took and local(task_id) == "succeeded":
+                took[task_id] = time.monotonic() - completed[task_id]
+        if time.monotonic() - max(completed.values()) > LOOK:
+            break
+        time.sleep(0.1)
+    seen = ", ".join(f"{took[t]:.1f}s" if t in took else f"not within {LOOK:.0f}s" for t in tasks)
+    print(f"  alice's local records showed succeeded after: {seen}", flush=True)
+    check(len(took) == len(tasks) and max(took.values()) <= RESULT_BOUND,
+          f"alice's local records showed succeeded after {seen} from bob's agent completing each task; want "
+          f"within {RESULT_BOUND:.0f}s")
+
+
 @suite.case("delegation_chain_three_hosts", "delegation-chain-contract: links, verification, depth")
 def _():
     ada, bert, cleo = need("ada", "bert", "cleo")
