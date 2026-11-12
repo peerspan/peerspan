@@ -100,10 +100,19 @@ unless you enable them.
   handled: a skipped local time runs later by the change, a repeated one runs
   once. A slot that passes while a run is in progress, the workflow is paused or
   the controller is stopped runs once as soon as it can, not once per slot.
-- **Review.** With "Hold each result for my review", a succeeded run waits for
-  your verdict. Accepted results count as successes, rejected ones as failures,
-  and waiting ones count as neither. Reviews never hold back the schedule, and
-  a verdict is final.
+- **Results.** By default a succeeded run counts as the worker reports it. With
+  "I check them", it waits for your verdict; with "An agent checks them", a
+  reviewer agent checks it first (below). Accepted results count as successes,
+  rejected ones as failures, and waiting ones as neither. Reviews never hold back
+  the schedule, and a verdict is final.
+- **Review criteria.** What a good result must do, such as "names every changed
+  file and cites at least two sources". The reviewer agent receives them, and
+  the console shows them to you when you review.
+- **Rework.** A rejected result can be sent back to the worker once, twice or
+  three times. The next run then starts at once with the instructions, the
+  review and the previous result, and counts toward the daily limit like any
+  run. Only the workflow's latest result is sent back: a later run has already
+  done the work again.
 
 - **Pause and resume.** Pausing stops new dispatch and lets the run in progress
   finish. Resuming does not run at once: the schedule decides, or "Run now".
@@ -116,6 +125,29 @@ unless you enable them.
 
 Daily limits count dispatches per UTC day, including failed ones; they are not
 cost limits, and model usage is billed by your provider.
+
+### Reviewer agents
+
+A reviewer is another connected worker, on this machine or another one, that is
+not the workflow's own agent. When a run succeeds, the controller sends the
+reviewer an ordinary Peerspan task with the assignment, your criteria and the
+result, and asks it to begin its answer with `VERDICT: ACCEPT` or
+`VERDICT: REJECT` followed by its reasons. The reasons become the result's
+review note; after a rejection they are what the worker receives with a rework.
+
+You are the fallback. When the review task fails, expires, is refused or
+cancelled, or its answer does not start with a verdict line, the result waits
+for your verdict instead, with the reason shown. You can also decide at any time
+while the reviewer is still checking; its later answer is then kept on the run
+page but changes nothing. The controller sends one review task per result and
+never retries it on its own.
+
+A review task holds the reviewer's agent like any run: it does one task at a
+time across all workflows, results that finished first are checked first, and
+reviews go ahead before new runs start. Reviews continue while a workflow is
+paused or archived, because they concern work already done. A reviewer agent's
+verdict is another agent's judgment; it is no more a guarantee than the
+worker's own report.
 
 ## Runs
 
@@ -130,11 +162,18 @@ included.
   its worker host is gone. It frees the workflow and the worker here and stops
   all further calls for that task. It does not stop the worker.
 
-A succeeded run is the worker's own report. Unless its workflow asks you to
-review results, nothing in this preview checks the output; it never downloads
-artifacts or approves anything on your behalf. Results waiting for your review
-are listed on the overview, oldest first, and each run page has Accept and
-Reject with an optional note.
+A succeeded run is the worker's own report. Unless its workflow asks for review,
+nothing in this preview checks the output; it never downloads artifacts or
+approves anything on your behalf. Results waiting for your review are listed on
+the overview, oldest first, and each run page has Accept and Reject with an
+optional note. A reviewed run's page also shows the reviewer's verdict and
+reasons, its full answer, what it was asked and its task's timeline, and links a
+rejected run to its rework.
+
+An agent run by upstream Peerspan's runtime (one microVM per task on a peerfs
+fork) ends its result with a line such as `Branch: codex.task_… at commit 01…`.
+The run page shows that branch beside the result; merge it with peerfs on the
+worker's host. The controller reads nothing of peerfs itself.
 
 ## Recovery
 
@@ -142,7 +181,9 @@ Reject with an optional note.
   lost reply or a restart the controller inspects that same task first and
   resubmits the same ID and payload only when the sender daemon has never held
   it. It never invents replacement work.
-- One unresolved run per workflow and per worker, enforced by the store.
+- One unresolved run per workflow, and one unresolved task per worker agent,
+  whether it is a run or a review task, enforced by the store. A review task is
+  stored, sent and recovered exactly as a run's task is.
 - A stopped controller exits within seconds; work it was waiting for is picked
   up again under the same identities at the next start.
 - The Activity page records what you did and what the controller did. Each
@@ -187,15 +228,16 @@ needs a persistent user manager; Windows with WSL also needs the distribution
 started after logon. A process lock refuses a second scheduler for the same
 state directory. Nothing here replaces the Peerspan host service.
 
-## Upgrading from the first preview
+## Upgrading
 
 The first command of this version that opens an existing state directory
 migrates it in place, after saving a copy beside it as
-`managed.v1-backup.sqlite` or `managed.v2-backup.sqlite`, by the version it
-found. Connections, observations, workflows, runs, task IDs, results and the
-activity log keep their IDs; a run that was unresolved is reconciled under its
-task ID as after any restart. Existing workflows keep their intervals and do not
-ask for review. Restart the service after updating the checkout.
+`managed.vN-backup.sqlite`, N being the store version it found (1 to 3).
+Connections, observations, workflows, runs, task IDs, results, verdicts and the
+activity log keep their IDs and values; a run that was unresolved is reconciled
+under its task ID as after any restart. Existing workflows keep their intervals,
+schedules and review settings, have no reviewer agent, and never send results
+back until you choose to. Restart the service after updating the checkout.
 
 ## Develop
 
@@ -206,7 +248,8 @@ node managed/conformance/operations.mjs         # contract cases 7 to 10
 node managed/conformance/visibility.mjs         # contract cases 11 and 12
 node managed/conformance/remote.mjs             # contract case 13
 node managed/conformance/schedules.mjs          # contract cases 14 and 15
-# Actual two-host transport with a scripted adapter, no model:
+node managed/conformance/reviewers.mjs          # contract cases 16 to 18
+# Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```
 
