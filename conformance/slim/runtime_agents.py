@@ -399,7 +399,7 @@ def _():
 
 
 @suite.case("profile_claude_image", "agents The launch profile: harness claude, image (default null, --image, "
-                                    "replacement)", known=CLAUDE_GAP)
+                                    "replacement)")
 def _():
     a, = need("a")
     need("ready")
@@ -434,7 +434,7 @@ def _():
 
 
 @suite.case("profile_image_refused", "agents The launch profile: an image on a runtime reporting images false is 409 "
-                                     "runtime_unavailable", known=CLAUDE_GAP)
+                                     "runtime_unavailable")
 def _():
     a, rt = need("a", "rt")
     need("ready")
@@ -576,7 +576,7 @@ def _():
 
 
 @suite.case("run_claude_image", "agents Running (the Claude harness command, secret anthropic_api_key, image); "
-                                "The output", known=CLAUDE_GAP)
+                                "The output")
 def _():
     b, = need("b")
     need("ready")
@@ -680,7 +680,7 @@ def _():
 
 
 @suite.case("image_cannot_be_pulled", "agents The runtime's local API (image); Transitions (queued to failed); "
-                                      "The output (Branch: none)", known=CLAUDE_GAP)
+                                      "The output (Branch: none)")
 def _():
     need("ready")
     try:

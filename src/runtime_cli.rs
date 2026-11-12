@@ -136,6 +136,8 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
         AgentRuntimeCommand::Set {
             agent,
             harness_dir,
+            harness,
+            image,
             from_branch,
             network,
             cpus,
@@ -145,7 +147,6 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
         } => {
             let id = agent_id(local, agent).await?;
             let mut body = json!({
-                "harness": "codex",
                 "harness_dir": std::path::absolute(harness_dir)?,
             });
             let timeout = timeout
@@ -153,6 +154,8 @@ async fn agent_runtime(local: &Local<'_>, command: &AgentRuntimeCommand) -> anyh
                 .map(crate::task_run::seconds)
                 .transpose()?;
             for (field, value) in [
+                ("harness", harness.clone().map(Value::from)),
+                ("image", image.clone().map(Value::from)),
                 ("from_branch", from_branch.clone().map(Value::from)),
                 ("network", network.clone().map(Value::from)),
                 ("cpus", cpus.map(Value::from)),
