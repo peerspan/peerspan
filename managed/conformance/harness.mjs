@@ -85,6 +85,8 @@ export function inputOf(argv) {
 }
 const nullable = (value, test) => value === null || test(value);
 const text = value => typeof value === 'string';
+// §15.1 (rev 4): wherever the contract limits or cuts text by characters, a character is a Unicode code point.
+const chars = value => [...value].length;
 function keys(value, names, rule) {
   expect(value !== null && typeof value === 'object' && !Array.isArray(value), rule + ' must be an object', value);
   expectEqual(Object.keys(value).sort(), names.split(' ').sort(), rule + ' has exactly the contract fields');
@@ -130,8 +132,8 @@ export const dayNames = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 // without control characters; where a form could match in more than one way, NAME is the longest text
 // that makes it match.
 const control = /\p{Cc}/u;
-const nameOk = value => value.length >= 1 && value.length <= 255 && !value.includes('/') && !control.test(value);
-const errorOk = value => value.length >= 1 && value.length <= 1024 && !control.test(value);
+const nameOk = value => chars(value) >= 1 && chars(value) <= 255 && !value.includes('/') && !control.test(value);
+const errorOk = value => chars(value) >= 1 && chars(value) <= 1024 && !control.test(value);
 function longestName(rest, separator, rightOk) {
   for (let at = rest.lastIndexOf(separator); at >= 0; at = at === 0 ? -1 : rest.lastIndexOf(separator, at - 1)) {
     const [name, right] = [rest.slice(0, at), rest.slice(at + separator.length)];
@@ -197,11 +199,11 @@ function checkReviewTask(task, run, detail) {
     '§15.1 a reserved review task has its own §4 task ID and a task state', pick(task, 'taskId state'));
   expect(isTime(task.createdAt) && (unresolved.includes(task.state) ? task.finishedAt === null : isTime(task.finishedAt)) &&
     nullable(task.cancelRequestedAt, isTime) && nullable(task.error, text) &&
-    nullable(task.reason, value => text(value) && value.length <= 2000),
+    nullable(task.reason, value => text(value) && chars(value) <= 2000),
   '§15.1 review task times, error and reason follow its task as a run fields follow the run task (§8)', task);
   if (detail) {
     expect(text(task.input) && task.input !== '' && Buffer.byteLength(task.input) <= 65536 &&
-      nullable(task.output, value => text(value) && value.length <= 262144) && typeof task.outputTruncated === 'boolean' &&
+      nullable(task.output, value => text(value) && chars(value) <= 262144) && typeof task.outputTruncated === 'boolean' &&
       (task.output !== null || task.outputTruncated === false),
     '§10 a reserved review task has its exact input (at most 65,536 bytes, §15.1) and its retained output; output is ' +
       'null and outputTruncated false until there is an output',
@@ -258,16 +260,16 @@ export function checkRun(run, {detail = false} = {}) {
   const verdict = ['accepted', 'rejected'].includes(run.review);
   expect([null, 'pending', 'accepted', 'rejected'].includes(run.review) && (run.review === null || run.state === 'succeeded') &&
     (verdict ? isTime(run.reviewedAt) : run.reviewedAt === null) && (verdict ? nullable(run.reviewNote, note =>
-      text(note) && note !== '' && note.length <= 2000 && note === note.trim()) : run.reviewNote === null),
+      text(note) && note !== '' && chars(note) <= 2000 && note === note.trim()) : run.reviewNote === null),
   '§15 review is null, pending, accepted or rejected (null unless succeeded); reviewedAt and reviewNote only with a ' +
     'verdict, the note trimmed, nonempty and at most 2,000 characters', pick(run, 'state review reviewedAt reviewNote'));
   expect(runStates.includes(run.state) && /^task_[0-9a-f]{32}$/.test(run.taskId) && text(run.id) &&
     text(run.workflowId) && text(run.workflowName), '§8 run identity, state and §4 task ID', run);
-  expect(nullable(run.output, value => text(value) && value.length <= (detail ? 262144 : 2000)) &&
+  expect(nullable(run.output, value => text(value) && chars(value) <= (detail ? 262144 : 2000)) &&
     typeof run.outputTruncated === 'boolean', detail ? '§10 retained output is at most 262,144 characters'
     : '§8 snapshot output is at most 2,000 characters', {length: run.output?.length, flag: run.outputTruncated});
-  expect(nullable(run.error, text) && nullable(run.reason, value => text(value) && value.length <= 2000) &&
-    nullable(run.progress, value => text(value) && value.length <= 300),
+  expect(nullable(run.error, text) && nullable(run.reason, value => text(value) && chars(value) <= 2000) &&
+    nullable(run.progress, value => text(value) && chars(value) <= 300),
   '§8 error, reason (at most 2,000 characters) and progress (at most 300)', pick(run, 'error reason progress'));
   expect(isTime(run.createdAt) && isTime(run.updatedAt) && nullable(run.startedAt, isTime) &&
     nullable(run.cancelRequestedAt, isTime), '§8 run times', run);
@@ -333,7 +335,7 @@ function checkWorkflow(w, connections = []) {
   const [worker, reviewer] = [w.connectionId, w.reviewerId].map(id => connections.find(c => c.id === id));
   expect(!worker || !reviewer || worker.hostId !== reviewer.hostId || worker.agentId !== reviewer.agentId,
     '§15.1 the reviewer worker agent is not the workflow own', {worker, reviewer});
-  expect(nullable(w.reviewCriteria, value => text(value) && value !== '' && value.length <= 2000 && value === value.trim()),
+  expect(nullable(w.reviewCriteria, value => text(value) && value !== '' && chars(value) <= 2000 && value === value.trim()),
     '§15.1 reviewCriteria is null or a trimmed nonempty string of at most 2,000 characters', w.reviewCriteria);
   expect(Number.isInteger(w.reworkLimit) && w.reworkLimit >= 0 && w.reworkLimit <= 3 && nullable(w.reworkPending, text),
     '§15.2 reworkLimit is an integer from 0 to 3; reworkPending is null or a run ID', pick(w, 'reworkLimit reworkPending'));
@@ -770,7 +772,7 @@ export async function fixture(label, {connect = true, config = {}, env: extraEnv
       for (const item of list) {
         keys(item, 'sequence kind state message at', '§10 timeline event');
         expect(Number.isInteger(item.sequence) && text(item.kind) && nullable(item.message, value => text(value) &&
-          value.length <= 2000) && isTime(item.at), '§10 a timeline event, message at most 2,000 characters', item);
+          chars(value) <= 2000) && isTime(item.at), '§10 a timeline event, message at most 2,000 characters', item);
       }
       expect(list.every((item, index, all) => index === 0 || all[index - 1].sequence < item.sequence),
         `§10 ${name} are ascending`, list.map(item => item.sequence));

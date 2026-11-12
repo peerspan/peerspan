@@ -17,9 +17,11 @@ const reviewerAgent = agent(7), secondWorker = agent(8), secondReviewer = agent(
 const hex66 = 'a1'.repeat(33);
 const unresolved = ['submitting', 'queued', 'running'];
 
-// §15.1 and §15.2: an input longer than 65,536 bytes of UTF-8 has its last part cut at a character boundary
-// and ended with "…", keeping as much of it as lets the whole input fit.
-function fitted(lines, last) {
+// §15.1 and §15.2: the last part (a retained output) is used without its NUL characters; then an input longer
+// than 65,536 bytes of UTF-8 has that part cut at a character (code point) boundary and ended with "…",
+// keeping as much of it as lets the whole input fit.
+function fitted(lines, output) {
+  const last = output.replaceAll('\u0000', '');
   const prefix = lines.join('\n') + '\n';
   if (Buffer.byteLength(prefix + last) <= 65536) return prefix + last;
   let room = 65536 - Buffer.byteLength(prefix) - Buffer.byteLength('…');
@@ -112,6 +114,9 @@ async function case16_reviewerFields() {
     ['numeric criteria', {reviewCriteria: 7}], ['criteria as an array', {reviewCriteria: ['FAKE criteria']}],
     ['criteria of 2,001 characters', {reviewCriteria: 'c'.repeat(2001)}],
     ['criteria of 2,001 characters as sent, 2,000 after trimming', {reviewCriteria: ' ' + 'c'.repeat(2000)}],
+    ['criteria of 2,001 code points outside the BMP', {reviewCriteria: '\u{1F600}'.repeat(2001)}],
+    ['criteria containing NUL', {reviewCriteria: 'FAKE criteria\u0000with NUL'}],
+    ['instructions containing NUL (§2)', {instructions: 'FAKE instructions\u0000with NUL'}],
     ...[-1, 4, 1.5, '1', null, true].map(limit => [`reworkLimit ${JSON.stringify(limit)}`, {reworkLimit: limit}])];
   for (const [what, patch] of refused) {
     expectError(await f.request('POST', '/api/workflows', body(patch)), 400, `§15.1/§15.2 POST refuses ${what}`);
@@ -133,6 +138,9 @@ async function case16_reviewerFields() {
   const longest = 'FAKE ' + 'c'.repeat(1995);
   const full = await f.create({name: 'FAKE longest criteria', review: 'agent', reviewerId: other, reviewCriteria: longest});
   expectEqual(full.reviewCriteria, longest, '§15.1 criteria of 2,000 characters are stored');
+  const astral = '\u{1F600}'.repeat(2000);
+  expectEqual((await f.create({name: 'FAKE astral criteria', reviewCriteria: astral})).reviewCriteria, astral,
+    '§15.1 a character is a code point: criteria of 2,000 code points outside the BMP (4,000 UTF-16 units) are stored');
   const blank = await f.create({name: 'FAKE blank criteria', connectionId: twin, review: 'agent', reviewerId: reviewer,
     reviewCriteria: ' \n\t '});
   expectEqual(pick(blank, 'connectionId reviewerId reviewCriteria'), {connectionId: twin, reviewerId: reviewer,
@@ -148,6 +156,7 @@ async function case16_reviewerFields() {
     ['review none with a reviewer in the same body', {review: 'none', reviewerId: reviewer}],
     ['review operator with a reviewer in the same body', {review: 'operator', reviewerId: other}],
     ['criteria of 2,001 characters', {reviewCriteria: 'c'.repeat(2001)}], ['reworkLimit 4', {reworkLimit: 4}],
+    ['criteria containing NUL', {reviewCriteria: 'FAKE\u0000'}], ['instructions containing NUL (§2)', {instructions: 'FAKE\u0000'}],
     ['reworkLimit null', {reworkLimit: null}], ['reworkPending', {reworkPending: null}], ['reviewedBy', {reviewedBy: 'agent'}]]],
   [operator, [['a reviewerId while review stays operator', {reviewerId: reviewer}], ['review agent without a reviewer', {review: 'agent'}]]],
   [plain, [['a reviewerId while review stays none', {reviewerId: reviewer}]]],
@@ -285,15 +294,28 @@ async function case16_reviewTaskInput() {
   const cut = reviewInput(edited, null, long);
   expect(cut.endsWith('…') && Buffer.byteLength(cut) <= 65536 && Buffer.byteLength(cut) > 65530,
     'fixture: the long output must be cut', Buffer.byteLength(cut));
+  // NUL characters are left out of the output in the review input, before the 65,536-byte cut: cutting first
+  // would keep fewer characters.
+  const withNul = 'FAKE widget report\u0000 with NUL\u0000 characters';
+  const nulInput = reviewInput(edited, null, withNul);
+  const longNul = 'FAKE long report with NUL \u0000' + ('€'.repeat(9) + '\u0000').repeat(3000);
+  const nulCut = reviewInput(edited, null, longNul);
+  expect(!nulInput.includes('\u0000') && nulInput.endsWith('RESULT\nFAKE widget report with NUL characters') &&
+    nulCut.endsWith('…') && Buffer.byteLength(nulCut) > 65530 && !nulCut.includes('\u0000'),
+  'fixture: NUL characters left out, and the long result still cut', Buffer.byteLength(nulCut));
   for (const [result, input, why] of [['FAKE widget report two', reviewInput(edited, null, 'FAKE widget report two'),
     'without criteria the CRITERIA lines are left out; a later run carries the edited assignment'],
-  [long, cut, 'an input over 65,536 bytes has the output cut at a character boundary and ended with …']]) {
+  [long, cut, 'an input over 65,536 bytes has the output cut at a character boundary and ended with …'],
+  [withNul, nulInput, 'the review input has the retained output without its NUL characters'],
+  [longNul, nulCut, 'NUL characters are left out before an input over 65,536 bytes is cut']]) {
     await f.action(workflow.id, 'run');
     const run = await f.finish(await f.newRun(workflow.id, 'queued'), 'succeeded', {output: result, timeout: 20000});
     const done = await untilRun(f, run.id, item => item.review === 'accepted', '§15.1 the scripted reviewer accepts');
     const call = (await f.submitsTo(reviewerAgent)).find(item => option(item.argv, '--task') === done.reviewTask.taskId);
     expectEqual(call && inputOf(call.argv), input, '§15.1 ' + why);
-    expectEqual((await f.detail(run.id)).run.reviewTask.input, input, '§10 the detail has the exact review input');
+    const detail = await f.detail(run.id);
+    expectEqual([detail.run.reviewTask.input, detail.run.output], [input, result],
+      '§10 the detail has the exact review input, and the run retained output in full, NUL characters included');
   }
   await f.stop();
 }
@@ -329,7 +351,9 @@ async function case16_verdictsAndFallbacks() {
     ['a failed review task, whatever its output says', {state: 'failed', output: 'VERDICT: ACCEPT'}, fallback('failed')],
     ['a review task the sender rejects at submission', {submit: 'rejected', message: 'FAKE review not authorized'}, fallback('rejected')],
     ['a review task the receiver rejects', {state: 'rejected', message: 'FAKE reviewer declined'}, fallback('rejected')],
-    ['a review task whose acceptance deadline passes', {state: 'expired', message: 'FAKE acceptance deadline passed'}, fallback('expired')]];
+    ['a review task whose acceptance deadline passes', {state: 'expired', message: 'FAKE acceptance deadline passed'}, fallback('expired')],
+    ['reasons of 2,100 code points outside the BMP, cut by code points',
+      {output: '**VERDICT: REJECT**\n' + '\u{1F600}'.repeat(2100)}, verdict('rejected', '\u{1F600}'.repeat(1999) + '…')]];
   const tag = index => `<case-${String(index).padStart(2, '0')}>`;
   await f.script(...cases.flatMap(([, script], index) => [
     {agent: ids.agentId, input: tag(index), state: 'succeeded', output: `FAKE result ${tag(index)}`},
@@ -389,6 +413,15 @@ async function case16_verdictsAndFallbacks() {
   expect(!(await f.attentionFor('review_pending', workflows[5].id)), '§8 review_pending clears after the operator verdict');
   expectEqual((await f.log()).filter(entry => entry.kind === 'run.reviewed' && entry.runId === runs[5].id)
     .map(entry => pick(entry, 'actor data')), [{actor: 'operator', data: {verdict: 'accepted'}}], '§11 an operator run.reviewed');
+  // §15.1: a verdict note with NUL is refused; notes are limited by code points.
+  const astral = '\u{1F600}'.repeat(2000);
+  for (const [what, note] of [['containing NUL', 'FAKE note\u0000with NUL'], ['of 2,001 code points', astral + '\u{1F600}']]) {
+    expectError(await f.request('POST', `/api/runs/${runs[6].id}/review`, {verdict: 'rejected', note}), 400,
+      `§15.1 a verdict note ${what} is 400`);
+  }
+  expectEqual((await f.runById(runs[6].id)).review, 'pending', '§15 refused verdicts change nothing');
+  expectEqual((await f.verdict(runs[6], {verdict: 'rejected', note: astral}, '§15 a verdict with an astral note')).reviewNote,
+    astral, '§15.1 a note of 2,000 code points outside the BMP (4,000 UTF-16 units) is accepted and stored');
   await f.stop();
 }
 
@@ -737,7 +770,8 @@ async function case17_reworkAfterOperatorRejection() {
     await f.action(workflow.id, 'run');
     return f.finish(await f.newRun(workflow.id, 'queued'), 'succeeded', {output, timeout: 20000});
   };
-  const first = await f.finish(await f.newRun(workflow.id, 'queued'), 'succeeded', {output: 'FAKE invoice list one'});
+  const firstOutput = 'FAKE invoice list\u0000 one\u0000';
+  const first = await f.finish(await f.newRun(workflow.id, 'queued'), 'succeeded', {output: firstOutput});
   await f.patch(workflow.id, {reworkLimit: 1});   // §9: read when the review becomes rejected
   await f.action(workflow.id, 'pause');
   const before = await f.workflow(workflow.id);
@@ -748,9 +782,11 @@ async function case17_reworkAfterOperatorRejection() {
   await submitted(1);
   await f.action(workflow.id, 'resume');
   const second = await f.newRun(workflow.id, 'queued');
+  const reworked = reworkInput(instructions, 'FAKE operator note: add the totals', firstOutput);
+  expect(reworked.endsWith('PREVIOUS RESULT\nFAKE invoice list one'), 'fixture: the NUL characters are left out', reworked);
   expectEqual([pick(second, 'attempt reworkOf'), inputOf((await f.taskCalls('submit', second.taskId))[0].argv)],
-    [{attempt: 2, reworkOf: first.id}, reworkInput(instructions, 'FAKE operator note: add the totals', 'FAKE invoice list one')],
-    '§15.2 the paused workflow kept its rework until resume; the input carries the stored (trimmed) note');
+    [{attempt: 2, reworkOf: first.id}, reworked], '§15.2 the paused workflow kept its rework until resume; the input ' +
+    'carries the stored (trimmed) note and the previous result without its NUL characters');
   expectEqual((await f.workflow(workflow.id)).reworkPending, null, '§15.2 reworkPending is null once the rework is reserved');
   const two = await f.finish(second, 'succeeded', {output: 'FAKE invoice list two'});
   await reject(two);
@@ -758,16 +794,19 @@ async function case17_reworkAfterOperatorRejection() {
   await f.patch(workflow.id, {reworkLimit: 3});
   expectEqual((await f.workflow(workflow.id)).reworkPending, null, '§15.2 no rework once the limit is reached, nor after raising it later');
 
-  // Without a note; a long previous result is cut.
-  const long = 'FAKE long invoice list ' + '€'.repeat(25000) + 'λ'.repeat(3000);
+  // Without a note; a long previous result with NUL characters, which are left out before it is cut (cutting
+  // first would keep fewer characters).
+  const long ='FAKE long invoice list \u0000' + ('€'.repeat(9) + '\u0000').repeat(2800) + 'λ'.repeat(3000);
   const three = await runOnce(long);
   await reject(three);
   const fourth = await f.newRun(workflow.id, 'queued');
   const cut = reworkInput(instructions, null, long);
-  expect(cut.endsWith('…') && Buffer.byteLength(cut) <= 65536 && Buffer.byteLength(cut) > 65530, 'fixture: the result must be cut');
+  expect(cut.endsWith('…') && Buffer.byteLength(cut) <= 65536 && Buffer.byteLength(cut) > 65530 && !cut.includes('\u0000'),
+    'fixture: the result must be cut, without NUL characters');
   expectEqual([pick(fourth, 'attempt reworkOf'), inputOf((await f.taskCalls('submit', fourth.taskId))[0].argv)],
     [{attempt: 2, reworkOf: three.id}, cut], '§15.2 without a note the review reads "The reviewer gave no reasons."; a long ' +
-    'previous result is cut at a character boundary and ended with …, keeping as much as fits in 65,536 bytes');
+    'previous result loses its NUL characters and is then cut at a character boundary and ended with …, keeping as much ' +
+    'as fits in 65,536 bytes');
   // A later run exists.
   const four = await f.finish(fourth, 'succeeded', {output: 'FAKE invoice list four'});
   await f.action(workflow.id, 'run');

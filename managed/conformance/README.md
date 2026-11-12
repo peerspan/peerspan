@@ -64,7 +64,9 @@ Every response body is also checked for fixture paths, the access token and
   `MANAGED_CLOCK_FILE`; `f.clockAt(INSTANT)` moves it forward and waits for a
   scheduler pass on it (`meta.lastTickAt`).
 - `reviewers.mjs`: reviewer agents (the `reviewerId` and `reviewCriteria` rules,
-  the exact review input with and without criteria and cut to 65,536 bytes, the
+  NUL refused in instructions, criteria and notes, limits counted in code points,
+  the exact review input with and without criteria, without the result's NUL
+  characters and cut to 65,536 bytes, the
   verdict line and the note, every fallback, the operator's verdict before and
   while a review task runs, review tasks holding their agent and served before
   runs and oldest first, paused and archived workflows, `review/cancel` and
@@ -72,7 +74,7 @@ Every response body is also checked for fixture paths, the access token and
   rework (the exact input with and without a note and cut, `attempt`, `reworkOf`,
   `assignment`, the limit, a later run, archive, pause, `nextRunAt` and the daily
   cap) and workspace branches (every form of section 10.1 and the null cases).
-  Eight concurrent cases, about 15 seconds; the fake plays the worker and
+  Eight concurrent cases, about 20 seconds; the fake plays the worker and
   reviewer agents of one worker host, in agent mode through a second sender state.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
