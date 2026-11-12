@@ -1,6 +1,6 @@
 # Managed operator contract
 
-Revision 8. Revision 1 defined the first local slice: the console, recurring
+Revision 9. Revision 1 defined the first local slice: the console, recurring
 dispatch, readiness, recovery and the observation bridge. Revision 2 kept every
 revision 1 behavior and added worker discovery, workflow editing and archiving,
 run cancellation and release, run timelines, the activity log, attention items,
@@ -20,8 +20,10 @@ lets work held back for a fresher check go out without waiting for the next
 interval (section 4). The store of revisions 5 to 7.1 is version 4. Revision 8
 keeps every revision 7.1 behavior and adds result checks, which the controller
 applies to each result itself before any review (section 15.3); its store is
-version 5. Additions are marked "(rev 2)" to "(rev 8)" where they extend an
-earlier section. Fork decisions are recorded in
+version 5. Revision 9 keeps every revision 8 behavior and adds handoffs: a
+workflow that runs after another one, on that workflow's latest accepted result
+(section 14.1); its store is version 6. Additions are marked "(rev 2)" to
+"(rev 9)" where they extend an earlier section. Fork decisions are recorded in
 [managed-decisions.md](managed-decisions.md) and cited as `MGD-n`.
 
 ## 1. Process and persistence
@@ -85,6 +87,12 @@ backup copy `managed.v4-backup.sqlite`, and versions 1 to 3 are migrated through
 to version 5 in the same transaction. Migrated workflows have `resultChecks`
 `[]`, and migrated runs have `checks` null and keep their review fields.
 
+(rev 9) The current version is 6, and version 6 state is created directly.
+Version 5 state is migrated in place after its backup copy
+`managed.v5-backup.sqlite`, and earlier versions through to version 6 in the
+same transaction. Migrated workflows have `after` and `handoffPending` null,
+and migrated runs have `handoffFrom` null.
+
 ## 2. HTTP contract
 
 The server binds 127.0.0.1. Host must be localhost or 127.0.0.1 with the configured
@@ -120,10 +128,14 @@ current state does not permit the operation, and 413 for an oversized body.
   and `reworkLimit` (section 15.2). Instructions that contain NUL (U+0000) are
   400, because they travel as one command-line argument, which cannot carry it.
   (rev 8) The body may also have `resultChecks` (section 15.3), `[]` when
-  omitted.
+  omitted. (rev 9) It may also have `after` (section 14.1), which takes the
+  place of `intervalMinutes` and `schedule`: exactly one of the three is
+  required.
 - `POST /api/workflows/:id/pause`: prevents new dispatch, does not interrupt an
   active task. `resume` enables dispatch and resets failure circuit. `run` sets
   next eligible time to now but never bypasses paused state, caps or readiness.
+  (rev 9) On a workflow that runs after another, `run` hands it the upstream's
+  latest counted result instead, or is 409 when there is none (section 14.1).
   Each accepts an empty JSON object and returns the workflow object, 404 if absent.
 - (rev 2) `PATCH /api/workflows/:id`, `POST /api/workflows/:id/archive` and
   `restore`: section 9.
@@ -307,7 +319,10 @@ through different senders, or named one sender state in two ways, could hold
 that agent twice. Sender state no longer distinguishes targets (MGD-6).
 
 (rev 2) When several due workflows share a free target, the one whose
-`nextRunAt` is oldest is dispatched first. Both exclusion rules are enforced by
+`nextRunAt` is oldest is dispatched first. (rev 9) A workflow that runs after
+another (section 14.1) ranks by the moment its pending input counted in place of
+`nextRunAt`, or, while a rework is pending, by the moment the result was
+rejected. Both exclusion rules are enforced by
 the store itself, so no interleaving of operator requests and scheduler work can
 reserve a second unresolved run for a workflow or a target. An operator request
 never waits for a Peerspan subprocess: every route answers from stored state,
@@ -646,8 +661,9 @@ location, or upstream attention `detail` or `subject` text.
   acceptanceMinutes,enabled,nextRunAt,failureStreak,blockedReason,createdAt,
   updatedAt,pausedBy,recent,stats}`, (rev 3) with `schedule` and `review`
   (sections 14 and 15), (rev 4) and with `reviewerId`, `reviewCriteria`,
-  `reworkLimit` and `reworkPending` (sections 15.1 and 15.2), (rev 8) and with
-  `resultChecks` (section 15.3). `intervalMinutes`
+  `reworkLimit` and `reworkPending` (sections 15.1 and 15.2), (rev 8) with
+  `resultChecks` (section 15.3), (rev 9) and with `after` and `handoffPending`
+  (section 14.1); `nextRunAt` is null for an `after` workflow. `intervalMinutes`
   is null for a workflow with a schedule,
   and `schedule` is null for one with an interval. `pausedBy` is null while
   enabled, and otherwise `operator` (created paused, paused, or restored) or
@@ -691,7 +707,7 @@ location, or upstream attention `detail` or `subject` text.
   `reviewedAt` and `reviewNote` (section 15). (rev 4) Runs also have
   `reviewedBy`, `reviewTask` and `reviewFallback` (section 15.1), `attempt` and
   `reworkOf` (section 15.2), and `branch` (section 10.1). (rev 8) Runs also
-  have `checks` (section 15.3). A run's `state`,
+  have `checks` (section 15.3), (rev 9) and `handoffFrom` (section 14.1). A run's `state`,
   `output`, `error`, `reason`, `progress`, times and `cancelRequestedAt` are
   always those of its own task, never of its review task.
 - `observed`: section 6.
@@ -713,7 +729,9 @@ location, or upstream attention `detail` or `subject` text.
   | `review_pending` | `action` | `workflow` | (rev 3) A workflow, archived or not, has a run whose `review` is `pending` (rev 4) and that waits for the operator: a run that needs no agent review, or one whose agent review fell back (`reviewFallback` not null). A run that waits for its reviewer agent does not raise it. One item per workflow; `message` gives the number of such runs, the ones that wait for the operator, and `since` is the earliest of their `finishedAt`. |
 
 - `activity`: the newest 30 activity entries (section 11), newest first.
-- `archived`: `{id,name,archivedAt}` for each archived workflow, newest first.
+- `archived`: `{id,name,archivedAt}` for each archived workflow, newest first,
+  (rev 9) with `after` (section 14.1), so that a chain can be followed through
+  archived workflows.
 - `meta`: `{name,version,mode,revision,schemaVersion,lastTickAt,tickSeconds,
   error,modelCostAvailable:false,modelCost,cloudProvisioning:false}`. `modelCost`
   says that model cost is unavailable. `revision` is an opaque string that
@@ -725,8 +743,9 @@ location, or upstream attention `detail` or `subject` text.
 `PATCH /api/workflows/:id` accepts a JSON object with at least one of `name`,
 `connectionId`, `instructions`, `intervalMinutes`, `maxRunsPerDay` and
 `acceptanceMinutes`, (rev 3) `schedule` and `review`, (rev 4) `reviewerId`,
-`reviewCriteria` and `reworkLimit`, (rev 8) and `resultChecks`, validated as at
-creation (with the combination rules of section 15.1); any other field, `enabled`
+`reviewCriteria` and `reworkLimit`, (rev 8) `resultChecks`, (rev 9) and `after`,
+validated as at creation (with the combination rules of sections 14.1 and
+15.1); any other field, `enabled`
 included, is 400. It returns the workflow. An edit never changes a run that was
 already reserved: its submission payload is immutable. When `intervalMinutes`
 changes and the workflow has a terminal run, `nextRunAt` becomes its latest
@@ -874,6 +893,7 @@ workflow's, and a `connection.*` or `worker.*` entry its connection's.
 | `system` | `review.finished` | (rev 4) `{state}`: a review task's terminal state. |
 | `system` | `review.fallback` | (rev 4) `{cause}`: the run's `reviewFallback`. |
 | `system` | `workflow.rework_due` | (rev 4) `{attempt}`: the attempt the rework will be (section 15.2). The entry's `runId` is the rejected run. |
+| `system` | `workflow.handoff_due` | (rev 9) null: an upstream result became the workflow's next input (section 14.1). The entry's `runId` is the upstream run, and its `workflowId` the workflow that will run on it. |
 | `operator` | `connection.added`, `connection.removed`, `observation.added`, `observation.removed` | null |
 | `system` | `run.dispatched` | null |
 | `system` | `run.finished` | `{state}` |
@@ -970,6 +990,98 @@ controller is stopped, are not made up one by one. A workflow whose `nextRunAt`
 has passed is due; it runs once when it can be dispatched, and its next slot
 follows that run's finish. The daily cap still counts the UTC day (section 4).
 Clients compare times as instants, not as strings.
+
+### 14.1 Handoffs (rev 9)
+
+A workflow can run after another one: each time a run of the other workflow
+counts as a success, its result becomes this workflow's next input (MGD-18).
+A chain of workflows passes work along, such as research, then a draft, then a
+summary, and each step keeps its own worker, schedule limits, checks, review and
+history.
+
+**Fields.** A workflow's `after` is null, or `{workflowId}`: the workflow it runs
+after, its **upstream**. A workflow has exactly one of `intervalMinutes`,
+`schedule` and `after` that is not null.
+- At creation, a body with more than one of them, or with none, is 400; `after`
+  null beside another one means no upstream. In a `PATCH`, `after` null is 400,
+  as `schedule` null is: setting `intervalMinutes` or `schedule` is how a
+  workflow stops running after another. Setting `after` switches an interval or
+  scheduled workflow to it, and setting `intervalMinutes` or `schedule` switches
+  an `after` workflow away from it. A switch lists both fields that changed in
+  `workflow.edited`.
+- `after` must be an object with exactly a string `workflowId`. When a request
+  makes a workflow the upstream, that workflow must exist, must not be archived,
+  must not be the workflow itself, and following `after` from it, workflow by
+  workflow, must never come back to this workflow. Any other value is 400. A
+  `PATCH` that repeats the current upstream changes nothing and is not checked
+  again. An upstream that is archived later stays the upstream: it gets no new
+  runs, but a verdict that accepts one of its earlier runs still counts.
+- An `after` workflow's `nextRunAt` is null: no clock makes it due. Switching it
+  to an interval sets `nextRunAt` by the rule of section 9, and to now when it
+  has no terminal run. Switching it to a schedule follows section 14. Switching
+  away from `after`, or to another upstream, sets `handoffPending` to null. A
+  `PATCH` body with more than one of `intervalMinutes`, `schedule` and `after`
+  is 400, as at creation.
+- `handoffPending` is null, or the ID of the upstream run whose result the
+  workflow will run on next.
+
+**When a result counts.** A run of the upstream counts as a success at the moment
+it ends `succeeded` with `review` null (it needs no review and passed any checks,
+section 15.3), or at the moment its `review` becomes `accepted`, by the operator
+or by a reviewer agent. A rejected result, a rejection by checks included, and a
+result whose review is still pending never count. At that moment, each workflow
+that is not archived and whose `after` names that upstream gets that run as its
+`handoffPending`, replacing one that was not yet dispatched: the latest counted
+result wins. Each such change records `workflow.handoff_due`, whose `runId` is
+the upstream run.
+
+**Dispatch.** An enabled `after` workflow is due while its `handoffPending` is
+not null; every other rule of section 4 applies (the daily cap, a ready and free
+worker). A due rework (section 15.2) goes first: while both are pending, the
+next run reserved is the rework, and the handoff stays pending. A `pause` keeps
+`handoffPending`, so the run follows `resume`, and `archive` sets it to null.
+While an enabled `after` workflow without an unresolved run has neither a
+handoff nor a rework pending, its `blockedReason` says that it waits for a
+result of its upstream, whatever the state of its worker.
+
+**The handoff run.** The next run reserved for a pending handoff has
+`handoffFrom`, the upstream run's ID, and `handoffPending` becomes null. Its
+input is these lines joined by LF, with no LF after the last:
+
+```
+<the workflow's instructions>
+
+INPUT
+The result below is the latest accepted result of the workflow "<the upstream workflow's name>". Use it as the input of this assignment.
+
+RESULT
+<the upstream run's output>
+```
+
+The instructions and the upstream workflow's name are read when the run is
+reserved; the name is written without any NUL characters. The output is the
+upstream run's retained output without any NUL characters. When the whole input would be longer than 32,768 bytes of UTF-8,
+the output is cut at a character boundary and ended with `…`, keeping as much of
+it as lets the whole fit in 32,768 bytes, and it is only `…` when even the rest
+and `…` alone are longer. That is half a task's input, so that a rework of the run, which
+repeats it with a review and the previous result, still fits. The run's
+`assignment` (section 10) is this whole input. A run that is not a handoff has
+`handoffFrom` null.
+
+**Rework of a handoff run.** A rework (section 15.2) of a run whose `handoffFrom`
+is not null begins with the rejected run's `assignment` in place of the
+workflow's instructions, so it keeps the input. Its `handoffFrom` is the
+rejected run's, and its `assignment` is the rejected run's.
+
+**`run`.** `POST /api/workflows/:id/run` on an `after` workflow sets
+`handoffPending` to the upstream's run that counted as a success latest, by the
+moment it counted, and records `workflow.run_requested` (not
+`workflow.handoff_due`). It is 409 when the upstream has no such run.
+It never bypasses the paused state, caps or readiness (section 2).
+
+**Elsewhere.** Workflows have `after` and `handoffPending` in every shape, and
+runs have `handoffFrom`. Workflows of earlier revisions have `after` null and
+`handoffPending` null, and their runs `handoffFrom` null.
 
 ## 15. Reviewing results (rev 3)
 
@@ -1184,7 +1296,9 @@ PREVIOUS RESULT
 ```
 
 The workflow's `instructions` are read when the rework is reserved, and they are
-the rework's `assignment`. A null `reviewNote` is written `The reviewer gave no
+the rework's `assignment`. (rev 9) A rework of a handoff run begins with the
+rejected run's `assignment` instead, and keeps it (section 14.1); so does the
+rework of section 15.3. A null `reviewNote` is written `The reviewer gave no
 reasons.` The previous result is the rejected run's retained output without any
 NUL characters, as in section 15.1. An input longer than 65,536 bytes of UTF-8 has the previous result cut
 at a character boundary and ended with `…`, keeping as much of it as lets the
@@ -1487,7 +1601,44 @@ area, not by revision.
     its `attempt` and `reworkOf`, and the checks applied to the rework as they
     were when it was reserved.
 
-Version 2, 3 and 4 state are not described by this contract, so their
+`handoffs.mjs` (revision 9 handoffs):
+
+26. Handoff fields:
+    - `after` at creation and in `PATCH`, with the exactly-one rule among
+      `intervalMinutes`, `schedule` and `after`;
+    - the 400s: an unknown or archived upstream, the workflow itself, a
+      two-step and a three-step cycle, a malformed `after`, and `after` null in
+      a `PATCH`;
+    - switching to and from `after`, with the `workflow.edited` fields and
+      `nextRunAt` (null for an `after` workflow, and now after a switch to an
+      interval with no terminal run);
+    - an upstream archived later staying the upstream.
+27. Handing off:
+    - a counted success handing off, for upstream review `none`, `operator`
+      and `agent`;
+    - no handoff for a rejection, a rejection by checks, a pending review or a
+      failed run;
+    - two downstream workflows of one upstream both handed off;
+    - a newer counted result replacing a pending one before it is dispatched;
+    - the `workflow.handoff_due` entries;
+    - the handoff run's exact input, with a long upstream result cut, and its
+      `handoffFrom` and `assignment`;
+    - a paused downstream keeping its handoff until `resume`, and `archive`
+      clearing it;
+    - a due rework going before a pending handoff;
+    - the daily cap counting handoff runs;
+    - a three-workflow chain passing a result through;
+    - on a shared worker, an interval workflow and an `after` workflow
+      dispatched in the order in which they became due (section 4);
+    - archived entries keeping their `after`.
+28. `run` and rework on `after` workflows:
+    - `run` handing off the upstream's latest counted result, and 409 when
+      there is none;
+    - a rework of a handoff run, by the operator's rejection and by failed
+      checks, beginning with the rejected run's `assignment` and keeping its
+      `handoffFrom`.
+
+Version 2, 3, 4 and 5 state are not described by this contract, so their
 migration is checked by the implementer against copies of real state of those
 versions and recorded with the validation results, not by these suites.
 

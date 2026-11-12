@@ -26,7 +26,11 @@ export function workflowStatus(workflow, runs) {
     return runState(open.state);
   }
   if (!workflow.enabled) return workflow.pausedBy === 'failures' ? ['Paused after failures', 'danger'] : ['Paused', ''];
-  if (workflow.blockedReason === 'Waiting for next scheduled run' || !workflow.blockedReason) return ['Scheduled', 'ok'];
+  if (workflow.blockedReason === 'Waiting for next scheduled run' || !workflow.blockedReason) {
+    return workflow.after ? ['Waiting for input', 'ok'] : ['Scheduled', 'ok'];
+  }
+  // A workflow that runs after another simply waits for its next input (contract section 14.1).
+  if (workflow.blockedReason.startsWith('Waiting for an accepted result')) return ['Waiting for input', 'ok'];
   if (workflow.blockedReason === 'Daily dispatch limit reached') return ['Daily limit reached', ''];
   return ['Waiting for worker', 'warn'];
 }
@@ -43,8 +47,12 @@ function dayText(days) {
   return listOf(days.map(day => DAYS.find(([value]) => value === day)[1]));
 }
 
-/** "Every 6 hours", or "Weekdays at 09:00 (Europe/London)". */
-export function schedule(workflow, { zone = true } = {}) {
+/**
+ * "Every 6 hours", "Weekdays at 09:00 (Europe/London)", or for a workflow that runs after another
+ * (contract section 14.1) "After each accepted result of NAME", NAME being `upstream`.
+ */
+export function schedule(workflow, { zone = true, upstream = 'another workflow' } = {}) {
+  if (workflow.after) return `After each accepted result of ${upstream}`;
   if (workflow.schedule) {
     const { days, times, timeZone } = workflow.schedule;
     const at = times.length > 4 ? `${times.length} times a day` : `at ${listOf(times)}`;
@@ -219,6 +227,7 @@ export function activityText(entry, names) {
     case 'review.cancel_requested': return `asked to cancel a review task of ${workflow}`;
     case 'review.abandoned': return `released a review task of ${workflow}`;
     case 'workflow.rework_due': return `made a rework of a rejected result of ${workflow} due (attempt ${entry.data?.attempt ?? 2})`;
+    case 'workflow.handoff_due': return `handed an accepted result to ${workflow} as its next input`;
     case 'connection.added': return `connected ${connection}`;
     case 'connection.removed': return `disconnected ${connection}`;
     case 'observation.added': return 'started following an external program';

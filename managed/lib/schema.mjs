@@ -6,13 +6,14 @@
 // is read through indexes instead of whole-table scans. Version 3 adds remote
 // connections, schedules and result review (contract sections 7.1, 14, 15).
 // Version 4 adds reviewer agents, rework and branches (sections 10.1, 15.1, 15.2).
-// Version 5 adds result checks (section 15.3).
+// Version 5 adds result checks (section 15.3). Version 6 adds handoffs (section
+// 14.1): a workflow runs on an interval, a schedule or after another workflow.
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchOf } from './review.mjs';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 const backupName = version => `managed.v${version}-backup.sqlite`;
 
 // States in which a task still reserves its target and its run its workflow.
@@ -43,9 +44,12 @@ CREATE TABLE workflows (
   name TEXT NOT NULL,
   connection_id TEXT NOT NULL,
   instructions TEXT NOT NULL,
-  -- Exactly one of an interval and a schedule (JSON) is set.
+  -- Exactly one of an interval, a schedule (JSON) and an upstream workflow is set.
   interval_minutes INTEGER,
   schedule TEXT,
+  after_workflow_id TEXT,
+  -- The upstream run whose result the workflow runs on next (contract section 14.1).
+  handoff_pending TEXT,
   review TEXT NOT NULL DEFAULT 'none' CHECK (review IN ('none', 'operator', 'agent')),
   -- The reviewer agent's connection, exactly when review is 'agent'.
   reviewer_id TEXT,
@@ -60,7 +64,8 @@ CREATE TABLE workflows (
   enabled INTEGER NOT NULL,
   paused_by TEXT CHECK (paused_by IN ('operator', 'failures')),
   paused_at TEXT,
-  next_run_at TEXT NOT NULL,
+  -- Null exactly for a workflow that runs after another: no clock makes it due.
+  next_run_at TEXT,
   failure_streak INTEGER NOT NULL DEFAULT 0,
   blocked_reason TEXT,
   -- Terminal runs since the operator last acted on this workflow.
@@ -68,7 +73,8 @@ CREATE TABLE workflows (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   archived_at TEXT,
-  CHECK ((interval_minutes IS NULL) <> (schedule IS NULL)),
+  CHECK ((interval_minutes IS NOT NULL) + (schedule IS NOT NULL) + (after_workflow_id IS NOT NULL) = 1),
+  CHECK ((next_run_at IS NULL) = (after_workflow_id IS NOT NULL)),
   CHECK ((review = 'agent') = (reviewer_id IS NOT NULL))
 );
 `;
@@ -79,6 +85,8 @@ const WORKFLOW_COLUMNS_V2 = `id, name, connection_id, instructions, interval_min
   enabled, paused_by, paused_at, next_run_at, failure_streak, blocked_reason, unattended_runs, created_at, updated_at,
   archived_at`;
 const WORKFLOW_COLUMNS_V3 = `${WORKFLOW_COLUMNS_V2}, schedule, review`;
+const WORKFLOW_COLUMNS_V4 = `${WORKFLOW_COLUMNS_V3}, reviewer_id, review_criteria, rework_limit, rework_pending`;
+const WORKFLOW_COLUMNS_V5 = `${WORKFLOW_COLUMNS_V4}, result_checks`;
 
 // Version 3 run columns, then version 4 run and task columns, as added to existing tables.
 const RUN_COLUMNS_V3 = `
@@ -101,8 +109,9 @@ const RUN_COLUMNS_V4 = `
 const RUN_COLUMNS_V5 = `
   ALTER TABLE runs ADD COLUMN result_checks TEXT;
   ALTER TABLE runs ADD COLUMN checks TEXT;`;
-const WORKFLOW_COLUMNS_ADDED_V5 = `
-  ALTER TABLE workflows ADD COLUMN result_checks TEXT NOT NULL DEFAULT '[]';`;
+// Version 6: the upstream run a handoff run took its input from.
+const RUN_COLUMNS_V6 = `
+  ALTER TABLE runs ADD COLUMN handoff_from TEXT;`;
 
 const DDL = CONNECTIONS + WORKFLOWS + `
 
@@ -175,7 +184,9 @@ CREATE TABLE runs (
   -- The workflow's result checks when the run was reserved (null: none), and their outcomes
   -- once it succeeded. A rejection by checks has reviewed_by null (contract section 15.3).
   result_checks TEXT,
-  checks TEXT
+  checks TEXT,
+  -- For a handoff run, the upstream run whose result was its input (contract section 14.1).
+  handoff_from TEXT
 );
 -- One unresolved run per workflow (contract section 4).
 CREATE UNIQUE INDEX runs_open_workflow ON runs(workflow_id) WHERE open = 1;
@@ -243,18 +254,26 @@ function rebuild(db, table, ddl, columns) {
 function migrateFromV2(db) {
   rebuild(db, 'connections', CONNECTIONS, CONNECTION_COLUMNS);
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V2);
-  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5);
+  db.exec(RUN_COLUMNS_V3 + RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
 }
 
 // Version 3 to the current version, inside the caller's transaction.
 function migrateFromV3(db) {
   rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V3);
-  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5);
+  db.exec(RUN_COLUMNS_V4 + RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
 }
 
-// Version 4 to the current version, inside the caller's transaction.
+// Version 4 to the current version, inside the caller's transaction. The workflows table is
+// rebuilt because its constraints changed in version 6 (handoffs).
 function migrateFromV4(db) {
-  db.exec(WORKFLOW_COLUMNS_ADDED_V5 + RUN_COLUMNS_V5);
+  rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V4);
+  db.exec(RUN_COLUMNS_V5 + RUN_COLUMNS_V6);
+}
+
+// Version 5 to the current version, inside the caller's transaction.
+function migrateFromV5(db) {
+  rebuild(db, 'workflows', WORKFLOWS, WORKFLOW_COLUMNS_V5);
+  db.exec(RUN_COLUMNS_V6);
 }
 
 /**
@@ -368,7 +387,8 @@ export function openDatabase(file) {
         // Another process may have migrated while this one waited for the lock.
         const current = userVersion(db);
         if (current < SCHEMA_VERSION) {
-          if (current === 4) migrateFromV4(db);
+          if (current === 5) migrateFromV5(db);
+          else if (current === 4) migrateFromV4(db);
           else if (current === 3) migrateFromV3(db);
           else if (current === 2) migrateFromV2(db);
           else if (tableExists(db, 'records')) migrateFromV1(db, new Date().toISOString());

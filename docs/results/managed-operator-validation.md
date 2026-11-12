@@ -1,5 +1,91 @@
 # Managed operator validation
 
+## Revision 9 (0.10.0)
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node
+24.22.2, against the host binaries of revision 7. The store is version 6.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The ten suites, cases 1 to 28 | 64/64 passed in about 6 minutes in sequence: acceptance 6/6 (69 s), operations 5/5 (38 s), visibility 6/6 (42 s), remote 4/4 (66 s), schedules 5/5 (11 s), reviewers 8/8 (38 s), runtime-agents 4/4 (28 s), capacity 11/11 (32 s), checks 6/6 (19 s), handoffs 9/9 (16 s); 7,005 lines with the harness and the fake. The machine carried a load average of 50 to 84 from other work: a first pass lost acceptance, operations, visibility and remote cases to timeouts (a CLI call killed after 8 seconds, `/health` late), and all four passed in full when run again. |
+| `real-peerspan-smoke.py` | 5/5 passed in 263 seconds. Over real transport, a workflow chained after a reviewed one received the accepted rework's result in exactly the contract's input. |
+| Version 5 state built by 0.9.0, opened by 0.10.0 | Every row and compared value kept, among them a check's rejection still read as `checks`. The backup `managed.v5-backup.sqlite` was written. Workflows have `after` and `handoffPending` null and runs `handoffFrom` null. A run left running was reconciled with one submission. A rework due before the upgrade went out afterwards with the exact failed checks, and a migrated workflow was then made to run after another. |
+| Console in headless Chrome, 390 and 1440 px, light and dark | The third "When it runs" mode was exercised with its cycle guard, which disables a workflow that already runs after the one being edited. Also exercised: the chain on both workflow pages, the input link of a handoff run, and the "Waiting for input" status. No overflow or page errors. |
+
+### Handoffs
+
+A workflow can run after another one (section 14.1, MGD-18). Each result of the
+other workflow that counts as a success becomes its next input, in a fixed
+`INPUT` block after its instructions. A result counts once it succeeded with no
+review needed and passed its checks, or once it was accepted. A newer result
+replaces one not yet dispatched, a rework goes first, and the input is capped at
+half a task's input so that a rework can repeat it. Chains cannot form cycles,
+and an `after` workflow has no `nextRunAt`. In the console it is the third
+"When it runs" mode. The upstream workflow lists the workflows it hands off to,
+and a handoff run links its input.
+
+The suite author wrote `handoffs.mjs` from the contract: 8 concurrent cases,
+covering:
+
+- the exactly-one rule and cycles;
+- every review mode;
+- "latest wins";
+- pause, archive, rework, daily cap, and a chain of three;
+- the exact input and its cut;
+- `run`, and the rework of a handoff run.
+
+The shared harness now checks the revision 9 shapes on every snapshot. The
+author's questions settled five points in the contract text:
+
+- `run` records only `run_requested`;
+- "latest" means by the moment a result counted;
+- repointing `after` clears a pending handoff;
+- a PATCH with two ways to run is refused;
+- the rule for the `…` edge case.
+
+Checking the console against the contract found one more: an `after` workflow
+without input showed its busy worker as the reason, not that it waits for
+input. The contract now says which reason applies, and the code follows it.
+
+### Independent review of revision 9
+
+The reviewer probed the rules against the model directly and through the real
+server, and confirmed three defects, all fixed and re-checked with its probes:
+
+- **Starvation on a shared worker.** Dispatch ordered due workflows by
+  `nextRunAt`, and the store sorts a null `nextRunAt` first. A workflow that
+  runs after another, with fresh input, therefore always took a shared worker
+  ahead of an interval workflow that had been due for longer. Over three
+  cycles the interval workflow never ran. An `after` workflow now ranks by the
+  moment its input counted (section 4). The probe now gives the worker to the
+  interval workflow due at 6 seconds before the handoff that counted at 110.
+- **The console's cycle guard and archived workflows.** The guard could not
+  see archived workflows' `after`, so it offered an upstream that the
+  controller then refused. Archived entries in the snapshot now carry `after`.
+- **An archived upstream with no other workflow.** A workflow whose upstream
+  was archived could not be saved when no other workflow existed, not even to
+  rename it. The editor now always offers the current upstream, named and
+  marked archived.
+
+It confirmed the rest sound:
+
+- the exactly-one rule and cycles of two to four workflows;
+- every switch with its `nextRunAt`;
+- when a result counts, under every review mode and after a fallback;
+- "latest wins", two downstream workflows, pause, archive and abandon;
+- rework before handoff, and the rework of a handoff run;
+- the exact input with its cut at a character boundary, including
+  instructions that leave room only for `…`;
+- the blocked reason;
+- the due-time rule with handoffs;
+- migration from versions 1 to 5 with row order kept;
+- twelve rounds of six concurrent opens.
+
+A remaining nit: two results accepted at the same recorded instant, as while a
+held clock keeps one time, may make the automatic handoff and `run` pick
+different ones of the two.
+
 ## Revision 8 (0.9.0)
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04) with Node

@@ -264,12 +264,24 @@ function parseTimes(text) {
  * Create (no `workflow`, optionally from a recipe's `template`) or edit a workflow. `submit(fields)` performs the
  * request; its error message is shown in the form and the dialog stays open.
  */
-export function workflowDialog({ workflow = null, template = null, connections, submit }) {
+export function workflowDialog({ workflow = null, template = null, connections, workflows = [], archived = [], submit }) {
   const editing = workflow !== null;
   // The form starts from the workflow being edited, or from a recipe.
   const initial = workflow ?? template;
   const interval = splitInterval(initial?.intervalMinutes ?? 60);
   const planned = initial?.schedule ?? null;
+  const upstreamId = initial?.after?.workflowId ?? null;
+  // A workflow may run after any other one whose own chain of upstreams never leads back to it,
+  // archived workflows included, as the controller checks it (section 14.1).
+  const everyWorkflow = [...workflows, ...archived];
+  const leadsBack = candidate => {
+    const seen = new Set();
+    for (let at = candidate; at && !seen.has(at.id); at = everyWorkflow.find(item => item.id === at.after?.workflowId)) {
+      if (editing && at.id === workflow.id) return true;
+      seen.add(at.id);
+    }
+    return false;
+  };
   return show(editing ? 'Edit workflow' : 'New workflow', close => {
     const error = h('p.form-error', { role: 'alert' });
     const save = h('button.button.primary', { type: 'submit' }, editing ? 'Save changes' : 'Create workflow');
@@ -296,13 +308,30 @@ export function workflowDialog({ workflow = null, template = null, connections, 
           h('select', { id: 'wf-zone', name: 'timeZone' },
             timeZones(planned?.timeZone).map(zone => h('option', { value: zone, selected: zone === (planned?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone) }, zone))))),
       h('p.help', null, 'Local times, 24-hour. A slot that passes while a run is in progress or the workflow is paused runs once, as soon as it can.'));
+    // Handoffs (contract section 14.1): the workflows this one may run after.
+    const candidates = workflows.filter(item => !editing || item.id !== workflow.id);
+    // The current upstream stays selectable when it was archived since, so that other fields can be saved.
+    const archivedUpstream = upstreamId && !candidates.some(item => item.id === upstreamId)
+      ? archived.find(item => item.id === upstreamId) ?? { id: upstreamId, name: 'A workflow that no longer exists' } : null;
+    const upstreamSelect = h('select', { id: 'wf-after', name: 'afterId' },
+      archivedUpstream && h('option', { value: upstreamId, selected: true }, `${archivedUpstream.name} (archived)`),
+      candidates.map(item => h('option', { value: item.id, selected: item.id === upstreamId, disabled: leadsBack(item) },
+        item.name + (leadsBack(item) ? ' (it runs after this one)' : ''))));
+    const afterPart = h('div.when-part', null,
+      h('label', { for: 'wf-after' }, 'Run after'),
+      candidates.length || archivedUpstream ? upstreamSelect : h('p.help', null, 'Create the workflow it should run after first.'),
+      h('p.help', null, 'Each result of that workflow that counts as a success, by passing its checks and review, ',
+        'becomes this workflow\'s next input. When several arrive before it runs, the latest is used.'));
+    const mode = upstreamId ? 'after' : planned ? 'schedule' : 'interval';
     const modes = h('div.segmented', { role: 'radiogroup', 'aria-label': 'When it runs' },
-      h('label', null, h('input', { type: 'radio', name: 'when', value: 'interval', checked: !planned }), h('span', null, 'After an interval')),
-      h('label', null, h('input', { type: 'radio', name: 'when', value: 'schedule', checked: Boolean(planned) }), h('span', null, 'On days and times')));
+      h('label', null, h('input', { type: 'radio', name: 'when', value: 'interval', checked: mode === 'interval' }), h('span', null, 'After an interval')),
+      h('label', null, h('input', { type: 'radio', name: 'when', value: 'schedule', checked: mode === 'schedule' }), h('span', null, 'On days and times')),
+      h('label', null, h('input', { type: 'radio', name: 'when', value: 'after', checked: mode === 'after' }), h('span', null, 'After another workflow')));
     const showMode = () => {
-      const scheduled = modes.querySelector('input:checked').value === 'schedule';
-      intervalPart.hidden = scheduled;
-      schedulePart.hidden = !scheduled;
+      const chosen = modes.querySelector('input:checked').value;
+      intervalPart.hidden = chosen !== 'interval';
+      schedulePart.hidden = chosen !== 'schedule';
+      afterPart.hidden = chosen !== 'after';
     };
     modes.addEventListener('change', showMode);
     showMode();
@@ -322,7 +351,7 @@ export function workflowDialog({ workflow = null, template = null, connections, 
       h('label', { for: 'wf-instructions' }, 'Assignment'),
       h('textarea', { id: 'wf-instructions', name: 'instructions', maxlength: '12000', required: true, rows: '6',
         placeholder: 'Describe a bounded assignment, the result you expect, and the checks it must pass.' }, initial?.instructions ?? ''),
-      h('div.when', null, h('span.label', null, 'When it runs'), modes, intervalPart, schedulePart),
+      h('div.when', null, h('span.label', null, 'When it runs'), modes, intervalPart, schedulePart, afterPart),
       h('div.field-row.two', null,
         h('div', null,
           h('label', { for: 'wf-cap' }, 'Daily run limit'),
@@ -365,7 +394,10 @@ export function workflowDialog({ workflow = null, template = null, connections, 
         return void (error.textContent = problem.message);
       }
       if (fields.review === 'agent' && !fields.reviewerId) return void (error.textContent = 'Choose another agent as the reviewer.');
-      if (values.when === 'schedule') {
+      if (values.when === 'after') {
+        if (!values.afterId) return void (error.textContent = 'Choose the workflow it runs after.');
+        fields.after = { workflowId: values.afterId };
+      } else if (values.when === 'schedule') {
         const times = parseTimes(values.times);
         const chosen = data.getAll('day');
         if (!chosen.length) return void (error.textContent = 'Choose at least one day.');

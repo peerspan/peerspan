@@ -20,11 +20,11 @@ const CHECKS_REQUEST = 'Your previous result for this assignment failed the resu
  * `prefix` followed by `body`, with `body` cut at a character boundary and ended
  * with an ellipsis when the whole would exceed the input limit.
  */
-function fit(prefix, body) {
+function fit(prefix, body, limit = INPUT_LIMIT) {
   const whole = prefix + body;
-  if (Buffer.byteLength(whole) <= INPUT_LIMIT) return whole;
+  if (Buffer.byteLength(whole) <= limit) return whole;
   const bytes = Buffer.from(body);
-  let end = Math.max(0, INPUT_LIMIT - Buffer.byteLength(prefix) - Buffer.byteLength(ELLIPSIS));
+  let end = Math.max(0, limit - Buffer.byteLength(prefix) - Buffer.byteLength(ELLIPSIS));
   // Step back over UTF-8 continuation bytes (10xxxxxx) to the start of a character.
   while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
   return prefix + bytes.subarray(0, end).toString() + ELLIPSIS;
@@ -41,6 +41,18 @@ export function reviewInput({ assignment, criteria, output }) {
   if (criteria !== null) lines.push('CRITERIA', withoutNul(criteria), '');
   lines.push('RESULT', '');
   return fit(lines.join('\n'), withoutNul(output));
+}
+
+// A handoff's input is at most half a task's, so that a rework can repeat it with a review and the
+// previous result (contract section 14.1).
+const HANDOFF_LIMIT = INPUT_LIMIT / 2;
+
+/** A handoff run's input: the instructions and the upstream run's result (section 14.1). */
+export function handoffInput({ instructions, name, output }) {
+  const prefix = [withoutNul(instructions), '', 'INPUT',
+    `The result below is the latest accepted result of the workflow "${withoutNul(name)}". Use it as the input of this assignment.`,
+    '', 'RESULT', ''].join('\n');
+  return fit(prefix, withoutNul(output ?? ''), HANDOFF_LIMIT);
 }
 
 /**

@@ -6,7 +6,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { nextSlot } from './schedule.mjs';
 import { applyChecks, checksNote } from './checks.mjs';
-import { branchOf, readVerdict, reviewInput, reworkInput } from './review.mjs';
+import { branchOf, handoffInput, readVerdict, reviewInput, reworkInput } from './review.mjs';
 
 const MINUTE = 60_000;
 const WINDOW_DAYS = 7;
@@ -44,6 +44,8 @@ const scheduleOf = row => (row.schedule === null ? null : JSON.parse(row.schedul
 
 /** When a workflow next runs after one of its runs finished at `finishedAt` (contract sections 4 and 14). */
 function nextAfterFinish(workflow, finishedAt, succeeded) {
+  // A workflow that runs after another has no clock (contract section 14.1).
+  if (workflow.after_workflow_id !== null) return null;
   const finished = Date.parse(finishedAt);
   const schedule = scheduleOf(workflow);
   if (schedule) return iso(nextSlot(schedule, finished + MINUTE, { inclusive: true }));
@@ -106,6 +108,8 @@ function workflowView(row) {
     instructions: row.instructions,
     intervalMinutes: row.interval_minutes,
     schedule: scheduleOf(row),
+    after: row.after_workflow_id === null ? null : { workflowId: row.after_workflow_id },
+    handoffPending: row.handoff_pending,
     review: row.review,
     reviewerId: row.reviewer_id,
     reviewCriteria: row.review_criteria,
@@ -127,7 +131,7 @@ function workflowView(row) {
 const RUN_COLUMNS = `r.seq, r.id, r.workflow_id, w.name AS workflow_name, t.task_id, t.state,
   t.output_truncated, t.error, t.problem_since, t.reason, t.progress, t.cancel_requested_at,
   r.created_at, t.updated_at, t.started_at, t.finished_at, r.review, r.reviewed_at, r.review_note,
-  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch, r.checks,
+  r.reviewed_by, r.reviewer_id, r.review_fallback, r.attempt, r.rework_of, t.branch, r.checks, r.handoff_from,
   v.task_id AS review_task_id, v.state AS review_state, v.error AS review_error, v.reason AS review_reason,
   v.cancel_requested_at AS review_cancel_requested_at, v.created_at AS review_created_at,
   v.finished_at AS review_finished_at`;
@@ -179,7 +183,8 @@ function runView(row) {
     attempt: row.attempt,
     reworkOf: row.rework_of,
     branch: row.branch === null ? null : JSON.parse(row.branch),
-    checks: row.checks === null ? null : JSON.parse(row.checks)
+    checks: row.checks === null ? null : JSON.parse(row.checks),
+    handoffFrom: row.handoff_from
   };
 }
 
@@ -360,21 +365,48 @@ export class Model {
     }
   }
 
+  /**
+   * The workflow `id` (null for a new one) may run after `upstreamId`: it exists, is not archived,
+   * is not the workflow itself, and following `after` from it never comes back (section 14.1).
+   */
+  checkUpstream(id, upstreamId) {
+    if (upstreamId === id) throw new Refusal(400, 'A workflow cannot run after itself');
+    const upstream = this.one('SELECT archived_at FROM workflows WHERE id = ?', upstreamId);
+    if (!upstream) throw new Refusal(400, 'Unknown upstream workflow');
+    if (upstream.archived_at !== null) throw new Refusal(400, 'The upstream workflow is archived');
+    const seen = new Set();
+    for (let at = upstreamId; at !== null && !seen.has(at);) {
+      if (at === id) throw new Refusal(400, 'Running after that workflow would make a cycle of workflows');
+      seen.add(at);
+      at = this.one('SELECT after_workflow_id FROM workflows WHERE id = ?', at)?.after_workflow_id ?? null;
+    }
+  }
+
+  /** The latest run of a workflow that counted as a success (section 14.1), or undefined. */
+  latestCounted(workflowId) {
+    return this.one(`SELECT r.id FROM runs r JOIN tasks t ON t.task_id = r.task_id
+      WHERE r.workflow_id = ? AND t.state = 'succeeded' AND (r.review IS NULL OR r.review = 'accepted')
+      ORDER BY COALESCE(r.reviewed_at, t.finished_at) DESC, r.seq DESC LIMIT 1`, workflowId);
+  }
+
   createWorkflow(fields, now) {
     if (!this.hasConnection(fields.connectionId)) throw new Refusal(400, 'Unknown worker connection');
     if (fields.review === 'agent') this.checkReviewer(fields.connectionId, fields.reviewerId);
+    if (fields.after) this.checkUpstream(null, fields.after.workflowId);
     const id = randomUUID();
     const enabled = fields.enabled ? 1 : 0;
     const schedule = fields.schedule ?? null;
-    // An interval workflow is due at once; a scheduled one at its first slot (contract section 14).
-    const nextRunAt = schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
+    // An interval workflow is due at once; a scheduled one at its first slot (contract section 14);
+    // one that runs after another has no clock (section 14.1).
+    const nextRunAt = fields.after ? null : schedule ? iso(nextSlot(schedule, Date.parse(now))) : now;
     this.run(`INSERT INTO workflows
-      (id, name, connection_id, instructions, interval_minutes, schedule, review, reviewer_id, review_criteria,
-       rework_limit, result_checks, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at, next_run_at,
-       failure_streak, blocked_reason, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      (id, name, connection_id, instructions, interval_minutes, schedule, after_workflow_id, review, reviewer_id,
+       review_criteria, rework_limit, result_checks, max_runs_per_day, acceptance_minutes, enabled, paused_by, paused_at,
+       next_run_at, failure_streak, blocked_reason, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     id, fields.name, fields.connectionId, fields.instructions, fields.intervalMinutes ?? null,
-    schedule ? JSON.stringify(schedule) : null, fields.review, fields.reviewerId, fields.reviewCriteria,
+    schedule ? JSON.stringify(schedule) : null, fields.after?.workflowId ?? null, fields.review, fields.reviewerId,
+    fields.reviewCriteria,
     fields.reworkLimit, JSON.stringify(fields.resultChecks), fields.maxRunsPerDay, fields.acceptanceMinutes, enabled, enabled ? null : 'operator',
     enabled ? null : now, nextRunAt, enabled ? null : PAUSED_BY_OPERATOR, now, now);
     this.log(now, 'operator', 'workflow.created', { workflowId: id });
@@ -392,6 +424,7 @@ export class Model {
       instructions: 'instructions',
       intervalMinutes: 'interval_minutes',
       schedule: 'schedule',
+      after: 'after_workflow_id',
       review: 'review',
       reviewerId: 'reviewer_id',
       reviewCriteria: 'review_criteria',
@@ -404,11 +437,17 @@ export class Model {
     const next = { ...current };
     // Schedules and checks are stored as JSON of their normalized form, so equal values compare equal.
     for (const [key, value] of Object.entries(patch)) {
-      next[key] = key === 'schedule' || key === 'resultChecks' ? JSON.stringify(value) : value;
+      next[key] = key === 'schedule' || key === 'resultChecks' ? JSON.stringify(value)
+        : key === 'after' ? value.workflowId : value;
     }
-    // A workflow has an interval or a schedule: setting one clears the other.
-    if (patch.schedule !== undefined) next.intervalMinutes = null;
-    if (patch.intervalMinutes !== undefined) next.schedule = null;
+    // A workflow runs on exactly one of an interval, a schedule and an upstream: setting one clears the others.
+    if (patch.schedule !== undefined) Object.assign(next, { intervalMinutes: null, after: null });
+    if (patch.intervalMinutes !== undefined) Object.assign(next, { schedule: null, after: null });
+    if (patch.after !== undefined) {
+      Object.assign(next, { intervalMinutes: null, schedule: null });
+      // Only a new upstream is checked: one archived since it was set stays the upstream (section 14.1).
+      if (next.after !== current.after) this.checkUpstream(id, next.after);
+    }
     // Only an agent review has a reviewer, so switching to another review clears it (contract section 15.1).
     if (patch.review !== undefined && patch.review !== 'agent' && (patch.reviewerId ?? null) === null) {
       next.reviewerId = null;
@@ -423,19 +462,24 @@ export class Model {
     }
     const changed = Object.keys(next).filter(key => next[key] !== current[key]).sort();
     if (!changed.length) return this.workflowDetail(id, now);
-    // One statement, so that the store never sees both or neither of interval and schedule.
-    this.run(`UPDATE workflows SET ${changed.map(key => columns[key] + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`,
-      ...changed.map(key => next[key]), now, id);
-    if (changed.includes('schedule') && next.schedule !== null) {
-      this.run('UPDATE workflows SET next_run_at = ? WHERE id = ?', iso(nextSlot(patch.schedule, Date.parse(now))), id);
+    // How it runs and when it is next due change together (sections 9, 14 and 14.1).
+    const sets = changed.map(key => [columns[key], next[key]]);
+    if (changed.includes('after') && next.after !== null) {
+      sets.push(['next_run_at', null]);
+    } else if (changed.includes('schedule') && next.schedule !== null) {
+      sets.push(['next_run_at', iso(nextSlot(patch.schedule, Date.parse(now)))]);
     } else if (changed.includes('intervalMinutes') && next.intervalMinutes !== null) {
       const latest = this.one(`SELECT t.finished_at FROM runs r JOIN tasks t ON t.task_id = r.task_id
         WHERE r.workflow_id = ? AND t.open = 0 ORDER BY r.seq DESC LIMIT 1`, id);
-      if (latest?.finished_at) {
-        this.run('UPDATE workflows SET next_run_at = ? WHERE id = ?',
-          iso(Date.parse(latest.finished_at) + next.intervalMinutes * MINUTE), id);
-      }
+      if (latest?.finished_at) sets.push(['next_run_at', iso(Date.parse(latest.finished_at) + next.intervalMinutes * MINUTE)]);
+      else if (current.after !== null) sets.push(['next_run_at', now]);
     }
+    // A workflow that stops running after a workflow, or now runs after another one, no longer has
+    // that workflow's result to run on (contract section 14.1).
+    if (current.after !== null && next.after !== current.after) sets.push(['handoff_pending', null]);
+    // One statement, so that the store never sees two ways to run, or none.
+    this.run(`UPDATE workflows SET ${sets.map(([column]) => column + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`,
+      ...sets.map(([, value]) => value), now, id);
     this.log(now, 'operator', 'workflow.edited', { workflowId: id, data: { fields: changed } });
     return this.workflowDetail(id, now);
   }
@@ -462,15 +506,23 @@ export class Model {
         blocked_reason = NULL, updated_at = ? WHERE id = ?`, now, id);
       this.log(now, 'operator', 'workflow.resumed', { workflowId: id });
     } else if (action === 'run') {
-      this.run('UPDATE workflows SET next_run_at = ?, updated_at = ? WHERE id = ?', now, now, id);
+      if (row.after_workflow_id !== null) {
+        // A workflow that runs after another runs on its upstream's latest counted result (section 14.1).
+        const latest = this.latestCounted(row.after_workflow_id);
+        if (!latest) throw new Refusal(409, 'The workflow it runs after has no accepted result yet');
+        this.run('UPDATE workflows SET handoff_pending = ?, updated_at = ? WHERE id = ?', latest.id, now, id);
+      } else {
+        this.run('UPDATE workflows SET next_run_at = ?, updated_at = ? WHERE id = ?', now, now, id);
+      }
       this.log(now, 'operator', 'workflow.run_requested', { workflowId: id });
     } else if (action === 'archive') {
       if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', id)) {
         throw new Refusal(409, 'Workflow has an unresolved run; wait for it, cancel it or release it first');
       }
-      // An archived workflow gets no rework; reviews of its runs go on (contract section 9).
+      // An archived workflow gets no rework and no handoff; reviews of its runs go on (sections 9, 14.1).
       this.run(`UPDATE workflows SET archived_at = ?, enabled = 0, paused_by = 'operator', paused_at = ?,
-        blocked_reason = ?, rework_pending = NULL, updated_at = ? WHERE id = ?`, now, now, PAUSED_BY_OPERATOR, now, id);
+        blocked_reason = ?, rework_pending = NULL, handoff_pending = NULL, updated_at = ? WHERE id = ?`,
+      now, now, PAUSED_BY_OPERATOR, now, id);
       this.log(now, 'operator', 'workflow.archived', { workflowId: id });
     } else {
       throw new Refusal(404, 'Unknown action');
@@ -493,7 +545,15 @@ export class Model {
     const stale = new Set();
     // Results already produced are checked before new work starts (contract section 4).
     const reserved = this.planReviews(now, readiness, capacities, correctedAt, stale);
-    const workflows = this.all('SELECT * FROM workflows WHERE archived_at IS NULL ORDER BY next_run_at, rowid');
+    // Oldest due first (section 4). A workflow that runs after another has no `nextRunAt`: it ranks by
+    // the moment its pending input counted, or with a rework pending the moment the result was rejected
+    // (section 14.1), so that it neither always goes first nor starves the others on its worker.
+    const workflows = this.all(`SELECT w.*, COALESCE(w.next_run_at,
+        (SELECT r.reviewed_at FROM runs r WHERE r.id = w.rework_pending),
+        (SELECT COALESCE(r.reviewed_at, t.finished_at) FROM runs r JOIN tasks t ON t.task_id = r.task_id
+          WHERE r.id = w.handoff_pending),
+        '9999') AS due_rank
+      FROM workflows w WHERE w.archived_at IS NULL ORDER BY due_rank, w.rowid`);
     for (const workflow of workflows) {
       const connection = this.one('SELECT * FROM connections WHERE id = ? AND removed_at IS NULL', workflow.connection_id);
       const reason = this.blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt);
@@ -514,6 +574,12 @@ export class Model {
   blockedReason(workflow, connection, readiness, now, dayStart, capacities, correctedAt = null) {
     if (workflow.enabled !== 1) return workflow.paused_by === 'failures' ? PAUSED_BY_FAILURES : PAUSED_BY_OPERATOR;
     if (this.one('SELECT 1 FROM runs WHERE workflow_id = ? AND open = 1', workflow.id)) return 'Assignment in progress';
+    // A workflow that runs after another and has no input yet only waits for one, whatever its worker's
+    // state (contract section 14.1).
+    if (workflow.after_workflow_id !== null && workflow.handoff_pending === null && workflow.rework_pending === null) {
+      const upstream = this.one('SELECT name FROM workflows WHERE id = ?', workflow.after_workflow_id);
+      return `Waiting for an accepted result of ${upstream?.name ?? 'the workflow it runs after'}`;
+    }
     if (this.dispatchedSince(workflow.id, dayStart) >= workflow.max_runs_per_day) return 'Daily dispatch limit reached';
     const state = connection && readiness[connection.id];
     if (!state?.ready) return state?.reason || 'Worker unavailable';
@@ -521,8 +587,11 @@ export class Model {
       const capacity = capacities.get(targetOf(connection)) ?? 1;
       return capacity > 1 ? `Worker is at its capacity of ${capacity} tasks` : 'Worker is busy with another managed task';
     }
-    // A due rework does not wait for the interval or schedule (contract section 15.2).
-    if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
+    // A due rework does not wait for the interval or schedule (contract section 15.2). A workflow that
+    // runs after another has no clock: it was found due above.
+    if (workflow.after_workflow_id === null && workflow.next_run_at > now && workflow.rework_pending === null) {
+      return 'Waiting for next scheduled run';
+    }
     // The verdict must come from a check that began after the run became due or the operator last
     // changed the workflow, so that a change made before a run is requested is always seen (MGD-15).
     // Equal times, as while a held clock records them, do not count as after; a check recorded
@@ -533,13 +602,21 @@ export class Model {
     return null;
   }
 
-  /** When a workflow's next run became due: its schedule, the operator's last change, or a rework. */
+  /** When a workflow's next run became due: its schedule, the operator's last change, a rework or a handoff. */
   dueSince(workflow, now) {
     let since = workflow.updated_at;
-    if (workflow.next_run_at <= now && workflow.next_run_at > since) since = workflow.next_run_at;
+    if (workflow.next_run_at !== null && workflow.next_run_at <= now && workflow.next_run_at > since) {
+      since = workflow.next_run_at;
+    }
     if (workflow.rework_pending !== null) {
       const reviewed = this.one('SELECT reviewed_at FROM runs WHERE id = ?', workflow.rework_pending)?.reviewed_at;
       if (reviewed && reviewed > since) since = reviewed;
+    }
+    if (workflow.handoff_pending !== null) {
+      // The upstream result counted when it was retained or, if reviewed, accepted.
+      const counted = this.one(`SELECT COALESCE(r.reviewed_at, t.finished_at) AS at FROM runs r
+        JOIN tasks t ON t.task_id = r.task_id WHERE r.id = ?`, workflow.handoff_pending)?.at;
+      if (counted && counted > since) since = counted;
     }
     return since;
   }
@@ -629,19 +706,35 @@ export class Model {
     const runId = randomUUID();
     const taskId = newTaskId();
     const deadline = iso(Date.parse(now) + workflow.acceptance_minutes * MINUTE);
-    // A due rework sends the review and the rejected result back with the instructions (section 15.2).
+    // A due rework sends the review and the rejected result back with the instructions (section 15.2);
+    // it goes before a pending handoff, which brings an upstream result as the input (section 14.1).
     let input = workflow.instructions;
+    let assignment = workflow.instructions;
     let attempt = 1;
     let reworkOf = null;
+    let handoffFrom = null;
     if (workflow.rework_pending !== null) {
-      const rejected = this.one(`SELECT r.id, r.attempt, r.review_note, r.reviewed_by, t.output FROM runs r
-        JOIN tasks t ON t.task_id = r.task_id WHERE r.id = ?`, workflow.rework_pending);
+      const rejected = this.one(`SELECT r.id, r.attempt, r.review_note, r.reviewed_by, r.assignment, r.handoff_from,
+        t.output FROM runs r JOIN tasks t ON t.task_id = r.task_id WHERE r.id = ?`, workflow.rework_pending);
       if (rejected) {
+        // A rework of a handoff run keeps its input: it begins with the rejected run's assignment.
+        if (rejected.handoff_from !== null) {
+          assignment = rejected.assignment;
+          handoffFrom = rejected.handoff_from;
+        }
         // A rejection without a reviewer is the result checks' (section 15.3).
-        input = reworkInput({ instructions: workflow.instructions, note: rejected.review_note, output: rejected.output,
+        input = reworkInput({ instructions: assignment, note: rejected.review_note, output: rejected.output,
           byChecks: rejected.reviewed_by === null });
         attempt = rejected.attempt + 1;
         reworkOf = rejected.id;
+      }
+    } else if (workflow.handoff_pending !== null) {
+      const upstream = this.one(`SELECT r.id, w.name, t.output FROM runs r JOIN tasks t ON t.task_id = r.task_id
+        JOIN workflows w ON w.id = r.workflow_id WHERE r.id = ?`, workflow.handoff_pending);
+      if (upstream) {
+        input = handoffInput({ instructions: workflow.instructions, name: upstream.name, output: upstream.output });
+        assignment = input;
+        handoffFrom = upstream.id;
       }
     }
     // Persist before every external effect. A crash can replay only these bytes.
@@ -654,12 +747,14 @@ export class Model {
     // The run keeps the review requirement, reviewer and result checks its workflow has now
     // (contract sections 15, 15.1 and 15.3).
     this.run(`INSERT INTO runs (id, workflow_id, task_id, open, created_at, review_required, reviewer_id, attempt,
-      rework_of, assignment, result_checks) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+      rework_of, assignment, result_checks, handoff_from) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
     runId, workflow.id, taskId, now, workflow.review === 'none' ? 0 : 1,
-    workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, workflow.instructions,
-    workflow.result_checks === '[]' ? null : workflow.result_checks);
-    this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL WHERE id = ?`,
-      workflow.id);
+    workflow.review === 'agent' ? workflow.reviewer_id : null, attempt, reworkOf, assignment,
+    workflow.result_checks === '[]' ? null : workflow.result_checks, handoffFrom);
+    // A rework leaves a pending handoff for the run after it; a handoff run takes it.
+    this.run(`UPDATE workflows SET blocked_reason = 'Assignment in progress', rework_pending = NULL,
+      handoff_pending = CASE WHEN ? THEN NULL ELSE handoff_pending END WHERE id = ?`,
+    workflow.rework_pending === null ? 1 : 0, workflow.id);
     this.log(now, 'system', 'run.dispatched', { workflowId: workflow.id, runId });
     return taskRecord(this.one('SELECT * FROM tasks WHERE task_id = ?', taskId));
   }
@@ -782,6 +877,20 @@ export class Model {
     this.log(now, by === 'agent' ? 'system' : 'operator', 'run.reviewed',
       { workflowId: run.workflow_id, runId: run.id, data: { verdict } });
     if (verdict === 'rejected') this.dueRework(run, now);
+    else this.handOff(run, now);
+  }
+
+  /**
+   * A run counted as a success: every workflow that runs after its workflow, and is not archived,
+   * runs on it next, in place of an older result not yet dispatched (contract section 14.1).
+   */
+  handOff(run, now) {
+    const downstream = this.all('SELECT id FROM workflows WHERE after_workflow_id = ? AND archived_at IS NULL',
+      run.workflow_id);
+    for (const workflow of downstream) {
+      this.run('UPDATE workflows SET handoff_pending = ? WHERE id = ?', run.id, workflow.id);
+      this.log(now, 'system', 'workflow.handoff_due', { workflowId: workflow.id, runId: run.id });
+    }
   }
 
   /**
@@ -809,7 +918,11 @@ export class Model {
     // A success of a reviewed workflow waits for the operator's verdict before it counts.
     if (succeeded) this.run("UPDATE runs SET review = 'pending' WHERE id = ? AND review_required = 1", run.id);
     this.log(now, 'system', 'run.finished', { workflowId: run.workflow_id, runId: run.id, data: { state: task.state } });
-    if (succeeded) this.checkResult(run, now);
+    if (succeeded) {
+      this.checkResult(run, now);
+      // A success that needs no review, and passed any checks, counts at once (section 14.1).
+      if (this.one('SELECT review FROM runs WHERE id = ?', run.id).review === null) this.handOff(run, now);
+    }
     const workflow = this.one('SELECT * FROM workflows WHERE id = ?', run.workflow_id);
     if (!workflow) return;
     const streak = succeeded ? 0 : isOperatorResult(task) ? workflow.failure_streak : workflow.failure_streak + 1;
@@ -1083,8 +1196,11 @@ export class Model {
         waiting: row.waiting,
         since: row.since
       })),
-      archived: this.all('SELECT id, name, archived_at FROM workflows WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, rowid DESC')
-        .map(row => ({ id: row.id, name: row.name, archivedAt: row.archived_at })),
+      // (rev 9) With `after`, so that a client can follow a chain through archived workflows.
+      archived: this.all(`SELECT id, name, archived_at, after_workflow_id FROM workflows WHERE archived_at IS NOT NULL
+        ORDER BY archived_at DESC, rowid DESC`)
+        .map(row => ({ id: row.id, name: row.name, archivedAt: row.archived_at,
+          after: row.after_workflow_id === null ? null : { workflowId: row.after_workflow_id } })),
       activity: this.all('SELECT * FROM activity ORDER BY seq DESC LIMIT 30').map(activityView)
     };
   }

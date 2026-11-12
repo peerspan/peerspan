@@ -18,7 +18,8 @@ review results before they count. Its fourth revision lets a reviewer agent
 check each result first, with the operator as the fallback, sends a rejected
 result back to the worker with the review, and shows the branch a runtime agent
 worked on. Later revisions run runtime agents as workers, several tasks at once,
-and (revision 8) check each result's shape before any review, at no model cost.
+(revision 8) check each result's shape before any review, at no model cost, and
+(revision 9) pass accepted results from one workflow to the next.
 It does not provision cloud machines, launch
 model sessions, bill customers, or guarantee that an agent's answer is correct;
 a reviewer agent's verdict is another agent's judgment, not a guarantee either. These limits are
@@ -59,7 +60,9 @@ manual interventions, repeat weekly use and paid retention.
    contracts: checks the controller applies to each result itself, before any
    review and with no model call, such as required text, a length, JSON keys
    or a committed branch. A result that fails them is rejected and can be sent
-   back with the failed checks.
+   back with the failed checks. Revision 9 lets workflows hand work along: one
+   runs after another, on its latest accepted result, so a chain of agents can
+   research, draft and publish with each step checked on its own.
 3. Hosted pilot: persistent sandbox provider integration, storage and restore,
    per-tenant secrets and isolation, account authentication, actual cost telemetry.
 4. Paid teams: billing, client workspaces, organization administration, service

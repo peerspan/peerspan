@@ -329,6 +329,8 @@ const actions = {
     const created = await workflowDialog({
       template: recipe ? recipeTemplate(recipe) : null,
       connections: app.data.connections,
+      workflows: app.data.workflows,
+      archived: app.data.archived,
       submit: fields => post('/api/workflows', fields)
     });
     if (created) await refresh();
@@ -338,6 +340,8 @@ const actions = {
     const saved = await workflowDialog({
       workflow,
       connections: app.data.connections,
+      workflows: app.data.workflows,
+      archived: app.data.archived,
       submit(fields) {
         const patch = Object.fromEntries(Object.entries(fields)
           .filter(([key, value]) => JSON.stringify(workflow[key]) !== JSON.stringify(value)));

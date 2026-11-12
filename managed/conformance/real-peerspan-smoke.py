@@ -346,7 +346,7 @@ def answer(adapter, expected_input, output, what):
     return task_id
 
 
-@suite.case("real-reviewer-agent", "managed contract rev 4 and 8: reviewer agent, rejection, rework, acceptance, result checks")
+@suite.case("real-reviewer-agent", "managed contract rev 4, 8 and 9: reviewer agent, rejection, rework, acceptance, result checks, handoff")
 def reviewer_agent():
     node = node_24()
     worker, sender, adapter = two_hosts("review", "scripted-worker")
@@ -407,6 +407,14 @@ def reviewer_agent():
         "instructions": instructions, "intervalMinutes": 60, "maxRunsPerDay": 3, "acceptanceMinutes": 2,
         "review": "agent", "reviewerId": reviewer_connection["id"], "reworkLimit": 1, "enabled": True,
         "resultChecks": [{"kind": "contains", "text": "receipt "}, {"kind": "maxLength", "chars": 200}]})
+    # Revision 9: a workflow that runs after the checked one gets its accepted result as input.
+    follow_instructions = "SCRIPTED HANDOFF SMOKE ONLY. Announce the receipt; no model executes this."
+    follow = managed.request("POST", "/api/workflows", {
+        "name": "SCRIPTED handoff smoke — no model", "connectionId": worker_connection["id"],
+        "instructions": follow_instructions, "after": {"workflowId": checked["id"]}, "maxRunsPerDay": 2,
+        "acceptanceMinutes": 2, "enabled": True})
+    check(follow["after"] == {"workflowId": checked["id"]} and follow["nextRunAt"] is None,
+          f"the workflow that runs after another: {follow}")
     unchecked = "SCRIPTED attempt 1: done."
     answer(adapter, instructions, unchecked, "checked attempt 1")
     failures = 'The result does not contain "receipt ".'
@@ -414,6 +422,9 @@ def reviewer_agent():
     answer(adapter, checks_rework_input(instructions, failures, unchecked), passing, "rework after failed checks")
     answer(reviewer, f"{REVIEW_HEADER}\n\nASSIGNMENT\n{instructions}\n\nRESULT\n{passing}",
            "VERDICT: ACCEPT\nSCRIPTED: receipt 7 is named.", "review after passing checks")
+    handoff_input = (f"{follow_instructions}\n\nINPUT\nThe result below is the latest accepted result of the workflow "
+                     f"\"SCRIPTED checked smoke — no model\". Use it as the input of this assignment.\n\nRESULT\n{passing}")
+    answer(adapter, handoff_input, "SCRIPTED announcement: receipt 7 is out.", "handoff after the accepted rework")
 
     def checked_rework():
         runs = [row for row in managed.request("GET", "/api/snapshot")["runs"] if row["workflowId"] == checked["id"]]
@@ -426,8 +437,12 @@ def reviewer_agent():
           and [item["passed"] for item in passed["checks"]] == [True, True]
           and passed["attempt"] == 2 and passed["reworkOf"] == failed["id"] and passed["reviewedBy"] == "agent",
           f"the checks of the two attempts: {failed['checks']} / {passed['checks']}")
+    handed = wait_for(lambda: managed.run(follow["id"], "succeeded"), timeout=30, message="the handoff run")
+    check(handed["handoffFrom"] == passed["id"], f"the handoff run's input came from {handed['handoffFrom']}, not the "
+          f"accepted rework {passed['id']}")
     print("  Reviewer agent rejection, exact review and rework inputs, rework and acceptance over real transport; "
-          "result checks rejecting before the reviewer and the rework with the failed checks; no model.", flush=True)
+          "result checks rejecting before the reviewer and the rework with the failed checks; a handoff of the accepted "
+          "result; no model.", flush=True)
     adapter.stop()
     reviewer.stop()
 

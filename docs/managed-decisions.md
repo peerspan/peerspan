@@ -457,3 +457,50 @@ restarts, and would make two rules where the store's one rule now decides.
   from revision 2 and is fixed: the lock timeout is set before the first read,
   and a backup another opener has just written counts as written.
 - **Contract.** Sections 1, 8, 9, 11 and 15.3.
+
+## MGD-18. Handoffs between workflows (2026-11-12)
+
+- **Question.** Teams of agents pass work along: one researches, another drafts
+  from the research, a third summarizes the draft. Each managed workflow runs on
+  its own clock, so the operator had to copy accepted results from one to the
+  next by hand. How should one workflow's result become another's input?
+- **Options.**
+  - (a) A workflow may run after another workflow, on each of its results that
+    counts as a success.
+  - (b) Workflows with several steps, each step on its own worker.
+  - (c) Triggers from outside: a webhook or a command that starts a run with
+    given input.
+- **Chosen.** (a). A result counts once it succeeded with no review needed, or
+  was accepted. The latest such result wins when several arrive before the
+  next run, and it travels in a fixed `INPUT` block of the next run's input.
+- **Reason.** With (a) a chain is just workflows, so each step keeps everything
+  a workflow already has: its worker, daily cap, checks, reviewer, rework,
+  history and statistics. A step can be paused, edited or reviewed on its own,
+  and the handoff follows the same verdicts that make a result count anywhere
+  else, so a rejected or unchecked result never travels. (b) would rebuild all
+  of that inside one workflow. (c) needs an inbound surface, and the console
+  is loopback-only by design. "Latest wins" keeps a slow downstream step from
+  building a queue of stale inputs: a recurring chain is about the current
+  state, and every upstream result stays in that workflow's history. The input
+  of a handoff run is capped at half a task's input, so a rework of it can still
+  repeat it with the review and the previous result.
+- **Store.** Version 6 rebuilds the workflows table, because its constraint now
+  names three ways to run (interval, schedule, `after`) and `nextRunAt` may be
+  null.
+- **Review.** The independent reviewer confirmed one defect in the rules and
+  two in the console, all fixed before publishing.
+  - Dispatch put a workflow without `nextRunAt` first on a shared worker, so a
+    chain that kept producing input could starve an interval workflow on the
+    same agent indefinitely. An `after` workflow now ranks by the moment its
+    input counted, or for a rework by the moment of the rejection (section 4).
+  - The console's cycle guard did not follow archived workflows. Archived
+    entries now carry `after`.
+  - A workflow whose upstream was archived could not be saved when no other
+    workflow existed.
+  
+  Questions from the suite author settled four points:
+  - repointing `after` clears a pending handoff;
+  - `run` records only `run_requested`;
+  - "latest" means by the moment a result counted;
+  - a PATCH with two ways to run is refused.
+- **Contract.** Sections 1, 2, 4, 8, 9, 11, 14.1 and 15.2.

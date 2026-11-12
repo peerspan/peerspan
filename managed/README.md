@@ -127,6 +127,15 @@ review criteria; read and adapt them, choose the worker, and save.
   handled: a skipped local time runs later by the change, a repeated one runs
   once. A slot that passes while a run is in progress, the workflow is paused or
   the controller is stopped runs once as soon as it can, not once per slot.
+- **After another workflow.** A workflow can instead run after another one.
+  Each result of the other workflow that counts as a success, having passed its
+  checks and review, becomes this workflow's next input. The worker receives it
+  under `INPUT` after the assignment. Chained this way, workflows pass work
+  along: research, then a draft from the research, then an announcement from
+  the draft. Each step keeps its own worker, checks, reviewer, limits and
+  history. When several results arrive before the next run, the latest is used.
+  A rejected result never travels. "Run now" starts from the latest accepted
+  result.
 - **Results.** By default a succeeded run counts as the worker reports it. With
   "I check them", it waits for your verdict; with "An agent checks them", a
   reviewer agent checks it first (below). Accepted results count as successes,
@@ -283,7 +292,7 @@ state directory. Nothing here replaces the Peerspan host service.
 
 The first command of this version that opens an existing state directory
 migrates it in place, after saving a copy beside it as
-`managed.vN-backup.sqlite`, N being the store version it found (1 to 4).
+`managed.vN-backup.sqlite`, N being the store version it found (1 to 5).
 Connections, observations, workflows, runs, task IDs, results, verdicts and the
 activity log keep their IDs and values; a run that was unresolved is reconciled
 under its task ID as after any restart. Existing workflows keep their intervals,
@@ -303,6 +312,7 @@ node managed/conformance/reviewers.mjs          # contract cases 16 to 18
 node managed/conformance/runtime-agents.mjs     # contract case 19
 node managed/conformance/capacity.mjs           # contract cases 20 to 22
 node managed/conformance/checks.mjs             # contract cases 23 to 25
+node managed/conformance/handoffs.mjs           # contract cases 26 to 28
 # Actual two-host transport with scripted adapters, no model:
 python3 managed/conformance/real-peerspan-smoke.py --bin /path/to/built/binaries
 ```

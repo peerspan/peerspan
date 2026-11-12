@@ -18,6 +18,7 @@ node managed/conformance/reviewers.mjs
 node managed/conformance/runtime-agents.mjs
 node managed/conformance/capacity.mjs
 node managed/conformance/checks.mjs
+node managed/conformance/handoffs.mjs
 ```
 
 On the configured Windows editing machine:
@@ -35,16 +36,22 @@ locks. The suite is bounded to 115 seconds; normal duration is around 70 seconds
 revision 2 suites; `remote.mjs` (case 13) and `schedules.mjs` (cases 14 and 15)
 are the revision 3 suites; `reviewers.mjs` (cases 16 to 18) is the revision 4
 suite, `runtime-agents.mjs` (case 19) the revision 5 suite and `capacity.mjs`
-(cases 20 to 22) the revision 6 and 7.1 suite, and `checks.mjs` (cases 23 to 25)
-the revision 8 suite. They are split by area to stay near
+(cases 20 to 22) the revision 6 and 7.1 suite, `checks.mjs` (cases 23 to 25)
+the revision 8 suite, and `handoffs.mjs` (cases 26 to 28) the revision 9 suite.
+They are split by area to stay near
 1,000 lines each
 and share `harness.mjs`: the fixture, HTTP and event-stream helpers, the fake's
-logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 8 shapes of
-contract sections 1, 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 15, 15.1 and 15.3
+logs, the `MANAGED_CLOCK_FILE` test clock, and the exact revision 9 shapes of
+contract sections 1, 3, 3.1, 4, 7.1, 8, 10, 10.1, 11, 14, 14.1, 15, 15.1 and 15.3
 (readiness with `runtime` and the runtime codes of agent mode; each connection's
 `capacity`, derived from its readiness, and `activeTasks`, equal for connections
-to one agent; each workflow's `resultChecks` and each run's `checks`; schema
-version 5), which are checked on
+to one agent; each workflow's `resultChecks` and each run's `checks`; each
+workflow's `after` and `handoffPending`, exactly one of `intervalMinutes`,
+`schedule` and `after`, `nextRunAt` null exactly for an `after` workflow, an
+upstream that exists and no cycle, followed through the `after` of archived
+entries too; each run's `handoffFrom` naming a counted
+run of another workflow and a handoff run's assignment with its `INPUT` block;
+`workflow.handoff_due`; schema version 6), which are checked on
 every snapshot, run page and run detail any of them fetches: among them the
 attention items derived from the snapshot (`worker_unready` for reviewers,
 `run_problem` for review tasks, `review_pending` only for runs that wait for the
@@ -129,6 +136,31 @@ Every response body is also checked for fixture paths, the access token and
   the checks as they were when the rework was reserved). Six concurrent cases,
   about 25 seconds; the fake plays the worker by `scripts` and the reviewer step
   by step.
+- `handoffs.mjs`: handoff fields (`after` at creation and in `PATCH` with the
+  exactly-one rule, the 400s for an unknown, archived or malformed upstream, the
+  workflow itself, cycles of two and three and `after` null in a `PATCH`;
+  switching to and from `after` with the `workflow.edited` fields, `nextRunAt`
+  null and then now or the first slot, and `handoffPending` cleared; a repeated
+  upstream not checked again and keeping a pending handoff, another upstream
+  clearing it; an upstream archived later staying the upstream;
+  the waiting `blockedReason`, the same with the worker not ready), handing off
+  (counted successes under review `none`, with passing checks, `operator` and
+  `agent`; no handoff for a rejection by the operator, the reviewer or checks, a
+  pending review or a failed run; two downstreams of one upstream; the latest
+  counted result winning by the moment it counts; `workflow.handoff_due`; the
+  exact input with the name and instructions read at reservation, NUL left out
+  of the name and the result, a long result cut to 32,768 bytes and only `…`
+  after instructions that alone are longer; pause, resume, archive and a verdict
+  on an archived upstream's earlier run; an archived entry keeping its `after`;
+  the daily cap; the dispatch order on a shared worker, an interval workflow
+  that fell due before an `after` workflow's input counted going first and the
+  reverse; a chain of three), and
+  `run` and rework on `after` workflows (`run` with the latest counted result and
+  409 without one, never bypassing pause; a due rework before a pending handoff;
+  the rework of a handoff run after the operator's rejection and after failed
+  checks, beginning with the rejected run's `assignment` and keeping
+  `handoffFrom`, still within 65,536 bytes). Nine concurrent cases, about 25
+  seconds; the fake plays the worker and reviewer by `scripts` or step by step.
 
 All are bounded to 115 seconds, and CI (`.github/workflows/managed.yml`) runs
 them one after another. `KEEP_FAKE_MANAGED_FIXTURES=1` retains explicitly

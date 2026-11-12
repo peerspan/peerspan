@@ -73,11 +73,20 @@ function runStrip(workflow, runs) {
     h('span.strip-label', null, `last ${plural(recent.length, 'run')}`));
 }
 
+// The scheduler's explanation while a workflow is simply not due yet (contract sections 14 and 14.1).
+const waiting = reason => !reason || reason === 'Waiting for next scheduled run' || reason.startsWith('Waiting for an accepted result');
+
 function nextLine(workflow, openRun) {
   if (openRun) return ['Assignment in progress since ', timeAgo(openRun.createdAt)];
-  if (!workflow.enabled) return [workflow.blockedReason || 'Paused', workflow.reworkPending ? '; a rework is due on resume' : ''];
-  if (workflow.reworkPending && (!workflow.blockedReason || workflow.blockedReason === 'Waiting for next scheduled run')) {
-    return ['Rework due now'];
+  if (!workflow.enabled) {
+    return [workflow.blockedReason || 'Paused', workflow.reworkPending ? '; a rework is due on resume'
+      : workflow.handoffPending ? '; a new input is waiting for resume' : ''];
+  }
+  if (workflow.reworkPending && waiting(workflow.blockedReason)) return ['Rework due now'];
+  // A workflow that runs after another has no next run time: a new accepted result makes it due.
+  if (workflow.after) {
+    if (workflow.handoffPending && waiting(workflow.blockedReason)) return ['Due now, on a new input'];
+    return [workflow.blockedReason || 'Waiting for an accepted result of the workflow it runs after'];
   }
   if (!workflow.blockedReason || workflow.blockedReason === 'Waiting for next scheduled run') {
     return Date.parse(workflow.nextRunAt) <= Date.now() ? ['Due now'] : ['Next run ', timeAgo(workflow.nextRunAt)];
@@ -97,9 +106,17 @@ function workflowActions(ctx, workflow, openRun) {
       onclick: act('run'),
       key: `wf:${workflow.id}:run`,
       disabled: !workflow.enabled || Boolean(openRun),
-      title: !workflow.enabled ? 'Resume the workflow first' : openRun ? 'A run is already in progress' : 'Make the next run due now'
+      title: !workflow.enabled ? 'Resume the workflow first' : openRun ? 'A run is already in progress'
+        : workflow.after ? 'Run on the latest accepted result of the workflow it runs after' : 'Make the next run due now'
     })
   ];
+}
+
+/** The name of the workflow that `workflow` runs after, archived ones included. */
+function upstreamName(ctx, workflow) {
+  if (!workflow.after) return null;
+  const upstream = [...ctx.data.workflows, ...ctx.data.archived].find(item => item.id === workflow.after.workflowId);
+  return upstream ? upstream.name : 'a workflow that no longer exists';
 }
 
 function workflowCard(ctx, workflow) {
@@ -116,7 +133,7 @@ function workflowCard(ctx, workflow) {
         h('a.card-title', { href: `#/workflows/${workflow.id}` }, workflow.name),
         badge(status, Boolean(openRun) && openRun.state === 'running')),
       h('p.card-meta', null,
-        `${worker ? worker.name : 'No worker'} · ${schedule(workflow)} · up to ${plural(workflow.maxRunsPerDay, 'run')} a day${checkedBy}`),
+        `${worker ? worker.name : 'No worker'} · ${schedule(workflow, { upstream: upstreamName(ctx, workflow) })} · up to ${plural(workflow.maxRunsPerDay, 'run')} a day${checkedBy}`),
       runStrip(workflow, runs),
       openRun?.progress && h('p.card-line', null, h('span', null, 'Now:'), h('span.progress', null, openRun.progress))),
     h('div.card-foot', null,
@@ -307,6 +324,8 @@ export function workflowPage(ctx, id) {
   const { stats } = workflow;
   const status = workflowStatus(workflow, runs);
   const checked = workflow.resultChecks.length > 0;
+  // The workflows that run after this one, on its accepted results (contract section 14.1).
+  const downstream = workflows.filter(item => item.after?.workflowId === workflow.id);
   const results = {
     none: checked ? 'Counted as the worker reports them once they pass their checks' : 'Counted as the worker reports them',
     operator: checked ? 'Each success that passes its checks waits for your verdict before it counts'
@@ -350,9 +369,14 @@ export function workflowPage(ctx, id) {
         h('div.section-head.section', null, h('h2', null, 'Schedule')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Worker', worker ? h('a', { href: '#/workers' }, worker.name) : 'Not connected'),
-          fact('Repeats', workflow.schedule
-            ? `${schedule(workflow, { zone: false })}, ${workflow.schedule.timeZone} time; a slot missed while busy or paused runs once`
-            : schedule(workflow) + ', counted from the end of the previous run'),
+          fact('Repeats', workflow.after
+            ? ['After each accepted result of ', h('a', { href: `#/workflows/${workflow.after.workflowId}` }, upstreamName(ctx, workflow)),
+              ', which becomes its input']
+            : workflow.schedule
+              ? `${schedule(workflow, { zone: false })}, ${workflow.schedule.timeZone} time; a slot missed while busy or paused runs once`
+              : schedule(workflow) + ', counted from the end of the previous run'),
+          downstream.length > 0 && fact('Hands off to', downstream.map((item, index) =>
+            [index ? ', ' : '', h('a', { href: `#/workflows/${item.id}` }, item.name)])),
           fact('Results', results),
           (workflow.review !== 'none' || workflow.resultChecks.length > 0) && fact('Rejected results', reworkText(workflow.reworkLimit)),
           fact('Daily limit', `${plural(workflow.maxRunsPerDay, 'dispatch', 'dispatches')} per UTC day`),
@@ -406,6 +430,9 @@ export function runPage(ctx, id) {
     run.reworkOf && h('div.callout.info', null, icon('info'), h('span', null,
       'A rework: the worker received the review and the result of ', h('a', { href: `#/runs/${run.reworkOf}` }, 'the rejected run'),
       ' with the assignment.')),
+    run.handoffFrom && !run.reworkOf && h('div.callout.info', null, icon('info'), h('span', null,
+      'Its input was ', h('a', { href: `#/runs/${run.handoffFrom}` }, 'an accepted result'),
+      ' of the workflow it runs after, sent with the assignment.')),
     h('div.section.two-col', null,
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Result'),
@@ -417,13 +444,15 @@ export function runPage(ctx, id) {
         reviewPanel(ctx, run, rework),
         reviewTaskPanel(ctx, run, detail.reviewEvents),
         h('div.section-head.section', null, h('h2', null, 'Instructions sent'),
-          run.attempt > 1 && h('span.section-note', null, 'The assignment, the review and the previous result')),
+          run.attempt > 1 ? h('span.section-note', null, 'The assignment, the review and the previous result')
+            : run.handoffFrom && h('span.section-note', null, 'The assignment and its input')),
         h('div.panel.pad', null, h('p.prose', null, run.instructions))),
       h('div', null,
         h('div.section-head', null, h('h2', null, 'Details')),
         h('div.panel.pad', null, h('dl.facts', null,
           fact('Workflow', h('a', { href: `#/workflows/${run.workflowId}` }, run.workflowName)),
           run.attempt > 1 && fact('Attempt', [`${run.attempt}, reworking `, h('a', { href: `#/runs/${run.reworkOf}` }, 'the rejected run')]),
+          run.handoffFrom && fact('Input from', h('a', { href: `#/runs/${run.handoffFrom}` }, 'an accepted upstream result')),
           rework && fact('Sent back', ['Reworked in ', h('a', { href: `#/runs/${rework.id}` }, `attempt ${rework.attempt}`)]),
           run.branch && fact('Branch', branchText(run.branch)),
           fact('Task ID', copyable(run.taskId, shortId(run.taskId))),

@@ -13,8 +13,10 @@ const INTEGER_RANGES = {
   reworkLimit: [0, 3]
 };
 const REQUIRED = ['name', 'connectionId', 'instructions', 'maxRunsPerDay', 'acceptanceMinutes'];
-const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'review', 'reviewerId', 'reviewCriteria', 'reworkLimit',
-  'resultChecks'];
+const EDITABLE = [...REQUIRED, 'intervalMinutes', 'schedule', 'after', 'review', 'reviewerId', 'reviewCriteria',
+  'reworkLimit', 'resultChecks'];
+// A workflow runs on exactly one of these (contract sections 14 and 14.1).
+const WHEN = ['intervalMinutes', 'schedule', 'after'];
 const CREATABLE = [...EDITABLE, 'enabled'];
 const REVIEWS = ['none', 'operator', 'agent'];
 const VERDICTS = ['accepted', 'rejected'];
@@ -70,6 +72,17 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
         continue;
       }
       fields[key] = normalizeSchedule(value);
+    } else if (key === 'after') {
+      // As for a schedule: null is no upstream at creation, and refused in an edit (section 14.1).
+      if (value === null) {
+        if (!nullSchedule) throw invalid('Set intervalMinutes or a schedule to stop running after another workflow');
+        continue;
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1
+        || typeof value.workflowId !== 'string' || !ID.test(value.workflowId)) {
+        throw invalid('after is {"workflowId": ID}, the workflow this one runs after');
+      }
+      fields[key] = { workflowId: value.workflowId };
     } else if (key === 'review') {
       if (!REVIEWS.includes(value)) throw invalid('Invalid review; use none, operator or agent');
       fields[key] = value;
@@ -87,8 +100,8 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
       fields[key] = normalizeChecks(value);
     }
   }
-  if (fields.intervalMinutes !== undefined && fields.schedule !== undefined) {
-    throw invalid('Give either intervalMinutes or schedule, not both');
+  if (WHEN.filter(key => fields[key] !== undefined).length > 1) {
+    throw invalid('Give one of intervalMinutes, schedule and after, not several');
   }
   return fields;
 }
@@ -96,8 +109,8 @@ function checkFields(body, allowed, required, { nullSchedule = false } = {}) {
 /** A complete workflow definition; paused unless `enabled` is true. */
 export function newWorkflow(body) {
   const fields = checkFields(body, CREATABLE, REQUIRED, { nullSchedule: true });
-  if (fields.intervalMinutes === undefined && fields.schedule === undefined) {
-    throw invalid('Give intervalMinutes or a schedule');
+  if (WHEN.every(key => fields[key] === undefined)) {
+    throw invalid('Give intervalMinutes, a schedule, or the workflow this one runs after');
   }
   const workflow = { review: 'none', reviewerId: null, reviewCriteria: null, reworkLimit: 0, resultChecks: [], ...fields };
   // A reviewer exactly when the review is an agent's (contract section 15.1).

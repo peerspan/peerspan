@@ -1,10 +1,12 @@
-// Shared plumbing for the revision 2 to 8 contract suites (operations.mjs, visibility.mjs, remote.mjs,
-// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs and checks.mjs). Contract-only and black-box: it
-// launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in throwaway private
-// directories. It never imports or reads the managed implementation or its database. Section numbers (§)
-// refer to docs/managed-contract.md. Shapes are those of revision 8, which keeps every revision 7.1 behavior and
-// adds result checks (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for a result
-// that failed them; the store is at schema 5 (§1).
+// Shared plumbing for the revision 2 to 9 contract suites (operations.mjs, visibility.mjs, remote.mjs,
+// schedules.mjs, reviewers.mjs, runtime-agents.mjs, capacity.mjs, checks.mjs and handoffs.mjs). Contract-only and
+// black-box: it launches the documented CLI, speaks HTTP and drives the explicitly fake Peerspan executable in
+// throwaway private directories. It never imports or reads the managed implementation or its database. Section
+// numbers (§) refer to docs/managed-contract.md. Shapes are those of revision 9, which keeps every revision 8
+// behavior and adds handoffs (§14.1): each workflow's after and handoffPending, nextRunAt null exactly for an after
+// workflow, each run's handoffFrom and the system activity workflow.handoff_due; the store is at schema 6 (§1).
+// Revision 8 added result checks (§15.3): each workflow's resultChecks, each run's checks, and reviewedBy checks for
+// a result that failed them.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -127,10 +129,16 @@ const activityKinds = {
     'review.cancel_requested', 'review.abandoned'],
   system: ['run.dispatched', 'run.finished', 'run.problem', 'run.recovered', 'workflow.auto_paused',
     'worker.ready', 'worker.unready', 'run.reviewed', 'review.dispatched', 'review.finished', 'review.fallback',
-    'workflow.rework_due']};
+    'workflow.rework_due', 'workflow.handoff_due']};
 const runFields = 'id workflowId workflowName taskId state output outputTruncated error reason progress ' +
   'cancelRequestedAt createdAt updatedAt startedAt finishedAt review reviewedAt reviewNote ' +
-  'reviewedBy reviewTask reviewFallback attempt reworkOf branch checks';
+  'reviewedBy reviewTask reviewFallback attempt reworkOf branch checks handoffFrom';
+// §14.1 (rev 9): a run of an upstream counts as a success once it ends succeeded with review null, or once its review
+// becomes accepted; only such a run is handed off.
+const counted = run => run.state === 'succeeded' && (run.review === null || run.review === 'accepted');
+// §14.1: the fixed lines of a handoff run's input around the upstream workflow's name.
+const handoffLead = '\n\nINPUT\nThe result below is the latest accepted result of the workflow "';
+const handoffTail = '". Use it as the input of this assignment.\n\nRESULT\n';
 const reviewTaskFields = 'connectionId taskId state error reason cancelRequestedAt createdAt finishedAt';
 // §15.3 (rev 8): a result check is an object with exactly the fields of one of six kinds.
 const checkField = {contains: 'text', excludes: 'text', minLength: 'chars', maxLength: 'chars', branch: null, jsonKeys: 'keys'};
@@ -333,6 +341,18 @@ export function checkRun(run, {detail = false} = {}) {
     '§10 assignment is the instructions when the run was reserved: equal to instructions for attempt 1, without the ' +
       'revision request for a rework (§15.2)', pick(run, 'attempt assignment instructions'));
   }
+  // §14.1 (rev 9): handoffFrom is null, or the upstream run whose result a handoff run (or a rework of one) runs on.
+  // A handoff run's assignment is its whole input: the INPUT block after the instructions, at most 32,768 bytes of
+  // UTF-8 unless the rest alone is longer, when the result is only "…".
+  expect(nullable(run.handoffFrom, value => text(value) && value !== '' && value !== run.id && value !== run.reworkOf),
+    '§14.1 handoffFrom is null or the ID of a run of the upstream', pick(run, 'id handoffFrom reworkOf'));
+  if (detail && run.handoffFrom !== null) {
+    const at = run.assignment.indexOf(handoffLead);
+    expect(at >= 0 && run.assignment.indexOf(handoffTail, at) > at && (Buffer.byteLength(run.assignment) <= 32768 ||
+      run.assignment.endsWith(handoffTail + '…')), '§14.1 a handoff run assignment is its whole input, with the INPUT ' +
+      'and RESULT lines, cut to 32,768 bytes unless the result is only …', {bytes: Buffer.byteLength(run.assignment),
+      start: run.assignment.slice(0, 200)});
+  }
   // §15: review is null unless the run ended succeeded and needs review; reviewedAt and reviewNote come
   // with a verdict, the note trimmed, nonempty and at most 2,000 characters.
   const verdict = ['accepted', 'rejected'].includes(run.review);
@@ -361,8 +381,9 @@ export function checkActivityEntry(entry) {
   expect(Number.isInteger(entry.seq) && isTime(entry.at) && activityKinds[entry.actor]?.includes(entry.kind),
     '§11 seq, at, and the kind listed for its actor', entry);
   // (rev 4) A review.* entry carries the reviewed run and its workflow, as a run.* entry does, and
-  // workflow.rework_due carries the rejected run as its runId.
-  const area = entry.kind === 'workflow.rework_due' ? 'run' : entry.kind.split('.')[0];
+  // workflow.rework_due carries the rejected run as its runId. (rev 9) workflow.handoff_due carries the upstream run
+  // as its runId and the workflow that will run on it as its workflowId; its data is null.
+  const area = ['workflow.rework_due', 'workflow.handoff_due'].includes(entry.kind) ? 'run' : entry.kind.split('.')[0];
   const present = {workflow: ['workflowId'], run: ['runId', 'workflowId'], review: ['runId', 'workflowId'],
     connection: ['connectionId'], worker: ['connectionId'], observation: []}[area];
   const absent = {workflow: ['runId'], run: [], review: [], connection: ['workflowId', 'runId'],
@@ -403,15 +424,27 @@ export function checkSchedule(schedule) {
 function checkWorkflow(w, connections = []) {
   keys(w, 'id name connectionId instructions intervalMinutes maxRunsPerDay acceptanceMinutes enabled ' +
     'nextRunAt failureStreak blockedReason createdAt updatedAt pausedBy recent stats schedule review ' +
-    'reviewerId reviewCriteria reworkLimit reworkPending resultChecks', '§8 workflow');
+    'reviewerId reviewCriteria reworkLimit reworkPending resultChecks after handoffPending', '§8 workflow');
   expect(isCheckList(w.resultChecks) && w.resultChecks.every(check => Object.keys(check)[0] === 'kind'),
     '§15.3 (rev 8) resultChecks is an array of at most 8 checks of the six kinds, each with kind first, and no ' +
     'minLength above a maxLength', w.resultChecks);
   expect(w.enabled ? w.pausedBy === null : ['operator', 'failures'].includes(w.pausedBy),
     '§8 pausedBy is null while enabled, otherwise operator or failures', pick(w, 'enabled pausedBy'));
-  expect((w.schedule === null) !== (w.intervalMinutes === null) && ['none', 'operator', 'agent'].includes(w.review),
-    '§8 exactly one of intervalMinutes and schedule is null; §15 review is none, operator or agent',
-    pick(w, 'intervalMinutes schedule review'));
+  expect([w.intervalMinutes, w.schedule, w.after].filter(value => value !== null).length === 1 &&
+    ['none', 'operator', 'agent'].includes(w.review), '§14.1 (rev 9) a workflow has exactly one of intervalMinutes, ' +
+    'schedule and after that is not null; §15 review is none, operator or agent', pick(w, 'intervalMinutes schedule after review'));
+  // §14.1 (rev 9): after is null or {workflowId}, never the workflow itself; nextRunAt is null exactly for an after
+  // workflow (no clock makes it due); handoffPending is null or an upstream run, and null without an upstream
+  // (switching away from after sets it to null).
+  if (w.after !== null) {
+    keys(w.after, 'workflowId', '§14.1 after');
+    expect(text(w.after.workflowId) && w.after.workflowId !== w.id, '§14.1 after names another workflow', w.after);
+  }
+  expect(w.after === null ? isTime(w.nextRunAt) : w.nextRunAt === null, '§8 (rev 9) nextRunAt is null exactly for an ' +
+    'after workflow, and a time otherwise', pick(w, 'after nextRunAt'));
+  expect(nullable(w.handoffPending, value => text(value) && value !== '') && (w.after !== null || w.handoffPending === null),
+    '§14.1 handoffPending is null or the ID of the upstream run the workflow will run on next; null without after',
+    pick(w, 'after handoffPending'));
   // §15.1 and §15.2 (rev 4).
   expect((w.review === 'agent') === (w.reviewerId !== null) && nullable(w.reviewerId, text),
     '§15.1 reviewerId is not null exactly when review is agent', pick(w, 'review reviewerId'));
@@ -546,6 +579,34 @@ export function checkSnapshot(s) {
   expect(s.runs.length <= 100, '§8 runs lists at most the newest 100', s.runs.length);
   s.runs.forEach(run => checkRun(run));
   newestFirst(s.runs, 'createdAt', '§8 runs are newest first');
+  // §14.1 (rev 9): an upstream exists, archived or not (one archived later stays the upstream), and following after
+  // from it, through archived workflows too (§8 their entries have after), never comes back; a pending handoff and a
+  // run's handoffFrom name a run of another workflow that counted as a success (checked when that run is among the
+  // newest 100).
+  for (const a of s.archived) {
+    keys(a, 'id name archivedAt after', '§8 archived entry (rev 9: with after)');
+    if (a.after !== null) keys(a.after, 'workflowId', '§8 an archived entry after');
+    expect(a.after === null || (text(a.after.workflowId) && a.after.workflowId !== a.id), '§8 (rev 9) an archived entry ' +
+      'after is null or {workflowId} naming another workflow', a);
+  }
+  const byId = new Map([...s.workflows, ...s.archived].map(w => [w.id, w]));
+  const runsById = new Map(s.runs.map(run => [run.id, run]));
+  for (const w of byId.values()) {
+    if (w.after === null) continue;
+    expect(byId.has(w.after.workflowId), '§14.1 after names a workflow that exists, archived or not', pick(w, 'id after'));
+    const seen = new Set([w.id]);
+    for (let next = byId.get(w.after.workflowId); next; next = next.after && byId.get(next.after.workflowId)) {
+      expect(!seen.has(next.id), '§14.1 following after, workflow by workflow, never comes back to a workflow', [...seen]);
+      seen.add(next.id);
+    }
+  }
+  const upstreamRuns = [...s.workflows.map(w => [w.handoffPending, w.id, 'handoffPending']),
+    ...s.runs.map(run => [run.handoffFrom, run.workflowId, 'handoffFrom'])].filter(([id]) => id !== null);
+  for (const [id, workflowId, field] of upstreamRuns) {
+    const upstream = runsById.get(id);
+    expect(!upstream || (counted(upstream) && upstream.workflowId !== workflowId), `§14.1 ${field} names a run of the ` +
+      'upstream that counted as a success: succeeded with review null or accepted', upstream && pick(upstream, 'id workflowId state review'));
+  }
   for (const o of s.observed) {
     keys(o, 'id name available enabled cycle phase lastTickAt error task lastBatch', '§6 observation entry');
   }
@@ -554,13 +615,12 @@ export function checkSnapshot(s) {
   s.activity.forEach(checkActivityEntry);
   expect(s.activity.every((entry, index) => index === 0 || s.activity[index - 1].seq > entry.seq),
     '§8 activity is newest first', s.activity.map(entry => entry.seq));
-  for (const a of s.archived) keys(a, 'id name archivedAt', '§8 archived entry');
   newestFirst(s.archived, 'archivedAt', '§8 archived is newest first');
   keys(s.meta, 'name version mode revision schemaVersion lastTickAt tickSeconds error modelCostAvailable ' +
     'modelCost cloudProvisioning', '§8 meta');
   expect(s.meta.modelCostAvailable === false && s.meta.cloudProvisioning === false && text(s.meta.revision) &&
-    s.meta.revision !== '' && s.meta.schemaVersion === 5, '§8 meta: no model cost, no cloud provisioning, ' +
-    'an opaque revision string and §1 (rev 8) schema version 5', s.meta);
+    s.meta.revision !== '' && s.meta.schemaVersion === 6, '§8 meta: no model cost, no cloud provisioning, ' +
+    'an opaque revision string and §1 (rev 9) schema version 6', s.meta);
 }
 
 // ---- Process and file plumbing ----
