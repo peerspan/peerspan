@@ -1234,10 +1234,8 @@ async fn follower(
             {
                 Ok(a) if a.status == 404 => {
                     let (s, sender, id) = (store.clone(), sender.clone(), id.clone());
-                    crate::api::blocking(s, move |s| {
-                        finish(s, &sender, &id, "cancelled", None, None, None)
-                    })
-                    .await?;
+                    crate::api::blocking(s, move |s| cancelled_without_run(s, &sender, &id))
+                        .await?;
                     return Ok(());
                 }
                 Ok(a) if a.status == 200 => cancel_sent = true,
@@ -1308,6 +1306,25 @@ async fn pause(shutdown: &mut watch::Receiver<bool>, d: Duration) {
     }
 }
 
+/// A dispatched task whose cancellation found no run (404): it ends `cancelled`. A runtime
+/// task's output is null. A runtime agent's keeps the agent output (runtime agent contract,
+/// The output): what it collected, and the branch line, `Branch: none` if the run never started
+/// or `not committed: the runtime restarted` if it did, since the fork may hold its work.
+fn cancelled_without_run(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
+    let conn = store.connection()?;
+    let Some(t) = load(&conn, sender, id)? else {
+        return Ok(());
+    };
+    drop(conn);
+    if !t.agent {
+        return finish(store, sender, id, "cancelled", None, None, None);
+    }
+    let exited = t.internal.exited.clone().unwrap_or(Value::Null);
+    let error = t.internal.started.then_some(RESTARTED);
+    let output = agent_output(&t, &exited, error, true);
+    finish(store, sender, id, "cancelled", None, Some(output), None)
+}
+
 /// A run the runtime does not know (404): a cancelled task ends
 /// `cancelled`; otherwise the task fails with `the runtime restarted`.
 fn lost(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
@@ -1317,7 +1334,7 @@ fn lost(store: &Store, sender: &str, id: &str) -> Result<(), Error> {
     };
     drop(conn);
     if t.status.cancel_requested {
-        return finish(store, sender, id, "cancelled", None, None, None);
+        return cancelled_without_run(store, sender, id);
     }
     if t.agent {
         let exited = t.internal.exited.clone().unwrap_or(Value::Null);
