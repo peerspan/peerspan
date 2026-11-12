@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [CONV-36: a denied `about` start after a synced deny](#conv-36-a-denied-about-start-after-a-synced-deny-2026-11-11) (2026-11-11)
   - [MBX-1: expired mailboxes are erased within 2 seconds](#mbx-1-expired-mailboxes-are-erased-within-2-seconds-2026-11-11) (2026-11-11)
   - [ML-6: how the inviter learns the owner offer and selection](#ml-6-how-the-inviter-learns-the-owner-offer-and-selection-2026-11-11) (2026-11-11)
   - [SYNC-1: an explicit sync restarts the background interval](#sync-1-an-explicit-sync-restarts-the-background-interval-2026-11-10) (2026-11-10)
@@ -64,6 +65,23 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### CONV-36: a denied `about` start after a synced deny (2026-11-11)
+
+- **Date:** 2026-11-11.
+- **Area:** conversations (CONV): the `about` verification's denied start.
+- **Source:** issue [#190](https://github.com/peerspan/peerspan/issues/190) and the owner's go-ahead on 2026-11-11 ("start on #190") for its recommended option. `conversations_tools` case `about` sometimes got 404 `unknown` where it required 201 with a `refused` invite. The verification said "a policy sync does not update that entry", written on 2026-10-30. Since #152 (2026-11-09) the launch contract says the opposite: a policy received by sync is a stored policy, and the directory drops a denying owner's agents within 10 seconds of storing it. So after `deny alice` and the policy wait, the start races that refresh. The options below are quoted from the issue.
+- **Recorded in:** this log and the contract below.
+- **Contract section:** [conversations-contract.md](conversations-contract.md), Verification, `about`.
+
+#### CONV-36. What a denied `about` start answers right after the policy wait
+
+- **Options:**
+  - (1) "Contract states that the background refresh may have run (recommended). The case accepts either answer: 201 with `refused`/`not_authorized` from bob's host, or 404 `unknown`. In both, the agent must not be `joined`. Only the suite changes, written by the contract-only author."
+  - (2) "Contract requires the earlier entry. The suite makes sure no refresh is due before the start, for example by refreshing before `deny` and then starting within the refresh bound. That still depends on timing."
+  - (3) "Daemon change. A received policy change doesn't schedule a directory refresh. Contracts that rely on the current refresh trigger would change."
+- **Chosen:** (1). The verification now follows the launch contract's rule from #152: right after the policy wait the answer is either form, and after `agents --refresh` it is 404 `unknown`. In every form the agent is not `joined`. Option (3) would undo #152, which the launch contract requires.
+- **Reason given:** none beyond the go-ahead.
 
 ### MBX-1: expired mailboxes are erased within 2 seconds (2026-11-11)
 
