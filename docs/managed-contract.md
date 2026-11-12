@@ -216,7 +216,10 @@ JSON array. Then:
   of these that applies: `runtime_disabled` when that command exits 0 with a JSON
   object whose `enabled` is false; `runtime_unavailable` when it exits otherwise,
   its output is not such an object, `enabled` is not a boolean, or `runtime` is
-  not an object without an `error` field; `runtime_credential_missing` when the
+  not an object without an `error` field, which includes a `runtime show` that has
+  not exited within 5 seconds (upstream waits up to 35 seconds for a runtime that
+  does not answer, and a check must not hold the scheduler that long);
+  `runtime_credential_missing` when the
   profile's `credential` is not true; and otherwise `ready_runtime`. Sessions are
   not read and `adapter connection` is not invoked for a runtime agent.
 - An exit 0 with a JSON array that has no entry for the pinned agent, or an exit

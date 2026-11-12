@@ -69,7 +69,10 @@ profile, never its paths. Each run's result ends with the branch the agent
 worked on, which the run page shows.
 
 The operator still sends one task at a time to the agent, even when its
-profile lets the host run several at once. A runtime agent on another machine
+profile lets the host run several at once. After upgrading Peerspan, restart
+its daemon before relying on readiness: a new CLI talking to an older daemon
+that is still running cannot read launch profiles, and agent-mode workers
+show "launch profiles could not be read" until the daemon restarts. A runtime agent on another machine
 cannot be checked yet: the sender's directory lists it as not connected, so
 it stays unready until upstream says how a sender should see it.
 

@@ -543,7 +543,9 @@ function workerPanel(ctx, connection) {
       fact('Where', remote ? 'Another machine, seen through the sender host\'s directory' : 'A Peerspan host on this machine'),
       fact('Follows', remote ? 'Whether the directory shows the agent connected, its host reachable and task submission allowed'
         : readiness.runtime ? 'Its launch profile and the host\'s runtime: each task runs in its own microVM on a fork'
-          : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified' : 'The session named by its worker state file'),
+          // Until a check reaches the launch profiles, the agent may be either kind.
+          : connection.mode === 'agent' ? 'Whichever session of this agent is attached and verified, or, for a runtime agent, its launch profile and the host\'s runtime'
+            : 'The session named by its worker state file'),
       readiness.runtime && fact('Runtime', runtimeText(readiness.runtime) || 'Launch profile without details'),
       fact('Workflows', assigned.length ? links(assigned) : 'None'),
       reviewing.length > 0 && fact('Reviews for', links(reviewing)),

@@ -3,6 +3,7 @@
 import { execFile } from 'node:child_process';
 
 const COMMAND_TIMEOUT_MS = 15_000;
+const RUNTIME_SHOW_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export class PeerspanError extends Error {
@@ -32,11 +33,11 @@ export class Peerspan {
    * Runs one command and resolves `{code, stdout, stderr}` for any exit status.
    * Rejects only when the process could not run to an exit of its own.
    */
-  exec(stateDir, args) {
+  exec(stateDir, args, { timeoutMs = this.timeoutMs } = {}) {
     const argv = [...(stateDir ? ['--state', stateDir] : []), '--json', ...args];
     const options = {
       encoding: 'utf8',
-      timeout: this.timeoutMs,
+      timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT_BYTES,
       windowsHide: true,
       signal: this.signal
@@ -152,11 +153,15 @@ export class Peerspan {
     }
   }
 
-  /** The host's runtime switch and report (`runtime show`), or null when they cannot be read. */
+  /**
+   * The host's runtime switch and report (`runtime show`), or null when they
+   * cannot be read in time. Upstream waits up to 35 seconds for a runtime that
+   * does not answer; a check never waits that long (contract section 3.1).
+   */
   async runtimeSwitch(hostDir) {
     let result;
     try {
-      result = await this.exec(hostDir, ['runtime', 'show']);
+      result = await this.exec(hostDir, ['runtime', 'show'], { timeoutMs: Math.min(this.timeoutMs, RUNTIME_SHOW_TIMEOUT_MS) });
     } catch (error) {
       if (error.aborted) throw error;
       return null;

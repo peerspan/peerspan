@@ -132,7 +132,7 @@ const READINESS_CODES = {
   peerspan_unavailable: 'Peerspan executable unavailable',
   peerspan_incompatible: 'Peerspan executable too old',
   daemon_not_running: 'host daemon not running',
-  status_invalid: 'host status unreadable',
+  status_invalid: 'host state unreadable',
   sender_unavailable: 'sender host not answering',
   sender_is_worker: 'sender and worker are the same host',
   agent_missing: 'agent no longer registered',
@@ -156,10 +156,18 @@ export function runtimeText(runtime) {
     runtime.network === 'none' ? 'no network' : runtime.network === 'internet' ? 'internet access' : null,
     count(runtime.cpus, runtime.cpus === 1 ? 'CPU' : 'CPUs'),
     count(runtime.memoryMib, 'MiB'),
-    Number.isInteger(runtime.timeoutSeconds) && `${Math.round(runtime.timeoutSeconds / 60)} min limit`,
-    Number.isInteger(runtime.maxRuns) && `up to ${runtime.maxRuns} at once on its host`
+    Number.isInteger(runtime.timeoutSeconds) && `${limitText(runtime.timeoutSeconds)} limit`,
+    // The host may run several of its tasks at once; this console still sends one at a time (MGD-13).
+    Number.isInteger(runtime.maxRuns) && `its host allows ${runtime.maxRuns} at once; sent one at a time`
   ].filter(Boolean);
   return parts.join(' · ');
+}
+
+/** An exact duration: hours, minutes or seconds, never rounded. */
+function limitText(seconds) {
+  if (seconds > 0 && seconds % 3600 === 0) return `${seconds / 3600} h`;
+  if (seconds > 0 && seconds % 60 === 0) return `${seconds / 60} min`;
+  return `${seconds} s`;
 }
 
 /** One sentence for an activity entry; `names` resolves IDs to current names. */
