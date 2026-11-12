@@ -137,7 +137,7 @@ After the candidate qualification above:
    gh release edit vVERSION --repo peerspan/peerspan --draft=false --prerelease=false
    ```
 
-7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6 ([INST-3](decision-log.md#inst-3-where-install-comes-from)). A new bootstrap served before its release is published would find only the previous release.
+7. When the release changes `scripts/install.sh`, update the website's `/install` copy from the release's tag, after step 6 ([INST-3](decision-log.md#inst-3-where-install-comes-from)). A new bootstrap served before its release is published would find only the previous release. In the same website change, point the install section's source link (`scriptSource` in `app/install-command.tsx`) at `scripts/install.sh` at that tag, so the script people can read before running the one-liner is the one it serves.
 
 ### After publication
 
