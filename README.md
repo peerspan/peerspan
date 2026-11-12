@@ -1,93 +1,96 @@
-# Peerspan Managed
-
-An unofficial Peerspan fork for managed, always-on agent teams.
-
-Run recurring assignments against existing agents, retain task history across
-restarts, and see which workers or workflows need attention. The first release
-is a **single-owner local operator preview**, with a product path toward hosted
-teams and customer-supplied model access.
-
 <p align="center">
-  <img src="managed/assets/console-overview.png" width="860" alt="The Peerspan Managed console: attention items, workflows with their latest runs, workers and activity. Scripted demonstration data." />
+  <img src="assets/peerspan-logo.png" alt="Peerspan logo" width="128" />
 </p>
 
-## Available now
+<h1 align="center">peerspan</h1>
 
-- An authenticated loopback console, updated live: what needs attention,
-  workflows with their latest runs, workers, run history and an activity log.
-- Durable recurring assignments through the Peerspan CLI, using existing host
-  permissions and genuinely verified channels. Workers are registered by agent
-  name; readiness follows the agent's current session and explains itself.
-- Exact submission identity retained through uncertain replies and restart.
-- Pause, resume, edit and archive; daily dispatch caps; one unresolved
-  assignment per workflow and per worker, enforced by the store; automatic
-  pause after three failed runs.
-- Run pages with the reported result, the instructions actually sent and the
-  task's progress timeline; cancellation through Peerspan; an explicit release
-  for runs that can no longer be resolved.
-- Reliability figures per workflow: success rate, duration, operator actions,
-  and runs finished since the operator last stepped in.
-- A read-only bridge for existing controllers, SQLite persistence on a
-  dedicated storage thread with in-place migration, private local credentials,
-  a `doctor` command and a supervised Linux/WSL service recipe.
+<p align="center">
+  <a href="https://github.com/peerspan/peerspan/actions/workflows/pull-request.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/pull-request.yml?style=flat-square&label=checks" /></a>
+  <a href="https://github.com/peerspan/peerspan/actions/workflows/conformance.yml"><img alt="Conformance" src="https://img.shields.io/github/actions/workflow/status/peerspan/peerspan/conformance.yml?style=flat-square&label=conformance" /></a>
+  <a href="https://github.com/peerspan/peerspan/releases"><img alt="Preview release" src="https://img.shields.io/github/v/release/peerspan/peerspan?include_prereleases&style=flat-square&label=preview" /></a>
+  <a href="#status"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-blue?style=flat-square" /></a>
+</p>
 
-## Run locally
+<h3 align="center">Infrastructure for agents to collaborate across machines and owners.</h3>
 
-Requires Node 24 and an existing Peerspan installation on Linux or WSL.
+You may have one agent on your laptop, another on a server, and a teammate’s agent elsewhere. Passing work between them by hand means copying prompts and files. Peerspan connects their hosts so the agents can work together while each owner decides what to share.
 
-```sh
-node managed/cli.mjs serve
-# In another terminal, get the private console access token:
-node managed/cli.mjs token
+- **Messages and tasks.** Send work to an agent, get a result, and pass files with the task. The hosts store work and retry uncertain deliveries.
+- **Conversations.** Keep a discussion with several people and agents in one place.
+- **Tools.** Share selected MCP operations; an attached agent can call them only when its owner opts in.
+
+## Demo
+
+<p align="center">
+  <a href="https://peerspan.dev/#demo"><img src="assets/peerspan-demo.gif" width="960" alt="Peerspan demo: carol joins alice and bob's network, then Claude Code, Codex and OpenCode pass a task, tests and a review across four machines." /></a>
+</p>
+
+A live recording on Peerspan 0.2.0 (2 min 25 s, shown at 3× speed): carol joins alice and bob's network from her own machine. alice's Claude Code gives Codex on her second machine a task, then sends the result to bob's OpenCode, which runs tests and delegates a review to carol's Claude Code. [Watch it on peerspan.dev](https://peerspan.dev/#demo) or [download the MP4](https://peerspan.dev/demo4.mp4).
+
+## Quick start
+
+### Tell your agent
+
+Paste this into an agent with shell access on the machine you want to connect:
+
+```text
+Help me set up Peerspan for this project. Read the quick start:
+https://github.com/peerspan/peerspan/blob/main/docs/quick-start.md
+
+Check what is installed, then ask whether I am creating a network, joining
+someone else, or linking another of my machines. Show me the identity and
+access choices before applying them. Check peerspan status and send a test
+message when both agent sessions are ready.
 ```
 
-Open **http://localhost:4310**, sign in, and connect a dedicated worker:
+### By hand
+
+Install on Linux (amd64 or arm64). It needs Node.js 22 or later, but no root and no GitHub account:
 
 ```sh
-node managed/cli.mjs connect --name "Repository maintainer" --agent AGENT
+curl -fsSL https://peerspan.dev/install | bash
 ```
 
-The [operator guide](managed/README.md) covers the rest. No npm install is
-needed for this application. On Windows, `./managed.ps1 start`, `token` and
-`doctor` provide the WSL entry points.
+The installer checks the release's signature before installing anything; the [quick start](docs/quick-start.md#install) explains what it checks and how to read it first. Then, in a project:
 
-## Product direction
+```sh
+peerspan up claude --create team
+peerspan status
+```
 
-Start with engineering teams and agencies that already use agents and need less
-manual supervision. Offer free local operation, then hosted execution and team
-administration with separately metered compute. The proposed $99–299 team price
-is an experiment, not validated willingness to pay.
+For another of your machines, run `peerspan up claude` there and choose **link**. For a teammate, run `peerspan invite NAME`; they use `peerspan up claude --join`, and you grant access with `peerspan allow NAME`. The [quick start](docs/quick-start.md) covers pairing, invitations, and existing Claude, Codex, or OpenCode conversations.
 
-Read the [product specification](docs/managed-product.md),
-[operator contract](docs/managed-contract.md), the
-[decisions](docs/managed-decisions.md) behind it, and the
-[upstream Peerspan documentation](README_UPSTREAM.md).
+For a group thread, run `peerspan conversation start bob/claude person:carol`. Use `peerspan conversations` to find it and `peerspan conversation show ID` to read it.
 
-Ongoing work is tracked in [upstream draft PR #186](https://github.com/peerspan/peerspan/pull/186).
-This repository is the working copy; `maschad96/peerspan:managed` is its upstream
-review branch. The draft carries the current implementation and a short milestone
-overview. It stays open while the product develops.
+## How it works
 
-## Current limits
+<p align="center">
+  <img src="docs/architecture.svg" width="750" alt="Agents on two owners' machines use local Peerspan hosts. The hosts check signed membership and access, exchange work directly over QUIC, and can use an optional helper for rendezvous and encrypted relay. The helper cannot approve or read work." />
+</p>
 
-This release does not provision cloud machines or model sessions, isolate SaaS
-tenants, meter model costs, bill customers, or certify the quality of agent
-output. Daily caps limit assignment count, not dollars. Existing observed
-programs keep their original controllers and cannot be controlled from this UI.
-A worker's Peerspan host must have its state directory on this machine, and the
-sender must be a second local host: a Peerspan host cannot task itself.
+Each machine runs a Peerspan host. Hosts verify signed network membership and each owner’s access rules locally before accepting work. They connect directly over QUIC when they can. Optional helpers provide rendezvous and relay encrypted traffic when they cannot; no Peerspan-operated coordinator is required. The [network spec](docs/decentralized-spec.md) has the details.
 
-The scheduler supervises task delivery and reconciliation; dedicated agent
-session lifecycle is the next product slice. Do not expose this local preview as
-a public hosted service.
+## Managed operator preview
 
-## Upstream and license
+[`managed/`](managed/) is a local console and durable scheduler for agents that are already attached to Peerspan. It is developed in [maschad96/peerspan-managed](https://github.com/maschad96/peerspan-managed) and reviewed in [#186](https://github.com/peerspan/peerspan/pull/186), and it is an unofficial preview, not a Peerspan service. It keeps recurring assignments moving on intervals or clock-time schedules, keeps every task identity and result across restarts, checks worker readiness on its own machine or through the sender's directory for agents elsewhere, can hold results for the operator's review, and shows what needs attention. It drives only the owner CLI on its own machine and changes nothing in the host, its permissions or its transport.
 
-Forked from [peerspan/peerspan](https://github.com/peerspan/peerspan), retaining its
-Rust host, protocols, integrations and Apache-2.0 license. This fork is not an
-official Peerspan service. `upstream` tracks the original project; `origin` is
-[maschad96/peerspan-managed](https://github.com/maschad96/peerspan-managed).
+<p align="center">
+  <img src="managed/assets/console-overview.png" width="760" alt="The managed operator console: attention items, results waiting for review, reliability figures and workflows. Scripted demonstration data." />
+</p>
 
-The operator product is contained in `managed/`. Its contract-derived acceptance
-suites are independently authored under `managed/conformance/`. Upstream host
-implementation and release installers are unchanged.
+```sh
+node managed/cli.mjs doctor    # Node 24, Linux or WSL, a Peerspan CLI with the global --json flag
+node managed/cli.mjs serve     # open http://localhost:4310; `node managed/cli.mjs token` prints the sign-in token
+```
+
+The [operator guide](managed/README.md) covers setup. Behavior is specified in the [operator contract](docs/managed-contract.md), with its [decisions](docs/managed-decisions.md), the [product plan](docs/managed-product.md) and the [validation record](docs/results/managed-operator-validation.md).
+
+## Status
+
+Peerspan is a preview: expect rough edges, and breaking changes between releases. [Releases](https://github.com/peerspan/peerspan/releases) are native Linux amd64 and arm64 bundles; macOS and Windows have not been validated. Agent integrations and the installer need Node.js 22 or later. Claude Code, Codex and OpenCode are supported. Running commands in an isolated microVM on another host ([runtime tasks](docs/runtime-task-contract.md)) needs the separate [Peerspan runtime](https://github.com/peerspan/runtime). The [roadmap](docs/production-roadmap.md) lists what is implemented and what comes next.
+
+## Development
+
+The Rust host lives in [src/](src/); the Go implementation is maintained in [peerspan-go](https://github.com/peerspan/peerspan-go). See the [developer guide](docs/developer-guide.md) for builds and checks, [conformance/](conformance/) for black-box suites, and [AGENTS.md](AGENTS.md) for the development rules. During the preview we welcome issues but not pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
+
+Apache License 2.0. See [LICENSE](LICENSE).
