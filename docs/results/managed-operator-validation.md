@@ -1,5 +1,60 @@
 # Managed operator validation
 
+## Revision 6
+
+Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
+against the same host binaries as revision 5 (this branch with upstream
+`ad5d7993`). The store is still version 4.
+
+| Check | Result |
+| --- | --- |
+| `npm --prefix managed run check` | Passed: every JavaScript source of `managed/`. |
+| The eight suites, cases 1 to 21 | 46/46 passed in about 4.5 minutes in sequence: acceptance 6/6 (67 s), operations 5/5 (50 s), visibility 6/6 (42 s), remote 4/4 (65 s), schedules 5/5 (11 s), reviewers 8/8 (19 s), runtime-agents 4/4 (10 s), capacity 8/8 (13 s, new). |
+| `real-peerspan-smoke.py` against the same binaries | 5/5 passed in 146 seconds; the runtime case now also runs two workflows at once. |
+| Console in headless Chrome 157 | The Workers page with a runtime agent's capacity and active tasks, desktop and phone: no horizontal overflow and no page errors. |
+
+The new suite, `capacity.mjs` (cases 20 and 21), was written from the contract by
+the same separate author, who did not read the implementation, and found no
+defects. In its first run one case of 21 timed out waiting for the slow host's
+`status` call to begin; it passed in the eleven runs since, ten before the
+review fixes below and one after, and its fixture was made clearer by giving the slow worker a
+host of its own. The cause was not found. With the harness and the fake, the eight
+suites are 5,364 lines.
+
+The real-transport runtime case now also creates two workflows on a runtime agent
+whose launch profile allows two runs at once: both runs are dispatched before
+either ends, each on its own fork holding its own write, and the connection then
+reports a capacity of 2 and no active tasks.
+
+### Independent review of revision 6
+
+The reviewer of revisions 4 and 5 read revision 6 against the contract and probed
+it with a fake and the real binaries. It confirmed three defects, all fixed
+before publishing:
+
+- **Medium:** background work shared a limit of eight jobs at once, so eight
+  slow calls, which a runtime agent's capacity makes easy to reach, queued every
+  other worker's checks, submissions and cancels behind them: with ten hanging
+  `task inspect` calls a healthy run was submitted after 9.2 seconds and a cancel
+  sent after 7.9. A job that outlasts the pass wait now gives its slot back; the
+  same probes measured 32 and 114 milliseconds.
+- **Low-medium:** a pass waited for work still running from earlier passes, so
+  one hung call made every pass take 2 seconds, which also broke section 1's
+  pace under `MANAGED_CLOCK_FILE` (largest gap between passes 2.2 seconds; now
+  0.2). A pass now waits only for work it started, at most one interval, and
+  passes start one interval apart; the contract says both.
+- **Low:** the Workers page said "One task" for an agent holding more tasks than
+  a capacity that had just fallen.
+
+From its unconfirmed notes, a CLI process that outlasts its time limit is now
+killed with SIGKILL rather than SIGTERM, and a failure of background work stays
+reported until that work succeeds instead of flickering between passes. It also
+confirmed the capacity limit in every case it tried, including a fall from 3 to
+1 with three tasks held, review tasks, migrated duplicate targets and a remote
+connection to the same agent; that a hanging connection or task never gets a
+second call; that operator actions answer in milliseconds with every slot
+hanging; and that shutdown with twelve hanging calls takes 25 milliseconds.
+
 ## Revision 5
 
 Validated on 2026-11-12 UTC on Linux under WSL 2 (Ubuntu 24.04), with Node 24.22.2,
