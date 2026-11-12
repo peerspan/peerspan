@@ -6,7 +6,7 @@ keeps every task identity and result across restarts, and shows what needs you.
 The Peerspan daemon and each owner's access rules stay the authority for
 execution: this application only invokes the owner CLI on this machine.
 
-![The console overview: attention items, results waiting for review, reliability figures and workflows on intervals and schedules](assets/console-overview.png)
+![The console overview: attention items, results waiting for review, reliability figures, and workflows on intervals and schedules, one checked by a reviewer agent](assets/console-overview.png)
 
 The picture shows scripted demonstration data, not real agent work.
 
@@ -148,6 +148,10 @@ reviews go ahead before new runs start. Reviews continue while a workflow is
 paused or archived, because they concern work already done. A reviewer agent's
 verdict is another agent's judgment; it is no more a guarantee than the
 worker's own report.
+
+![A run rejected by its reviewer agent: the result, the reviewer's reasons, the rework it led to and the review task](assets/console-review.png)
+
+Scripted demonstration data, not real agent work.
 
 ## Runs
 
