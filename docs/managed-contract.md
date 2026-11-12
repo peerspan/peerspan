@@ -311,7 +311,9 @@ times recorded meanwhile are equal, so no work is reserved until the clock
 moves on. A due time later than the current time can only have been recorded
 before a deliberate correction of the clock, and counts as the moment of that
 correction, so work due before a correction is not held back until the
-corrected clock reaches its old time. A check or reconciliation still running
+corrected clock reaches its old time. Likewise a check whose recorded start is later
+than the current time began before such a correction, and its verdict reserves
+nothing until a check begun after the correction has ended. A check or reconciliation still running
 goes on beside later passes; no second one for the same connection or task
 starts until it has ended. A slow or hanging Peerspan call therefore delays only its own
 connection or task, however many such calls there are: never another

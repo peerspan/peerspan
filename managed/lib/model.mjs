@@ -504,8 +504,11 @@ export class Model {
     if (workflow.next_run_at > now && workflow.rework_pending === null) return 'Waiting for next scheduled run';
     // The verdict must come from a check that began after the run became due or the operator last
     // changed the workflow, so that a change made before a run is requested is always seen (MGD-15).
-    // Equal times, as while a held clock records them, do not count as after.
-    if (state.checkedAt <= notAfter(this.dueSince(workflow, now), now, correctedAt)) return undefined;
+    // Equal times, as while a held clock records them, do not count as after; a check recorded
+    // later than now began before a deliberate correction of the clock, and counts for nothing.
+    if (state.checkedAt > now || state.checkedAt <= notAfter(this.dueSince(workflow, now), now, correctedAt)) {
+      return undefined;
+    }
     return null;
   }
 
@@ -568,7 +571,7 @@ export class Model {
       }
       // As for runs: a verdict from a check that began before the result was ready is not enough.
       const state = readiness[reviewer.id];
-      if (!state?.ready || state.checkedAt <= notAfter(run.finished_at, now, correctedAt)) continue;
+      if (!state?.ready || state.checkedAt > now || state.checkedAt <= notAfter(run.finished_at, now, correctedAt)) continue;
       const target = this.freeTarget(reviewer, capacities);
       if (target) reserved.push(this.reserveReview(run, reviewer, now, target));
     }
