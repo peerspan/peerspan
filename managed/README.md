@@ -115,6 +115,12 @@ Create a workflow in the console: a bounded assignment, the worker, when it
 runs, a daily dispatch limit and an acceptance window. New workflows are paused
 unless you enable them.
 
+"New workflow" starts from a blank form or from a recipe: a weekly dependency
+audit, a changelog draft, flaky test triage, a documentation link check, a
+competitor pricing watch or an issue triage digest. A recipe only fills the
+form, with instructions, a schedule in your browser's time zone and suggested
+review criteria; read and adapt them, choose the worker, and save.
+
 - **Interval or schedule.** A workflow repeats after an interval, counted from
   the end of the previous run, or on chosen weekdays at local times in a time
   zone, such as weekdays at 09:00 Europe/London. Daylight-saving changes are
@@ -178,7 +184,13 @@ Scripted demonstration data, not real agent work.
 
 Every run has a page with the worker's reported result, the instructions that
 were actually sent, and a timeline of the task's events, progress messages
-included.
+included. A finished result is compared with the workflow's previous one, line
+by line, so a recurring report shows at a glance what changed since last time.
+
+"Notify me", in the sidebar, lets your browser show a notification for each new
+item that needs you, such as a result waiting for review or a workflow paused
+after failures, while the console is open in a tab you are not looking at. The
+browser shows it; nothing is sent anywhere.
 
 - **Cancel** asks the worker to stop. The run ends when the worker confirms, or
   with the worker's own result if it finishes anyway. A run that was never sent
