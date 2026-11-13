@@ -350,11 +350,12 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
 /// The stored record of a received task: the status record plus what the
 /// authorization checked at acceptance allowed, which is never served: the
 /// artifact bound and whether the agent may pass the task on.
-const INTERNAL_KEYS: [&str; 4] = [
+const INTERNAL_KEYS: [&str; 5] = [
     "max_artifact_bytes",
     "delegable",
     "runtime",
     "runtime_agent",
+    "peerbox_run",
 ];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
