@@ -36,6 +36,20 @@ suite = Suite("peerbox", __doc__)
 bind(suite)
 clock = suite.use_clock()
 MAIN_SCHEMA = 31  # the schema version on main when this suite was written; the contract adds the next one
+# The tables of a schema-31 host.db, read from a fresh host built from main at 13128db.
+SCHEMA_TABLES = frozenset("""
+access_blocks adapter_calls adapter_connections adapter_credentials adapter_outbound adapter_routes agent_descriptions
+agents approval_notices artifact_files builtin_sources call_approvals call_update_notifications capabilities
+conversation_events conversation_invites conversation_messages conversation_notifications conversation_reads
+conversation_roster_outbound conversation_targets conversations dec_activations dec_admissions dec_clock dec_contacts
+dec_contexts dec_frames dec_heads dec_helpers dec_highwater dec_intents dec_migrations dec_objects dec_operations
+dec_outbox dec_pending dec_restrictions dec_signers deliveries directory_sends events grants identity link_device_keys
+link_features link_frames link_highwater link_objects link_operations link_pending link_signers network_members
+network_statements networks oauth_clients oauth_credentials onboarding_adapter_flows onboarding_invitation_flows
+onboarding_join_flows onboarding_project_flows outbound_calls outbound_messages outbound_replies outbound_task_events
+outbound_tasks peers policy_deliveries policy_edits received_calls received_messages received_replies received_tasks
+sessions source_access task_artifacts task_children task_deliveries task_events task_update_notifications tool_servers
+tool_values""".split())
 DAY, HOUR = 86400, 3600
 HOOK = "#!/bin/sh\n[ -n \"$PBX_FIXTURE\" ] || touch \"$(dirname \"$0\")/../../HOOK_RAN\"\n"
 
@@ -825,30 +839,51 @@ def _():
     refused(status, body, 404, "unknown")
 
 
-@case("open_previous_schema", "peerbox Persistence: the next schema version; a database of the previous one opens")
+@case("open_previous_schema", "peerbox Persistence: a schema-31 database opens, keeps its data, moves to the next "
+                              "version, and holds peerboxes")
 def _():
-    a2, = need("a2")
+    """A real schema-31 state (DEC-OWN9, as schema28_compatibility.py does for conversations): alice2's state, made by
+    the binary under test, with every table that schema 31 does not have dropped and the version set back. The
+    contract adds only new tables (peerbox Persistence; task records are JSON), so this is the predecessor's shape,
+    and a migration that only bumps the version leaves peerbox storage missing."""
+    a2, repo = need("a2", "repo")
     copy = suite.host("alice2-copy", start=False)
     a2.stop()
     shutil.copytree(a2.state, copy.state, dirs_exist_ok=True)
     for leftover in ("admin.sock", "adapter.sock"):
         (copy.state / leftover).unlink(missing_ok=True)
-    path = next((p for p in sorted(copy.state.glob("*.db")) if sqlite3.connect(str(p)).execute(
-        "SELECT 1 FROM sqlite_master WHERE name = 'networks'").fetchone()), None)
-    check(path is not None, "no state database in the copy")
+    path = copy.state / "host.db"
+    check(path.exists(), "no host.db in the copy")
     db = sqlite3.connect(str(path))
     current = db.execute("PRAGMA user_version").fetchone()[0]
-    db.execute(f"PRAGMA user_version = {current - 1}")
+    check(current == MAIN_SCHEMA + 1, f"schema version {current}; this contract adds {MAIN_SCHEMA + 1} (update "
+                                      f"MAIN_SCHEMA and SCHEMA_TABLES if main moved)")
+    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")}
+    check(SCHEMA_TABLES <= tables, f"schema-31 tables missing from the current state: {sorted(SCHEMA_TABLES - tables)}")
+    for table in sorted(tables - SCHEMA_TABLES):
+        db.execute(f'DROP TABLE "{table}"')
+    db.execute(f"PRAGMA user_version = {MAIN_SCHEMA}")
     db.commit()
+    counts = {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("networks", "network_statements")}
     db.close()
     copy.start()
-    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        check(db.execute("PRAGMA user_version").fetchone()[0] == current, "the previous version was not upgraded")
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            check(db.execute("PRAGMA user_version").fetchone()[0] == current, "the schema-31 state was not upgraded")
+            for table, count in counts.items():  # statements may grow by sync, never shrink
+                got = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                check(got >= count and (table != "networks" or got == count), f"{table}: {count} rows, then {got}")
+        finally:
+            db.close()
+        status, network = copy.api("GET", f"/v2/networks/{state['net']}")
+        check(status == 200 and network.get("person_public_key") == state["alice_public"]
+              and copy.id == a2.id and a2.public_key in members(copy, state["net"]),
+              f"the upgraded host lost its identity or network: {status} {str(network)[:200]}")
+        made = create(repo, host=copy, title="after upgrade")
+        check(made in [r["peerbox_id"] for r in shown(copy)], "peerbox show on the upgraded state misses the record")
     finally:
-        db.close()
-    copy.stop()
-    check(current > MAIN_SCHEMA, f"schema version {current}; this contract adds the version after {MAIN_SCHEMA}")
+        copy.stop()
 
 
 # Test-clock cases last: they move every host days ahead.

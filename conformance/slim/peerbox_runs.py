@@ -328,6 +328,10 @@ def _():
     check(rev(state["repo"], ref) == old["head"], "the contribution ref was deleted before 30 days")
     clock.set(30 * DAY + HOUR)
     wait_for(lambda: rev(state["repo"], ref) is None, timeout=30, message="the contribution ref to be deleted")
+    # Not asserted: a run of old["head"] ending commit_unknown after the 30 days. Every grant and policy has lapsed
+    # by then (7-day grants, 24-hour policies renewed only by running hosts at their thresholds, spec 7.1), and
+    # keeping them current means about 45 renewal steps of 16 hours, each waiting for a 60-second renewal pass:
+    # far over the suite's 2 minutes. The ref's deletion is what makes the commit unknown (peerbox Runs).
     status, listed = a.api("GET", f"/v1/peerboxes/{pbx()}/contributions")
     check(status == 200 and old["contribution_id"] in str(listed), f"the record after 30 days: {status}")
 
