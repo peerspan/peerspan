@@ -13,12 +13,13 @@ Written from docs/peerbox-contract.md only (cited as "peerbox <section>"), with 
 No VM, no KVM, no model calls. Nothing in the contract is implemented yet: every case past the network setup is a
 strict expected failure.
 """
+import json
 import os
 import stat
 from pathlib import Path
 
 from harness import Suite, check, wait_for
-from runtime_common import (bind, enable, has_kind, need, receiver_events, refused, result_of, run_id,
+from runtime_common import (bind, enable, has_kind, need, policy_statement, receiver_events, refused, result_of, run_id,
                             setup_network, state, stream)
 from peerbox_common import (REASON, bundle, check_record, commit_files, create, git, init_repo, op_ok, outcome,
                             raw_op, refs, rev, settle, share, submit_bundle, submit_op, tree_commit)
@@ -60,11 +61,24 @@ def raw_run(commit, argv=("echo", "raw"), **run):
     return raw_op({"op": "run", "peerbox_id": pbx(), "commit": commit, "run": {"argv": list(argv), **run}})
 
 
+def refused_before_run(code, task_id):
+    """peerbox Results, Runs: the run ends queued to failed with exactly {"error": CODE, "message"}, no run result,
+    and the runtime never asked to start it."""
+    events = receiver_events(task_id, timeout=60)
+    kinds = [e["kind"] for e in events]
+    last = events[-1]
+    try:
+        value = json.loads(last.get("output") or "null")
+    except ValueError:
+        value = last.get("output")
+    check(kinds == ["queued", "failed"] and isinstance(value, dict) and set(value) == {"error", "message"}
+          and value["error"] == code and isinstance(value["message"], str),
+          f"events {kinds}, final output {value}, want queued then failed with only {{error: {code}, message}}")
+    check(not state["rt"].entries("post", run_id(state["b"], task_id)), "the runtime was asked to start the run")
+
+
 def commit_unknown(commit):
-    kind, value, _ = outcome(run_task(commit, ["echo", "never"]))
-    error = value.get("error") if isinstance(value, dict) else None
-    check(kind == "failed" and error is not None and "commit_unknown" in str(error),
-          f"a run on {commit[:12]}: {kind} {value}, want failed with commit_unknown")
+    refused_before_run("commit_unknown", run_task(commit, ["echo", "never"]))
 
 
 def bob_share(*actions):
@@ -127,7 +141,8 @@ def _():
     bob_share("read", "submit")
     clone, wt = suite.work / "bob-clone", suite.work / "bob-wt"
     result = b.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90)
-    check(result.ok and rev(clone, f"refs/peerbox/{pbx()}/main") == state["main"],
+    check(result.ok and rev(clone, f"refs/peerbox/{pbx()}/main") == state["main"] and isinstance(result.json, dict)
+          and result.json.get("head") == state["main"],
           f"peerbox fetch: exit {result.code} {result.stderr.strip()[-300:]}")
     git(clone, "worktree", "add", "-q", wt, "-b", "work", f"refs/peerbox/{pbx()}/main")
     state.update(bob_clone=clone, bob_wt=wt)
@@ -153,6 +168,9 @@ def _():
     status, body = raw_run(main)
     check(status == 403, f"a runtime rule that does not match bob: {status} {body}")
     enable("--for", state["alice_principal"], "--for", state["bob_principal"])
+    keys = list(policy_statement(a, state["alice_public"])[3])
+    check("runtime_rules" in keys and keys.index("peerbox_rules") == keys.index("runtime_rules") + 1,
+          f"peerbox_rules is not immediately after runtime_rules: {keys}")
     run_ok(main, ["echo", "both"])
     bob_share("read", "submit")
     status, body = raw_run(main)
@@ -181,10 +199,7 @@ def _():
           f"the start request {posts[:1]}")
     enable("--for", state["alice_principal"], "--for", state["bob_principal"], "--max-artifact-bytes", "100")
     try:
-        task_id = run_task(main, ["echo", "never"])
-        events = receiver_events(task_id, timeout=60)
-        check(events[-1]["kind"] != "succeeded" and not rt.entries("started", run_id(b, task_id)),
-              f"a workspace archive over max_artifact_bytes 100: {[e['kind'] for e in events]}")
+        refused_before_run("too_large", run_task(main, ["echo", "never"]))  # the archive is far over 100 bytes
     finally:
         enable("--for", state["alice_principal"], "--for", state["bob_principal"])
 
