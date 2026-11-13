@@ -15,6 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-15: separating the gate's checker from the candidate](#pbx-15-separating-the-gates-checker-from-the-candidate-2026-11-13) (2026-11-13)
   - [PBX-9 to PBX-14: peerbox gates](#pbx-9-to-pbx-14-peerbox-gates-2026-11-13) (2026-11-13)
   - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
   - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
@@ -71,6 +72,22 @@ Contents:
 
 ## Full entries
 
+### PBX-15: separating the gate's checker from the candidate (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerbox gates.
+- **Source:** [peerbox-gate-proposal.md, decision 7](peerbox-gate-proposal.md#7-separating-the-checker-from-the-candidate), raised in review of PBX-10: "when the evaluator imports or runs the candidate's code in the same VM, that code can print its own final `PEERBOX-GATE` line with a winning score, and can put held-out contents into `reason`. Nothing inside one VM protects the evaluator from code running there as the same user."
+- **Supersedes:** PBX-10.
+- **Recorded in:** this log and the proposal (this PR).
+- **Contract section:** none yet; a peerbox contract amendment follows.
+- **Implementing PRs:** none yet.
+
+#### PBX-15. Separating the checker from the candidate
+
+- **Options:** (a) "Two runs": "a candidate run on the contribution's tree with the held-out inputs only, timed by the runtime itself, then the owner's checker in a separate VM comparing the candidate's outputs with the held-out expected outputs, which never enter a candidate's VM. Only the runtime's time and the checker's pass, score and reason are trusted." (b) "Keep one run, document": "keep decision 2 and say that a gate is only as trustworthy as the evaluator's own isolation of candidate code, never returning `reason`."
+- **Chosen:** (a).
+- **Reason given:** against (b): "Cheaper, but any evaluator that runs candidate code can be forged."
+
 ### PBX-9 to PBX-14: peerbox gates (2026-11-13)
 
 - **Date:** 2026-11-13.
@@ -89,6 +106,8 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Reason given:** "Review is already the home host owner's local act, and the home host runs the evaluator either way, so signing the gate into the policy would not let anyone check what it ran."
 
 #### PBX-10. Keeping the evaluator's held-out files secret
+
+Superseded by PBX-15.
 
 - **Options:** (a) "The files live on the home host and are added to each evaluation's workspace under `.peerbox-gate/`; the contributor receives only the verdict, the scores and the reason, never output or artifacts." (b) "Evaluators only from the repository itself: no secret, so a memoizing change passes." (c) "Running the evaluator outside the candidate's VM: needs a second VM per evaluation and a channel between them, which the runtime does not have."
 - **Chosen:** (a).
@@ -151,7 +170,7 @@ The owner chose the recommendation of each: PBX-1 to PBX-6 with "go with the rec
 
 - **Options:** (a) "The home host cancels it." (b) "It runs to completion, as runtime tasks do today."
 - **Chosen:** (a).
-- **Reason given:** "The run is the owner's own machine executing someone else's code, and Playbox stops it too."
+- **Reason given:** "The run is the owner's own machine executing someone else's code, and comparable systems stop it too."
 
 #### PBX-5. Invitation
 

@@ -17,10 +17,9 @@ This is the first slice: one repository and one protected branch per peerbox, on
 for people already in the network and for newcomers invited with one peerbox link, who join
 the network as ordinary members. It extends the [task contract](task-contract.md),
 the [artifact contract](artifact-contract.md) and the [runtime task contract](runtime-task-contract.md).
-The [Playbox](https://github.com/Epistetechnician/playbox) project's rooms are the reference
-for the experience: member-only refs, bundle verification, fast-forward-only review with a
-rebase request, and its hostile-input cases. Its transport, grant and wire formats are not
-used.
+The experience follows existing host-owned collaboration rooms: member-only refs, bundle
+verification, fast-forward-only review with a rebase request, and refusal of hostile input.
+Peerspan's own identities, policies, transport and work records carry it.
 
 ## Story
 
@@ -87,7 +86,7 @@ the case to measure.
 ### 4. A started run when access is withdrawn
 
 **Recommendation.** (a) "The home host cancels it." The run is the owner's own machine
-executing someone else's code, and Playbox stops it too.
+executing someone else's code, and comparable systems stop it too.
 
 **Not chosen.** (b) "It runs to completion, as runtime tasks do today."
 
