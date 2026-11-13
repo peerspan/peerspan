@@ -613,16 +613,22 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     if let Err(e) = crate::api::blocking(store.clone(), contribution::sweep_orphans).await {
         eprintln!("peerbox contribution refs: {e:?}");
     }
+    let mut swept: Option<std::time::Instant> = None;
     loop {
         if let Err(e) = pass(&store).await {
             eprintln!("peerbox tasks: {e:?}");
         }
-        if let Err(e) = crate::api::blocking(store.clone(), |s| {
-            contribution::sweep(s, crate::clock::now())
-        })
-        .await
-        {
-            eprintln!("peerbox contribution refs: {e:?}");
+        // Retention is checked once a minute; it writes only when a
+        // contribution ref is due.
+        if swept.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+            swept = Some(std::time::Instant::now());
+            if let Err(e) = crate::api::blocking(store.clone(), |s| {
+                contribution::sweep(s, crate::clock::now())
+            })
+            .await
+            {
+                eprintln!("peerbox contribution refs: {e:?}");
+            }
         }
         tokio::select! {
             _ = shutdown.changed() => return,

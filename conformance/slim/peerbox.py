@@ -360,7 +360,7 @@ def _():
 # Submit (peerbox Submit, Peerboxes and contributions).
 
 @case("submit_contribution", "peerbox Submit: stored under the member ref and the contribution ref; the record; "
-                             "CLI submit with the default base")
+                             "CLI submit with the default base", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     head = new_commit("feature", {"feature.txt": "bob's change\n"})
@@ -396,7 +396,7 @@ def _():
     check(status == 403 and member_ref(state["bob_pid"], "big") is None, f"a bundle over the bound: {status} {body}")
 
 
-@case("submit_base_errors", "peerbox Submit step 3: base_unknown, base_not_ancestor; a failed step stores nothing")
+@case("submit_base_errors", "peerbox Submit step 3: base_unknown, base_not_ancestor; a failed step stores nothing", known=None)
 def _():
     main = need("main")[0]
     before = refs(state["repo"])

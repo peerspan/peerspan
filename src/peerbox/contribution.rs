@@ -735,13 +735,17 @@ pub fn sweep(store: &Store, now: DateTime<Utc>) -> Result<(), Error> {
     let git = Git::new(store.state_directory()).map_err(super::coded)?;
     for mut c in due {
         let found = record(&*store.connection()?, &c.peerbox_id)?;
-        if let Some(rec) = found {
-            git.delete_ref(
-                Path::new(&rec.repository),
-                &contribution_ref(&c.peerbox_id, &c.contribution_id),
-                None,
-            )
-            .map_err(super::coded)?;
+        // A ref that cannot be deleted now is tried again on a later sweep.
+        if let Some(rec) = found
+            && git
+                .delete_ref(
+                    Path::new(&rec.repository),
+                    &contribution_ref(&c.peerbox_id, &c.contribution_id),
+                    None,
+                )
+                .is_err()
+        {
+            continue;
         }
         let mut conn = store.connection()?;
         let tx = conn.transaction()?;
