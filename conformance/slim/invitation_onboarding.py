@@ -612,7 +612,7 @@ def refuse_start(h):
     check(records(h) == before, "refused migration changed logical records, version or schema")
 
 
-@suite.case("schema26_additive_migration_reserved_names_corruption_and_future32", "guided onboarding 9 verification 6")
+@suite.case("schema26_additive_migration_reserved_names_corruption_and_future33", "guided onboarding 9 verification 6")
 def _():
     source = host("migration")
     network = create_network(source, "preserved-network", "owner")
@@ -647,7 +647,7 @@ def _():
     migrated = records(legacy)
     check(all(migrated[table] == () for table in CONVERSATION_TABLES + NEWER_TABLES),
           "migration did not add all empty schema28 conversation tables")
-    check(migrated["$version"] == (31,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
+    check(migrated["$version"] == (32,) and migrated[TABLE] == () and migrated["onboarding_join_flows"] == (), "schema25 migration did not add empty schema26/27 tables")
     check(without(migrated, "$schema", "$version", TABLE, "onboarding_join_flows", *CONVERSATION_TABLES, *NEWER_TABLES) == without(old, "$schema", "$version"), "schema26 migration changed prior DEC/return/registry/project/adapter records")
     check(migrated["$schema"] == baseline["$schema"], "additive migration changed older table definitions")
     for kind, ddl in (("table", f"CREATE TABLE {TABLE} (marker TEXT)"),
@@ -684,9 +684,9 @@ def _():
             db.execute(f"DROP TABLE {TABLE}")
             db.execute(f"CREATE TABLE {TABLE} (" + ",".join(definitions) + ")")
         refuse_start(corrupt)
-    future = clone_state(source, "future32")
+    future = clone_state(source, "future33")
     with closing(sqlite3.connect(db_path(future))) as db, db:
-        db.execute("PRAGMA user_version = 32")
+        db.execute("PRAGMA user_version = 33")
     refuse_start(future)
 
 
