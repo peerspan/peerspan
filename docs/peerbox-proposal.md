@@ -1,8 +1,8 @@
 # Peerboxes: sharing a repository for review and checks
 
-Status: **accepted on 2026-11-13.** The owner chose the recommendation of each of the six
+Status: **accepted on 2026-11-13.** The owner chose the recommendation of each of the eight
 [decisions](#decisions), recorded as
-[PBX-1 to PBX-6](decision-log.md#pbx-1-to-pbx-6-peerboxes-2026-11-13). The
+[PBX-1 to PBX-8](decision-log.md#pbx-1-to-pbx-8-peerboxes-2026-11-13). The
 [peerbox contract](peerbox-contract.md) specifies the result. Nothing is implemented yet.
 
 A **peerbox** is a Git repository that one owner's host serves to other people already in the
@@ -13,8 +13,9 @@ rejects it; the contributor sees the decision. The peerbox's host serves its rep
 review queue and runs; it does not become a coordinator or an identity authority for other
 hosts.
 
-This is the first slice: known peers (already admitted to the network), one repository and
-one protected branch per peerbox, one home host. It extends the [task contract](task-contract.md),
+This is the first slice: one repository and one protected branch per peerbox, one home host,
+for people already in the network and for newcomers invited with one peerbox link, who join
+the network as ordinary members. It extends the [task contract](task-contract.md),
 the [artifact contract](artifact-contract.md) and the [runtime task contract](runtime-task-contract.md).
 The [Playbox](https://github.com/Epistetechnician/playbox) project's rooms are the reference
 for the experience: member-only refs, bundle verification, fast-forward-only review with a
@@ -24,7 +25,7 @@ used.
 ## Story
 
 Alice keeps a project on her workstation, which also runs the Peerspan runtime. Bob, in the
-same network, works on his own laptop.
+same network, works on his own laptop. Carol is not in the network yet.
 
 1. Alice creates a peerbox for her repository's `main`. Peerspan shows what a read discloses
    (the branch, its head, the reachable commit count, the authors' names and addresses, the
@@ -36,7 +37,10 @@ same network, works on his own laptop.
    workspace from that commit's tree and runs it in a microVM under her runtime rule.
 5. Alice reviews the contribution, its diff and the run, and accepts it; `main` fast-forwards.
    Bob's agent sees the decision.
-6. Either host restarts at any point and both continue. When Alice withdraws Bob's access, no
+6. Alice runs `peerbox invite` for Carol and sends her the printed code privately. Carol
+   pastes it into `peerbox join`, joins the network through the usual approval, and her
+   agent can fetch the peerbox as soon as she is admitted.
+7. Either host restarts at any point and both continue. When Alice withdraws Bob's access, no
    new fetch, submission or run is accepted from him, and a run of his that has started is
    cancelled.
 
@@ -47,7 +51,7 @@ contributor's own refs; runs that execute exactly the submitted commit under bot
 and the runtime authorization; a durable review decision visible to the contributor;
 recovery across restarts on both sides; withdrawal that stops new work.
 
-Not in this slice: admitting strangers through a link; several protected branches or path
+Not in this slice: a membership class other than full member for invited people (PBX-7); several protected branches or path
 filtering in one peerbox; merging (accept only fast-forwards); replicas or failover of the
 home host; PeerFS-backed peerboxes; signed run receipts or attestation; agent tools (a later
 amendment, after the CLI); the Go host (DEC-OWN5).
@@ -105,13 +109,36 @@ acceptance.
 
 **Not chosen.** (b) "Accept a source-built runtime for acceptance and record it."
 
+### 7. Membership of a person invited with a peerbox link
+
+A person outside the network can be given a peerbox through one link.
+
+**Recommendation.** (a) "Full member": "The link is a network invite carrying the peerbox. On
+join, an admin's normal admission runs, then the peerbox rule applies at once." It reuses
+everything, and membership grants no access by itself.
+
+**Not chosen.** (b) "Guest member": "Admitted, but marked guest in the signed admission:
+hidden from the directory, shareable only through peerbox rules, expiring with the peerbox,
+and promotable to a full member later." It changes the signed membership model. (c) "Not a
+member": "A new peerbox-scoped credential: bob's host is trusted only by the home host, only
+for that peerbox." It needs a new admission and transport path outside membership.
+
+### 8. Who can create a peerbox invite
+
+**Recommendation.** (a) "Any peerbox owner can create the link; a network admin still approves
+the admission, as for any join." It keeps "admin is not owner" intact.
+
+**Not chosen.** (b) "Only a network administrator can create a peerbox invite." (c) "The
+peerbox owner's link admits the person with no admin step," which "changes who can add people
+to a network."
+
 ## Plan
 
 1. This proposal, the contract and the decision-log entries.
 2. The `peerbox` and `peerbox_runs` suites, written from the contract by the separate
    conformance author, landing as strict `XFAIL` cases.
 3. Slice A: peerbox records, the rule, `list` and `fetch`, with the CLI.
-4. Slice B: `submit`, member refs, `status`, review, withdrawal and restarts.
+4. Slice B: `submit`, member refs, `status`, review, withdrawal, peerbox invites and restarts.
 5. Slice C: `run` from a commit's tree.
 6. Agent tools for Claude Code, Codex and OpenCode, as a contract amendment.
 7. A first `peerspan/runtime` release (PBX-6).

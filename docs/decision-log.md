@@ -15,7 +15,7 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
-  - [PBX-1 to PBX-6: peerboxes](#pbx-1-to-pbx-6-peerboxes-2026-11-13) (2026-11-13)
+  - [PBX-1 to PBX-8: peerboxes](#pbx-1-to-pbx-8-peerboxes-2026-11-13) (2026-11-13)
   - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
   - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
   - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
@@ -70,16 +70,16 @@ Contents:
 
 ## Full entries
 
-### PBX-1 to PBX-6: peerboxes (2026-11-13)
+### PBX-1 to PBX-8: peerboxes (2026-11-13)
 
 - **Date:** 2026-11-13.
 - **Area:** peerboxes: a Git repository one owner's host serves to known peers for fetching, contributing and running checks, with owner review.
-- **Source:** [peerbox-proposal.md, Decisions](peerbox-proposal.md#decisions), decisions 1 to 6.
+- **Source:** [peerbox-proposal.md, Decisions](peerbox-proposal.md#decisions), decisions 1 to 8.
 - **Recorded in:** this log, the proposal and the contract (this PR).
 - **Contract section:** [peerbox-contract.md](peerbox-contract.md).
 - **Implementing PRs:** none yet.
 
-The owner chose the recommendation of each: "go with the recommendations on all six". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+The owner chose the recommendation of each: PBX-1 to PBX-6 with "go with the recommendations on all six"; PBX-7 and PBX-8 later the same day, after asking to "include a one-link flow for new participants that aren't in the existing peerspan network". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
 
 #### PBX-1. Where the contract lives
 
@@ -116,6 +116,18 @@ The owner chose the recommendation of each: "go with the recommendations on all 
 - **Options:** (a) "Publish a first runtime release before" the two-owner product acceptance. (b) "Accept a source-built runtime for acceptance and record it."
 - **Chosen:** (a).
 - **Reason given:** reasons not recorded beyond the proposal's statement that "`peerspan/runtime` has no release."
+
+#### PBX-7. Membership of a person invited with a peerbox link
+
+- **Options:** (a) "Full member": "The link is a network invite carrying the peerbox. On join, an admin's normal admission runs, then the peerbox rule applies at once." (b) "Guest member": "Admitted, but marked guest in the signed admission: hidden from the directory, shareable only through peerbox rules, expiring with the peerbox, and promotable to a full member later." (c) "Not a member": "A new peerbox-scoped credential: bob's host is trusted only by the home host, only for that peerbox."
+- **Chosen:** (a).
+- **Reason given:** "It reuses everything, and membership grants no access by itself."
+
+#### PBX-8. Who can create a peerbox invite
+
+- **Options:** (a) "Any peerbox owner can create the link; a network admin still approves the admission, as for any join." (b) "Only a network administrator can create a peerbox invite." (c) "The peerbox owner's link admits the person with no admin step."
+- **Chosen:** (a).
+- **Reason given:** "It keeps "admin is not owner" intact."
 
 ### RUN-14 and RUN-15: results without poll backoff, and Claude's startup (2026-11-12)
 
