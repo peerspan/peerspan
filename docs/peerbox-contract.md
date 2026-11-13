@@ -552,6 +552,7 @@ neither give nor need it.
 | `op` | `create`, `share` or `invite`. |
 | `args` | The operation's arguments with every default filled in (below), so the record states the whole change. |
 | `review` | Facts the host computed itself when the proposal was made (below). Never text the agent supplied, other than the fields of `args` it repeats. |
+| `request_sha256` | SHA-256 of the request body exactly as the agent sent it, `{"proposal_id", "op", "args"}` with `args` as given (before any default is filled in or any path resolved), in the same encoding as `proposal_sha256`, as lowercase hex. Used only for Repeat (step 2); not shown in the view. |
 | `proposal_sha256` | SHA-256 of `{"op", "args", "review"}` in the call view's result-text encoding (keys sorted by UTF-8 bytes, no whitespace), as lowercase hex. |
 | `origin` | `{adapter_id, agent_id, session_id}` of the proposing session. |
 | `state` | `pending`, `approved`, `executed`, `failed`, `denied`, `expired` or `cancelled`. |
@@ -590,7 +591,8 @@ the channel is verified, except `proposal-updates/next`.
 | `POST /adapter/v1/peerbox/proposal-updates/next` with `{}`, `POST /adapter/v1/peerbox/proposal-updates/{id}/forwarded` with `{}` | As `call-updates/next` and its `forwarded`, for proposal-update notifications (Telling the agent): `next` returns `{delivery, proposal, redelivered}`, where `delivery` is the notification record and `proposal` the proposal view, or `null`. |
 
 **Proposing.** `POST /adapter/v1/peerbox/proposals` takes these steps, in order; a refusal
-persists nothing:
+persists nothing. A `proposal_id` already used on this host goes straight to Repeat (step 2),
+before any other step, so a retry never depends on what has changed since:
 1. **Shape.** `proposal_id`, `op` and `args` as above, `args` with exactly that operation's
    keys, optional ones absent or null; otherwise 400 `{code: "invalid", field}`. `field` is
    `proposal_id`, `op` or `args` for the request's own keys (`args` when it is not an object);
@@ -600,9 +602,11 @@ persists nothing:
    and a person ID, a repeated principal, and more than 64 principals are each 400 `invalid`
    with `field: "principals"` (PBX-18). Then the host normalizes `args` (above).
 2. **Repeat.** A `proposal_id` already used on this host returns the existing view, whatever its
-   state, when it was made by this agent with the same `op` and with `args`, normalized as in
-   step 1, equal to the record's; otherwise 409 `{code: "conflict"}`. Neither counts against the
-   limits.
+   state, when it was made by this agent and the request's `request_sha256`, computed from the
+   body as received, equals the record's; otherwise 409 `{code: "conflict"}`. Nothing is
+   validated, normalized or looked up again, so a default that would now resolve differently
+   (the host joined a second network) or a repository symlink retargeted since does not turn an
+   identical retry into a refusal. Neither outcome counts against the limits.
 3. **Limits.** At most 5 proposals `pending` per credential and 20 per host: 429
    `{code: "limit", error: "too many proposals are waiting for approval", limit:
    "max_pending_proposals"}`. At most 20 proposals made through one credential in the
@@ -880,7 +884,9 @@ with the invite's `psb1-` code reaching the agent and joining as `peerbox join` 
 expiry (test clock) and cancel, each changing nothing; `approve` without a terminal, with a
 wrong digest, twice, and after expiry; `review_changed` for a branch moved, a person
 removed, and a recipient's access changed (granted, revoked or altered) before approval, with
-the newer policy left in place; `person_key_needed` leaving the proposal pending; repeats, conflicts,
+the newer policy left in place; `person_key_needed` leaving the proposal pending; repeats (an identical retry of a `create`
+without `network_id` still returning the proposal after the host joins a second network),
+conflicts,
 `duplicate` and the pending and hourly limits, the pending limit answering when both apply;
 `unknown_principal`, and `network` and 65 principals refused as `invalid` naming
 `principals`; principals given out of order stored sorted;
