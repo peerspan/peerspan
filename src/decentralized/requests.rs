@@ -256,7 +256,7 @@ impl Pending {
             let d = descriptor.as_ref().ok_or_else(|| Error::new("invalid"))?;
             super::catalog::Catalog::read(d, &b64(&r.catalog_base64, MAX_CATALOG)?)?;
         }
-        check(r.carrier_endpoints.len() <= 8)?;
+        check(r.carrier_endpoints.len() <= bootstrap::MAX_CARRIER_ENDPOINTS)?;
         let mut prior = None;
         for value in &r.carrier_endpoints {
             let o = object(value)?;
@@ -907,8 +907,8 @@ pub(crate) fn create_in(store: &Store, tx: &Connection, input: &Obj) -> Result<(
         )
     });
     carrier_endpoints.dedup();
-    if carrier_endpoints.len() > 8 {
-        return Err(Error::quota("more than 8 carrier endpoints"));
+    if carrier_endpoints.len() > bootstrap::MAX_CARRIER_ENDPOINTS {
+        return Err(Error::quota("more than 64 carrier endpoints"));
     }
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(|_| Error::new("internal"))?;
