@@ -45,9 +45,13 @@ pub(super) fn open(path: &str, retained: bool, op: &Operation) -> Result<Pinned,
     };
     syntax(path)?;
     let owner = uid();
+    // Ancestors are opened with O_PATH: walking through a directory needs only
+    // execute permission, so a private space beneath a root-owned 0711
+    // ancestor is accepted. fstat and openat work on these descriptors; only
+    // the final directory, whose emptiness is read, is opened for reading.
     let mut current = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open("/")
         .map_err(|_| conflict())?;
     let root = current.metadata().map_err(|_| conflict())?;
@@ -60,13 +64,18 @@ pub(super) fn open(path: &str, retained: bool, op: &Operation) -> Result<Pinned,
     for (index, part) in parts.iter().enumerate() {
         op.check()?;
         let component = CString::new(*part).map_err(|_| invalid())?;
+        let access = if index == parts.len() - 1 {
+            libc::O_RDONLY
+        } else {
+            libc::O_PATH
+        };
         // SAFETY: current is an owned live directory descriptor, component is
         // NUL-terminated, and no mode argument is needed without O_CREAT.
         let fd = unsafe {
             libc::openat(
                 current.as_raw_fd(),
                 component.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                access | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
             )
         };
         if fd < 0 {
