@@ -665,9 +665,10 @@ checked before anything changes: the proposal stays `pending` and the CLI says t
 4. The question, exactly: `Create this peerbox? [y/N] `, `Sign a policy giving these people this access? [y/N] `, or
    `Create this invite? Your agent will receive the code and choose who gets it. [y/N] `.
 
-Values the agent supplied (`repository`, `branch`, `title`, `label`) and labels from the
-membership map are written in double quotes with the escapes of
-[Showing untrusted text](capabilities-contract.md#approving); IDs are printed whole.
+Every piece of text the host did not choose itself is written in double quotes with the escapes of
+[Showing untrusted text](capabilities-contract.md#approving): values the agent supplied
+(`repository`, `branch`, `title`, `label`), labels from the membership map, and text read from
+the repository, which is each identity's `name` and `email` in the `create` disclosure. IDs, hashes and numbers are printed whole.
 
 **Telling the person.** `GET /v1/status` gains `peerbox_proposals_pending`, the number of
 `pending` proposals, and the attention item `peerbox_proposal_pending`, numbered after the
@@ -863,7 +864,10 @@ the newer policy left in place; `person_key_needed` leaving the proposal pending
 `duplicate` and the pending and hourly limits; `unknown_principal` and `network` refused;
 a restart while `approved` giving `interrupted` with nothing stored; one
 `peerbox_proposal_update` event per final state and none for a cancel; `pending_work`; the
-attention item; no route budget consumed; and no adapter or peer route that approves.
+attention item; agent-supplied values, membership labels and a repository author's and committer's
+name and email holding control characters and terminal escapes, each shown quoted and escaped
+by `approvals show` and `approve`; no route budget consumed; and no adapter or peer route that
+approves.
 
 `peerbox_gate` (second tier) covers, with the fake runtime: a candidate writing outputs and a
 checker echoing a `PEERBOX-GATE` line; promotion with enough gain and the frontier moved,
