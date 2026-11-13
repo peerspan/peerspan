@@ -53,8 +53,14 @@ A **contribution** is a commit a peer submitted, with this record:
 | `runs` | The peerbox runs on this contribution's head, oldest first: `{task_id, state, exit_code, created_at}`. Every result that returns a record (`submit`, `status`, `withdraw`) keeps the latest 8 and adds `runs_total`, so one record always fits the task output. |
 
 The home host stores each contribution's head under
-`refs/peerbox/PEERBOX_ID/members/PERSON_ID/BRANCH`, its **member ref**. Peer requests never
-write the protected branch or another person's member ref.
+`refs/peerbox/PEERBOX_ID/members/PERSON_ID/BRANCH`, its **member ref**, which always names
+the latest submission on that branch, and also under
+`refs/peerbox/PEERBOX_ID/contributions/CONTRIBUTION_ID`, its **contribution ref**, which keeps
+that exact commit reachable whatever later happens to the member ref. A contribution ref is
+kept while the contribution is `pending` or `accepted`, and for 30 days after it becomes
+`rejected` or `superseded`; then the home host deletes it, the record stays, and the commit
+can no longer be run. Peer requests never write the protected branch or any `refs/peerbox/`
+ref directly.
 
 ## Requests
 
@@ -260,20 +266,23 @@ contribution replaces it and marks the earlier one `superseded`.
 
 ### Status and withdraw
 
-`status` returns the sender's own contributions to that peerbox, newest first, or the one
-named; another person's contribution is 404 `unknown`. The final `output` must fit the task
+`status` returns the sender's own contributions to that peerbox, or the one named, ordered
+newest first by `(submitted_at, contribution_id)`, both descending, a total order; another person's contribution is 404 `unknown`. The final `output` must fit the task
 contract's 65,536 bytes, so the home host returns as many whole records as fit, at most 100,
 with each record's `runs` cut to its latest 8 and `runs_total` added; `next` is the ID of the
 last record returned when older ones remain, else null, and a request with `before` returns
-the contributions submitted before that one. One record always fits: its variable fields
+the contributions after that one in the same order, so contributions sharing a
+`submitted_at` are neither skipped nor repeated. One record always fits: its variable fields
 are bounded (a 4,096-byte reason, 8 runs). `withdraw` marks the
-sender's pending contribution `superseded` and deletes its member ref; a decided one is 409
+sender's pending contribution `superseded` and deletes its member ref, keeping its
+contribution ref as above; a decided one is 409
 `decided`.
 
 ### Runs
 
 `commit` must be the protected head or the head of a contribution the sender may read
-(their own, or one accepted): otherwise the task fails with `commit_unknown`. The home host
+(their own, or one accepted) whose contribution ref still exists: otherwise the task fails
+with `commit_unknown`. The home host
 builds the workspace archive itself from that commit's tree, never from bytes a peer sent,
 and never with `git archive`, whose `export-ignore` and `export-subst` attributes would let
 a commit's own `.gitattributes` drop or rewrite tracked files. It reads the tree's entries
@@ -311,7 +320,7 @@ decision durably; the contributor reads it with `status`.
 | `peerbox invite PEERBOX LABEL [--action ...] [--max-bundle-bytes N] [--max-pending N] [--expires-in D \| --expires-at T]` | Creates a network invite and a pending share and prints the `psb1-` code (Invitations for new participants). |
 | `peerbox invite --list`, `peerbox invite --cancel INVITATION_ID` | Shows or deletes pending shares. |
 | `peerbox share --pending INVITATION_ID [--person-key PATH]` | Signs the rule of a pending share whose person was admitted, when automatic signing needed the owner. |
-| `peerbox delete PEERBOX [--person-key PATH]` | Removes its rules, the record and its member refs; contribution records stay. |
+| `peerbox delete PEERBOX [--person-key PATH]` | Removes its rules, the record, and its member and contribution refs; contribution records stay. |
 | `peerbox show [PEERBOX] [--json]` | Records, rules and pending counts. |
 | `peerbox review [PEERBOX] [--json]` | Pending contributions with contributor, base, head, `git diff --stat` and runs. |
 | `peerbox review CONTRIBUTION (--accept \| --reject) [--reason TEXT]` | Records the decision (Review); exits 1 with the code on a 409. |
@@ -363,11 +372,12 @@ budget (DEC-OWN14), and `peerbox_runs`, with the fake runtime, in the second tie
 - submit: a valid contribution stored under the member ref; `pending_limit`, and a replacement at the same member ref accepted at the limit; branch names
   refused; `base_unknown` and `base_not_ancestor`; hostile bundles (a mutated byte, a ref
   outside `refs/heads/`, an option-like ref name, a tree with `.git` paths or hooks) storing
-  nothing; superseding; a peer unable to write the protected branch or another member's ref;
+  nothing; superseding, with a superseded contribution still runnable through its contribution ref
+  until 30 days pass (test clock) and `commit_unknown` after; a peer unable to write the protected branch or another member's ref;
 - review: accept fast-forwarding, `not_fast_forward`, `head_moved`, `dirty_worktree`, reject
   with a reason, and the decision visible through `status`;
-- `status` paging: more contributions than fit in one output, read completely with `before`
-  and `next`, each record's `runs` cut to 8 with `runs_total`;
+- `status` paging: more contributions than fit in one output, several with the same
+  `submitted_at` (test clock), read completely and without repeats with `before` and `next`, each record's `runs` cut to 8 with `runs_total`;
 - withdrawal: new fetches and submissions refused; `status` still answering the former
   contributor with only their own contributions, and 404 `unknown` for a former reader who
   never submitted;
