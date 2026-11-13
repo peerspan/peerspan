@@ -524,7 +524,7 @@ def _():
 
 
 @case("status_paging", "peerbox Status: newest first by (submitted_at, contribution_id), whole records within "
-                       "65,536 bytes, at most 100, before and next with equal submitted_at (test clock); CLI status")
+                       "65,536 bytes, at most 100, before and next with equal submitted_at (test clock); CLI status", known=None)
 def _():
     a, b, main = need("a", "b", "main")
     share(pbx(), state["bob_p"], actions=("read", "submit"), extra=("--max-pending", "20", "--max-bundle-bytes",
