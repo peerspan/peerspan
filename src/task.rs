@@ -154,6 +154,12 @@ impl TaskRequest {
     pub fn is_runtime(&self) -> bool {
         self.executor.as_deref() == Some(crate::runtime_task::EXECUTOR)
     }
+    /// Whether this is a peerbox task's `run`, which the host's runtime
+    /// runs (peerbox contract, Runs).
+    pub fn is_peerbox_run(&self) -> bool {
+        self.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+            && self.peerbox.as_ref().is_some_and(|p| p.op == "run")
+    }
     pub(crate) fn authz(&self) -> Authz<'_> {
         Authz {
             action: TASK_ACTION,
@@ -725,7 +731,9 @@ impl Store {
         let tx = connection.transaction()?;
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
-        let run = request.is_runtime() || crate::runtime_task::is_agent_task(&tx, sender, id)?;
+        let run = request.is_runtime()
+            || request.is_peerbox_run()
+            || crate::runtime_task::is_agent_task(&tx, sender, id)?;
         let mut children = Vec::new();
         if !status.cancel_requested && !is_final(&status.state) {
             record(
@@ -741,7 +749,9 @@ impl Store {
             if run {
                 crate::runtime_task::cancel_requested(&tx, sender, &mut status)?;
             }
-            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR) {
+            if request.executor.as_deref() == Some(crate::peerbox_task::EXECUTOR)
+                && !request.is_peerbox_run()
+            {
                 crate::peerbox_task::cancel_requested(&tx, sender, &mut status)?;
             }
         }
