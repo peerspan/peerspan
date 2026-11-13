@@ -70,14 +70,17 @@ def init_repo(path, branch="main"):
 
 
 def commit_files(repo, files, message):
-    """Write FILES {path: text or None (delete)} in REPO's worktree and commit them; returns the commit ID."""
+    """Write FILES {path: text, bytes or None (delete)} in REPO's worktree and commit them; returns the commit ID."""
     for name, text in files.items():
         target = Path(repo) / name
         if text is None:
             target.unlink(missing_ok=True)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
+        if isinstance(text, bytes):
+            target.write_bytes(text)
+        else:
+            target.write_text(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "--allow-empty", "-m", message)
     return git(repo, "rev-parse", "HEAD")

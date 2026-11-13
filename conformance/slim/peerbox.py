@@ -131,7 +131,8 @@ def _():
     for host in state["learners"]:
         learn(host, state["alice_public"], policy_version(a, state["alice_public"]))
     repo = state["repo"] = init_repo(suite.work / "alice-repo")
-    commit_files(repo, {"README": "project\n"}, "first")
+    # 1,000 incompressible bytes keep every bundle of main over carol's 400-byte read bound (fetch_too_large).
+    commit_files(repo, {"README": "project\n", "data.bin": os.urandom(1000)}, "first")
     state["main_parent"] = commit_files(repo, {"lib.txt": "one\n"}, "second")
     git(repo, "checkout", "-q", "-b", "secret")
     git(repo, "commit", "-q", "--allow-empty", "--author", "Sly Secret <sly@example.test>", "-m", "secret")
@@ -198,7 +199,10 @@ def _():
     good = pbx_rules()
     check(good, "no peerbox rules to amend")
     bob = rules_for(pbx(), state["bob_p"])[0]
-    others = [r for r in good if r is not bob]
+    check(good.count(bob) == 1, f"bob's rule {bob} is not one rule of {good}")
+    others = [r for r in good if r != bob]  # by value: each variant below then has exactly one defect
+    check(not [r for r in others if r["peerbox"] == pbx() and state["bob_p"] in r["principals"]],
+          "fixture: the rules besides bob's still name bob on this peerbox")
     variants = {
         "empty peerbox_rules": [],
         "an unknown key": others + [{**bob, "max_runs": 1}],
@@ -356,7 +360,8 @@ def _():
 
 @case("fetch_too_large", "peerbox Fetch: a bundle over max_bundle_bytes fails too_large with its size (PBX-3)")
 def _():
-    c, = need("c")
+    c, full = need("c", "full_size")
+    check(full > 400, f"fixture: main's bundle has {full} bytes, not over carol's bound of 400")
     value = op_fails("too_large", {"op": "fetch", "peerbox_id": pbx()}, sender=c)
     check(str(need("full_size")[0]) in value["message"], f"the message does not give the size: {value}")
 
@@ -392,9 +397,9 @@ def _():
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "c1",
                            "bundle": small["sha256"]}, sender=c, artifacts=[small])
     check(status == 403, f"carol, read only, submitting: {status} {body}")
-    big = new_commit("big", {"big.bin": os.urandom(48000).hex()}, start=main)
+    big = new_commit("big", {"big.bin": os.urandom(96000)}, start=main)  # incompressible: the pack keeps it whole
     data = bundle(need("bob_clone")[0], suite.work / "big.bundle", big, exclude=[main], ref="big")
-    check(len(data) > 65536, f"fixture: the big bundle has {len(data)} bytes")
+    check(len(data) > 65536, f"fixture: the big bundle has {len(data)} bytes, not over bob's bound of 65536")
     entry = upload_bundle(b, data)
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "big",
                            "bundle": entry["sha256"]}, artifacts=[entry])
@@ -640,8 +645,9 @@ def _():
     check(c.cli("--json", "peerbox", "fetch", "--peer", a.id, pbx(), "--repository", clone, timeout=90).ok,
           "carol's CLI fetch")
     git(clone, "worktree", "add", "-q", wt, "-b", "feature", f"refs/peerbox/{pbx()}/main")
-    big = new_commit("feature", {"big.txt": os.urandom(3000).hex()}, wt=wt)
+    big = new_commit("feature", {"big.bin": os.urandom(6000)}, wt=wt)  # incompressible random bytes
     data = bundle(clone, suite.work / "carol-big.bundle", big, exclude=[main], ref="feature")
+    check(len(data) > 2000, f"fixture: carol's big bundle has {len(data)} bytes, not over her bound of 2000")
     entry = upload_bundle(c, data)
     status, body = raw_op({"op": "submit", "peerbox_id": pbx(), "base": main, "branch": "feature",
                            "bundle": entry["sha256"]}, sender=c, artifacts=[entry])
