@@ -11,10 +11,11 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync, `MBX` opaque mailboxes.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking, `RUN` runtime tasks, `INST` install, `MSG` peer messaging, `STAT` status, `OUT` CLI output, `DIR` agent directory, `SYNC` network sync, `MBX` opaque mailboxes, `PBX` peerboxes.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [PBX-1 to PBX-6: peerboxes](#pbx-1-to-pbx-6-peerboxes-2026-11-13) (2026-11-13)
   - [RUN-14 and RUN-15: results without poll backoff, and Claude's startup](#run-14-and-run-15-results-without-poll-backoff-and-claudes-startup-2026-11-12) (2026-11-12)
   - [RUN-12 and RUN-13: Claude as the second harness](#run-12-and-run-13-claude-as-the-second-harness-2026-11-12) (2026-11-12)
   - [RUN-8 to RUN-11: runtime agents](#run-8-to-run-11-runtime-agents-2026-11-12) (2026-11-12)
@@ -68,6 +69,53 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### PBX-1 to PBX-6: peerboxes (2026-11-13)
+
+- **Date:** 2026-11-13.
+- **Area:** peerboxes: a Git repository one owner's host serves to known peers for fetching, contributing and running checks, with owner review.
+- **Source:** [peerbox-proposal.md, Decisions](peerbox-proposal.md#decisions), decisions 1 to 6.
+- **Recorded in:** this log, the proposal and the contract (this PR).
+- **Contract section:** [peerbox-contract.md](peerbox-contract.md).
+- **Implementing PRs:** none yet.
+
+The owner chose the recommendation of each: "go with the recommendations on all six". The options below are the recommendation and the alternatives the proposal lists under "Not chosen".
+
+#### PBX-1. Where the contract lives
+
+- **Options:** (a) "In peerspan/peerspan `docs/` once agreed, like every other host contract; the public repository then names peerboxes before launch." (b) "Here until the feature is demonstrated, then moved" (in the internal design repository).
+- **Chosen:** (a).
+- **Reason given:** "Suites and Codex review need the contract next to the code."
+
+#### PBX-2. How peer operations travel
+
+- **Options:** (a) "Peerbox tasks (`executor: "peerbox"`), inheriting task durability, idempotency, artifacts and restart." (b) "New peer routes for each operation."
+- **Chosen:** (a).
+- **Reason given:** against (b): "It would re-specify everything tasks already guarantee."
+
+#### PBX-3. Repositories larger than one artifact
+
+- **Options:** (a) "Fail with `too_large` and rely on `have` for later fetches; a first fetch of a large history is refused." (b) "Raise the per-file limit for peerbox bundles." (c) "Split bundles."
+- **Chosen:** (a).
+- **Reason given:** "For the first slice; this repository's own history is the case to measure."
+
+#### PBX-4. A started run when access is withdrawn
+
+- **Options:** (a) "The home host cancels it." (b) "It runs to completion, as runtime tasks do today."
+- **Chosen:** (a).
+- **Reason given:** "The run is the owner's own machine executing someone else's code, and Playbox stops it too."
+
+#### PBX-5. Invitation
+
+- **Options:** (a) "The signed rule is the invitation; the peer sees the peerbox in `list` and fetches when they choose." (b) "A separate invitation the peer accepts first."
+- **Chosen:** (a).
+- **Reason given:** "For known peers." Against (b): "It belongs with stranger admission, which is out of this slice."
+
+#### PBX-6. Runtime release
+
+- **Options:** (a) "Publish a first runtime release before" the two-owner product acceptance. (b) "Accept a source-built runtime for acceptance and record it."
+- **Chosen:** (a).
+- **Reason given:** reasons not recorded beyond the proposal's statement that "`peerspan/runtime` has no release."
 
 ### RUN-14 and RUN-15: results without poll backoff, and Claude's startup (2026-11-12)
 
